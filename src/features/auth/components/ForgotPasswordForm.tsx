@@ -27,14 +27,16 @@ export function ForgotPasswordForm() {
 
   if (success) {
     return (
-      <div className="rounded-lg bg-success-50 border border-success-500 p-6 text-center">
+      <div className="rounded-lg border border-success-500 bg-success-50 p-6 text-center">
         <div className="mb-3">
-          <svg className="w-12 h-12 mx-auto text-success-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="mx-auto h-12 w-12 text-success-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
         </div>
-        <p className="text-success-700 font-medium">Revisa tu correo electrónico</p>
-        <p className="text-success-600 text-sm mt-1">Te hemos enviado un enlace para restablecer tu contraseña.</p>
+        <p className="font-medium text-success-700">Revisa tu correo electronico</p>
+        <p className="mt-1 text-sm text-success-600">
+          Te enviamos un enlace para restablecer tu contrasena.
+        </p>
       </div>
     )
   }
@@ -45,24 +47,20 @@ export function ForgotPasswordForm() {
         id="email"
         name="email"
         type="email"
-        label="Correo electrónico"
-        placeholder="tu@email.com"
-        hint="Te enviaremos un enlace para restablecer tu contraseña"
+        label="Correo corporativo"
+        placeholder="nombre@empresa.com"
+        hint="Te enviaremos un enlace para restablecer tu contrasena"
         required
       />
 
       {error && (
-        <div className="rounded-lg bg-error-50 border border-error-500 p-3">
+        <div className="rounded-lg border border-error-500 bg-error-50 p-3">
           <p className="text-sm text-error-700">{error}</p>
         </div>
       )}
 
-      <Button
-        type="submit"
-        isLoading={loading}
-        className="w-full"
-      >
-        Enviar Enlace
+      <Button type="submit" isLoading={loading} className="w-full">
+        Enviar enlace
       </Button>
     </form>
   )

@@ -27,25 +27,21 @@ export function UpdatePasswordForm() {
         id="password"
         name="password"
         type="password"
-        label="Nueva contraseña"
-        placeholder="Mínimo 6 caracteres"
-        hint="Elige una contraseña segura"
+        label="Nueva contrasena"
+        placeholder="Minimo 8 caracteres"
+        hint="Elige una contrasena segura"
         required
-        minLength={6}
+        minLength={8}
       />
 
       {error && (
-        <div className="rounded-lg bg-error-50 border border-error-500 p-3">
+        <div className="rounded-lg border border-error-500 bg-error-50 p-3">
           <p className="text-sm text-error-700">{error}</p>
         </div>
       )}
 
-      <Button
-        type="submit"
-        isLoading={loading}
-        className="w-full"
-      >
-        Actualizar Contraseña
+      <Button type="submit" isLoading={loading} className="w-full">
+        Actualizar contrasena
       </Button>
     </form>
   )

@@ -1,5 +1,4 @@
 import { Sidebar } from '@/components/layout/sidebar'
-import { ChatWidget } from '@/features/chatbot/components/ChatWidget'
 
 export default function MainLayout({
   children,
@@ -7,12 +6,9 @@ export default function MainLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-slate-50">
       <Sidebar />
-      <main className="ml-64">
-        {children}
-      </main>
-      <ChatWidget />
+      <main className="min-h-screen lg:ml-72">{children}</main>
     </div>
   )
 }

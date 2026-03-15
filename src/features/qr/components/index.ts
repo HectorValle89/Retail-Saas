@@ -1,1 +1,0 @@
-export { LawyerQRSection } from './LawyerQRSection'

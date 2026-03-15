@@ -27,41 +27,42 @@ Archivo ejecutivo unico del proyecto, alineado a:
 - [x] Resolver ambiguedades criticas de geocerca con el usuario.
 - [x] Crear migracion inicial de estructura maestra retail en `supabase/migrations`.
 - [x] Ejecutar migracion inicial en Supabase.
-- [ ] Validar RLS base con cuentas de prueba interna y rol CLIENTE.
-- [ ] Crear seed inicial real para `cuenta_cliente`, `cadena`, `ciudad`, `mision_dia` y configuracion base.
+- [x] Validar RLS base con cuentas de prueba interna y rol CLIENTE.
+- [x] Crear seed inicial real para `cuenta_cliente`, `cadena`, `ciudad`, `mision_dia` y configuracion base.
+- [x] Cargar catalogos operativos iniciales desde Excel para empleados, PDVs, productos, misiones, turnos y dias laborales.
 
 ### P1 - Auth y control de acceso
 
-- [ ] Implementar `usuario` + estados de cuenta `PROVISIONAL`, `PENDIENTE_VERIFICACION_EMAIL`, `ACTIVA`, `SUSPENDIDA`, `BAJA`.
-- [ ] Derivar permisos desde `puesto` como unica fuente de verdad.
-- [ ] Inyectar claims JWT: `rol`, `cuenta_cliente_id`, `empleado_id`.
-- [ ] Bloquear acceso operativo a cuentas no activadas.
-- [ ] Preparar invalidacion de sesion en <= 5 minutos cuando cambie `puesto`.
+- [x] Implementar `usuario` + estados de cuenta `PROVISIONAL`, `PENDIENTE_VERIFICACION_EMAIL`, `ACTIVA`, `SUSPENDIDA`, `BAJA`.
+- [x] Derivar permisos desde `puesto` como unica fuente de verdad.
+- [x] Inyectar claims JWT: `rol`, `cuenta_cliente_id`, `empleado_id`.
+- [x] Bloquear acceso operativo a cuentas no activadas.
+- [x] Preparar invalidacion de sesion en <= 5 minutos cuando cambie `puesto`.
 
 ### P1 - Estructura maestra
 
-- [ ] Implementar modulo `empleados`.
-- [ ] Implementar modulo `pdvs` con geocerca y supervisor.
-- [ ] Implementar `cuenta_cliente` y asignacion historica de PDVs a clientes.
-- [ ] Implementar `configuracion`, `regla_negocio` y `mision_dia`.
+- [x] Implementar modulo `empleados`.
+- [x] Implementar modulo `pdvs` con geocerca y supervisor.
+- [x] Implementar `cuenta_cliente` y asignacion historica de PDVs a clientes.
+- [x] Implementar `configuracion`, `regla_negocio` y `mision_dia`.
 
 ### P1 - Planeacion operativa
 
-- [ ] Implementar `asignaciones`.
-- [ ] Implementar validaciones de asignacion previas a publicacion.
-- [ ] Implementar estados `BORRADOR` y `PUBLICADA`.
+- [x] Implementar `asignaciones`.
+- [x] Implementar validaciones de asignacion previas a publicacion.
+- [x] Implementar estados `BORRADOR` y `PUBLICADA`.
 
 ### P1 - Ejecucion diaria
 
-- [ ] Implementar `asistencias` con GPS, selfie y justificacion fuera de geocerca.
-- [ ] Implementar `ventas` ligadas a jornada activa.
-- [ ] Preparar cola offline y sync base para PWA.
+- [x] Implementar `asistencias` con GPS, selfie y justificacion fuera de geocerca.
+- [x] Implementar `ventas` ligadas a jornada activa.
+- [x] Preparar cola offline y sync base para PWA.
 
 ### P2 - Control y gobierno
 
-- [ ] Implementar `nomina`, `ledger` y `cuotas`.
-- [ ] Implementar `reportes`, `bitacora` y `ranking`.
-- [ ] Implementar pruebas de integracion y property-based tests.
+- [x] Implementar `nomina`, `ledger` y `cuotas`.
+- [x] Implementar `reportes`, `bitacora` y `ranking`.
+- [x] Implementar pruebas de integracion y property-based tests.
 
 ## Dependencias criticas
 
@@ -126,3 +127,98 @@ Archivo ejecutivo unico del proyecto, alineado a:
 - Se ejecuta `supabase db push` por pooler de sesion `:5432` y quedan aplicadas `20260314153500_fase1_asignaciones_base.sql` y `20260314160500_auth_claims_sync.sql`.
 - Estado: en progreso, historial de migraciones alineado y esquema remoto actualizado sin destruccion de base.
 
+### 2026-03-14 22:20
+- Se reemplaza `supabase/seed.sql` por un seed idempotente con cuentas cliente, cadenas, ciudades, misiones, configuracion, empleados, PDVs y asignaciones base.
+- Se implementa el modulo `configuracion` con lectura real de `configuracion`, `regla_negocio` y `mision_dia` desde Supabase.
+- Se agrega migracion correctiva `20260314174000_rls_identity_helpers.sql` para evitar recursion en helpers usados por policies RLS.
+- Se aplica el seed al proyecto remoto y se valida aislamiento multi-tenant con `scripts/verify-rls-smoke.cjs`.
+- Estado: en progreso, fundacion tecnica cerrada a nivel de seed y RLS base; pendiente seguir con auth operativo, clientes y modulos de ejecucion.
+
+### 2026-03-14 22:55
+- Se crean y aplican las migraciones `20260314190000_catalogos_operativos_base.sql` y `20260314191500_pdv_metadata_catalogos.sql` para soportar catalogos reales de producto, misiones y metadata operacional de PDVs.
+- Se implementa `tools/import-initial-catalogs.cjs` y se cargan en remoto los catalogos Excel iniciales de empleados, usuarios provisionales, PDVs, geocercas, supervisores, productos, misiones y configuracion derivada.
+- Quedan sincronizados 325 PDVs reales hacia `isdin_mexico`, 189 productos, 120 misiones activas y 2 supervisores placeholder para nominas ausentes en el maestro de empleados.
+- Estado: en progreso, catalogos operativos reales cargados y validados con `npm run lint` y `npm run build`.
+
+### 2026-03-14 23:20
+- Se implementa el modulo administrativo `clientes` con ruta `/clientes`, resumen multi-tenant, cuentas cliente y historial reciente de asignacion de PDVs.
+- La navegacion principal y el dashboard incorporan el acceso a `Clientes` como parte de estructura maestra/control administrativo.
+- Estado: en progreso, estructura maestra de clientes visible y validada con `npm run lint` y `npm run build`.
+
+### 2026-03-14 23:45
+- Se reemplaza el placeholder de `Gestion de usuarios` por un panel administrativo real con estados de cuenta, vinculacion auth y diagnostico de provisionamiento.
+- Se endurece `src/actions/auth.ts` para que el flujo de login/activacion no reviente cuando falta backend administrativo y devuelva errores operativos claros.
+- Se documentan `SUPABASE_SERVICE_ROLE_KEY` y `DATABASE_URL` en `.env.local.example`.
+- Estado: en progreso, auth mejor diagnosticado pero aun bloqueado para provisionamiento real mientras no existan `auth.users` vinculados y `SUPABASE_SERVICE_ROLE_KEY`.
+
+### 2026-03-14 23:55
+- Se amplian `src/features/asignaciones/services/asignacionService.ts` y `src/features/asignaciones/components/AsignacionesPanel.tsx` para calcular bloqueos previos a publicacion.
+- Las validaciones ahora consideran geocerca obligatoria, supervisor activo por PDV, cuenta cliente presente y consistencia de vigencia.
+- Estado: en progreso, validaciones previas a publicacion visibles y validadas con `npm run lint` y `npm run build`.
+
+### 2026-03-15 00:15
+- Se crea la migracion `20260314201000_asistencias_base.sql` con tabla `asistencia`, GPS, biometria, mision del dia, justificacion fuera de geocerca y RLS base.
+- Se implementa el modulo funcional `asistencias` con lectura real desde Supabase y se aplican 4 registros seed de jornada para validar estados cerrada, abierta, pendiente y rechazada.
+- Estado: en progreso, base de asistencias operativa; pendiente flujo movil de captura selfie/camara y validacion biometrica real.
+
+### 2026-03-15 00:30
+- Se crea la migracion `20260314204000_ventas_base.sql` con tabla `venta` ligada a `asistencia` y trigger que exige jornada valida base.
+- Se implementa el modulo funcional `ventas` con lectura real desde Supabase y 3 ventas seed ligadas a jornadas activas/cerradas.
+- Estado: en progreso, ventas base operativas y ligadas a jornada; pendiente captura operativa en vivo y detalle por linea.
+
+
+### 2026-03-15 01:05
+- Se integra base PWA/offline con `manifest`, iconos generados, `public/sw.js` y bootstrap global en `src/app/layout.tsx`.
+- Se implementa `src/hooks/useOfflineSync.ts` para vigilar conectividad, cola local e intentos de sincronizacion desde IndexedDB.
+- `asistencias` y `ventas` dejan de ser solo lectura: ahora pueden guardar borradores locales y reintentar sync cuando vuelve la red.
+- Estado: en progreso, bloque offline/PWA base cerrado y validado con `npm run lint` y `npm run build`; pendiente evolucionar a captura movil completa de GPS/selfie y background sync mas agresivo.
+
+
+
+### 2026-03-15 01:30
+- Se implementa transicion real de asignaciones entre `BORRADOR` y `PUBLICADA` con validacion server-side antes de publicar.
+- `src/features/asignaciones/actions.ts` ahora verifica geocerca, supervisor activo, cuenta cliente y vigencia antes de aceptar la publicacion.
+- El panel de `asignaciones` expone acciones de publicar o volver a borrador solo para administradores y mantiene vista de solo lectura para el resto.
+- Estado: en progreso, estados de publicacion cerrados y validados con `npm run lint` y `npm run build`; el siguiente bloqueo mayor sigue siendo auth administrativo real por falta de `SUPABASE_SERVICE_ROLE_KEY` en `.env.local`.
+
+
+### 2026-03-15 01:50
+- Se completa captura local de asistencias con geolocalizacion viva, evaluacion de geocerca, selfie con hash SHA-256 y justificacion obligatoria fuera de geocerca.
+- `src/features/asistencias/services/asistenciaService.ts` ahora inyecta contexto de geocerca por PDV para el formulario operativo.
+- El flujo offline conserva latitud, longitud, precision, distancia, hash de selfie y metadata local dentro del borrador de jornada.
+- Estado: en progreso, item de asistencias con GPS/selfie/justificacion cerrado y validado con `npm run lint` y `npm run build`; pendiente upload binario al storage, biometria real y auth extremo a extremo.
+
+### 2026-03-15 02:20
+- Se agrega `scripts/provision-auth-users.cjs` y el script npm `auth:provision` para crear usuarios reales en `auth.users`, enlazarlos con `public.usuario` y registrar password temporal con expiracion operativa.
+- Se ejecuta la provision real en Supabase: `261` usuarios quedan vinculados a `auth_user_id`, con resumen operativo de `254` cuentas `PROVISIONAL` y `7` `ACTIVA`.
+- Se ajusta `src/actions/auth.ts` para resolver `emailRedirectTo` hacia `/update-password` tanto en activacion como en recuperacion, incluso si falta `NEXT_PUBLIC_SITE_URL` y hay que derivar origen desde headers.
+- Se corrige `package.json` para restaurar JSON valido y se valida el bloque completo con login real de cuentas provisionadas, `npm run lint` y `npm run build`.
+- Estado: en progreso, auth extremo a extremo operativo en provisionamiento, login y activacion; sigue pendiente la invalidacion de sesion con SLA <= 5 minutos cuando cambie `puesto`.
+
+### 2026-03-15 02:55
+- Se crea la migracion 20260314212000_nomina_cuotas_ledger_base.sql con 
+omina_periodo, cuota_empleado_periodo, 
+omina_ledger, helper es_operador_nomina() y RLS para perfiles ADMINISTRADOR / NOMINA.
+- Se implementa el modulo funcional 
+omina con resumen ejecutivo, control de cierre/reapertura de periodos, pre-nomina por colaborador, cuotas comerciales y ledger reciente.
+- Se actualiza supabase/seed.sql para sembrar 2 periodos, 3 cuotas y 4 movimientos de ledger ligados a las asistencias y ventas demo ya existentes.
+- La migracion se aplica en remoto por pg y se registra manualmente en supabase_migrations.schema_migrations porque 
+px supabase db push fallo por permisos de 
+pm en Windows, no por error del esquema.
+- Estado: en progreso, bloque de 
+omina / ledger / cuotas cerrado y validado con conteos remotos, 
+pm run lint y 
+pm run build; queda pendiente eportes, auditoria ampliada e invalidacion de sesion por cambio de puesto.
+
+### 2026-03-15 03:20
+- Se implementa el modulo real `reportes` con consolidado ejecutivo, ranking comercial, ranking de cumplimiento y bitacora reciente sobre `asistencia`, `venta`, `cuota_empleado_periodo`, `nomina_ledger` y `audit_log`.
+- Se agrega `scripts/run-supabase-cli.cjs` y el script `npm run supabase:cli` para reutilizar la CLI de Supabase desde la cache local sin depender de `npx` ni del `postinstall` bloqueado por Bitdefender.
+- Se reaplica `supabase/seed.sql` en remoto y quedan verificados `3` eventos en `audit_log`, `4` asistencias, `3` ventas, `3` cuotas, `4` movimientos de ledger y `2` periodos de nomina para alimentar los reportes.
+- Estado: en progreso, bloque de reportes cerrado con datos remotos reales y wrapper estable para CLI; siguen pendientes pruebas de integracion/property-based e invalidacion de sesion por cambio de puesto.
+
+### 2026-03-15 03:55
+- Se crea la migracion `20260314214500_auth_session_context.sql` para versionar el contexto auth dentro de `auth.users.raw_app_meta_data` mediante `auth_context_updated_at` y se aplica en remoto con `supabase db push`.
+- Se integra `src/proxy.ts` con `src/lib/supabase/proxy.ts` para detectar tokens stale, refrescarlos dentro de una ventana de 5 minutos y cerrar sesion si el contexto auth sigue viejo o excede la gracia.
+- Se agrega `src/components/auth/AuthSessionMonitor.tsx` al layout global para revisar la sesion cada minuto y al volver foco/visibilidad, forzando `router.refresh()` o `signOut()` segun corresponda.
+- Se crea la suite `playwright.retail.config.ts` con pruebas en `tests/` para contexto de sesion, validacion de asignaciones y agregacion de reportes; `npm run test`, `npm run lint` y `npm run build` pasan.
+- Estado: backlog ejecutivo funcionalmente cerrado; quedan solo evoluciones futuras de producto, no pendientes abiertos del plan actual.

@@ -1,335 +1,307 @@
-// ============================================
-// TIPOS DEL DOMINIO - LexAgenda
-// ============================================
+export type Puesto =
+  | 'DERMOCONSEJERO'
+  | 'SUPERVISOR'
+  | 'COORDINADOR'
+  | 'RECLUTAMIENTO'
+  | 'NOMINA'
+  | 'LOGISTICA'
+  | 'LOVE_IS'
+  | 'VENTAS'
+  | 'ADMINISTRADOR'
+  | 'CLIENTE'
 
-export type UserRole = 'client' | 'lawyer' | 'admin'
+export type EstadoCuenta =
+  | 'PROVISIONAL'
+  | 'PENDIENTE_VERIFICACION_EMAIL'
+  | 'ACTIVA'
+  | 'SUSPENDIDA'
+  | 'BAJA'
 
-export interface Profile {
+export interface CuentaCliente {
   id: string
-  email: string
-  full_name: string | null
-  avatar_url: string | null
-  role: UserRole
+  identificador: string
+  nombre: string
+  activa: boolean
+  configuracion: Record<string, unknown>
   created_at: string
   updated_at: string
 }
 
-export interface Lawyer {
+export interface Empleado {
   id: string
-  user_id: string
-  specialty: string
-  bio: string | null
-  experience_years: number
-  hourly_rate: number
-  rating: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-  // Relaciones
-  profile?: Profile
-}
-
-export interface Client {
-  id: string
-  user_id: string | null // null for guest clients
-  full_name: string | null // Direct name for guest clients
-  email: string | null // Direct email for guest clients
-  phone: string | null
-  address: string | null
-  notes: string | null
-  created_at: string
-  updated_at: string
-  // Relaciones
-  profile?: Profile | null
-}
-
-export interface AppointmentType {
-  id: string
-  name: string
-  description: string | null
-  duration_minutes: number
-  price: number
-  is_active: boolean
-  created_at: string
-}
-
-export interface Availability {
-  id: string
-  lawyer_id: string
-  day_of_week: number // 0=Domingo, 6=Sabado
-  start_time: string // "09:00"
-  end_time: string // "17:00"
-  is_available: boolean
-  created_at: string
-}
-
-export type AppointmentStatus =
-  | 'pending'
-  | 'confirmed'
-  | 'cancelled'
-  | 'completed'
-  | 'paid'
-  | 'no_show'
-
-export interface Appointment {
-  id: string
-  client_id: string
-  lawyer_id: string
-  appointment_type_id: string | null
-  scheduled_at: string
-  duration_minutes: number
-  status: AppointmentStatus
-  notes: string | null
-  client_notes: string | null
-  cancellation_reason: string | null
-  created_at: string
-  updated_at: string
-  // Relaciones expandidas
-  client?: Client & { profile: Profile }
-  lawyer?: Lawyer & { profile: Profile }
-  appointment_type?: AppointmentType
-}
-
-// ============================================
-// DTOs para operaciones
-// ============================================
-
-export interface CreateAppointmentDTO {
-  lawyer_id: string
-  appointment_type_id: string
-  scheduled_at: string
-  client_notes?: string
-}
-
-export interface UpdateAppointmentDTO {
-  status?: AppointmentStatus
-  notes?: string
-  scheduled_at?: string
-  cancellation_reason?: string
-}
-
-export interface CreateLawyerDTO {
-  user_id: string
-  specialty: string
-  bio?: string
-  experience_years?: number
-  hourly_rate?: number
-}
-
-export interface UpdateLawyerDTO {
-  specialty?: string
-  bio?: string
-  experience_years?: number
-  hourly_rate?: number
-  is_active?: boolean
-}
-
-export interface AvailabilitySlot {
-  day_of_week: number
-  start_time: string
-  end_time: string
-  is_available: boolean
-}
-
-// ============================================
-// Tipo expandido de Lawyer con perfil
-// ============================================
-
-export interface LawyerWithProfile extends Lawyer {
-  profile: Profile
-  availability?: Availability[]
-}
-
-export interface AppointmentWithRelations extends Omit<Appointment, 'client' | 'lawyer' | 'appointment_type'> {
-  client: Client & { profile?: Profile | null }
-  lawyer: Lawyer & { profile: Profile }
-  appointment_type: AppointmentType | null
-}
-
-// ============================================
-// Sistema de Precios y Servicios
-// ============================================
-
-export type PricingType = 'hourly' | 'fixed'
-
-export interface ServicePricing {
-  id: string
-  lawyer_id: string
-  service_name: string
-  pricing_type: PricingType
-  hourly_rate: number | null
-  fixed_price: number | null
-  duration_minutes: number
-  description: string | null
-  is_active: boolean
+  id_nomina: string | null
+  nombre_completo: string
+  curp: string | null
+  nss: string | null
+  rfc: string | null
+  puesto: Puesto
+  zona: string | null
+  correo_electronico: string | null
+  telefono: string | null
+  estatus_laboral: 'ACTIVO' | 'SUSPENDIDO' | 'BAJA'
+  fecha_alta: string | null
+  fecha_baja: string | null
+  supervisor_empleado_id: string | null
+  metadata: Record<string, unknown>
   created_at: string
   updated_at: string
 }
 
-export interface CreateServicePricingDTO {
-  lawyer_id: string
-  service_name: string
-  pricing_type: PricingType
-  hourly_rate?: number
-  fixed_price?: number
-  duration_minutes: number
-  description?: string
-}
-
-// ============================================
-// Sistema de Pagos
-// ============================================
-
-export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'refunded'
-export type PaymentMethod = 'card' | 'transfer' | 'cash'
-
-export interface Payment {
+export interface UsuarioSistema {
   id: string
-  appointment_id: string
-  amount: number
-  status: PaymentStatus
-  payment_method: PaymentMethod | null
-  transaction_id: string | null
-  paid_at: string | null
-  created_at: string
-  // Relaciones
-  appointment?: Appointment
-}
-
-// ============================================
-// Sistema de Notificaciones
-// ============================================
-
-export type NotificationType =
-  | 'appointment_created'
-  | 'appointment_confirmed'
-  | 'appointment_cancelled'
-  | 'appointment_reminder'
-  | 'payment_received'
-  | 'case_update'
-  | 'document_request'
-
-export interface Notification {
-  id: string
-  user_id: string
-  type: NotificationType
-  title: string
-  message: string
-  data: Record<string, unknown> | null
-  is_read: boolean
-  created_at: string
-}
-
-// ============================================
-// Sistema de Proyectos/Casos
-// ============================================
-
-export type ProjectStatus = 'pending' | 'active' | 'on_hold' | 'completed' | 'cancelled'
-export type ProjectPriority = 'low' | 'medium' | 'high' | 'urgent'
-
-export interface Project {
-  id: string
-  lawyer_id: string
-  client_id: string | null
-  title: string
-  description: string | null
-  status: ProjectStatus
-  case_type: string | null
-  start_date: string
-  due_date: string | null
-  budget: number
-  amount_paid: number
-  priority: ProjectPriority
-  notes: string | null
+  auth_user_id: string | null
+  empleado_id: string
+  cuenta_cliente_id: string | null
+  username: string | null
+  estado_cuenta: EstadoCuenta
+  correo_electronico: string | null
+  correo_verificado: boolean
+  password_temporal_generada_en: string | null
+  password_temporal_expira_en: string | null
+  ultimo_acceso_en: string | null
   created_at: string
   updated_at: string
-  // Relaciones
-  lawyer?: Lawyer & { profile: Profile }
-  client?: (Client & { profile?: Profile | null }) | null
 }
 
-export interface ProjectWithRelations extends Omit<Project, 'lawyer' | 'client'> {
-  lawyer: Lawyer & { profile: Profile }
-  client: (Client & { profile?: Profile | null }) | null
+export interface Pdv {
+  id: string
+  clave_btl: string
+  cadena_id: string | null
+  ciudad_id: string | null
+  id_cadena: string | null
+  nombre: string
+  direccion: string | null
+  zona: string | null
+  formato: string | null
+  horario_entrada: string | null
+  horario_salida: string | null
+  estatus: 'ACTIVO' | 'INACTIVO'
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
 }
 
-// ============================================
-// Permisos por Rol
-// ============================================
-
-export const ROLE_PERMISSIONS = {
-  admin: {
-    canViewAllAppointments: true,
-    canViewFinancials: true,
-    canManageUsers: true,
-    canManageLawyers: true,
-    canViewAnalytics: true,
-    canConfigurePricing: true,
-    canViewAllCases: true,
-  },
-  lawyer: {
-    canViewAllAppointments: false,
-    canViewFinancials: false,
-    canManageUsers: false,
-    canManageLawyers: false,
-    canViewAnalytics: false,
-    canConfigurePricing: false,
-    canViewAllCases: false,
-  },
-  client: {
-    canViewAllAppointments: false,
-    canViewFinancials: false,
-    canManageUsers: false,
-    canManageLawyers: false,
-    canViewAnalytics: false,
-    canConfigurePricing: false,
-    canViewAllCases: false,
-  },
-} as const
-
-export type Permission = keyof typeof ROLE_PERMISSIONS.admin
-
-export function hasPermission(role: UserRole, permission: Permission): boolean {
-  return ROLE_PERMISSIONS[role][permission]
+export interface GeocercaPdv {
+  id: string
+  pdv_id: string
+  latitud: number
+  longitud: number
+  radio_tolerancia_metros: number
+  permite_checkin_con_justificacion: boolean
+  created_at: string
+  updated_at: string
 }
 
-// ============================================
-// Database type para Supabase client
-// ============================================
+export interface ConfiguracionSistema {
+  id: string
+  clave: string
+  valor: unknown
+  descripcion: string | null
+  modulo: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CuentaClientePdv {
+  id: string
+  cuenta_cliente_id: string
+  pdv_id: string
+  activo: boolean
+  fecha_inicio: string
+  fecha_fin: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ReglaNegocio {
+  id: string
+  codigo: string
+  modulo: string
+  descripcion: string
+  severidad: 'ERROR' | 'ALERTA' | 'AVISO'
+  prioridad: number
+  condicion: Record<string, unknown>
+  accion: Record<string, unknown>
+  activa: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface MisionDia {
+  id: string
+  codigo: string | null
+  instruccion: string
+  activa: boolean
+  orden: number | null
+  peso: number
+  created_at: string
+  updated_at: string
+}
+
+export interface Producto {
+  id: string
+  sku: string
+  nombre: string
+  nombre_corto: string
+  categoria: string
+  top_30: boolean
+  activo: boolean
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface Asignacion {
+  id: string
+  cuenta_cliente_id: string | null
+  empleado_id: string
+  pdv_id: string
+  supervisor_empleado_id: string | null
+  clave_btl: string | null
+  fecha_inicio: string
+  fecha_fin: string | null
+  tipo: 'FIJA' | 'ROTATIVA' | 'COBERTURA'
+  factor_tiempo: number
+  dias_laborales: string | null
+  dia_descanso: string | null
+  observaciones: string | null
+  estado_publicacion: 'BORRADOR' | 'PUBLICADA'
+  created_at: string
+  updated_at: string
+}
+
+export interface Asistencia {
+  id: string
+  cuenta_cliente_id: string
+  asignacion_id: string | null
+  empleado_id: string
+  supervisor_empleado_id: string | null
+  pdv_id: string
+  fecha_operacion: string
+  empleado_nombre: string
+  pdv_clave_btl: string
+  pdv_nombre: string
+  pdv_zona: string | null
+  cadena_nombre: string | null
+  check_in_utc: string | null
+  check_out_utc: string | null
+  latitud_check_in: number | null
+  longitud_check_in: number | null
+  latitud_check_out: number | null
+  longitud_check_out: number | null
+  distancia_check_in_metros: number | null
+  distancia_check_out_metros: number | null
+  estado_gps: 'PENDIENTE' | 'DENTRO_GEOCERCA' | 'FUERA_GEOCERCA' | 'SIN_GPS'
+  justificacion_fuera_geocerca: string | null
+  mision_dia_id: string | null
+  mision_codigo: string | null
+  mision_instruccion: string | null
+  biometria_estado: 'PENDIENTE' | 'VALIDA' | 'RECHAZADA' | 'NO_EVALUADA'
+  biometria_score: number | null
+  selfie_check_in_hash: string | null
+  selfie_check_in_url: string | null
+  selfie_check_out_hash: string | null
+  selfie_check_out_url: string | null
+  estatus: 'PENDIENTE_VALIDACION' | 'VALIDA' | 'RECHAZADA' | 'CERRADA'
+  origen: 'ONLINE' | 'OFFLINE_SYNC' | 'AJUSTE_ADMIN'
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface Venta {
+  id: string
+  cuenta_cliente_id: string
+  asistencia_id: string
+  empleado_id: string
+  pdv_id: string
+  producto_id: string | null
+  producto_sku: string | null
+  producto_nombre: string
+  producto_nombre_corto: string | null
+  fecha_utc: string
+  total_unidades: number
+  total_monto: number
+  confirmada: boolean
+  validada_por_empleado_id: string | null
+  validada_en: string | null
+  observaciones: string | null
+  origen: 'ONLINE' | 'OFFLINE_SYNC' | 'AJUSTE_ADMIN'
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface PeriodoNomina {
+  id: string
+  clave: string
+  fecha_inicio: string
+  fecha_fin: string
+  estado: 'ABIERTO' | 'CERRADO'
+  fecha_cierre: string | null
+  observaciones: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface CuotaEmpleadoPeriodo {
+  id: string
+  periodo_id: string
+  cuenta_cliente_id: string
+  empleado_id: string
+  cadena_id: string | null
+  objetivo_monto: number
+  objetivo_unidades: number
+  avance_monto: number
+  avance_unidades: number
+  factor_cuota: number
+  cumplimiento_porcentaje: number
+  bono_estimado: number
+  estado: 'EN_CURSO' | 'CUMPLIDA' | 'RIESGO'
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface NominaLedger {
+  id: string
+  periodo_id: string
+  cuenta_cliente_id: string | null
+  empleado_id: string
+  tipo_movimiento: 'PERCEPCION' | 'DEDUCCION' | 'AJUSTE'
+  concepto: string
+  referencia_tabla: string | null
+  referencia_id: string | null
+  monto: number
+  moneda: string
+  notas: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
 
 export interface Database {
   public: {
     Tables: {
-      profiles: {
-        Row: Profile
-        Insert: Omit<Profile, 'created_at' | 'updated_at'>
-        Update: Partial<Omit<Profile, 'id' | 'created_at'>>
-      }
-      lawyers: {
-        Row: Lawyer
-        Insert: CreateLawyerDTO
-        Update: UpdateLawyerDTO
-      }
-      clients: {
-        Row: Client
-        Insert: Omit<Client, 'id' | 'created_at' | 'updated_at'>
-        Update: Partial<Omit<Client, 'id' | 'created_at'>>
-      }
-      appointment_types: {
-        Row: AppointmentType
-        Insert: Omit<AppointmentType, 'id' | 'created_at'>
-        Update: Partial<Omit<AppointmentType, 'id' | 'created_at'>>
-      }
-      availability: {
-        Row: Availability
-        Insert: Omit<Availability, 'id' | 'created_at'>
-        Update: Partial<Omit<Availability, 'id' | 'created_at'>>
-      }
-      appointments: {
-        Row: Appointment
-        Insert: CreateAppointmentDTO & { client_id: string }
-        Update: UpdateAppointmentDTO
-      }
+      cuenta_cliente: { Row: CuentaCliente }
+      cadena: { Row: { id: string; codigo: string; nombre: string; factor_cuota_default: number; activa: boolean; created_at: string; updated_at: string } }
+      ciudad: { Row: { id: string; nombre: string; zona: string; activa: boolean; created_at: string; updated_at: string } }
+      empleado: { Row: Empleado }
+      usuario: { Row: UsuarioSistema }
+      pdv: { Row: Pdv }
+      geocerca_pdv: { Row: GeocercaPdv }
+      cuenta_cliente_pdv: { Row: CuentaClientePdv }
+      configuracion: { Row: ConfiguracionSistema }
+      regla_negocio: { Row: ReglaNegocio }
+      mision_dia: { Row: MisionDia }
+      producto: { Row: Producto }
+      asignacion: { Row: Asignacion }
+      asistencia: { Row: Asistencia }
+      venta: { Row: Venta }
+      nomina_periodo: { Row: PeriodoNomina }
+      cuota_empleado_periodo: { Row: CuotaEmpleadoPeriodo }
+      nomina_ledger: { Row: NominaLedger }
     }
   }
 }

@@ -15,7 +15,7 @@ Esta guía convierte la regla de oro del proyecto en un paso práctico al crear 
 ## Ejemplos rápidos
 
 - Correcto: `usuarios`, `clientes_invitados`, `proyectos`, `estado_pago`, `fecha_registro`
-- Incorrecto: `users`, `guest_clients`, `projects`, `payment_status`, `created_at` como nombre de negocio
+- Incorrecto: `users`, `client_accounts`, `stores`, `payment_status`, `created_at` como nombre de negocio
 
 ## Excepciones permitidas
 

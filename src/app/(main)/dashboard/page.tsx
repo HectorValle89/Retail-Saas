@@ -1,67 +1,64 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
-import { dashboardService } from '@/features/dashboard/services/dashboardService'
+import { requerirActorActivo } from '@/lib/auth/session'
+
+const modules = [
+  {
+    title: 'Estructura maestra',
+    items: ['Clientes', 'Empleados', 'PDVs', 'Usuarios', 'Configuracion', 'Reglas'],
+  },
+  {
+    title: 'Planeacion operativa',
+    items: ['Asignaciones', 'Ruta semanal', 'Campanas', 'Formaciones'],
+  },
+  {
+    title: 'Ejecucion diaria',
+    items: ['Asistencias', 'Ventas', 'LOVE ISDIN', 'Solicitudes', 'Entrega de material'],
+  },
+  {
+    title: 'Control y gobierno',
+    items: ['Nomina', 'Cuotas', 'Reportes', 'Bitacora', 'Mensajes'],
+  },
+]
 
 export const metadata = {
-  title: 'Dashboard | Retail App'
+  title: 'Dashboard | Field Force Platform',
 }
 
 export default async function DashboardPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
-
-  // Obtener rol del usuario
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name')
-    .eq('id', user.id)
-    .single()
-
-  const userRole = profile?.role || 'client'
-  const userName = profile?.full_name || user.email?.split('@')[0] || 'Usuario'
-
-  const greeting = getGreeting()
+  const actor = await requerirActorActivo()
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">
-          {greeting}, {userName}
-        </h1>
-        <p className="text-foreground-secondary mt-1">
-          Bienvenido al sistema de gestión Retail.
+    <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
+      <section className="rounded-[32px] bg-slate-950 px-8 py-10 text-white shadow-[0_30px_90px_rgba(15,23,42,0.2)]">
+        <p className="text-sm font-semibold uppercase tracking-[0.24em] text-sky-300">
+          Field Force Platform
         </p>
-      </div>
+        <h1 className="mt-4 text-4xl font-semibold tracking-tight">
+          Bienvenido, {actor.nombreCompleto}
+        </h1>
+        <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">
+          Acceso activo para el puesto <span className="font-semibold text-white">{actor.puesto}</span>. Este tablero
+          queda preparado para evolucionar hacia los modulos definidos en `design.md`,
+          `requirements.md` y `tasks.md`.
+        </p>
+      </section>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-          <h3 className="text-gray-500 text-sm font-medium">Proyectos Activos</h3>
-          <p className="text-2xl font-bold mt-2">0</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-          <h3 className="text-gray-500 text-sm font-medium">Tareas Pendientes</h3>
-          <p className="text-2xl font-bold mt-2">0</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-          <h3 className="text-gray-500 text-sm font-medium">Notificaciones</h3>
-          <p className="text-2xl font-bold mt-2">0</p>
-        </div>
-      </div>
-
-      <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm text-center">
-        <p className="text-gray-400">Próximamente: Panel de control de operaciones Retail.</p>
-      </div>
+      <section className="mt-8 grid gap-5 lg:grid-cols-2">
+        {modules.map((module) => (
+          <article
+            key={module.title}
+            className="rounded-[28px] border border-slate-200 bg-white p-7 shadow-sm"
+          >
+            <h2 className="text-xl font-semibold text-slate-950">{module.title}</h2>
+            <ul className="mt-5 space-y-3 text-sm text-slate-600">
+              {module.items.map((item) => (
+                <li key={item} className="rounded-2xl bg-slate-50 px-4 py-3">
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </section>
     </div>
   )
-}
-
-function getGreeting(): string {
-  const hour = new Date().getHours()
-  if (hour < 12) return 'Buenos días'
-  if (hour < 18) return 'Buenas tardes'
-  return 'Buenas noches'
 }

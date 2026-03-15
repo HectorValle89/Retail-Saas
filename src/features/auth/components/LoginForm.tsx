@@ -44,11 +44,11 @@ export function LoginForm() {
   return (
     <form action={handleSubmit} className="space-y-5">
       <Input
-        id="email"
-        name="email"
-        type="email"
-        label="Correo electrónico"
-        placeholder="tu@email.com"
+        id="acceso"
+        name="acceso"
+        type="text"
+        label="Correo o usuario"
+        placeholder="correo@empresa.com o usuario temporal"
         required
       />
 
@@ -57,7 +57,7 @@ export function LoginForm() {
           id="password"
           name="password"
           type={showPassword ? 'text' : 'password'}
-          label="Contraseña"
+          label="Contrasena"
           placeholder="••••••••"
           required
         />
@@ -65,7 +65,7 @@ export function LoginForm() {
           type="button"
           onClick={() => setShowPassword(!showPassword)}
           className="absolute right-3 top-[38px] text-foreground-muted hover:text-foreground-secondary transition-colors"
-          aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+          aria-label={showPassword ? 'Ocultar contrasena' : 'Mostrar contrasena'}
         >
           {showPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
         </button>
@@ -82,12 +82,12 @@ export function LoginForm() {
         isLoading={loading}
         className="w-full"
       >
-        Iniciar Sesión
+        Entrar al sistema
       </Button>
 
       <p className="text-center text-sm text-foreground-secondary">
         <Link href="/forgot-password" className="text-accent-500 hover:text-accent-600 hover:underline">
-          ¿Olvidaste tu contraseña?
+          Recuperar acceso
         </Link>
       </p>
     </form>

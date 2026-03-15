@@ -1,31 +1,31 @@
-# 🚀 Retail App - Frontend Setup
+# Field Force Platform
 
-Setup completo de Next.js 16 + Supabase + Claude Code listo para producción. Arquitectura Feature-First optimizada para el sector Retail.
+Base de aplicacion Next.js 16 + Supabase orientada a la plataforma retail definida en:
 
-## 🎯 ¿Qué es esto?
+- `.kiro/specs/field-force-platform/design.md`
+- `.kiro/specs/field-force-platform/requirements.md`
+- `.kiro/specs/field-force-platform/tasks.md`
 
-Un template **production-ready** para aplicaciones de gestión retail modernas con:
+## Estado actual
 
-- ✅ Next.js 16 (App Router) + TypeScript
-- ✅ Supabase (Database + Auth)
-- ✅ Tailwind CSS + shadcn/ui
-- ✅ Claude Code con comandos, agentes y skills
-- ✅ Arquitectura Feature-First optimizada para IA
-- ✅ Gestión de Proyectos y Usuarios
-- ✅ Testing, linting y type checking configurados
+El repositorio ya fue limpiado del dominio anterior y ahora conserva una base alineada al producto retail:
 
-## 🏗️ Arquitectura Feature-First
+- Dashboard y navegacion base por modulos del dominio
+- Pantallas placeholder para `empleados`, `pdvs`, `asignaciones`, `asistencias`, `ventas`, `nomina`, `reportes` y `configuracion`
+- Tipos iniciales de dominio retail en `src/types/database.ts`
+- Seed SQL vaciado del dominio heredado y reservado para el esquema retail final
 
-```
-src/
-├── app/                      # Next.js App Router
-├── features/                 # 🎯 Funcionalidades Retail
-│   ├── auth/                # Autenticación
-│   ├── dashboard/           # Panel de control
-│   └── projects/            # Gestión de Proyectos
-└── shared/                   # Código reutilizable
-```
+## Stack
 
----
+- Next.js 16
+- React 19
+- TypeScript
+- Tailwind CSS
+- Supabase
 
-**Retail App v1.0** | Built for operations excellence 🤖
+## Siguiente fase recomendada
+
+1. Construir el esquema Supabase retail en espanol latino.
+2. Implementar auth con rol derivado de `puesto` y estados de cuenta.
+3. Levantar estructura maestra: `empleado`, `usuario`, `pdv`, `cuenta_cliente`.
+4. Continuar con `asignaciones` y `asistencias`.
