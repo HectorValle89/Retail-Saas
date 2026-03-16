@@ -1,4 +1,4 @@
-import { requerirAdministradorActivo } from '@/lib/auth/session'
+﻿import { requerirAdministradorActivo } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { ClientesPanel } from '@/features/clientes/components/ClientesPanel'
 import { obtenerPanelClientes } from '@/features/clientes/services/clienteService'
@@ -8,9 +8,9 @@ export const metadata = {
 }
 
 export default async function ClientesPage() {
-  await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo()
   const supabase = await createClient()
-  const data = await obtenerPanelClientes(supabase)
+  const data = await obtenerPanelClientes(supabase, actor.cuentaClienteId)
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">

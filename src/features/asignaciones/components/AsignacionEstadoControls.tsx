@@ -12,6 +12,8 @@ interface AsignacionEstadoControlsProps {
   estadoPublicacion: string
   bloqueada: boolean
   puedeGestionar: boolean
+  alertasCount: number
+  requiereConfirmacionAlertas: boolean
 }
 
 export function AsignacionEstadoControls({
@@ -19,6 +21,8 @@ export function AsignacionEstadoControls({
   estadoPublicacion,
   bloqueada,
   puedeGestionar,
+  alertasCount,
+  requiereConfirmacionAlertas,
 }: AsignacionEstadoControlsProps) {
   const [state, formAction] = useActionState(
     actualizarEstadoPublicacionAsignacion,
@@ -34,11 +38,26 @@ export function AsignacionEstadoControls({
   }
 
   const estadoDestino = estadoPublicacion === 'PUBLICADA' ? 'BORRADOR' : 'PUBLICADA'
+  const showAlertConfirmation =
+    estadoDestino === 'PUBLICADA' && requiereConfirmacionAlertas && alertasCount > 0
 
   return (
     <form action={formAction} className="space-y-2">
       <input type="hidden" name="asignacion_id" value={asignacionId} />
       <input type="hidden" name="estado_destino" value={estadoDestino} />
+      {showAlertConfirmation && (
+        <label className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <input
+            type="checkbox"
+            name="confirmar_alertas"
+            value="true"
+            className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-700"
+          />
+          <span>
+            Confirmo publicar con {alertasCount} alerta(alertas) no bloqueante(s).
+          </span>
+        </label>
+      )}
       <SubmitButton estadoDestino={estadoDestino} />
       {state.message && (
         <p className={`text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>

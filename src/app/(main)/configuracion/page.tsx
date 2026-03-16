@@ -20,8 +20,8 @@ export default async function ConfiguracionPage() {
         </p>
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">Configuracion</h1>
         <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-          Catalogos base, parametros globales, reglas vigentes y misiones del dia
-          para la operacion retail.
+          Catalogos base, parametros globales, OCR y misiones del dia para la
+          operacion retail.
         </p>
       </header>
 
@@ -29,3 +29,4 @@ export default async function ConfiguracionPage() {
     </div>
   )
 }
+

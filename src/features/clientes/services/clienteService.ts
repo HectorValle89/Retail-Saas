@@ -1,4 +1,4 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
+﻿import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CuentaCliente, CuentaClientePdv } from '@/types/database'
 
 type MaybeMany<T> = T | T[] | null
@@ -91,34 +91,41 @@ const obtenerTextoConfiguracion = (valor: unknown, clave: string) => {
 const normalizarFecha = (fecha: string | null) => fecha ?? null
 
 export async function obtenerPanelClientes(
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  scopeAccountId: string | null = null
 ): Promise<ClientesPanelData> {
+  let cuentasQuery = supabase
+    .from('cuenta_cliente')
+    .select('id, identificador, nombre, activa, configuracion, created_at, updated_at')
+    .order('nombre', { ascending: true })
+
+  let historialQuery = supabase
+    .from('cuenta_cliente_pdv')
+    .select(`
+      id,
+      activo,
+      fecha_inicio,
+      fecha_fin,
+      cuenta_cliente:cuenta_cliente_id(id, identificador, nombre, activa),
+      pdv:pdv_id(
+        id,
+        clave_btl,
+        nombre,
+        zona,
+        cadena:cadena_id(nombre)
+      )
+    `)
+    .order('fecha_inicio', { ascending: false })
+
+  if (scopeAccountId) {
+    cuentasQuery = cuentasQuery.eq('id', scopeAccountId)
+    historialQuery = historialQuery.eq('cuenta_cliente_id', scopeAccountId)
+  }
+
   const [
     { data: cuentas, error: cuentasError },
     { data: historial, error: historialError },
-  ] = await Promise.all([
-    supabase
-      .from('cuenta_cliente')
-      .select('id, identificador, nombre, activa, configuracion, created_at, updated_at')
-      .order('nombre', { ascending: true }),
-    supabase
-      .from('cuenta_cliente_pdv')
-      .select(`
-        id,
-        activo,
-        fecha_inicio,
-        fecha_fin,
-        cuenta_cliente:cuenta_cliente_id(id, identificador, nombre, activa),
-        pdv:pdv_id(
-          id,
-          clave_btl,
-          nombre,
-          zona,
-          cadena:cadena_id(nombre)
-        )
-      `)
-      .order('fecha_inicio', { ascending: false }),
-  ])
+  ] = await Promise.all([cuentasQuery, historialQuery])
 
   if (cuentasError || historialError) {
     return {
@@ -225,4 +232,3 @@ export async function obtenerPanelClientes(
     infraestructuraLista: true,
   }
 }
-

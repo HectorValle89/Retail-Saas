@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+﻿import { createClient } from '@/lib/supabase/server'
 import { requerirActorActivo } from '@/lib/auth/session'
 import { AsignacionesPanel } from '@/features/asignaciones/components/AsignacionesPanel'
 import { obtenerPanelAsignaciones } from '@/features/asignaciones/services/asignacionService'
@@ -10,7 +10,7 @@ export const metadata = {
 export default async function AsignacionesPage() {
   const actor = await requerirActorActivo()
   const supabase = await createClient()
-  const data = await obtenerPanelAsignaciones(supabase)
+  const data = await obtenerPanelAsignaciones(supabase, actor)
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -24,10 +24,7 @@ export default async function AsignacionesPage() {
         </p>
       </header>
 
-      <AsignacionesPanel
-        data={data}
-        puedeGestionar={actor.puesto === 'ADMINISTRADOR'}
-      />
+      <AsignacionesPanel data={data} puedeGestionar={actor.puesto === 'ADMINISTRADOR'} />
     </div>
   )
 }

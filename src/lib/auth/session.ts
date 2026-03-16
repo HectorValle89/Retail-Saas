@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { readRequestAccountScope } from '@/lib/tenant/accountScope'
 import { createClient } from '@/lib/supabase/server'
 import type { EstadoCuenta, Puesto } from '@/types/database'
 
@@ -16,7 +17,7 @@ export interface ActorActual {
 }
 
 export async function obtenerActorActual(): Promise<ActorActual | null> {
-  const supabase = await createClient()
+  const supabase = await createClient({ bypassTenantScope: true })
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -45,11 +46,17 @@ export async function obtenerActorActual(): Promise<ActorActual | null> {
     return null
   }
 
+  const requestScope = await readRequestAccountScope()
+  const cuentaClienteId =
+    empleado.puesto === 'ADMINISTRADOR'
+      ? requestScope.accountId
+      : usuario.cuenta_cliente_id
+
   return {
     authUserId: user.id,
     usuarioId: usuario.id,
     empleadoId: usuario.empleado_id,
-    cuentaClienteId: usuario.cuenta_cliente_id,
+    cuentaClienteId,
     username: usuario.username,
     correoElectronico: usuario.correo_electronico,
     correoVerificado: usuario.correo_verificado,

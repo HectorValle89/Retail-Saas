@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import { createTenantScopedFetch, readRequestAccountScope } from '@/lib/tenant/accountScope'
 
 type CookieToSet = {
   name: string
@@ -8,13 +9,17 @@ type CookieToSet = {
   options: CookieOptions
 }
 
-export async function createClient() {
+export async function createClient(options?: { bypassTenantScope?: boolean }) {
   const cookieStore = await cookies()
+  const accountScope = options?.bypassTenantScope ? null : await readRequestAccountScope()
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      global: {
+        fetch: createTenantScopedFetch(accountScope?.accountId ?? null),
+      },
       cookies: {
         getAll() {
           return cookieStore.getAll()
@@ -48,8 +53,8 @@ export function createServiceClient() {
     {
       auth: {
         autoRefreshToken: false,
-        persistSession: false
-      }
+        persistSession: false,
+      },
     }
   )
 }

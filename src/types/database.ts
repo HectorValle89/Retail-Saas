@@ -42,6 +42,17 @@ export interface Empleado {
   fecha_alta: string | null
   fecha_baja: string | null
   supervisor_empleado_id: string | null
+  sueldo_base_mensual: number | null
+  expediente_estado: 'PENDIENTE_DOCUMENTOS' | 'EN_REVISION' | 'VALIDADO' | 'OBSERVADO'
+  expediente_validado_en: string | null
+  expediente_validado_por_usuario_id: string | null
+  expediente_observaciones: string | null
+  imss_estado: 'NO_INICIADO' | 'PENDIENTE_DOCUMENTOS' | 'EN_PROCESO' | 'ALTA_IMSS' | 'ERROR'
+  imss_fecha_solicitud: string | null
+  imss_fecha_alta: string | null
+  imss_observaciones: string | null
+  motivo_baja: string | null
+  checklist_baja: Record<string, boolean>
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -59,6 +70,45 @@ export interface UsuarioSistema {
   password_temporal_generada_en: string | null
   password_temporal_expira_en: string | null
   ultimo_acceso_en: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ArchivoHash {
+  id: string
+  sha256: string
+  bucket: string
+  ruta_archivo: string
+  mime_type: string | null
+  tamano_bytes: number | null
+  creado_por_usuario_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface EmpleadoDocumento {
+  id: string
+  empleado_id: string
+  archivo_hash_id: string
+  categoria: 'EXPEDIENTE' | 'IMSS' | 'BAJA'
+  tipo_documento:
+    | 'CURP'
+    | 'RFC'
+    | 'NSS'
+    | 'INE'
+    | 'COMPROBANTE_DOMICILIO'
+    | 'CONTRATO'
+    | 'ALTA_IMSS'
+    | 'BAJA'
+    | 'OTRO'
+  nombre_archivo_original: string
+  mime_type: string | null
+  tamano_bytes: number | null
+  estado_documento: 'CARGADO' | 'VALIDADO' | 'OBSERVADO'
+  ocr_provider: string | null
+  ocr_resultado: Record<string, unknown>
+  metadata: Record<string, unknown>
+  creado_por_usuario_id: string | null
   created_at: string
   updated_at: string
 }
@@ -164,6 +214,7 @@ export interface Asignacion {
   factor_tiempo: number
   dias_laborales: string | null
   dia_descanso: string | null
+  horario_referencia: string | null
   observaciones: string | null
   estado_publicacion: 'BORRADOR' | 'PUBLICADA'
   created_at: string
@@ -232,6 +283,41 @@ export interface Venta {
   updated_at: string
 }
 
+export interface RutaSemanal {
+  id: string
+  cuenta_cliente_id: string
+  supervisor_empleado_id: string
+  semana_inicio: string
+  estatus: 'BORRADOR' | 'PUBLICADA' | 'EN_PROGRESO' | 'CERRADA'
+  notas: string | null
+  created_by_usuario_id: string | null
+  updated_by_usuario_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RutaSemanalVisita {
+  id: string
+  ruta_semanal_id: string
+  cuenta_cliente_id: string
+  supervisor_empleado_id: string
+  pdv_id: string
+  asignacion_id: string | null
+  dia_semana: number
+  orden: number
+  estatus: 'PLANIFICADA' | 'COMPLETADA' | 'CANCELADA'
+  selfie_url: string | null
+  selfie_hash: string | null
+  evidencia_url: string | null
+  evidencia_hash: string | null
+  checklist_calidad: Record<string, boolean>
+  comentarios: string | null
+  completada_en: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
 export interface PeriodoNomina {
   id: string
   clave: string
@@ -285,10 +371,31 @@ export interface Database {
   public: {
     Tables: {
       cuenta_cliente: { Row: CuentaCliente }
-      cadena: { Row: { id: string; codigo: string; nombre: string; factor_cuota_default: number; activa: boolean; created_at: string; updated_at: string } }
-      ciudad: { Row: { id: string; nombre: string; zona: string; activa: boolean; created_at: string; updated_at: string } }
+      cadena: {
+        Row: {
+          id: string
+          codigo: string
+          nombre: string
+          factor_cuota_default: number
+          activa: boolean
+          created_at: string
+          updated_at: string
+        }
+      }
+      ciudad: {
+        Row: {
+          id: string
+          nombre: string
+          zona: string
+          activa: boolean
+          created_at: string
+          updated_at: string
+        }
+      }
       empleado: { Row: Empleado }
       usuario: { Row: UsuarioSistema }
+      archivo_hash: { Row: ArchivoHash }
+      empleado_documento: { Row: EmpleadoDocumento }
       pdv: { Row: Pdv }
       geocerca_pdv: { Row: GeocercaPdv }
       cuenta_cliente_pdv: { Row: CuentaClientePdv }
@@ -297,6 +404,8 @@ export interface Database {
       mision_dia: { Row: MisionDia }
       producto: { Row: Producto }
       asignacion: { Row: Asignacion }
+      ruta_semanal: { Row: RutaSemanal }
+      ruta_semanal_visita: { Row: RutaSemanalVisita }
       asistencia: { Row: Asistencia }
       venta: { Row: Venta }
       nomina_periodo: { Row: PeriodoNomina }
@@ -305,3 +414,5 @@ export interface Database {
     }
   }
 }
+
+

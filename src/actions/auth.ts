@@ -1,44 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { createClient, createServiceClient } from '@/lib/supabase/server'
-
-const ERROR_BACKEND_ADMIN =
-  'El backend administrativo de autenticacion no esta configurado. Define SUPABASE_SERVICE_ROLE_KEY para operar usuarios corporativos.'
-
-function obtenerClienteAdmin() {
-  try {
-    return { service: createServiceClient(), error: null }
-  } catch {
-    return { service: null, error: ERROR_BACKEND_ADMIN }
-  }
-}
-
-async function obtenerUrlBaseAplicacion() {
-  const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim()
-
-  if (configuredSiteUrl) {
-    return configuredSiteUrl.replace(/\/$/, '')
-  }
-
-  const headerStore = await headers()
-  const origin = headerStore.get('origin')?.trim()
-
-  if (origin) {
-    return origin.replace(/\/$/, '')
-  }
-
-  const forwardedHost = headerStore.get('x-forwarded-host')?.trim() ?? headerStore.get('host')?.trim()
-
-  if (forwardedHost) {
-    const forwardedProto = headerStore.get('x-forwarded-proto')?.trim() ?? 'https'
-    return `${forwardedProto}://${forwardedHost}`
-  }
-
-  return 'http://localhost:3000'
-}
+import { obtenerClienteAdmin, obtenerUrlBaseAplicacion } from '@/lib/auth/admin'
+import { createClient } from '@/lib/supabase/server'
 
 async function resolverCorreoDeAcceso(
   acceso: string
@@ -84,7 +49,10 @@ async function resolverCorreoDeAcceso(
   return { email: data.user.email, error: null }
 }
 
-async function obtenerEstadoCuenta(supabase: Awaited<ReturnType<typeof createClient>>, authUserId: string) {
+async function obtenerEstadoCuenta(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  authUserId: string
+) {
   const { data: usuario } = await supabase
     .from('usuario')
     .select('estado_cuenta')
@@ -92,6 +60,24 @@ async function obtenerEstadoCuenta(supabase: Awaited<ReturnType<typeof createCli
     .maybeSingle()
 
   return usuario?.estado_cuenta ?? null
+}
+
+async function registrarUltimoAcceso(authUserId: string) {
+  const { service } = obtenerClienteAdmin()
+
+  if (!service) {
+    return
+  }
+
+  const now = new Date().toISOString()
+
+  await service
+    .from('usuario')
+    .update({
+      ultimo_acceso_en: now,
+      updated_at: now,
+    })
+    .eq('auth_user_id', authUserId)
 }
 
 export async function login(formData: FormData) {
@@ -142,6 +128,7 @@ export async function login(formData: FormData) {
     return { error: 'Tu cuenta no tiene acceso operativo. Contacta al administrador.' }
   }
 
+  await registrarUltimoAcceso(user.id)
   revalidatePath('/', 'layout')
 
   if (estadoCuenta === 'PROVISIONAL' || estadoCuenta === 'PENDIENTE_VERIFICACION_EMAIL') {
@@ -153,7 +140,9 @@ export async function login(formData: FormData) {
 
 export async function iniciarActivacionCuenta(formData: FormData) {
   const supabase = await createClient()
-  const correoElectronico = String(formData.get('correo_electronico') ?? '').trim().toLowerCase()
+  const correoElectronico = String(formData.get('correo_electronico') ?? '')
+    .trim()
+    .toLowerCase()
 
   if (!correoElectronico) {
     return { error: 'Ingresa un correo valido para activar la cuenta.' }
@@ -189,11 +178,14 @@ export async function iniciarActivacionCuenta(formData: FormData) {
 
   const siteUrl = await obtenerUrlBaseAplicacion()
 
-  const { error: authError } = await supabase.auth.updateUser({
-    email: correoElectronico,
-  }, {
-    emailRedirectTo: `${siteUrl}/update-password`,
-  })
+  const { error: authError } = await supabase.auth.updateUser(
+    {
+      email: correoElectronico,
+    },
+    {
+      emailRedirectTo: `${siteUrl}/update-password`,
+    }
+  )
 
   if (authError) {
     return { error: authError.message }
@@ -297,13 +289,16 @@ export async function updatePassword(formData: FormData) {
     .maybeSingle()
 
   if (usuario) {
+    const now = new Date().toISOString()
+
     await service
       .from('usuario')
       .update({
         estado_cuenta: 'ACTIVA',
         correo_verificado: true,
         correo_electronico: user.email ?? null,
-        updated_at: new Date().toISOString(),
+        ultimo_acceso_en: now,
+        updated_at: now,
       })
       .eq('id', usuario.id)
 
@@ -311,7 +306,7 @@ export async function updatePassword(formData: FormData) {
       .from('empleado')
       .update({
         correo_electronico: user.email ?? null,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       })
       .eq('id', usuario.empleado_id)
   }

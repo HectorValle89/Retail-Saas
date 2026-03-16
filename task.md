@@ -1,6 +1,6 @@
-# Proyecto Retail - Backlog Ejecutivo
+# Proyecto Retail - Bitacora Ejecutiva Derivada
 
-Archivo ejecutivo unico del proyecto, alineado a:
+Documento derivado para seguimiento ejecutivo. La fuente de verdad del producto es:
 
 - `.kiro/specs/field-force-platform/design.md`
 - `.kiro/specs/field-force-platform/requirements.md`
@@ -10,13 +10,13 @@ Archivo ejecutivo unico del proyecto, alineado a:
 
 - Check-in fuera de geocerca: permitido con justificacion.
 - Radio de geocerca por defecto: 100 metros.
-- Operacion ejecutiva: una sola planeacion y seguimiento centralizado en este archivo.
+- La planeacion canonica vive en `.kiro/specs/field-force-platform/tasks.md`.
 
 ## Estado general
 
-- Fase activa: Fundacion tecnica.
-- Estado: En progreso.
-- Objetivo actual: cerrar esquema inicial Supabase, base multi-tenant y arranque de auth/estructura maestra.
+- Estado del backlog canonico: reconciliado contra .kiro/specs/field-force-platform/tasks.md.
+- Estado de esta bitacora: derivada y secundaria.
+- Regla: si hay conflicto con .kiro/specs/field-force-platform/{design,requirements,tasks}.md, prevalece .kiro.
 
 ## Plan ejecutivo
 

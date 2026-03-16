@@ -1,149 +1,334 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { resolveConfiguredOcrConfiguration } from '@/lib/ocr/gemini'
 import type {
   ConfiguracionSistema,
+  Database,
   MisionDia,
-  ReglaNegocio,
+  Producto,
 } from '@/types/database'
+import {
+  GLOBAL_PARAMETER_DEFINITIONS,
+  OCR_MODEL_CONFIG_KEY,
+  OCR_PROVIDER_CONFIG_KEY,
+  PAYROLL_PARAMETER_DEFINITIONS,
+  RETENTION_PARAMETER_DEFINITIONS,
+  TURNOS_CONFIG_KEY,
+  parseTurnosCatalogo,
+  resolveEditableConfigValue,
+  stringifyEditableConfigValue,
+  type EditableConfigDefinition,
+  type EditableConfigKind,
+  type TurnoCatalogoItem,
+} from '../configuracionCatalog'
 
 export interface ConfiguracionResumen {
-  parametros: number
-  reglasActivas: number
+  productosActivos: number
+  cadenasActivas: number
+  ciudadesActivas: number
+  turnosCatalogo: number
   misionesActivas: number
-  modulosCubiertos: number
+  parametrosConfigurados: number
 }
 
-export interface ParametroListadoItem {
+export interface ParametroEditableItem {
+  id: string | null
+  key: string
+  label: string
+  description: string
+  module: string
+  kind: EditableConfigKind
+  value: string
+  displayValue: string
+  persisted: boolean
+  min?: number
+  max?: number
+  step?: number
+}
+
+export interface ProductoCatalogoItem {
   id: string
-  clave: string
-  modulo: string
-  descripcion: string | null
-  valor: string
+  sku: string
+  nombre: string
+  nombreCorto: string
+  categoria: string
+  top30: boolean
+  activo: boolean
 }
 
-export interface ReglaListadoItem {
+export interface CadenaCatalogoItem {
   id: string
   codigo: string
-  modulo: string
-  descripcion: string
-  severidad: string
-  prioridad: number
+  nombre: string
+  factorCuotaDefault: number
   activa: boolean
 }
 
-export interface MisionListadoItem {
+export interface CiudadCatalogoItem {
   id: string
+  nombre: string
+  zona: string
+  activa: boolean
+}
+
+export interface MisionCatalogoItem {
+  id: string
+  codigo: string | null
   instruccion: string
   orden: number | null
+  peso: number
   activa: boolean
+}
+
+export interface OcrConfiguracionItem {
+  preferredProvider: string | null
+  preferredModel: string | null
+  envProvider: string | null
+  effectiveProvider: string | null
+  effectiveModel: string | null
+  available: boolean
+  source: 'CONFIGURACION' | 'ENTORNO'
+  status: 'LISTO' | 'DESHABILITADO' | 'FALTA_API_KEY' | 'NO_IMPLEMENTADO'
+  message: string
 }
 
 export interface ConfiguracionPanelData {
   resumen: ConfiguracionResumen
-  parametros: ParametroListadoItem[]
-  reglas: ReglaListadoItem[]
-  misiones: MisionListadoItem[]
+  productos: ProductoCatalogoItem[]
+  cadenas: CadenaCatalogoItem[]
+  ciudades: CiudadCatalogoItem[]
+  turnos: TurnoCatalogoItem[]
+  parametrosGlobales: ParametroEditableItem[]
+  parametrosRetencion: ParametroEditableItem[]
+  parametrosNomina: ParametroEditableItem[]
+  misiones: MisionCatalogoItem[]
+  ocr: OcrConfiguracionItem
   infraestructuraLista: boolean
   mensajeInfraestructura?: string
 }
 
-const serializarValor = (valor: unknown) => {
-  if (valor === null || valor === undefined) {
-    return 'null'
+type CadenaRow = Database['public']['Tables']['cadena']['Row']
+type CiudadRow = Database['public']['Tables']['ciudad']['Row']
+
+function buildParametroEditable(
+  definition: EditableConfigDefinition,
+  row: ConfiguracionSistema | null
+): ParametroEditableItem {
+  const resolvedValue = resolveEditableConfigValue(definition, row?.valor)
+  const displayValue =
+    definition.kind === 'BOOLEAN'
+      ? resolvedValue === true
+        ? 'Si'
+        : 'No'
+      : String(resolvedValue)
+
+  return {
+    id: row?.id ?? null,
+    key: definition.key,
+    label: definition.label,
+    description: definition.description,
+    module: definition.module,
+    kind: definition.kind,
+    value: stringifyEditableConfigValue(definition, row?.valor),
+    displayValue,
+    persisted: Boolean(row),
+    min: definition.min,
+    max: definition.max,
+    step: definition.step,
+  }
+}
+
+function buildOcrConfigItem(configRows: ConfiguracionSistema[]): OcrConfiguracionItem {
+  const preferredProvider = mapConfigTextValue(
+    configRows.find((item) => item.clave === OCR_PROVIDER_CONFIG_KEY)?.valor
+  )
+  const preferredModel = mapConfigTextValue(
+    configRows.find((item) => item.clave === OCR_MODEL_CONFIG_KEY)?.valor
+  )
+  const envProvider = mapConfigTextValue(process.env.OCR_PROVIDER)
+  const source: 'CONFIGURACION' | 'ENTORNO' = preferredProvider ? 'CONFIGURACION' : 'ENTORNO'
+  const resolved = resolveConfiguredOcrConfiguration({
+    providerOverride: preferredProvider,
+    modelOverride: preferredModel,
+  })
+
+  if (resolved.status === 'disabled') {
+    return {
+      preferredProvider,
+      preferredModel,
+      envProvider,
+      effectiveProvider: null,
+      effectiveModel: null,
+      available: false,
+      source,
+      status: 'DESHABILITADO',
+      message: preferredProvider
+        ? 'La configuracion central deshabilita OCR documental.'
+        : 'OCR documental depende del entorno y hoy esta deshabilitado.',
+    }
   }
 
-  if (typeof valor === 'string') {
-    return valor
+  if (resolved.status === 'gemini_missing_api_key') {
+    return {
+      preferredProvider,
+      preferredModel,
+      envProvider,
+      effectiveProvider: resolved.provider,
+      effectiveModel: resolved.model,
+      available: false,
+      source,
+      status: 'FALTA_API_KEY',
+      message: 'Gemini esta seleccionado, pero falta GEMINI_API_KEY en el servidor.',
+    }
   }
 
-  return JSON.stringify(valor)
+  if (resolved.status === 'unsupported_provider') {
+    return {
+      preferredProvider,
+      preferredModel,
+      envProvider,
+      effectiveProvider: resolved.provider,
+      effectiveModel: null,
+      available: false,
+      source,
+      status: 'NO_IMPLEMENTADO',
+      message: `El proveedor ${resolved.provider} esta configurado, pero aun no tiene implementacion runtime.`,
+    }
+  }
+
+  return {
+    preferredProvider,
+    preferredModel,
+    envProvider,
+    effectiveProvider: resolved.provider,
+    effectiveModel: resolved.model,
+    available: resolved.available,
+    source,
+    status: 'LISTO',
+    message:
+      source === 'CONFIGURACION'
+        ? 'La configuracion central gobierna el OCR documental activo.'
+        : 'El OCR documental toma el proveedor desde variables de entorno.',
+  }
+}
+
+function mapConfigTextValue(value: unknown) {
+  const normalized = String(value ?? '').trim()
+  return normalized || null
 }
 
 export async function obtenerPanelConfiguracion(
   supabase: SupabaseClient
 ): Promise<ConfiguracionPanelData> {
   const [
-    { data: configuraciones, error: configuracionError },
-    { data: reglas, error: reglasError },
-    { data: misiones, error: misionesError },
+    configuracionResult,
+    productosResult,
+    cadenasResult,
+    ciudadesResult,
+    misionesResult,
   ] = await Promise.all([
     supabase
       .from('configuracion')
       .select('id, clave, valor, descripcion, modulo')
       .order('modulo', { ascending: true })
-      .order('clave', { ascending: true })
-      .limit(12),
+      .order('clave', { ascending: true }),
     supabase
-      .from('regla_negocio')
-      .select('id, codigo, modulo, descripcion, severidad, prioridad, activa')
-      .order('prioridad', { ascending: true })
-      .limit(12),
+      .from('producto')
+      .select('id, sku, nombre, nombre_corto, categoria, top_30, activo')
+      .order('nombre_corto', { ascending: true }),
+    supabase
+      .from('cadena')
+      .select('id, codigo, nombre, factor_cuota_default, activa')
+      .order('nombre', { ascending: true }),
+    supabase
+      .from('ciudad')
+      .select('id, nombre, zona, activa')
+      .order('nombre', { ascending: true }),
     supabase
       .from('mision_dia')
-      .select('id, instruccion, orden, activa')
+      .select('id, codigo, instruccion, orden, peso, activa')
       .order('orden', { ascending: true })
-      .limit(20),
+      .order('instruccion', { ascending: true }),
   ])
 
-  if (configuracionError || reglasError || misionesError) {
-    return {
-      resumen: {
-        parametros: 0,
-        reglasActivas: 0,
-        misionesActivas: 0,
-        modulosCubiertos: 0,
-      },
-      parametros: [],
-      reglas: [],
-      misiones: [],
-      infraestructuraLista: false,
-      mensajeInfraestructura:
-        configuracionError?.message ??
-        reglasError?.message ??
-        misionesError?.message ??
-        'Las tablas de configuracion aun no estan listas en Supabase.',
-    }
-  }
+  const infraestructuraErrors = [
+    configuracionResult.error,
+    productosResult.error,
+    cadenasResult.error,
+    ciudadesResult.error,
+    misionesResult.error,
+  ]
+    .filter(Boolean)
+    .map((error) => error?.message)
 
-  const parametros = ((configuraciones ?? []) as ConfiguracionSistema[]).map((item) => ({
+  const configuracionRows = (configuracionResult.data ?? []) as ConfiguracionSistema[]
+  const configuracionMap = new Map(configuracionRows.map((row) => [row.clave, row]))
+  const productos = ((productosResult.data ?? []) as Producto[]).map((item) => ({
     id: item.id,
-    clave: item.clave,
-    modulo: item.modulo,
-    descripcion: item.descripcion,
-    valor: serializarValor(item.valor),
+    sku: item.sku,
+    nombre: item.nombre,
+    nombreCorto: item.nombre_corto,
+    categoria: item.categoria,
+    top30: item.top_30,
+    activo: item.activo,
   }))
-
-  const reglasListadas = ((reglas ?? []) as ReglaNegocio[]).map((item) => ({
+  const cadenas = ((cadenasResult.data ?? []) as CadenaRow[]).map((item) => ({
     id: item.id,
     codigo: item.codigo,
-    modulo: item.modulo,
-    descripcion: item.descripcion,
-    severidad: item.severidad,
-    prioridad: item.prioridad,
+    nombre: item.nombre,
+    factorCuotaDefault: item.factor_cuota_default,
     activa: item.activa,
   }))
-
-  const misionesListadas = ((misiones ?? []) as MisionDia[]).map((item) => ({
+  const ciudades = ((ciudadesResult.data ?? []) as CiudadRow[]).map((item) => ({
     id: item.id,
+    nombre: item.nombre,
+    zona: item.zona,
+    activa: item.activa,
+  }))
+  const misiones = ((misionesResult.data ?? []) as MisionDia[]).map((item) => ({
+    id: item.id,
+    codigo: item.codigo,
     instruccion: item.instruccion,
     orden: item.orden,
+    peso: item.peso,
     activa: item.activa,
   }))
+  const turnos = parseTurnosCatalogo(configuracionMap.get(TURNOS_CONFIG_KEY)?.valor)
 
-  const modulosCubiertos = new Set([
-    ...parametros.map((item) => item.modulo),
-    ...reglasListadas.map((item) => item.modulo),
-  ]).size
+  const parametrosGlobales = GLOBAL_PARAMETER_DEFINITIONS.map((definition) =>
+    buildParametroEditable(definition, configuracionMap.get(definition.key) ?? null)
+  )
+  const parametrosRetencion = RETENTION_PARAMETER_DEFINITIONS.map((definition) =>
+    buildParametroEditable(definition, configuracionMap.get(definition.key) ?? null)
+  )
+  const parametrosNomina = PAYROLL_PARAMETER_DEFINITIONS.map((definition) =>
+    buildParametroEditable(definition, configuracionMap.get(definition.key) ?? null)
+  )
 
   return {
     resumen: {
-      parametros: parametros.length,
-      reglasActivas: reglasListadas.filter((item) => item.activa).length,
-      misionesActivas: misionesListadas.filter((item) => item.activa).length,
-      modulosCubiertos,
+      productosActivos: productos.filter((item) => item.activo).length,
+      cadenasActivas: cadenas.filter((item) => item.activa).length,
+      ciudadesActivas: ciudades.filter((item) => item.activa).length,
+      turnosCatalogo: turnos.length,
+      misionesActivas: misiones.filter((item) => item.activa).length,
+      parametrosConfigurados: [...parametrosGlobales, ...parametrosRetencion, ...parametrosNomina].filter(
+        (item) => item.persisted
+      ).length,
     },
-    parametros,
-    reglas: reglasListadas,
-    misiones: misionesListadas,
-    infraestructuraLista: true,
+    productos,
+    cadenas,
+    ciudades,
+    turnos,
+    parametrosGlobales,
+    parametrosRetencion,
+    parametrosNomina,
+    misiones,
+    ocr: buildOcrConfigItem(configuracionRows),
+    infraestructuraLista: infraestructuraErrors.length === 0,
+    mensajeInfraestructura:
+      infraestructuraErrors.length > 0
+        ? infraestructuraErrors.join(' ')
+        : undefined,
   }
 }
+
