@@ -2,17 +2,26 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import type { ActorActual } from '@/lib/auth/session'
+import type { AccountScopeData } from '@/lib/tenant/accountScope'
 import { createClient } from '@/lib/supabase/client'
+import { AccountScopeSwitcher } from './AccountScopeSwitcher'
 
 type NavItem = {
   href: string
   label: string
 }
 
+interface SidebarProps {
+  actor: ActorActual
+  accountScope: AccountScopeData
+}
+
 const primaryItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/empleados', label: 'Empleados' },
   { href: '/pdvs', label: 'PDVs' },
+  { href: '/ruta-semanal', label: 'Ruta semanal' },
   { href: '/asignaciones', label: 'Asignaciones' },
   { href: '/asistencias', label: 'Asistencias' },
   { href: '/ventas', label: 'Ventas' },
@@ -24,10 +33,15 @@ const adminItems: NavItem[] = [
   { href: '/reportes', label: 'Reportes' },
   { href: '/offline', label: 'Offline' },
   { href: '/configuracion', label: 'Configuracion' },
+  { href: '/reglas', label: 'Reglas' },
   { href: '/admin/users', label: 'Usuarios' },
 ]
 
-export function Sidebar() {
+function formatPuesto(value: string) {
+  return value.replace(/_/g, ' ')
+}
+
+export function Sidebar({ actor, accountScope }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
 
@@ -52,9 +66,34 @@ export function Sidebar() {
               Base navegable alineada a los documentos de producto.
             </p>
           </Link>
+
+          <div className="mt-4 rounded-2xl bg-slate-100 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Sesion activa
+            </p>
+            <p className="mt-2 text-sm font-semibold text-slate-950">{actor.nombreCompleto}</p>
+            <p className="mt-1 text-xs text-slate-600">{formatPuesto(actor.puesto)}</p>
+            <p className="mt-3 text-xs text-slate-500">
+              {accountScope.enabled
+                ? `Alcance: ${accountScope.currentAccountLabel}`
+                : actor.cuentaClienteId
+                  ? 'Cuenta cliente operativa asignada'
+                  : 'Sin cuenta cliente operativa'}
+            </p>
+          </div>
         </div>
 
         <nav className="flex-1 overflow-y-auto px-4 py-5">
+          {accountScope.enabled && (
+            <div className="mb-6">
+              <AccountScopeSwitcher
+                key={accountScope.currentAccountId ?? 'global'}
+                currentAccountId={accountScope.currentAccountId}
+                currentAccountLabel={accountScope.currentAccountLabel}
+                options={accountScope.options}
+              />
+            </div>
+          )}
           <Section title="Operacion" items={primaryItems} pathname={pathname} />
           <Section title="Control" items={adminItems} pathname={pathname} />
         </nav>
