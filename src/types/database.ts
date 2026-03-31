@@ -1,3 +1,5 @@
+import type { Database as GeneratedDatabase } from './database.generated'
+
 export type Puesto =
   | 'DERMOCONSEJERO'
   | 'SUPERVISOR'
@@ -40,7 +42,16 @@ export interface Empleado {
   telefono: string | null
   estatus_laboral: 'ACTIVO' | 'SUSPENDIDO' | 'BAJA'
   fecha_alta: string | null
+  fecha_nacimiento: string | null
   fecha_baja: string | null
+  domicilio_completo: string | null
+  codigo_postal: string | null
+  edad: number | null
+  anios_laborando: number | null
+  sexo: string | null
+  estado_civil: string | null
+  originario: string | null
+  sbc_diario: number | null
   supervisor_empleado_id: string | null
   sueldo_base_mensual: number | null
   expediente_estado: 'PENDIENTE_DOCUMENTOS' | 'EN_REVISION' | 'VALIDADO' | 'OBSERVADO'
@@ -81,6 +92,11 @@ export interface ArchivoHash {
   ruta_archivo: string
   mime_type: string | null
   tamano_bytes: number | null
+  miniatura_sha256: string | null
+  miniatura_bucket: string | null
+  miniatura_ruta_archivo: string | null
+  miniatura_mime_type: string | null
+  miniatura_tamano_bytes: number | null
   creado_por_usuario_id: string | null
   created_at: string
   updated_at: string
@@ -109,6 +125,18 @@ export interface EmpleadoDocumento {
   ocr_resultado: Record<string, unknown>
   metadata: Record<string, unknown>
   creado_por_usuario_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AuditLog {
+  id: string
+  tabla: string
+  registro_id: string
+  accion: string
+  payload: Record<string, unknown>
+  usuario_id: string | null
+  cuenta_cliente_id: string | null
   created_at: string
   updated_at: string
 }
@@ -152,6 +180,26 @@ export interface ConfiguracionSistema {
   updated_at: string
 }
 
+export interface Cadena {
+  id: string
+  codigo: string | null
+  nombre: string
+  factor_cuota_default: number
+  activa: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface Ciudad {
+  id: string
+  nombre: string
+  zona: string
+  estado: string | null
+  activa: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface CuentaClientePdv {
   id: string
   cuenta_cliente_id: string
@@ -173,6 +221,32 @@ export interface ReglaNegocio {
   condicion: Record<string, unknown>
   accion: Record<string, unknown>
   activa: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface HorarioPdv {
+  id: string
+  pdv_id: string
+  nivel_prioridad: number
+  fecha_especifica: string | null
+  dia_semana: number | null
+  codigo_turno: string | null
+  hora_entrada: string
+  hora_salida: string
+  activo: boolean
+  observaciones: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SupervisorPdv {
+  id: string
+  pdv_id: string
+  empleado_id: string
+  activo: boolean
+  fecha_inicio: string
+  fecha_fin: string | null
   created_at: string
   updated_at: string
 }
@@ -211,6 +285,13 @@ export interface Asignacion {
   fecha_inicio: string
   fecha_fin: string | null
   tipo: 'FIJA' | 'ROTATIVA' | 'COBERTURA'
+  naturaleza: 'BASE' | 'COBERTURA_TEMPORAL' | 'COBERTURA_PERMANENTE' | 'MOVIMIENTO'
+  retorna_a_base: boolean
+  asignacion_base_id: string | null
+  asignacion_origen_id: string | null
+  prioridad: number
+  motivo_movimiento: string | null
+  generado_automaticamente: boolean
   factor_tiempo: number
   dias_laborales: string | null
   dia_descanso: string | null
@@ -219,6 +300,56 @@ export interface Asignacion {
   estado_publicacion: 'BORRADOR' | 'PUBLICADA'
   created_at: string
   updated_at: string
+}
+
+export interface AsignacionDiariaResuelta {
+  fecha: string
+  empleado_id: string
+  pdv_id: string | null
+  supervisor_empleado_id: string | null
+  coordinador_empleado_id: string | null
+  cuenta_cliente_id: string | null
+  estado_operativo:
+    | 'ASIGNADA_PDV'
+    | 'FORMACION'
+    | 'VACACIONES'
+    | 'INCAPACIDAD'
+    | 'FALTA_JUSTIFICADA'
+    | 'SIN_ASIGNACION'
+  origen:
+    | 'BASE'
+    | 'COBERTURA_TEMPORAL'
+    | 'COBERTURA_PERMANENTE'
+    | 'FORMACION'
+    | 'VACACIONES'
+    | 'INCAPACIDAD'
+    | 'JUSTIFICACION'
+    | 'NINGUNO'
+  referencia_tabla: 'asignacion' | 'solicitud' | 'formacion' | null
+  referencia_id: string | null
+  mensaje_operativo: string | null
+  laborable: boolean
+  trabaja_en_tienda: boolean
+  sede_formacion: string | null
+  horario_inicio: string | null
+  horario_fin: string | null
+  flags: Record<string, unknown>
+  refreshed_at: string
+}
+
+export interface AsignacionDiariaDirtyQueue {
+  id: string
+  empleado_id: string
+  fecha_inicio: string
+  fecha_fin: string
+  motivo: string
+  payload: Record<string, unknown>
+  estado: 'PENDIENTE' | 'PROCESANDO' | 'PROCESADO' | 'ERROR'
+  intentos: number
+  error_message: string | null
+  created_at: string
+  updated_at: string
+  procesado_at: string | null
 }
 
 export interface Asistencia {
@@ -283,6 +414,371 @@ export interface Venta {
   updated_at: string
 }
 
+export interface LoveIsdin {
+  id: string
+  cuenta_cliente_id: string
+  asistencia_id: string | null
+  empleado_id: string
+  pdv_id: string
+  qr_codigo_id: string | null
+  qr_asignacion_id: string | null
+  qr_personal: string | null
+  afiliado_nombre: string
+  afiliado_contacto: string | null
+  ticket_folio: string | null
+  fecha_utc: string
+  estatus: 'PENDIENTE_VALIDACION' | 'VALIDA' | 'RECHAZADA' | 'DUPLICADA'
+  evidencia_url: string | null
+  evidencia_hash: string | null
+  origen: 'ONLINE' | 'OFFLINE_SYNC' | 'AJUSTE_ADMIN'
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface LoveIsdinQrCodigo {
+  id: string
+  cuenta_cliente_id: string
+  codigo: string
+  imagen_url: string | null
+  imagen_hash: string | null
+  estado: 'DISPONIBLE' | 'ACTIVO' | 'BLOQUEADO' | 'BAJA'
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface LoveIsdinQrAsignacion {
+  id: string
+  cuenta_cliente_id: string
+  qr_codigo_id: string
+  empleado_id: string
+  fecha_inicio: string
+  fecha_fin: string | null
+  motivo: string | null
+  observaciones: string | null
+  created_by_usuario_id: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface LoveIsdinQrImportLote {
+  id: string
+  cuenta_cliente_id: string
+  archivo_nombre: string
+  archivo_hash: string | null
+  estado: 'BORRADOR_PREVIEW' | 'CONFIRMADO' | 'CANCELADO'
+  resumen: Record<string, unknown>
+  advertencias: Array<Record<string, unknown>>
+  metadata: Record<string, unknown>
+  confirmado_por_usuario_id: string | null
+  confirmado_en: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface LoveIsdinResumenDiario {
+  fecha_operacion: string
+  cuenta_cliente_id: string
+  pdv_id: string
+  empleado_id: string
+  supervisor_empleado_id: string | null
+  zona: string | null
+  cadena: string | null
+  qr_codigo_id: string | null
+  afiliaciones_total: number
+  afiliaciones_validas: number
+  afiliaciones_pendientes: number
+  afiliaciones_rechazadas: number
+  afiliaciones_duplicadas: number
+}
+
+export interface RegistroExtemporaneo {
+  id: string
+  cuenta_cliente_id: string
+  empleado_id: string
+  supervisor_empleado_id: string | null
+  pdv_id: string
+  asistencia_id: string | null
+  fecha_operativa: string
+  fecha_registro_utc: string
+  tipo_registro: 'VENTA' | 'LOVE_ISDIN' | 'AMBAS'
+  estatus: 'PENDIENTE_APROBACION' | 'APROBADO' | 'RECHAZADO'
+  motivo: string
+  motivo_rechazo: string | null
+  evidencia_url: string | null
+  evidencia_hash: string | null
+  evidencia_thumbnail_url: string | null
+  evidencia_thumbnail_hash: string | null
+  venta_payload: Record<string, unknown>
+  love_payload: Record<string, unknown>
+  venta_registro_id: string | null
+  love_registro_id: string | null
+  aprobado_por_empleado_id: string | null
+  aprobado_en: string | null
+  rechazado_por_empleado_id: string | null
+  rechazado_en: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface Solicitud {
+  id: string
+  cuenta_cliente_id: string
+  empleado_id: string
+  supervisor_empleado_id: string | null
+  tipo:
+    | 'INCAPACIDAD'
+    | 'VACACIONES'
+    | 'PERMISO'
+    | 'AVISO_INASISTENCIA'
+    | 'JUSTIFICACION_FALTA'
+  fecha_inicio: string
+  fecha_fin: string
+  motivo: string | null
+  justificante_url: string | null
+  justificante_hash: string | null
+  estatus:
+    | 'BORRADOR'
+    | 'ENVIADA'
+    | 'VALIDADA_SUP'
+    | 'REGISTRADA_RH'
+    | 'REGISTRADA'
+    | 'RECHAZADA'
+    | 'CORRECCION_SOLICITADA'
+  comentarios: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface Gasto {
+  id: string
+  cuenta_cliente_id: string
+  empleado_id: string
+  supervisor_empleado_id: string | null
+  pdv_id: string | null
+  formacion_evento_id: string | null
+  tipo: 'VIATICOS' | 'TRANSPORTE' | 'ALIMENTOS' | 'MATERIAL_POP' | 'FORMACION' | 'HOSPEDAJE' | 'OTRO'
+  monto: number
+  moneda: string
+  fecha_gasto: string
+  comprobante_url: string | null
+  comprobante_hash: string | null
+  estatus: 'PENDIENTE' | 'APROBADO' | 'RECHAZADO' | 'REEMBOLSADO'
+  notas: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface EntregaMaterial {
+  id: string
+  cuenta_cliente_id: string
+  empleado_id: string
+  supervisor_empleado_id: string | null
+  pdv_id: string | null
+  tipo_material: string
+  descripcion_material: string | null
+  cantidad: number
+  fecha_entrega: string
+  fecha_devolucion: string | null
+  estado: 'ENTREGADO' | 'DEVUELTO_PARCIAL' | 'DEVUELTO' | 'PERDIDO' | 'DANADO'
+  evidencia_entrega_url: string | null
+  evidencia_entrega_hash: string | null
+  evidencia_devolucion_url: string | null
+  evidencia_devolucion_hash: string | null
+  observaciones: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface MaterialCatalogo {
+  id: string
+  cuenta_cliente_id: string
+  nombre: string
+  tipo: string
+  cantidad_default: number
+  requiere_ticket_compra: boolean
+  requiere_evidencia_obligatoria: boolean
+  activo: boolean
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface MaterialDistribucionLote {
+  id: string
+  cuenta_cliente_id: string
+  mes_operacion: string
+  estado: 'BORRADOR_PREVIEW' | 'CONFIRMADO' | 'CANCELADO'
+  archivo_nombre: string
+  archivo_url: string | null
+  archivo_hash: string | null
+  archivo_mime_type: string | null
+  archivo_tamano_bytes: number | null
+  gemini_status: 'SIN_INTENTO' | 'OK' | 'ADVERTENCIA' | 'ERROR' | 'NO_CONFIGURADO'
+  advertencias: unknown[]
+  resumen: Record<string, unknown>
+  preview_data: Record<string, unknown>
+  metadata: Record<string, unknown>
+  created_by_usuario_id: string | null
+  confirmado_por_usuario_id: string | null
+  confirmado_en: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MaterialDistribucionMensual {
+  id: string
+  cuenta_cliente_id: string
+  lote_id: string | null
+  pdv_id: string
+  supervisor_empleado_id: string | null
+  confirmado_por_empleado_id: string | null
+  mes_operacion: string
+  estado:
+    | 'PENDIENTE_RECEPCION'
+    | 'RECIBIDA_CONFORME'
+    | 'RECIBIDA_CON_OBSERVACIONES'
+    | 'PENDIENTE_ACLARACION'
+    | 'CANCELADA'
+  cadena_snapshot: string | null
+  id_pdv_cadena_snapshot: string | null
+  sucursal_snapshot: string | null
+  nombre_dc_snapshot: string | null
+  territorio_snapshot: string | null
+  hoja_origen: string | null
+  firma_recepcion_url: string | null
+  firma_recepcion_hash: string | null
+  foto_recepcion_url: string | null
+  foto_recepcion_hash: string | null
+  foto_recepcion_capturada_en: string | null
+  confirmado_en: string | null
+  observaciones: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface MaterialDistribucionDetalle {
+  id: string
+  distribucion_id: string
+  material_catalogo_id: string
+  cantidad_enviada: number
+  cantidad_recibida: number
+  cantidad_entregada: number
+  cantidad_observada: number
+  material_nombre_snapshot: string | null
+  material_tipo_mes: string | null
+  mecanica_canje: string | null
+  indicaciones_producto: string | null
+  instrucciones_mercadeo: string | null
+  requiere_ticket_mes: boolean
+  requiere_evidencia_entrega_mes: boolean
+  requiere_evidencia_mercadeo: boolean
+  es_regalo_dc: boolean
+  excluir_de_registrar_entrega: boolean
+  total_columna_hoja: number | null
+  observaciones: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface MaterialInventarioMovimiento {
+  id: string
+  cuenta_cliente_id: string
+  pdv_id: string
+  material_catalogo_id: string
+  lote_id: string | null
+  distribucion_id: string | null
+  distribucion_detalle_id: string | null
+  conteo_jornada_id: string | null
+  empleado_id: string | null
+  tipo_movimiento:
+    | 'RECEPCION_LOTE'
+    | 'ENTREGA_CLIENTE'
+    | 'AJUSTE_FUERA_TURNO'
+    | 'MERMA'
+    | 'APERTURA_JORNADA'
+    | 'CIERRE_JORNADA'
+  sentido: 'ENTRADA' | 'SALIDA' | 'NEUTRO'
+  cantidad: number
+  cantidad_delta: number
+  motivo: string | null
+  observaciones: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface MaterialConteoJornada {
+  id: string
+  cuenta_cliente_id: string
+  pdv_id: string
+  empleado_id: string
+  fecha_operacion: string
+  momento: 'APERTURA' | 'CIERRE'
+  observaciones: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface MaterialConteoJornadaDetalle {
+  id: string
+  conteo_id: string
+  material_catalogo_id: string
+  cantidad_contada: number
+  diferencia_detectada: number | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface MaterialEvidenciaMercadeo {
+  id: string
+  cuenta_cliente_id: string
+  lote_id: string
+  distribucion_id: string
+  pdv_id: string
+  empleado_id: string
+  distribucion_detalle_ids: string[]
+  foto_url: string
+  foto_hash: string | null
+  foto_capturada_en: string
+  observaciones: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface MaterialEntregaPromocional {
+  id: string
+  cuenta_cliente_id: string
+  distribucion_id: string | null
+  distribucion_detalle_id: string | null
+  material_catalogo_id: string
+  empleado_id: string
+  pdv_id: string
+  cantidad_entregada: number
+  fecha_utc: string
+  evidencia_material_url: string | null
+  evidencia_material_hash: string | null
+  evidencia_pdv_url: string | null
+  evidencia_pdv_hash: string | null
+  ticket_compra_url: string | null
+  ticket_compra_hash: string | null
+  observaciones: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
 export interface RutaSemanal {
   id: string
   cuenta_cliente_id: string
@@ -290,6 +786,7 @@ export interface RutaSemanal {
   semana_inicio: string
   estatus: 'BORRADOR' | 'PUBLICADA' | 'EN_PROGRESO' | 'CERRADA'
   notas: string | null
+  metadata: Record<string, unknown>
   created_by_usuario_id: string | null
   updated_by_usuario_id: string | null
   created_at: string
@@ -318,12 +815,70 @@ export interface RutaSemanalVisita {
   updated_at: string
 }
 
+export interface RutaAgendaEvento {
+  id: string
+  cuenta_cliente_id: string
+  ruta_semanal_id: string
+  ruta_semanal_visita_id: string | null
+  supervisor_empleado_id: string
+  pdv_id: string | null
+  fecha_operacion: string
+  tipo_evento:
+    | 'VISITA_ADICIONAL'
+    | 'OFICINA'
+    | 'FIRMA_CONTRATO'
+    | 'FORMACION'
+    | 'ENTREGA_NUEVA_DC'
+    | 'PRESENTACION_GERENTE'
+    | 'VISITA_EMERGENCIA'
+    | 'OTRO'
+  modo_impacto: 'SUMA' | 'SOBREPONE_PARCIAL' | 'REEMPLAZA_TOTAL'
+  estatus_aprobacion: 'NO_REQUIERE' | 'PENDIENTE_COORDINACION' | 'APROBADO' | 'RECHAZADO'
+  estatus_ejecucion: 'PENDIENTE' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO'
+  titulo: string
+  descripcion: string | null
+  sede: string | null
+  hora_inicio: string | null
+  hora_fin: string | null
+  selfie_url: string | null
+  selfie_hash: string | null
+  evidencia_url: string | null
+  evidencia_hash: string | null
+  check_in_en: string | null
+  check_out_en: string | null
+  metadata: Record<string, unknown>
+  created_by_usuario_id: string | null
+  resolved_by_usuario_id: string | null
+  resolved_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RutaVisitaPendienteReposicion {
+  id: string
+  cuenta_cliente_id: string
+  ruta_semanal_id: string
+  ruta_semanal_visita_id: string
+  agenda_evento_id: string | null
+  supervisor_empleado_id: string
+  pdv_id: string
+  fecha_origen: string
+  semana_sugerida_inicio: string | null
+  clasificacion: 'JUSTIFICADA' | 'INJUSTIFICADA'
+  motivo: string
+  estado: 'PENDIENTE' | 'REPROGRAMADA' | 'DESCARTADA' | 'EJECUTADA'
+  ruta_destino_id: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
 export interface PeriodoNomina {
   id: string
   clave: string
   fecha_inicio: string
   fecha_fin: string
-  estado: 'ABIERTO' | 'CERRADO'
+  estado: 'BORRADOR' | 'APROBADO' | 'DISPERSADO'
   fecha_cierre: string | null
   observaciones: string | null
   metadata: Record<string, unknown>
@@ -367,52 +922,152 @@ export interface NominaLedger {
   updated_at: string
 }
 
-export interface Database {
-  public: {
-    Tables: {
-      cuenta_cliente: { Row: CuentaCliente }
-      cadena: {
-        Row: {
-          id: string
-          codigo: string
-          nombre: string
-          factor_cuota_default: number
-          activa: boolean
-          created_at: string
-          updated_at: string
-        }
-      }
-      ciudad: {
-        Row: {
-          id: string
-          nombre: string
-          zona: string
-          activa: boolean
-          created_at: string
-          updated_at: string
-        }
-      }
-      empleado: { Row: Empleado }
-      usuario: { Row: UsuarioSistema }
-      archivo_hash: { Row: ArchivoHash }
-      empleado_documento: { Row: EmpleadoDocumento }
-      pdv: { Row: Pdv }
-      geocerca_pdv: { Row: GeocercaPdv }
-      cuenta_cliente_pdv: { Row: CuentaClientePdv }
-      configuracion: { Row: ConfiguracionSistema }
-      regla_negocio: { Row: ReglaNegocio }
-      mision_dia: { Row: MisionDia }
-      producto: { Row: Producto }
-      asignacion: { Row: Asignacion }
-      ruta_semanal: { Row: RutaSemanal }
-      ruta_semanal_visita: { Row: RutaSemanalVisita }
-      asistencia: { Row: Asistencia }
-      venta: { Row: Venta }
-      nomina_periodo: { Row: PeriodoNomina }
-      cuota_empleado_periodo: { Row: CuotaEmpleadoPeriodo }
-      nomina_ledger: { Row: NominaLedger }
-    }
-  }
+export interface Campana {
+  id: string
+  cuenta_cliente_id: string
+  cadena_id: string | null
+  nombre: string
+  descripcion: string | null
+  fecha_inicio: string
+  fecha_fin: string
+  estado: 'BORRADOR' | 'ACTIVA' | 'CERRADA' | 'CANCELADA'
+  productos_foco: string[]
+  cuota_adicional: number
+  instrucciones: string | null
+  evidencias_requeridas: string[]
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
 }
 
+export interface CampanaPdv {
+  id: string
+  campana_id: string
+  cuenta_cliente_id: string
+  pdv_id: string
+  dc_empleado_id: string | null
+  tareas_requeridas: string[]
+  tareas_cumplidas: string[]
+  estatus_cumplimiento: string
+  avance_porcentaje: number
+  evidencias_cargadas: number
+  comentarios: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
 
+export interface CampanaPdvProductoMeta {
+  id: string
+  campana_id: string
+  campana_pdv_id: string
+  cuenta_cliente_id: string
+  pdv_id: string
+  producto_id: string
+  cuota: number
+  tipo_meta: 'VENTA' | 'EXHIBICION'
+  observaciones: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MensajeInterno {
+  id: string
+  cuenta_cliente_id: string
+  creado_por_usuario_id: string | null
+  titulo: string
+  cuerpo: string
+  tipo: 'MENSAJE' | 'ENCUESTA'
+  grupo_destino: 'TODOS_DCS' | 'ZONA' | 'SUPERVISOR'
+  zona: string | null
+  supervisor_empleado_id: string | null
+  opciones_respuesta: Record<string, unknown>[]
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface MensajeReceptor {
+  id: string
+  mensaje_id: string
+  cuenta_cliente_id: string
+  empleado_id: string
+  leido_en: string | null
+  respondido_en: string | null
+  respuesta: string | null
+  estado: 'PENDIENTE' | 'LEIDO' | 'RESPONDIDO'
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface MensajeAdjunto {
+  id: string
+  mensaje_id: string
+  cuenta_cliente_id: string
+  archivo_hash_id: string
+  nombre_archivo_original: string
+  mime_type: string | null
+  tamano_bytes: number | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface PushSubscriptionRegistro {
+  id: string
+  cuenta_cliente_id: string | null
+  usuario_id: string
+  empleado_id: string
+  endpoint: string
+  p256dh: string
+  auth: string
+  user_agent: string | null
+  ultima_suscripcion_en: string
+  ultimo_envio_en: string | null
+  ultimo_error: string | null
+  activa: boolean
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+export interface FormacionEvento {
+  id: string
+  cuenta_cliente_id: string
+  nombre: string
+  descripcion: string | null
+  sede: string
+  ciudad: string | null
+  tipo: string
+  responsable_empleado_id: string | null
+  fecha_inicio: string
+  fecha_fin: string
+  estado: 'PENDIENTE' | 'PROGRAMADA' | 'EN_CURSO' | 'FINALIZADA' | 'CANCELADA'
+  participantes: Record<string, unknown>[]
+  gastos_operativos: Record<string, unknown>[]
+  notificaciones: Record<string, unknown>[]
+  created_by_usuario_id: string | null
+  updated_by_usuario_id: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface FormacionAsistencia {
+  id: string
+  evento_id: string
+  cuenta_cliente_id: string
+  empleado_id: string
+  participante_nombre: string | null
+  puesto: string | null
+  confirmado: boolean
+  presente: boolean
+  estado: string
+  evidencias: Record<string, unknown>[]
+  comentarios: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export type Database = GeneratedDatabase

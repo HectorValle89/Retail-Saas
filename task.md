@@ -14,9 +14,16 @@ Documento derivado para seguimiento ejecutivo. La fuente de verdad del producto 
 
 ## Estado general
 
-- Estado del backlog canonico: reconciliado contra .kiro/specs/field-force-platform/tasks.md.
+- Estado del backlog canonico: `286 / 289` checkboxes cerrados (`99.0%`) al contar todos los checkboxes de `.kiro/specs/field-force-platform/tasks.md`.
 - Estado de esta bitacora: derivada y secundaria.
 - Regla: si hay conflicto con .kiro/specs/field-force-platform/{design,requirements,tasks}.md, prevalece .kiro.
+
+## Cierre actual (2026-03-20)
+
+- El único pendiente canónico abierto es `0.1.1 Crear proyecto con create-next-app usando flags --typescript --tailwind --app`.
+- Ese pendiente es una excepción histórica de bootstrap; no representa una brecha funcional vigente del producto.
+- El informe técnico y funcional del estado actual vive en `docs/informe-cierre-y-funcionamiento-app.md`.
+- No se deben cerrar más items del canon sin evidencia nueva de implementación o sin una aceptación retrospectiva explícita para `0.1.1`.
 
 ## Plan ejecutivo
 
@@ -55,7 +62,7 @@ Documento derivado para seguimiento ejecutivo. La fuente de verdad del producto 
 ### P1 - Ejecucion diaria
 
 - [x] Implementar `asistencias` con GPS, selfie y justificacion fuera de geocerca.
-- [x] Implementar `ventas` ligadas a jornada activa.
+- [x] Implementar `ventas` ligadas a check-in válido del mismo día, con ventana digital post check-out.
 - [x] Preparar cola offline y sync base para PWA.
 
 ### P2 - Control y gobierno
@@ -64,11 +71,27 @@ Documento derivado para seguimiento ejecutivo. La fuente de verdad del producto 
 - [x] Implementar `reportes`, `bitacora` y `ranking`.
 - [x] Implementar pruebas de integracion y property-based tests.
 
+### P3 - PWA y Service Worker
+
+- [x] 7.6 Service Worker y estrategias de red aplicado en `public/sw.js`.
+  - [x] 7.6.1 `CacheFirst` para assets y rutas estáticas que aprovechan `cacheFirstWithTtl`.
+  - [x] 7.6.2 `NetworkFirst` con fallback offline para datos operativos (navegación y APIs) gracias al handler `networkFirst`.
+  - [x] 7.6.3 `StaleWhileRevalidate` para catálogos identificados como `/producto`, `/cadena`, `/ciudad`, `/horario` y `/mision`.
+  - [x] 7.6.4 No se dispara polling automático; el service worker solo responde a peticiones navegadas o manuales.
+  - [x] 7.6.5 Documentos pesados (`.pdf`, `.docx`, `.xlsx`, `.csv`, etc.) no se cachean ni se descargan automáticamente.
+
 ## Dependencias criticas
 
 - El esquema Supabase debe existir antes de levantar modulos de negocio.
 - Auth depende de `empleado`, `usuario` y claims JWT.
 - `asignaciones` depende de `empleado`, `pdv`, `geocerca_pdv`, `supervisor_pdv` y configuracion.
+
+## Próximo bloque (2026-03-17)
+
+- Paso 1: reconfirmar el backlog no cerrado revisando `5.3 Motor de Cuotas` y las notas pendientes de `5.4 Entrega de material` en `.kiro/specs/field-force-platform/tasks.md` para anotar exactamente qué falta implementar.
+- Paso 2: once se valide el estado real del código/front (cubriendo por ejemplo formularios de entrega, historial y carga de gastos) se actualizarán `task.md` y `AGENT_HISTORY.md` con las decisiones y pruebas realizadas antes de marcar ítems como completados (la regla de reconciliación se mantiene intacta).
+- Paso 3: mantener la compactación contextual: antes de que se acerque la ventana de contexto al 95 % se deja un resumen breve del avance, las validaciones (build, lint, docs:check-encoding) y los bloqueos detectados, de modo que los siguientes agentes retomen sin perder trazabilidad.
+- Paso 4: al desplegar en Cloudflare, conectar la automatización diaria de asignaciones usando `GET /api/asignaciones/scheduled-publication` con `x-asignaciones-cron-secret`, para recalcular `mes actual + siguiente` sin depender del frontend.
 - `asistencias` depende de `asignaciones`, `mision_dia`, `geocerca_pdv` y auth activa.
 - `nomina` y `cuotas` dependen de `asistencias`, `ventas` y periodos cerrables.
 
@@ -95,9 +118,9 @@ Documento derivado para seguimiento ejecutivo. La fuente de verdad del producto 
 - Estado: en progreso, pendiente ejecutar migraciones y validar flujo real con Supabase.
 
 ### 2026-03-14 15:45
-- Se agrega migracion de sincronizacion de claims JWT hacia uth.users.
-- Se agrega migracion base de signacion con RLS y estado BORRADOR/PUBLICADA.
-- Se implementan primeras vistas funcionales de empleados, pdvs y signaciones con lectura desde Supabase y tolerancia a infraestructura pendiente.
+- Se agrega migracion de sincronizacion de claims JWT hacia auth.users.
+- Se agrega migracion base de asignacion con RLS y estado BORRADOR/PUBLICADA.
+- Se implementan primeras vistas funcionales de empleados, pdvs y asignaciones con lectura desde Supabase y tolerancia a infraestructura pendiente.
 - Estado: en progreso, pendiente ejecutar migraciones y validar datos reales.
 
 ### 2026-03-14 18:10
@@ -222,3 +245,15 @@ pm run build; queda pendiente eportes, auditoria ampliada e invalidacion de ses
 - Se agrega `src/components/auth/AuthSessionMonitor.tsx` al layout global para revisar la sesion cada minuto y al volver foco/visibilidad, forzando `router.refresh()` o `signOut()` segun corresponda.
 - Se crea la suite `playwright.retail.config.ts` con pruebas en `tests/` para contexto de sesion, validacion de asignaciones y agregacion de reportes; `npm run test`, `npm run lint` y `npm run build` pasan.
 - Estado: backlog ejecutivo funcionalmente cerrado; quedan solo evoluciones futuras de producto, no pendientes abiertos del plan actual.
+
+### 2026-03-18 10:05
+- Se audita `AGENT_HISTORY.md`, `task.md` y el canon en `.kiro/specs/field-force-platform/` para reconciliar el backlog derivado contra el estado real del arbol de trabajo.
+- Se confirma que `task.md` quedo desfasado frente a cierres posteriores de `4.3.1` a `4.3.5` y frente a cambios no reconciliados en `dashboard`, `reportes`, `offline`, `rutas`, `asistencias`, `ventas` y `nomina` visibles en el worktree.
+- Se sanean bloqueos locales de calidad en `src/features/asistencias/services/asistenciaService.ts`, `src/features/solicitudes/actions.test.ts`, `tests/gastos.spec.ts` y `eslint.config.mjs` para recuperar la barrera tecnica del corte.
+- Validaciones de este corte: `npm run docs:check-encoding` aprobado, `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` limpio y `npm run lint` sin errores; solo persisten warnings. `npm run build` sigue bloqueado externamente por `spawn EPERM` despues de compilar.
+- Estado: reconciliacion documental en progreso. No se mueven mas checkboxes del canon en este corte hasta terminar el mapeo conservador item por item entre `.kiro/specs/field-force-platform/tasks.md` y la implementacion real.
+
+### 2026-03-31 15:20
+- Se implementa el flujo de registro extemporáneo para Ventas y LOVE ISDIN con buffer `registro_extemporaneo`, captura desde `Incidencias`, revisión por SUPERVISOR/ADMINISTRADOR en `Solicitudes` y consolidación final auditada.
+- Ventas reemplaza el registro del mismo producto y fecha operativa cuando la incidencia aprobada consolida; LOVE ISDIN evita duplicación ciega y conserva trazabilidad `EXTEMPORANEO`.
+- Estado: en progreso validado con `cmd /c npx tsc --noEmit` y `cmd /c npm run build`; pruebas de UI/unit siguen bloqueadas localmente por `spawn EPERM` del entorno.

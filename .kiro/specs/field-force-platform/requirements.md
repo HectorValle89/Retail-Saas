@@ -24,7 +24,7 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 - **Catálogo de Misiones**: Conjunto de instrucciones físicas configuradas por el ADMINISTRADOR desde las cuales el sistema selecciona aleatoriamente la Misión del Día para cada check-in.
 - **Tarea de Visita**: Actividad de ejecución en campo asignada al Promotor durante una visita activa (foto de anaquel, conteo de inventario, encuesta, registro de precio). Las Tareas de Visita son distintas de la Misión del Día.
 - **Check-in**: Registro de entrada validado por GPS y selfie al inicio de una visita.
-- **Check-out**: Registro de salida al finalizar una visita, que requiere confirmación de ventas.
+- **Check-out**: Registro de salida al finalizar una visita, que cierra la presencia física en el PDV pero deja abierta la ventana digital del mismo día para reportar ventas y LOVE ISDIN.
 - **PDV**: Punto de Venta; tienda o sucursal donde opera el Promotor.
 - **Periodo**: Ciclo de nómina (quincenal o mensual) con fecha de apertura y cierre.
 - **Pre-nómina**: Cálculo en tiempo real de los ingresos acumulados del Promotor en el Periodo activo.
@@ -45,6 +45,27 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 ---
 
 ## Requirements
+### Requirement 0: Disciplina de Implementacion Asistida por Skills
+
+**User Story:** Como dueno tecnico del repositorio, quiero que todo agente que modifique el proyecto use las skills locales relevantes de forma obligatoria, para estandarizar calidad, depuracion, pruebas, performance y manejo seguro de encoding.
+
+#### Acceptance Criteria
+
+1. THE Sistema de trabajo SHALL considerar `.claude/skills/` como biblioteca operativa obligatoria para agentes que editen este repositorio.
+2. WHEN un agente trabaje sobre PWA, Service Worker, cache o instalacion offline, THEN THE agente SHALL consultar y aplicar `01-testing-tdd/pwa-service-worker`.
+3. WHEN un agente trabaje sobre sincronizacion offline, IndexedDB o colas de reintento, THEN THE agente SHALL consultar y aplicar `06-performance/offline-sync-patterns`.
+4. WHEN un agente trabaje sobre tipado TypeScript, clientes Supabase o contratos de datos, THEN THE agente SHALL consultar y aplicar `05-code-review/typescript-strict-typing`.
+5. WHEN un agente trabaje sobre UI movil o vistas compactas, THEN THE agente SHALL consultar y aplicar `02-testing-e2e/tailwind-mobile-first`.
+6. WHEN un agente agregue o modifique flujos criticos de interfaz, THEN THE agente SHALL consultar y aplicar `02-testing-e2e/playwright-testing`.
+7. WHEN un agente depure un fallo no trivial o una regresion, THEN THE agente SHALL consultar y aplicar `03-debugging/systematic-debugging`.
+8. WHEN un agente modifique migraciones, consultas intensivas o indices, THEN THE agente SHALL consultar y aplicar `06-performance/sql-indexing-strategy`.
+9. WHEN un agente lea o edite documentos, migraciones, seeds o archivos sensibles a codificacion, THEN THE agente SHALL consultar y aplicar `09-encoding/utf8-standard`.
+10. THE agente SHALL registrar en el historial del proyecto cualquier decision relevante que haya sido guiada por una skill cuando eso afecte arquitectura, performance, pruebas o reconciliacion.
+11. WHEN un agente modifique documentos, migraciones, seeds o configuracion, THEN THE agente SHALL preservar UTF-8 sin BOM y saltos de linea LF.
+12. BEFORE cerrar una iteracion que toque archivos sensibles a codificacion, THE agente SHALL ejecutar `npm run docs:check-encoding` y resolver cualquier hallazgo antes de reconciliar backlog o actualizar documentos derivados.
+13. THE agente SHALL NOT usar flujos de edicion que reserialicen texto sin control de codificacion sobre archivos sensibles, incluyendo patrones tipo `Get-Content ... | Set-Content ...`.
+14. WHEN un agente marque nuevos items como completos en `.kiro/specs/field-force-platform/tasks.md`, THEN THE agente SHALL respaldar ese cambio con trabajo real staged en codigo, migraciones, seeds, scripts o pruebas.
+15. IF un agente detecta que la continuidad del trabajo corre riesgo por saturacion de contexto, THEN THE agente SHALL compactar el estado operativo en documentos derivados antes de continuar o cerrar el turno.
 
 ### Requirement 1: Check-in Validado con GPS y Biometría
 
@@ -59,7 +80,7 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 5. WHEN el Check-in es aceptado por el Validador_GPS, THE Validador_Biometrico SHALL comparar la selfie capturada con la foto de referencia del Promotor usando un umbral de similitud configurable.
 6. IF la similitud biométrica está por debajo del umbral configurado, THEN THE Sistema SHALL rechazar el Check-in, registrar el intento fallido con timestamp, coordenadas y la Misión del Día presentada, y notificar al Gestor responsable.
 7. WHEN el Check-in supera ambas validaciones, THE Sistema SHALL registrar el Check-in como válido con timestamp UTC, coordenadas exactas, hash de la selfie y la instrucción de Misión del Día que se presentó al Promotor.
-8. WHILE el Promotor no tiene un Check-in válido activo, THE App_Movil SHALL impedir el acceso a las funciones de registro de ventas y ejecución de Tareas de Visita.
+8. WHILE el Promotor no tiene un Check-in válido del mismo día, THE App_Movil SHALL impedir el acceso a las funciones de registro de ventas, afiliaciones LOVE ISDIN y ejecución de Tareas de Visita.
 9. THE Sistema SHALL almacenar la evidencia fotográfica de cada Check-in durante un mínimo de 90 días.
 10. THE ADMINISTRADOR SHALL poder gestionar el Catálogo de Misiones: crear, editar, activar y desactivar instrucciones físicas; el catálogo debe contener al menos 10 instrucciones activas para garantizar variabilidad.
 11. THE Sistema SHALL garantizar que la Misión del Día presentada en un check-in sea diferente a la presentada en el check-in inmediatamente anterior del mismo Promotor en el mismo PDV.
@@ -68,16 +89,18 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 
 ### Requirement 2: Check-out con Confirmación de Ventas
 
-**User Story:** Como Gestor, quiero que el Promotor confirme sus ventas antes de salir del PDV, para que ninguna información comercial se pierda y el cierre de visita sea completo.
+**User Story:** Como Gestor, quiero que el Promotor cierre rápido su salida física del PDV y termine sus reportes del día dentro de una ventana digital controlada, para mantener la trazabilidad sin frenarlo en tienda.
 
 #### Acceptance Criteria
 
 1. WHEN el Promotor intenta iniciar un Check-out, THE App_Movil SHALL verificar que todas las Tareas de Visita obligatorias de la visita estén en estado completado o justificado.
 2. IF existen Tareas de Visita obligatorias sin completar ni justificar, THEN THE App_Movil SHALL bloquear el Check-out y mostrar la lista de tareas pendientes al Promotor.
-3. WHEN todas las Misiones están resueltas, THE App_Movil SHALL presentar al Promotor un resumen de las ventas registradas durante la visita para confirmación explícita.
-4. WHEN el Promotor confirma las ventas y ejecuta el Check-out, THE Sistema SHALL registrar el Check-out con timestamp UTC y marcar la visita como cerrada.
+3. WHEN todas las Misiones están resueltas, THE App_Movil SHALL permitir al Promotor ejecutar el Check-out físico sin exigir la confirmación inmediata de ventas.
+4. WHEN el Promotor ejecuta el Check-out, THE Sistema SHALL registrar el Check-out con timestamp UTC, marcar el fin de la presencia física y habilitar el estado `Reportes pendientes del día`.
 5. THE Sistema SHALL calcular la duración de la visita como la diferencia entre el timestamp del Check-out y el timestamp del Check-in válido correspondiente.
-6. IF el Promotor no ejecuta Check-out antes del horario límite configurado para el PDV, THEN THE Sistema SHALL registrar automáticamente un Check-out tardío y notificar al Gestor.
+6. WHILE exista un Check-in válido del mismo día, THE Sistema SHALL permitir registrar ventas y LOVE ISDIN hasta las 23:59:59 de la zona horaria local del estado del PDV, aunque el Check-out ya se haya realizado.
+7. AT 00:00:00 de la fecha local siguiente al PDV, THE Sistema SHALL bloquear el registro estándar del día anterior y marcar la jornada como `Sin Reporte` si no hubo captura.
+8. IF el Promotor no ejecuta Check-out antes del horario límite configurado para el PDV, THEN THE Sistema SHALL registrar automáticamente un Check-out tardío y notificar al Gestor.
 
 ---
 
@@ -184,27 +207,30 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 
 3. THE Sistema SHALL otorgar al rol SUPERVISOR acceso a: validación o rechazo (sin edición) de excepciones de asistencia y ventas capturadas, aprobación de solicitudes de primer nivel, planificación de ruta semanal de visitas, y registro de visita a tienda con selfie obligatoria y checklist de calidad.
 
-4. THE Sistema SHALL otorgar al rol COORDINADOR acceso a: aprobación definitiva de vacaciones, cambios de tienda de un DERMOCONSEJERO, resolución de incidencias graves no resueltas por SUPERVISOR, y aprobación o rechazo de rutas y visitas de SUPERVISORES.
+4. THE Sistema SHALL otorgar al rol COORDINADOR acceso a: aprobación definitiva de vacaciones, cambios de tienda de un DERMOCONSEJERO, resolución de incidencias graves no resueltas por SUPERVISOR, aprobación o rechazo de rutas y visitas de SUPERVISORES, y validación de candidatos enviados por RECLUTAMIENTO antes de regresar el expediente al flujo operativo.
 
-5. THE Sistema SHALL otorgar al rol RECLUTAMIENTO acceso a: gestión de vacantes, entrevistas y candidatos, creación y administración de expedientes digitales con soporte OCR+IA, envío de expedientes completos a NÓMINA para alta ante IMSS, gestión de bajas con checklist, y formalización en el sistema de incidencias autorizadas por operación.
+5. THE Sistema SHALL otorgar al rol RECLUTAMIENTO acceso a: gestión de vacantes, entrevistas y candidatos, creación de candidatos por CV con soporte OCR+IA, administración de expedientes digitales, envío de candidatos a COORDINACIÓN para validación del PDV objetivo, envío de expedientes completos a NÓMINA para alta ante IMSS, gestión de bajas con checklist, y formalización en el sistema de incidencias autorizadas por operación.
+6. WHEN RECLUTAMIENTO carga el expediente completo en PDF para un alta, THE Sistema SHALL iniciar de inmediato el análisis OCR+IA del documento y rellenar automáticamente el formulario con los datos detectados antes del guardado final.
+7. WHEN el expediente PDF contiene múltiples documentos, THE Sistema SHALL priorizar el `COMPROBANTE_DOMICILIO` para extraer `domicilio_completo` y `codigo_postal`; IF no existe un comprobante legible, THEN podrá usar la INE como fuente secundaria de domicilio.
+8. THE Sistema SHALL persistir en el expediente laboral, cuando existan o puedan inferirse con confianza suficiente, al menos los siguientes campos: `nombre_completo`, `correo_electronico`, `puesto`, `fecha_alta`, `fecha_nacimiento`, `rfc`, `curp`, `nss`, `domicilio_completo`, `codigo_postal`, `telefono`, `edad`, `anios_laborando`, `sexo`, `estado_civil`, `originario` y `sbc_diario`.
 
-6. THE Sistema SHALL otorgar al rol NÓMINA acceso a: recepción de expedientes validados por RECLUTAMIENTO, edición de campos administrativos (ID nómina externa y sueldo base), carga de comprobante IMSS en PDF, registro de bajas institucionales, monitoreo de pre-nómina, configuración de conceptos de pago y deducción, cierre de periodos de nómina, y uso del Ledger para ajustes post-cierre.
+9. THE Sistema SHALL otorgar al rol NÓMINA acceso a: recepción de expedientes validados por RECLUTAMIENTO, edición de campos administrativos (ID nómina externa, SBC diario y sueldo base), carga de comprobante IMSS en PDF, registro de bajas institucionales, monitoreo de pre-nómina, configuración de conceptos de pago y deducción, cierre de periodos de nómina, y uso del Ledger para ajustes post-cierre.
 
-7. THE Sistema SHALL otorgar al rol LOGISTICA acceso a: envío de materiales a tiendas y verificación de confirmación de recepción, control de activos prestados (tablets, uniformes, gafetes), y recepción de notificaciones de baja para gestión de recuperación de activos.
+10. THE Sistema SHALL otorgar al rol LOGISTICA acceso a: envío de materiales a tiendas y verificación de confirmación de recepción, control de activos prestados (tablets, uniformes, gafetes), y recepción de notificaciones de baja para gestión de recuperación de activos.
 
-8. THE Sistema SHALL otorgar al rol LOVE_IS acceso a: supervisión en tiempo real de afiliaciones capturadas por DERMOCONSEJEROs, administración de asignación de QR personales, monitoreo de metas diarias y cuotas mensuales del programa, bandeja de control antifraude, gestión de excepciones de afiliaciones observadas, y consulta de reportes y métricas del programa.
+11. THE Sistema SHALL otorgar al rol LOVE_IS acceso a: supervisión en tiempo real de afiliaciones capturadas por DERMOCONSEJEROs, administración de asignación de QR personales, monitoreo de metas diarias y cuotas mensuales del programa, bandeja de control antifraude, gestión de excepciones de afiliaciones observadas, y consulta de reportes y métricas del programa.
 
-9. THE Sistema SHALL otorgar al rol VENTAS acceso a: consolidación de ventas reportadas y validadas, configuración del motor de distribución de cuota individual por DC según días activos y asignaciones diarias, cálculo de porcentaje de cumplimiento y bonos de productividad al cierre de mes, y envío automático de cifras al módulo de Nómina.
+12. THE Sistema SHALL otorgar al rol VENTAS acceso a: consolidación de ventas reportadas y validadas, configuración del motor de distribución de cuota individual por DC según días activos y asignaciones diarias, cálculo de porcentaje de cumplimiento y bonos de productividad al cierre de mes, y envío automático de cifras al módulo de Nómina.
 
-10. THE Sistema SHALL otorgar al rol ADMINISTRADOR acceso total al sistema, incluyendo: creación de tiendas y productos, creación de usuarios y asignación de roles, verificación de asignaciones mensuales y diarias por DC, y acceso exclusivo a la Caja Negra (bitácora inmutable de auditoría); el rol ADMINISTRADOR no ejecuta operaciones del día a día como aprobación de check-ins.
+13. THE Sistema SHALL otorgar al rol ADMINISTRADOR acceso total al sistema, incluyendo: creación de tiendas y productos, creación de usuarios y asignación de roles, verificación de asignaciones mensuales y diarias por DC, y acceso exclusivo a la Caja Negra (bitácora inmutable de auditoría); el rol ADMINISTRADOR no ejecuta operaciones del día a día como aprobación de check-ins.
 
-11. THE Sistema SHALL otorgar al rol CLIENTE acceso de solo lectura a reportes ejecutivos consolidados, incluyendo: asistencia, coberturas, evidencias fotográficas de visitas y desempeño comercial por PDV y por Periodo; el acceso SHALL estar estrictamente limitado a los PDVs y datos de la cuenta de cliente a la que pertenece el usuario; ningún usuario CLIENTE podrá ver datos de otra cuenta de cliente, y el Sistema SHALL rechazar con código 403 cualquier intento de acceso a datos fuera de su cuenta.
+14. THE Sistema SHALL otorgar al rol CLIENTE acceso de solo lectura a reportes ejecutivos consolidados, incluyendo: asistencia, coberturas, evidencias fotográficas de visitas y desempeño comercial por PDV y por Periodo; el acceso SHALL estar estrictamente limitado a los PDVs y datos de la cuenta de cliente a la que pertenece el usuario; ningún usuario CLIENTE podrá ver datos de otra cuenta de cliente, y el Sistema SHALL rechazar con código 403 cualquier intento de acceso a datos fuera de su cuenta.
 
-12. WHEN el campo `puesto` de un empleado es actualizado en la base de datos, THE Sistema SHALL actualizar los permisos de acceso del usuario correspondiente en un plazo máximo de 5 minutos.
+15. WHEN el campo `puesto` de un empleado es actualizado en la base de datos, THE Sistema SHALL actualizar los permisos de acceso del usuario correspondiente en un plazo máximo de 5 minutos.
 
-13. WHEN un usuario intenta acceder a una función o dato fuera de los permisos de su rol, THE Sistema SHALL rechazar la solicitud con código de error 403 y registrar el intento en el log de auditoría.
+16. WHEN un usuario intenta acceder a una función o dato fuera de los permisos de su rol, THE Sistema SHALL rechazar la solicitud con código de error 403 y registrar el intento en el log de auditoría.
 
-14. WHEN la sesión de un usuario está activa y su `puesto` cambia a un rol con menores permisos, THE Sistema SHALL invalidar la sesión activa en un plazo máximo de 5 minutos.
+17. WHEN la sesión de un usuario está activa y su `puesto` cambia a un rol con menores permisos, THE Sistema SHALL invalidar la sesión activa en un plazo máximo de 5 minutos.
 
 ---
 
@@ -253,8 +279,8 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 
 4. THE App_Movil SHALL deshabilitar la opción de seleccionar imágenes desde la galería del dispositivo en todos los flujos que requieran captura de evidencia fotográfica.
 5. WHEN la App_Movil captura una fotografía en cualquier flujo de evidencia, THE App_Movil SHALL incrustar un timestamp visible en la imagen antes de almacenarla o enviarla al servidor.
-6. WHILE un DERMOCONSEJERO no tiene un Check-in válido activo en un PDV, THE App_Movil SHALL bloquear el registro de ventas y la ejecución de Tareas de Visita para ese PDV.
-7. WHEN un DERMOCONSEJERO intenta ejecutar un Check-out, THE App_Movil SHALL verificar que exista al menos una venta confirmada en la visita activa; IF no existen ventas confirmadas, THEN THE App_Movil SHALL bloquear el Check-out y mostrar un mensaje indicando que se requiere al menos un registro de venta.
+6. WHILE un DERMOCONSEJERO no tiene un Check-in válido del mismo día en un PDV, THE App_Movil SHALL bloquear el registro de ventas, afiliaciones LOVE ISDIN y la ejecución de Tareas de Visita para ese PDV.
+7. WHEN un DERMOCONSEJERO ejecuta un Check-out, THE App_Movil SHALL redirigirlo a la bandeja de `Reportes pendientes del día` y permitir que complete ventas y LOVE ISDIN hasta las 23:59:59 de la zona horaria local del PDV.
 
 **Check-in con GPS Fallido**
 
@@ -310,9 +336,9 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 
 **Creación de usuario provisional**
 
-1. WHEN RECLUTAMIENTO da de alta a un nuevo empleado en el sistema, THE Sistema SHALL crear automáticamente un usuario en estado PROVISIONAL con una contraseña temporal generada aleatoriamente de al menos 10 caracteres alfanuméricos.
+1. WHEN NÓMINA cierra el alta IMSS de un nuevo empleado y RECLUTAMIENTO completa la validación final del expediente (alta IMSS confirmada, contrato firmado y expediente completo), THE Sistema SHALL permitir que únicamente ADMINISTRADOR cree el usuario en estado PROVISIONAL con una contraseña temporal generada aleatoriamente de al menos 10 caracteres alfanuméricos.
 2. WHEN el Sistema crea un usuario en estado PROVISIONAL, THE Sistema SHALL registrar el timestamp de creación de la contraseña temporal y establecer su expiración en 72 horas a partir de ese momento.
-3. THE Sistema SHALL notificar a RECLUTAMIENTO con las credenciales temporales generadas para que las distribuya al empleado por WhatsApp u otro canal fuera de banda.
+3. THE Sistema SHALL notificar a ADMINISTRADOR cuando un expediente alcance el estado listo para acceso después de la validación final de RECLUTAMIENTO y, al crear el usuario provisional, SHALL enviar las credenciales temporales al correo del empleado cuando exista un correo registrado; IF el canal de email no está disponible, THEN SHALL dejar trazabilidad para distribución manual fuera de banda.
 
 **Control de acceso por estado de cuenta**
 
@@ -468,3 +494,24 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 11. THE Sistema SHALL permitir al ADMINISTRADOR generar reportes consolidados que crucen datos de múltiples cuentas de cliente; esta vista consolidada SHALL estar disponible únicamente para el rol ADMINISTRADOR y nunca para usuarios CLIENTE.
 
 12. WHEN el ADMINISTRADOR reasigna un PDV de una cuenta de cliente a otra, THE Sistema SHALL conservar el historial operativo (asistencias, ventas, evidencias) del PDV asociado a la cuenta original; los datos históricos no se transfieren a la nueva cuenta.
+
+
+### Addendum - Registros Extemporáneos de Ventas y LOVE ISDIN
+- THE Sistema SHALL exponer en Incidencias una opción de `Registro extemporáneo` para DERMOCONSEJERO y ADMINISTRADOR.
+- THE formulario SHALL permitir elegir `VENTA`, `LOVE_ISDIN` o `AMBAS`, seleccionar la fecha a regularizar, capturar una justificación obligatoria y adjuntar evidencia opcional.
+- BEFORE aceptar la solicitud, THE Sistema SHALL validar que el DERMOCONSEJERO tuvo asignación operativa válida en esa fecha, PDV resuelto y una asistencia con check-in válido en el mismo día.
+- IF no existe asignación válida o no existe check-in válido en la fecha seleccionada, THEN THE Sistema SHALL rechazar la solicitud con un error operativo y no SHALL crear el buffer.
+- THE Sistema SHALL limitar la retroactividad estándar de la solicitud a un máximo de 5 días naturales previos.
+- WHEN la solicitud se envía, THEN THE Sistema SHALL persistirla en una capa buffer `registro_extemporaneo` con estado `PENDIENTE_APROBACION`, ligando `fecha_operativa`, `fecha_registro`, `pdv_id`, `asistencia_id` y `supervisor_empleado_id`.
+- THE SUPERVISOR responsable SHALL revisar y decidir aprobar o rechazar la solicitud desde su bandeja operativa; ADMINISTRADOR también SHALL poder resolverla.
+- WHEN una solicitud de tipo `VENTA` o `AMBAS` es aprobada, THEN THE consolidación SHALL reemplazar la venta del mismo producto ya existente para la misma fecha operativa, evitando duplicados ciegos.
+- WHEN una solicitud de tipo `LOVE_ISDIN` o `AMBAS` es aprobada, THEN THE consolidación SHALL mostrar lo ya capturado para la fecha operativa y SHALL evitar duplicación ciega de afiliaciones.
+- THE consolidación aprobada SHALL marcar `metodo_ingreso = EXTEMPORANEO`, `fuera_de_ventana = true`, almacenar `fecha_operativa`, `fecha_registro` y derivar el `gap` de retraso para auditoría.
+- THE Dashboard de Solicitudes SHALL mostrar una bandeja específica de registros extemporáneos con totales, pendientes, aprobados, rechazados y recurrencia mensual por DERMOCONSEJERO.
+
+### Addendum - Dashboard de Reclutamiento
+- THE Sistema SHALL exponer en Empleados/Reclutamiento un dashboard operativo y no solo una bandeja documental.
+- THE dashboard SHALL mostrar KPIs rápidos de vacantes abiertas, candidatos en proceso, tiempo promedio de contratación y próximas ISDINIZACIONES de la semana.
+- THE dashboard SHALL presentar un pipeline visual con las etapas FILTRADOS, ENTREVISTA_SELECCION, GESTION_ACCESOS, DOCUMENTACION, TRAMITE_ALTA y CONTRATADOS.
+- THE dashboard SHALL mostrar alertas operativas para documentación incompleta, próximas ISDINIZACIONES y candidatos pendientes de Administración por falta de usuario o contraseña.
+- THE embudo SHALL ser la superficie principal de seguimiento; cada tarjeta de candidato dentro de una etapa SHALL abrir la ficha individual completa del expediente.

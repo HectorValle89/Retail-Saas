@@ -6,6 +6,83 @@ Field Force Platform es una plataforma de gestión de fuerza de campo que convie
 
 La plataforma se compone de tres capas de presentación (App Móvil iOS/Android, Dashboard Web, API pública para CLIENTE) sobre un backend de microservicios con dominio bien delimitado. Los módulos críticos —Motor de Nómina, Motor de Cuotas, Validador GPS/Biométrico, Catálogo de Misiones del Día, Flujo de Incapacidades y Jerarquía de Horarios— se diseñan como servicios internos con contratos explícitos para garantizar la inmutabilidad de reglas de negocio.
 
+
+## Agent Engineering Policy
+
+El repositorio adopta un flujo de implementacion asistido por skills locales. Todo agente que planifique, implemente, depure, pruebe, revise o reconcilie trabajo en este proyecto debe consultar y aplicar las skills relevantes ubicadas en `.claude/skills/` antes de modificar codigo o marcar avance.
+
+### Mandatory Skill Families
+
+- `09-encoding/utf8-standard`
+  - Uso obligatorio cuando se lean, editen o reconcilien documentos, migraciones, seeds o archivos de configuracion.
+- `05-code-review/typescript-strict-typing`
+  - Uso obligatorio en cambios de tipado TypeScript, clientes de Supabase, contratos de datos y eliminacion de `any`.
+- `06-performance/offline-sync-patterns`
+  - Uso obligatorio en cualquier cambio de cola offline, sincronizacion, IndexedDB, reintentos o resolucion de conflictos.
+- `01-testing-tdd/pwa-service-worker`
+  - Uso obligatorio en cambios de manifest, service worker, estrategias de cache e instalacion PWA.
+- `02-testing-e2e/playwright-testing`
+  - Uso obligatorio cuando se agreguen o modifiquen flujos criticos de UI, paneles operativos o cobertura e2e.
+- `02-testing-e2e/tailwind-mobile-first`
+  - Uso obligatorio en cambios de vistas moviles, compactas o layouts de operacion en campo.
+- `03-debugging/systematic-debugging`
+  - Uso obligatorio cuando exista un bloqueo tecnico no trivial, fallo intermitente o regresion no explicada.
+- `06-performance/sql-indexing-strategy`
+  - Uso obligatorio al introducir tablas, consultas nuevas, filtros frecuentes o cambios de indices/migraciones SQL.
+
+### Application Rule
+
+Antes de ejecutar trabajo sustancial, el agente debe:
+
+1. Identificar que skill(s) aplican al cambio.
+2. Leer las `SKILL.md` relevantes.
+3. Ejecutar el trabajo alineado con esas guias.
+4. Reflejar en el historial o en la reconciliacion cuando una skill haya condicionado decisiones importantes.
+5. Preservar UTF-8 sin BOM y line endings LF en cualquier documento, migracion, seed o archivo de configuracion tocado.
+6. Ejecutar `npm run docs:check-encoding` antes de cerrar una iteracion que haya modificado archivos sensibles a codificacion.
+
+No se permite ignorar una skill relevante por conveniencia. Si una skill entra en conflicto con la especificacion canonica, prevalece esta especificacion y el conflicto debe registrarse explicitamente.
+
+### Encoding Guardrail
+
+La proteccion de encoding es una regla operativa irrompible para todos los agentes del proyecto:
+
+- Se debe respetar `.gitattributes` y `.editorconfig` para mantener UTF-8 sin BOM y LF.
+- Queda prohibido reserializar archivos sensibles con flujos no deterministas de PowerShell como `Get-Content ... | Set-Content ...`.
+- Si `npm run docs:check-encoding` detecta mojibake, BOM o caracteres de control, el agente no debe cerrar la iteracion hasta corregirlos.
+
+### Reconciliation Guardrail
+
+La reconciliacion del backlog canonico debe mantenerse conservadora y verificable:
+
+- Un agente no debe marcar nuevos items como completos en `tasks.md` sin trabajo real staged en implementacion, migraciones, seeds, scripts o pruebas.
+- El hook local puede bloquear ese commit solo en ese caso; no debe convertirse en una barrera general para commits de documentacion o mantenimiento.
+
+### Context Compact Guardrail
+
+La continuidad multi-agente requiere compactacion antes de perder contexto:
+
+- Si una iteracion larga se acerca a saturacion operativa de contexto, el agente debe resumir estado real, decisiones, validaciones, bloqueos y siguiente corte en documentos derivados.
+- La compactacion debe hacerse antes de entrar en zona de riesgo alta; no esperar a una perdida efectiva de continuidad.
+### Skill-to-Backlog Matrix
+
+| Backlog area | Skills obligatorias | Uso esperado |
+|---|---|---|
+| Fase 0 - Fundacion (documentos, seeds, migraciones, setup base) | `09-encoding/utf8-standard`, `06-performance/sql-indexing-strategy`, `05-code-review/typescript-strict-typing` | Proteger UTF-8, definir esquemas e indices, endurecer contratos TS y Supabase |
+| Fase 1 - Auth y usuarios | `05-code-review/typescript-strict-typing`, `03-debugging/systematic-debugging`, `02-testing-e2e/playwright-testing` | Roles, claims, sesiones, paneles criticos y pruebas de flujo |
+| Fase 2 - Estructura maestra y reglas | `06-performance/sql-indexing-strategy`, `05-code-review/typescript-strict-typing`, `03-debugging/systematic-debugging` | Tablas maestras, reglas de negocio, consultas frecuentes y depuracion de integracion |
+| Fase 3 - Planeacion operativa | `05-code-review/typescript-strict-typing`, `02-testing-e2e/playwright-testing`, `06-performance/sql-indexing-strategy` | Asignaciones, rutas, campanas, formaciones y cobertura de paneles/queries |
+| Fase 4 - PWA y operacion diaria | `01-testing-tdd/pwa-service-worker`, `06-performance/offline-sync-patterns`, `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/playwright-testing`, `03-debugging/systematic-debugging` | Service worker, offline queue, vistas compactas, UX movil y depuracion de campo |
+| Modulo 11 - Asistencias | `06-performance/offline-sync-patterns`, `01-testing-tdd/pwa-service-worker`, `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/playwright-testing`, `03-debugging/systematic-debugging` | Check-in/out, GPS, selfie, sync, UI movil y validacion funcional |
+| Modulo 21 - Ventas | `06-performance/offline-sync-patterns`, `02-testing-e2e/playwright-testing`, `05-code-review/typescript-strict-typing` | Captura diaria, sync, dashboard y tipos de dominio comercial |
+| Modulo 22 - LOVE ISDIN | `06-performance/offline-sync-patterns`, `02-testing-e2e/playwright-testing`, `02-testing-e2e/tailwind-mobile-first` | Flujo movil, evidencia, antifraude y sincronizacion |
+| Fase 5 - Nomina, cuotas, gastos, materiales | `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy`, `03-debugging/systematic-debugging`, `02-testing-e2e/playwright-testing` | Calculos sensibles, consultas pesadas, cierres y flujos administrativos |
+| Fase 6 - Dashboard, reportes y gobierno | `06-performance/sql-indexing-strategy`, `02-testing-e2e/playwright-testing`, `02-testing-e2e/tailwind-mobile-first` | KPIs, ranking, reportes, filtros y consumo responsivo |
+| Fase 7 - Optimizacion, cache y calidad | `01-testing-tdd/pwa-service-worker`, `06-performance/offline-sync-patterns`, `06-performance/sql-indexing-strategy`, `03-debugging/systematic-debugging`, `02-testing-e2e/playwright-testing` | Cache, performance, resiliencia offline, tuning SQL y validacion transversal |
+| Cualquier edicion documental o reconciliacion de backlog | `09-encoding/utf8-standard` | Evitar mojibake y proteger la fuente de verdad |
+
+La matriz define el minimo obligatorio. Un agente puede usar skills adicionales si ayudan, pero no puede omitir las skills requeridas para el area de trabajo activa.
+
 **Conceptos clave de antifraude:**
 - **Misión del Día**: instrucción física aleatoria (ej. "Haz una V con los dedos") presentada al DC justo antes de la selfie de check-in. Impide suplantación, uso de galería y reciclaje de fotos. Se extrae del Catálogo de Misiones administrado por el ADMINISTRADOR.
 - **Tareas de Visita**: actividades de ejecución en campo durante la jornada activa (foto de anaquel, conteo de inventario, encuesta, registro de precio). Son independientes de la Misión del Día.
@@ -201,12 +278,14 @@ sequenceDiagram
 
   ASG->>AST: Asignación diaria (PDV + horario)
   AST->>AST: Check-in (GPS + selfie)
-  AST->>VEN: Jornada activa habilitada
-  AST->>LIS: Jornada activa habilitada
+  AST->>VEN: Check-in del día habilita la jornada digital
+  AST->>LIS: Check-in del día habilita la jornada digital
   AST->>CAM: Tareas de campaña activas
   AST->>SOL: Incidencias / justificantes
-  VEN->>AST: Confirmación de ventas (requerida para check-out)
-  AST->>AST: Check-out
+  VEN->>AST: Reportes del día permitidos hasta 23:59:59 local
+  AST->>AST: Check-out físico
+  AST->>VEN: Jornada digital post check-out
+  AST->>LIS: Jornada digital post check-out
   ENT->>AST: Confirmación de recepción de material
 ```
 
@@ -367,9 +446,11 @@ Se actualiza únicamente cuando cambia la estructura del PDV: alta o baja de tie
 
 Expediente laboral y administrativo de cada persona dentro del sistema. El dato nace desde RECLUTAMIENTO cuando se crea un nuevo empleado. Es la entidad de identidad laboral — distinta del Usuario, que es la identidad digital de acceso.
 
-Se actualiza en eventos del ciclo de vida laboral: alta, carga de expediente con OCR, validación documental, formalización de vacaciones/incapacidades/permisos, baja, actualización de estatus. RECLUTAMIENTO controla casi todos los campos; NÓMINA solo edita ID de nómina externa, sueldo base y datos administrativos de pago.
+Se actualiza en eventos del ciclo de vida laboral: alta por expediente PDF con OCR, validación documental, formalización IMSS, vacaciones/incapacidades/permisos, baja y actualización de estatus. RECLUTAMIENTO crea el expediente y controla los datos laborales base; el análisis OCR+IA arranca inmediatamente al subir el PDF y precarga el formulario antes del guardado; NÓMINA formaliza IMSS, SBC diario y sueldo base; ADMINISTRADOR define supervisor, ID de nómina y crea el acceso provisional.
 
-**Campos clave:** datos personales, puesto/rol, NSS, CURP, RFC, documentación, expediente digital, estatus laboral, fechas de alta y baja, documentos IMSS, usuario vinculado.
+**Campos clave:** datos personales, puesto/rol, NSS, CURP, RFC, fecha de nacimiento, domicilio completo, código postal, teléfono celular, edad, años laborando, sexo, estado civil, originario, SBC diario, documentación, expediente digital, estatus laboral, fechas de alta y baja, documentos IMSS, usuario vinculado.
+
+**Regla OCR para domicilio:** cuando el expediente incluya múltiples documentos, el sistema debe priorizar el `COMPROBANTE_DOMICILIO` (luz, agua, teléfono, internet, gas u otros servicios del hogar) por encima de la INE para poblar `domicilio_completo` y `codigo_postal`; la INE solo opera como fuente secundaria si no existe un comprobante legible.
 
 **Regla central:** Empleado ≠ Usuario. Empleado es la identidad laboral y documental. Usuario es la cuenta de acceso. Están vinculados pero son entidades separadas.
 
@@ -381,13 +462,13 @@ Se actualiza en eventos del ciclo de vida laboral: alta, carga de expediente con
 |---|---|---|
 | DERMOCONSEJERO | Solo lectura | Consulta su propio expediente y datos personales |
 | SUPERVISOR | Solo lectura | Consulta expedientes de los DCs bajo su responsabilidad |
-| COORDINADOR | Solo lectura | Consulta expedientes de todos los DCs y supervisores bajo su coordinación |
-| RECLUTAMIENTO | Gestión completa | Crea y administra expedientes digitales con OCR+IA; gestiona vacantes, candidatos, bajas con checklist; envía expedientes a Nómina para alta IMSS |
-| NÓMINA | Lectura y escritura | Recibe expedientes validados; edita campos administrativos (ID nómina, sueldo base); carga comprobante IMSS; registra bajas institucionales |
+| COORDINADOR | Gestión parcial | Revisa candidatos enviados por Reclutamiento, confirma PDV objetivo e ISDINIZACIÓN, y devuelve el expediente al flujo de Reclutamiento para integración completa |
+| RECLUTAMIENTO | Gestión completa | Crea candidatos por CV con OCR+IA; administra expedientes digitales, bajas y checklist; envía candidatos a Coordinación para validación del PDV objetivo, prepara el paquete operativo, envía expedientes a Nómina para alta IMSS y realiza la validación final antes de entregar a Administración |
+| NÓMINA | Lectura y escritura | Recibe expedientes validados; registra sueldo base y comprobante IMSS; cierra el trámite para devolver el expediente a Reclutamiento y permitir su validación final antes del acceso |
 | LOGISTICA | Solo lectura | Consulta datos de empleados para gestión de activos y recuperación en bajas |
 | LOVE_IS | Sin acceso | — |
 | VENTAS | Sin acceso | — |
-| ADMINISTRADOR | Gestión completa | Acceso total; crea usuarios y asigna roles; verifica expedientes |
+| ADMINISTRADOR | Gestión completa | Acceso total; define supervisor e ID de nómina, crea usuarios y asigna roles; verifica expedientes |
 | CLIENTE | Sin acceso | — |
 
 ---
@@ -827,9 +908,9 @@ Módulo comparativo de desempeño. Nadie lo "captura" — se actualiza automáti
 
 **Color de icono:** Verde
 
-Registro de productos vendidos por la dermoconsejera durante la jornada activa. El dato nace desde la captura operativa de la DC con check-in válido activo. Se implementa como captura simple ligada a jornada activa — sin jornada activa no hay registro de ventas.
+Registro de productos vendidos por la dermoconsejera durante el día operativo. El dato nace desde la captura operativa de la DC con check-in válido del mismo día. La salida física del PDV no bloquea el reporte: después del check-out, la jornada digital permanece abierta hasta las 23:59:59 de la zona horaria local del estado del PDV.
 
-**Campos clave:** empleado, PDV, producto, cantidad, fecha, jornada activa.
+**Campos clave:** empleado, PDV, producto, cantidad, fecha_operativa, fecha_registro, metodo_ingreso, gap de retraso, jornada digital.
 
 **Se relaciona con:** Asignación, Jornada, Campañas, Ranking, Reportes.
 
@@ -837,7 +918,7 @@ Registro de productos vendidos por la dermoconsejera durante la jornada activa. 
 
 | Rol | Acceso | Capacidades principales |
 |---|---|---|
-| DERMOCONSEJERO | Lectura y escritura | Registra ventas diarias durante visitas activas (requiere check-in válido); confirma ventas al hacer check-out; ve su historial de ventas |
+| DERMOCONSEJERO | Lectura y escritura | Registra ventas diarias con check-in válido del mismo día; puede completarlas después del check-out físico hasta el cierre local; ve su historial de ventas |
 | SUPERVISOR | Aprobación | Valida o rechaza ventas capturadas por sus DCs; consulta ventas de su equipo por PDV y periodo |
 | COORDINADOR | Solo lectura | Consulta ventas consolidadas de su área |
 | RECLUTAMIENTO | Sin acceso | — |
@@ -856,9 +937,9 @@ Registro de productos vendidos por la dermoconsejera durante la jornada activa. 
 
 Flujo de control interno del programa LOVE ISDIN. La app documenta la evidencia de registros exitosos hechos en la plataforma externa de loyalty — no es la plataforma loyalty misma. El dato nace cuando la dermoconsejera logra un alta real en LOVE ISDIN y luego captura la evidencia en esta app.
 
-Se actualiza por cada registro exitoso con: correo del cliente, ticket, pantalla de éxito, fecha/hora, QR asociado, PDV. También incluye revisión de excepciones, alertas antifraude y monitoreo de metas.
+Se actualiza por cada registro exitoso con: correo del cliente, ticket, pantalla de éxito, fecha/hora, QR oficial de la dermoconsejera y PDV real del día operativo. El QR identifica a la dermoconsejera; la afiliación cuenta analíticamente para el PDV donde se realizó. También incluye revisión de excepciones, alertas antifraude y monitoreo de metas.
 
-**Campos clave:** QR personal, avance diario, cuota mensual, evidencias, excepciones, alertas.
+**Campos clave:** QR oficial asignado a la DC, PDV, fecha_operativa, fecha_registro, metodo_ingreso, jornada digital, avance diario, cuota mensual, evidencias, excepciones, alertas.
 
 **Se relaciona con:** Empleados, Asignaciones, PDVs, Ranking, Dashboard, Reportes.
 
@@ -866,7 +947,7 @@ Se actualiza por cada registro exitoso con: correo del cliente, ticket, pantalla
 
 | Rol | Acceso | Capacidades principales |
 |---|---|---|
-| DERMOCONSEJERO | Lectura y escritura | Registra afiliaciones de clientes al programa LOVE ISDIN durante visitas activas; ve su progreso de metas de afiliación |
+| DERMOCONSEJERO | Lectura y escritura | Registra afiliaciones de clientes al programa LOVE ISDIN con check-in válido del mismo día; puede completarlas después del check-out físico hasta el cierre local; ve su progreso de metas de afiliación |
 | SUPERVISOR | Solo lectura | Monitorea afiliaciones de sus DCs; recibe alertas de posibles fraudes en su equipo |
 | COORDINADOR | Solo lectura | Consulta métricas del programa en su área |
 | RECLUTAMIENTO | Sin acceso | — |
@@ -1046,13 +1127,13 @@ Row-Level Security en PostgreSQL garantiza que cada rol solo accede a sus propio
 
 #### Estrategia de distribución inicial
 
-Los correos electrónicos del personal no están disponibles al momento del alta. Las credenciales temporales se distribuyen por **WhatsApp** u otro canal fuera de banda. El flujo de activación recupera progresivamente los correos de todo el personal conforme cada empleado activa su cuenta por primera vez.
+Cuando el expediente ya incluye correo del empleado, las credenciales temporales se envían preferentemente por email al cierre del flujo administrativo. Si el correo aún no existe o el canal de email falla, las credenciales pueden distribuirse por un canal fuera de banda y el flujo de activación recupera progresivamente el correo verificado definitivo conforme cada empleado activa su cuenta por primera vez.
 
 #### Diagrama de estados de cuenta
 
 ```mermaid
 stateDiagram-v2
-  [*] --> PROVISIONAL : Alta de empleado\n(RECLUTAMIENTO crea usuario)
+  [*] --> PROVISIONAL : Alta de acceso\n(ADMINISTRADOR crea usuario tras validación final de Reclutamiento posterior al cierre IMSS)
 
   PROVISIONAL --> PENDIENTE_VERIFICACION_EMAIL : Usuario ingresa correo válido\ny Auth Service envía link de verificación
 
@@ -1884,9 +1965,9 @@ interface ScheduleSnapshot {
 
 ### Property 28: RBAC — cada rol accede solo a sus funciones permitidas
 
-*Para cualquier* usuario autenticado y cualquier función del sistema, el acceso debe ser concedido si y solo si el rol derivado del `puesto` del usuario incluye esa función en su conjunto de permisos definido en los requisitos 9.2–9.11.
+*Para cualquier* usuario autenticado y cualquier función del sistema, el acceso debe ser concedido si y solo si el rol derivado del `puesto` del usuario incluye esa función en su conjunto de permisos definido en los requisitos 9.2–9.14.
 
-**Validates: Requirements 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 9.9, 9.10, 9.11**
+**Validates: Requirements 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 9.9, 9.10, 9.11, 9.12, 9.13, 9.14**
 
 ---
 
@@ -1894,7 +1975,7 @@ interface ScheduleSnapshot {
 
 *Para cualquier* intento de acceso a una función o dato fuera de los permisos del rol del usuario, el sistema debe retornar HTTP 403 y registrar el intento en el log de auditoría con usuario, timestamp, función solicitada y rol del usuario.
 
-**Validates: Requirements 9.13**
+**Validates: Requirements 9.16**
 
 ---
 
@@ -2661,7 +2742,9 @@ Todo PDF subido a la plataforma (comprobante IMSS, documentos de expediente, jus
 
 ```
 Recepción del PDF
+  → Si el flujo requiere OCR, primero leer el documento original para extracción de datos
   → Detectar si es PDF escaneado (solo imágenes) o PDF con texto
+  → Intentar compresión con proveedor PDF configurable desde Configuración central, usando variables de entorno solo para secretos/runtime, y fallback local
   → Si tiene imágenes internas: recomprimir imágenes a 150 DPI, JPEG 70%
   → Eliminar metadatos, fuentes embebidas no usadas, objetos huérfanos
   → Objetivo: ≤500 KB por PDF de 1–3 páginas; ≤1 MB para documentos más extensos
@@ -3204,3 +3287,43 @@ Los catálogos reales revelan patrones operativos que el sistema debe soportar e
 7. **Formato San Pablo semanal**: El archivo llega semana a semana con códigos de turno (TC, TCM, TCV, M, V, TC_12). El sistema debe tener una pantalla de carga semanal para el ADMINISTRADOR o COORDINADOR, que genere automáticamente las excepciones de horario del nivel 3 de la jerarquía.
 
 8. **Entidad `PRODUCTO` con campo `nombre_corto`**: El catálogo de productos tiene nombres cortos operativos (ej. "FP FW MAGIC 50ML") que son los que la DC ve en la app al registrar ventas. El nombre completo es para reportes y administración.
+
+
+### Addendum - Canvas de Reclutamiento
+El m├│dulo Empleados se parte en canvases de Base operativa, Reclutamiento y Coordinaci├│n. El canvas de Reclutamiento se comporta como tablero de ejecuci├│n: combina KPIs r├ípidos, pipeline visual, panel de alertas, tabla detallada filtrable y ficha individual del candidato. El objetivo es que Reclutamiento pueda ubicar cada expediente dentro del embudo, resolver pendientes y disparar el handoff a Administraci├│n sin salir de la misma superficie.
+
+La ficha individual reutiliza el detalle documental y el checklist de onboarding existentes; la tabla y el pipeline comparten el mismo universo de candidatos en proceso. Los filtros ejecutivos m├¡nimos son b├║squeda libre, coordinador, cadena y ciudad.
+
+
+### Addendum - Buffer de Registros Extemporáneos
+Los registros extemporáneos de `VENTA` y `LOVE ISDIN` no entran directo a producción. Se modelan como una capa buffer `registro_extemporaneo` que vive entre la captura del DERMOCONSEJERO y la consolidación final en `venta` / `love_isdin`.
+
+**Flujo operativo**
+- La DC entra por `Dashboard > Incidencias > Registro extemporáneo`.
+- El sistema exige `fecha_operativa`, `tipo_registro`, justificación y, opcionalmente, evidencia.
+- Antes de persistir, el backend resuelve `asignacion_diaria_resuelta` para esa fecha y exige `estado_operativo = ASIGNADA_PDV`.
+- Después valida que exista `asistencia` con `check_in_utc` para el mismo empleado, PDV y fecha.
+- Si pasa el pre-check, la fila queda en `registro_extemporaneo` como `PENDIENTE_APROBACION` y notifica al SUPERVISOR.
+- El SUPERVISOR o ADMINISTRADOR aprueba o rechaza desde `Solicitudes`.
+- Al aprobar, se consolida vía los registradores reales de `venta` y `love_isdin`, usando bypass explícito de la ventana estándar y dejando trazabilidad `EXTEMPORANEO`.
+
+**Contrato de datos mínimo en buffer**
+- `tipo_registro`: `VENTA | LOVE_ISDIN | AMBAS`
+- `estatus`: `PENDIENTE_APROBACION | APROBADO | RECHAZADO`
+- `fecha_operativa`
+- `fecha_registro_utc`
+- `pdv_id`, `asistencia_id`, `supervisor_empleado_id`
+- `venta_payload`, `love_payload`
+- `motivo`, `motivo_rechazo`, evidencia opcional
+- `venta_registro_id`, `love_registro_id` al consolidar
+
+**Reglas de consolidación**
+- `VENTA`: si ya existe la venta del mismo producto y fecha operativa, la consolidación reemplaza en vez de duplicar.
+- `LOVE ISDIN`: si ya existe afiliación equivalente para la fecha operativa, el flujo no duplica ciegamente y conserva el histórico correcto.
+- Toda consolidación aprobada guarda `metodo_ingreso = EXTEMPORANEO`, `fecha_operativa`, `fecha_registro`, `fuera_de_ventana` y `gap_dias_retraso`.
+
+**Dependencias**
+- `DashboardPanel` para captura de la DC.
+- `SolicitudesPanel` para revisión de supervisor y administrador.
+- `ventaRegistration` y `loveRegistration` como consolidadores definitivos.
+- `asignacion_diaria_resuelta` y `asistencia` como precondiciones técnicas del día.
