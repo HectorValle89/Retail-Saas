@@ -9,21 +9,20 @@ export default function AuthLayout({
         <section className="hidden lg:flex lg:w-1/2 lg:flex-col lg:justify-between lg:px-14 lg:py-16">
           <div>
             <div className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-white/80">
-              Retail Workforce
+              Beteele One
             </div>
             <h1 className="mt-8 max-w-xl text-5xl font-semibold leading-tight text-white">
-              Operacion de campo con reglas claras, evidencia y trazabilidad.
+              Operacion de campo clara, agil y trazable.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-white/74">
-              Acceso al dashboard corporativo y a la operacion movil de promotores,
-              supervisores, coordinacion y administracion.
+              Plataforma operativa para ISDIN.
             </p>
           </div>
 
           <div className="space-y-4 text-sm text-white/72">
             <p>Asistencias con GPS y selfie.</p>
-            <p>Asignaciones, ventas, cuotas y nomina.</p>
-            <p>Bitacora, control multirol y crecimiento por cuentas cliente.</p>
+            <p>Ventas, cuotas y nomina.</p>
+            <p>Bitacora y control multirol.</p>
           </div>
         </section>
 

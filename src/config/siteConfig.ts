@@ -10,14 +10,14 @@ export interface SiteConfig {
 }
 
 export const siteConfig: SiteConfig = {
-  appName: 'Field Force Platform',
+  appName: 'Beteele One',
   appDescription:
-    'Plataforma enterprise para gestion de personal retail, supervision en campo, asistencia, ventas, nomina y auditoria.',
+    'Plataforma operativa para ISDIN con control de campo, ventas, nomina y trazabilidad.',
   locale: 'es_MX',
   seo: {
-    siteTitle: 'Field Force Platform | Retail',
+    siteTitle: 'Beteele One | ISDIN',
     defaultDescription:
-      'Gestion corporativa de personal retail con foco en operacion, trazabilidad, supervision y crecimiento escalable.',
+      'Operacion retail de ISDIN con control diario, evidencias y seguimiento centralizado.',
     locale: 'es_MX',
   },
 }

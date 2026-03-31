@@ -1,74 +1,30 @@
 'use client'
 
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import Link from 'next/link'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog'
 import { OfflineStatusCard } from '@/components/pwa/OfflineStatusCard'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useOfflineSync } from '@/hooks/useOfflineSync'
 import { queueOfflineAsistencia } from '@/lib/offline/syncQueue'
+import {
+  calcularDistanciaMetros,
+  calcularHashArchivo,
+  getLocalDateValue,
+  getLocalTimeValue,
+  stampAttendanceSelfie,
+  type CapturedPosition,
+  type SelfieCapture,
+} from '../lib/attendanceCapture'
 import type { AsistenciasPanelData } from '../services/asistenciaService'
+import { selectAttendanceMission } from '../lib/attendanceMission'
 
-function getLocalDateValue() {
-  return new Intl.DateTimeFormat('en-CA').format(new Date())
-}
-
-function getLocalTimeValue() {
-  return new Intl.DateTimeFormat('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date())
-}
-
-function calcularDistanciaMetros(
-  latitudOrigen: number,
-  longitudOrigen: number,
-  latitudDestino: number,
-  longitudDestino: number
-) {
-  const radioTierra = 6371000
-  const toRadians = (value: number) => (value * Math.PI) / 180
-  const deltaLatitud = toRadians(latitudDestino - latitudOrigen)
-  const deltaLongitud = toRadians(longitudDestino - longitudOrigen)
-  const latitudOrigenRad = toRadians(latitudOrigen)
-  const latitudDestinoRad = toRadians(latitudDestino)
-
-  const haversine =
-    Math.sin(deltaLatitud / 2) * Math.sin(deltaLatitud / 2) +
-    Math.sin(deltaLongitud / 2) * Math.sin(deltaLongitud / 2) *
-      Math.cos(latitudOrigenRad) *
-      Math.cos(latitudDestinoRad)
-
-  return 2 * radioTierra * Math.asin(Math.sqrt(haversine))
-}
-
-async function calcularHashArchivo(file: File) {
-  if (typeof window === 'undefined' || !window.crypto?.subtle) {
-    throw new Error('Este navegador no soporta hashing seguro para selfie.')
-  }
-
-  const buffer = await file.arrayBuffer()
-  const digest = await window.crypto.subtle.digest('SHA-256', buffer)
-  return Array.from(new Uint8Array(digest))
-    .map((value) => value.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-interface CapturedPosition {
-  latitud: number
-  longitud: number
-  precision: number | null
-  distanciaMetros: number | null
-  dentroGeocerca: boolean | null
-  capturadaEn: string
-}
-
-interface SelfieCapture {
-  hash: string
-  fileName: string
-  fileSize: number
-  mimeType: string
-  capturadaEn: string
+function buildPageHref(data: AsistenciasPanelData, page: number) {
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  params.set('pageSize', String(data.paginacion.pageSize))
+  return `/asistencias?${params.toString()}`
 }
 
 export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
@@ -92,6 +48,17 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
   const [isLocating, setIsLocating] = useState(false)
   const [isReadingSelfie, setIsReadingSelfie] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [misionConfirmada, setMisionConfirmada] = useState(false)
+  const [checkoutPosition, setCheckoutPosition] = useState<CapturedPosition | null>(null)
+  const [checkoutEstadoGps, setCheckoutEstadoGps] = useState<
+    'PENDIENTE' | 'DENTRO_GEOCERCA' | 'FUERA_GEOCERCA' | 'SIN_GPS'
+  >('PENDIENTE')
+  const [checkoutJustificacion, setCheckoutJustificacion] = useState('')
+  const [checkoutSelfieCapture, setCheckoutSelfieCapture] = useState<SelfieCapture | null>(null)
+  const [activeCameraFlow, setActiveCameraFlow] = useState<'check-in' | 'check-out' | null>(null)
+  const [isCapturingCheckoutPosition, setIsCapturingCheckoutPosition] = useState(false)
+  const [isReadingCheckoutSelfie, setIsReadingCheckoutSelfie] = useState(false)
+  const [isClosingShift, setIsClosingShift] = useState(false)
   const [feedback, setFeedback] = useState<{
     tone: 'success' | 'error'
     message: string
@@ -102,6 +69,26 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
     selectedContext?.geocercaLatitud !== null &&
     selectedContext?.geocercaLongitud !== null &&
     selectedContext?.geocercaRadioMetros !== null
+  const openAttendance = useMemo(
+    () => (selectedContext?.checkInUtc && !selectedContext.checkOutUtc ? selectedContext : null),
+    [selectedContext]
+  )
+  const missionSelection = useMemo(() => {
+    if (!selectedContext) {
+      return { mission: null, avoidedImmediateRepeat: false }
+    }
+
+    return selectAttendanceMission({
+      empleadoId: selectedContext.empleadoId,
+      pdvId: selectedContext.pdvId,
+      fechaOperacion,
+      previousMissionId: selectedContext.ultimaMisionDiaId,
+      missions: data.misionesCatalogo,
+    })
+  }, [data.misionesCatalogo, fechaOperacion, selectedContext])
+  const currentMission = missionSelection.mission
+  const canPrev = data.paginacion.page > 1
+  const canNext = data.paginacion.page < data.paginacion.totalPages
 
   useEffect(() => {
     setCapturedPosition(null)
@@ -111,8 +98,18 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
     setEstadoGps('PENDIENTE')
     setBiometriaEstado('PENDIENTE')
     setEstatus('PENDIENTE_VALIDACION')
+    setCheckoutPosition(null)
+    setCheckoutEstadoGps('PENDIENTE')
+    setCheckoutJustificacion('')
+    setCheckoutSelfieCapture(null)
+    setActiveCameraFlow(null)
+    setMisionConfirmada(false)
     setFeedback(null)
   }, [contextId])
+
+  useEffect(() => {
+    setMisionConfirmada(false)
+  }, [fechaOperacion, contextId])
 
   const handleCapturePosition = async () => {
     if (!selectedContext) {
@@ -121,7 +118,22 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
     }
 
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
-      setFeedback({ tone: 'error', message: 'Este navegador no soporta geolocalizacion.' })
+      const capturedAt = new Date().toISOString()
+      setCapturedPosition({
+        latitud: null,
+        longitud: null,
+        precision: null,
+        distanciaMetros: null,
+        dentroGeocerca: null,
+        capturadaEn: capturedAt,
+      })
+      setEstadoGps('SIN_GPS')
+      setEstatus('PENDIENTE_VALIDACION')
+      setFeedback({
+        tone: 'success',
+        message:
+          'Este dispositivo no pudo obtener GPS. Puedes continuar, pero el check-in quedara en PENDIENTE_VALIDACION.',
+      })
       return
     }
 
@@ -184,57 +196,225 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'No fue posible capturar la ubicacion actual.'
+      const capturedAt = new Date().toISOString()
 
-      setFeedback({ tone: 'error', message })
+      setCapturedPosition({
+        latitud: null,
+        longitud: null,
+        precision: null,
+        distanciaMetros: null,
+        dentroGeocerca: null,
+        capturadaEn: capturedAt,
+      })
+      setEstadoGps('SIN_GPS')
+      setEstatus('PENDIENTE_VALIDACION')
+      setFeedback({
+        tone: 'success',
+        message: `${message} El check-in quedara en PENDIENTE_VALIDACION por falta de GPS.`,
+      })
     } finally {
       setIsLocating(false)
     }
   }
 
-  const handleSelfieChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-
-    if (!file) {
-      setSelfieCapture(null)
+  const handleCheckoutPosition = async () => {
+    if (!openAttendance) {
+      setFeedback({ tone: 'error', message: 'Selecciona una jornada abierta para capturar el cierre.' })
       return
     }
 
-    setIsReadingSelfie(true)
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      setFeedback({ tone: 'error', message: 'Este navegador no soporta geolocalizacion.' })
+      return
+    }
+
+    setIsCapturingCheckoutPosition(true)
     setFeedback(null)
 
     try {
-      const hash = await calcularHashArchivo(file)
-      setSelfieCapture({
-        hash,
-        fileName: file.name,
-        fileSize: file.size,
-        mimeType: file.type || 'image/jpeg',
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0,
+        })
+      })
+
+      const latitud = position.coords.latitude
+      const longitud = position.coords.longitude
+      const precision = Number.isFinite(position.coords.accuracy)
+        ? Number(position.coords.accuracy)
+        : null
+
+      let distanciaMetros: number | null = null
+      let dentroGeocerca: boolean | null = null
+      let siguienteEstadoGps: 'PENDIENTE' | 'DENTRO_GEOCERCA' | 'FUERA_GEOCERCA' | 'SIN_GPS' =
+        'PENDIENTE'
+
+      if (tieneGeocerca && selectedContext) {
+        distanciaMetros = calcularDistanciaMetros(
+          latitud,
+          longitud,
+          selectedContext.geocercaLatitud as number,
+          selectedContext.geocercaLongitud as number
+        )
+        dentroGeocerca = distanciaMetros <= (selectedContext.geocercaRadioMetros as number)
+        siguienteEstadoGps = dentroGeocerca ? 'DENTRO_GEOCERCA' : 'FUERA_GEOCERCA'
+      }
+
+      setCheckoutPosition({
+        latitud,
+        longitud,
+        precision,
+        distanciaMetros,
+        dentroGeocerca,
         capturadaEn: new Date().toISOString(),
       })
-      if (biometriaEstado === 'NO_EVALUADA') {
-        setBiometriaEstado('PENDIENTE')
+      setCheckoutEstadoGps(siguienteEstadoGps)
+      if (siguienteEstadoGps === 'DENTRO_GEOCERCA') {
+        setCheckoutJustificacion('')
       }
       setFeedback({
         tone: 'success',
-        message: 'Selfie capturada. Se guardara hash y metadata en el borrador local.',
+        message:
+          siguienteEstadoGps === 'FUERA_GEOCERCA'
+            ? 'Ubicacion de salida capturada. El check-out requerira justificacion fuera de geocerca.'
+            : 'Ubicacion de salida capturada correctamente.',
+      })
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'No fue posible capturar la ubicacion de salida.'
+
+      setFeedback({ tone: 'error', message })
+    } finally {
+      setIsCapturingCheckoutPosition(false)
+    }
+  }
+
+  const processAttendanceSelfieCapture = async ({
+    file,
+    flowLabel,
+    latitude,
+    longitude,
+    successMessage,
+    target,
+  }: {
+    file: File
+    flowLabel: 'Check-in' | 'Check-out'
+    latitude: number | null
+    longitude: number | null
+    successMessage: string
+    target: 'check-in' | 'check-out'
+  }) => {
+    if (target === 'check-in') {
+      setIsReadingSelfie(true)
+    } else {
+      setIsReadingCheckoutSelfie(true)
+    }
+
+    setFeedback(null)
+
+    try {
+      const capturedAt = new Date().toISOString()
+      const stampedResult = await stampAttendanceSelfie(file, {
+        capturedAt,
+        latitude,
+        longitude,
+        flowLabel,
+      })
+      const hash = await calcularHashArchivo(stampedResult.file)
+      const nextCapture: SelfieCapture = {
+        file: stampedResult.file,
+        previewUrl: URL.createObjectURL(stampedResult.file),
+        hash,
+        fileName: stampedResult.file.name,
+        fileSize: stampedResult.file.size,
+        mimeType: stampedResult.file.type || 'image/jpeg',
+        capturadaEn: capturedAt,
+        latitud: latitude,
+        longitud: longitude,
+        timestampStamped: true,
+        captureSource: 'native-getusermedia',
+        originalBytes: file.size,
+        targetBytes: stampedResult.targetBytes,
+        targetMet: stampedResult.targetMet,
+      }
+
+      if (target === 'check-in') {
+        setSelfieCapture(nextCapture)
+        if (biometriaEstado === 'NO_EVALUADA') {
+          setBiometriaEstado('PENDIENTE')
+        }
+      } else {
+        setCheckoutSelfieCapture(nextCapture)
+      }
+
+      setFeedback({
+        tone: 'success',
+        message: successMessage,
       })
     } catch (error) {
       setFeedback({
         tone: 'error',
-        message: error instanceof Error ? error.message : 'No fue posible procesar la selfie.',
+        message:
+          error instanceof Error
+            ? error.message
+            : target === 'check-in'
+              ? 'No fue posible procesar la selfie.'
+              : 'No fue posible procesar la selfie de salida.',
       })
-      setSelfieCapture(null)
+
+      if (target === 'check-in') {
+        setSelfieCapture(null)
+      } else {
+        setCheckoutSelfieCapture(null)
+      }
+
+      throw error
     } finally {
-      event.target.value = ''
-      setIsReadingSelfie(false)
+      if (target === 'check-in') {
+        setIsReadingSelfie(false)
+      } else {
+        setIsReadingCheckoutSelfie(false)
+      }
     }
   }
+
+  const handleCaptureCheckInSelfie = async (file: File) =>
+    processAttendanceSelfieCapture({
+      file,
+      flowLabel: 'Check-in',
+      latitude: capturedPosition?.latitud ?? null,
+      longitude: capturedPosition?.longitud ?? null,
+      successMessage: 'Selfie de check-in capturada desde la cámara nativa y sellada con fecha, hora y GPS operativo.',
+      target: 'check-in',
+    })
+
+  const handleCaptureCheckOutSelfie = async (file: File) =>
+    processAttendanceSelfieCapture({
+      file,
+      flowLabel: 'Check-out',
+      latitude: checkoutPosition?.latitud ?? null,
+      longitude: checkoutPosition?.longitud ?? null,
+      successMessage: 'Selfie de salida capturada desde la cámara nativa y sellada para el cierre local.',
+      target: 'check-out',
+    })
 
   const handleQueueDraft = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
     if (!selectedContext) {
       setFeedback({ tone: 'error', message: 'Selecciona un contexto reciente para clonar la jornada.' })
+      return
+    }
+
+    if (!currentMission) {
+      setFeedback({ tone: 'error', message: 'No hay una mision activa disponible para este check-in.' })
+      return
+    }
+
+    if (!misionConfirmada) {
+      setFeedback({ tone: 'error', message: 'Debes leer y confirmar la mision del dia antes de guardar el check-in.' })
       return
     }
 
@@ -250,6 +430,14 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
       setFeedback({
         tone: 'error',
         message: 'La justificacion es obligatoria cuando el check-in queda fuera de geocerca.',
+      })
+      return
+    }
+
+    if (!selfieCapture) {
+      setFeedback({
+        tone: 'error',
+        message: 'Debes capturar la selfie de check-in desde la cámara nativa antes de guardar la jornada.',
       })
       return
     }
@@ -301,6 +489,16 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
         selfie_check_out_url: null,
         estatus,
         origen: 'OFFLINE_SYNC',
+        offline_selfie_check_in: selfieCapture
+          ? {
+              file: selfieCapture.file,
+              fileName: selfieCapture.fileName,
+              fileSize: selfieCapture.fileSize,
+              mimeType: selfieCapture.mimeType,
+              capturedAt: selfieCapture.capturadaEn,
+              localHash: selfieCapture.hash,
+            }
+          : null,
         metadata: {
           captura_local: true,
           origen_panel: 'asistencias',
@@ -314,6 +512,14 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
                 file_size: selfieCapture.fileSize,
                 mime_type: selfieCapture.mimeType,
                 capturada_en: selfieCapture.capturadaEn,
+                latitud: selfieCapture.latitud,
+                longitud: selfieCapture.longitud,
+                timestamp_stamped: selfieCapture.timestampStamped,
+                capture_source: selfieCapture.captureSource,
+                original_bytes: selfieCapture.originalBytes,
+                final_bytes: selfieCapture.fileSize,
+                target_bytes: selfieCapture.targetBytes,
+                target_met: selfieCapture.targetMet,
               }
             : null,
         },
@@ -336,6 +542,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
       setEstatus('PENDIENTE_VALIDACION')
       setCapturedPosition(null)
       setSelfieCapture(null)
+      setActiveCameraFlow(null)
     } catch (error) {
       setFeedback({
         tone: 'error',
@@ -343,6 +550,133 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
       })
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleQueueCheckout = async () => {
+    if (!openAttendance) {
+      setFeedback({ tone: 'error', message: 'Selecciona una jornada abierta para registrar el check-out.' })
+      return
+    }
+
+    if (openAttendance.ventasPendientesConfirmacion > 0) {
+      setFeedback({
+        tone: 'error',
+        message:
+          'No puedes cerrar la jornada mientras existan ventas pendientes por confirmar en esta asistencia.',
+      })
+      return
+    }
+
+    if (!checkoutPosition) {
+      setFeedback({ tone: 'error', message: 'Primero captura la ubicacion de salida.' })
+      return
+    }
+
+    if (checkoutEstadoGps === 'FUERA_GEOCERCA' && !openAttendance.permiteCheckinConJustificacion) {
+      setFeedback({
+        tone: 'error',
+        message: 'El PDV no permite excepcion fuera de geocerca para el cierre de jornada.',
+      })
+      return
+    }
+
+    if (checkoutEstadoGps === 'FUERA_GEOCERCA' && !checkoutJustificacion.trim()) {
+      setFeedback({
+        tone: 'error',
+        message: 'La justificacion es obligatoria cuando el check-out queda fuera de geocerca.',
+      })
+      return
+    }
+
+    setIsClosingShift(true)
+    setFeedback(null)
+
+    try {
+      await queueOfflineAsistencia({
+        id: openAttendance.id,
+        cuenta_cliente_id: openAttendance.cuentaClienteId,
+        asignacion_id: openAttendance.asignacionId,
+        empleado_id: openAttendance.empleadoId,
+        supervisor_empleado_id: openAttendance.supervisorEmpleadoId,
+        pdv_id: openAttendance.pdvId,
+        fecha_operacion: openAttendance.fechaOperacion,
+        empleado_nombre: openAttendance.empleado,
+        pdv_clave_btl: openAttendance.pdvClaveBtl,
+        pdv_nombre: openAttendance.pdvNombre,
+        pdv_zona: openAttendance.zona,
+        cadena_nombre: openAttendance.cadena,
+        check_out_utc: new Date().toISOString(),
+        latitud_check_out: checkoutPosition.latitud,
+        longitud_check_out: checkoutPosition.longitud,
+        distancia_check_out_metros:
+          checkoutPosition.distanciaMetros !== null ? Math.round(checkoutPosition.distanciaMetros) : null,
+        estado_gps: checkoutEstadoGps,
+        justificacion_fuera_geocerca: checkoutJustificacion.trim() || null,
+        selfie_check_out_hash: checkoutSelfieCapture?.hash ?? null,
+        selfie_check_out_url: null,
+        estatus: 'CERRADA',
+        origen: 'OFFLINE_SYNC',
+        offline_selfie_check_out: checkoutSelfieCapture
+          ? {
+              file: checkoutSelfieCapture.file,
+              fileName: checkoutSelfieCapture.fileName,
+              fileSize: checkoutSelfieCapture.fileSize,
+              mimeType: checkoutSelfieCapture.mimeType,
+              capturedAt: checkoutSelfieCapture.capturadaEn,
+              localHash: checkoutSelfieCapture.hash,
+            }
+          : null,
+        metadata: {
+          cierre_local: true,
+          origen_panel: 'asistencias',
+          checkout: {
+            gps_capturado_en: checkoutPosition.capturadaEn,
+            gps_precision_metros: checkoutPosition.precision,
+            gps_dentro_geocerca: checkoutPosition.dentroGeocerca,
+            ventas_confirmadas: openAttendance.ventasConfirmadas,
+            ventas_pendientes_confirmacion: openAttendance.ventasPendientesConfirmacion,
+            selfie: checkoutSelfieCapture
+              ? {
+                  file_name: checkoutSelfieCapture.fileName,
+                  file_size: checkoutSelfieCapture.fileSize,
+                  mime_type: checkoutSelfieCapture.mimeType,
+                  capturada_en: checkoutSelfieCapture.capturadaEn,
+                  latitud: checkoutSelfieCapture.latitud,
+                  longitud: checkoutSelfieCapture.longitud,
+                  timestamp_stamped: checkoutSelfieCapture.timestampStamped,
+                  capture_source: checkoutSelfieCapture.captureSource,
+                  original_bytes: checkoutSelfieCapture.originalBytes,
+                  final_bytes: checkoutSelfieCapture.fileSize,
+                  target_bytes: checkoutSelfieCapture.targetBytes,
+                  target_met: checkoutSelfieCapture.targetMet,
+                }
+              : null,
+          },
+        },
+      })
+
+      if (offline.isOnline) {
+        await offline.syncNow()
+      }
+
+      setFeedback({
+        tone: 'success',
+        message: offline.isOnline
+          ? 'Check-out en cola local. Se intento sincronizar de inmediato.'
+          : 'Check-out guardado localmente. Se sincronizara cuando vuelva la conectividad.',
+      })
+      setCheckoutPosition(null)
+      setCheckoutEstadoGps('PENDIENTE')
+      setCheckoutJustificacion('')
+      setCheckoutSelfieCapture(null)
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'No fue posible guardar el check-out local.',
+      })
+    } finally {
+      setIsClosingShift(false)
     }
   }
 
@@ -361,13 +695,103 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
         description="La cola local conserva capturas de check-in para sincronizarlas cuando vuelva la conectividad."
       />
 
-      <div className="grid gap-4 md:grid-cols-5">
-        <MetricCard label="Registros visibles" value={String(data.resumen.total)} />
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <MetricCard label="Registros totales" value={String(data.resumen.total)} />
         <MetricCard label="Jornadas abiertas" value={String(data.resumen.abiertas)} />
         <MetricCard label="Pendientes validacion" value={String(data.resumen.pendientesValidacion)} />
         <MetricCard label="Fuera geocerca" value={String(data.resumen.fueraGeocerca)} />
         <MetricCard label="Cerradas" value={String(data.resumen.cerradas)} />
+        <MetricCard label="Dias justificados" value={String(data.resumen.justificadas)} />
       </div>
+
+      <NativeCameraSelfieDialog
+        open={activeCameraFlow === 'check-in'}
+        title="Selfie nativa de check-in"
+        description="La cámara frontal se abre en vivo para capturar la selfie operativa del check-in."
+        onClose={() => setActiveCameraFlow(null)}
+        onCapture={handleCaptureCheckInSelfie}
+      />
+      <NativeCameraSelfieDialog
+        open={activeCameraFlow === 'check-out'}
+        title="Selfie nativa de check-out"
+        description="Captura la selfie de salida desde la cámara nativa antes de cerrar la jornada."
+        onClose={() => setActiveCameraFlow(null)}
+        onCapture={handleCaptureCheckOutSelfie}
+      />
+
+      <Card className="border-slate-200 bg-white">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
+              Disciplina operativa
+            </p>
+            <h2 className="mt-2 text-lg font-semibold text-slate-950">
+              Faltas, retardos y ausencias justificadas
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Este corte deriva incidencias sobre asignaciones publicadas, asistencias validas y solicitudes aprobadas.
+              La falta administrativa se genera automaticamente al acumular tres retardos en el periodo visible.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            Incidencias visibles: <span className="font-semibold text-slate-950">{data.incidenciasDisciplina.length}</span>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <MetricCard label="Retardos" value={String(data.disciplinaResumen.retardos)} />
+          <MetricCard label="Faltas" value={String(data.disciplinaResumen.faltas)} />
+          <MetricCard label="Ausencias justificadas" value={String(data.disciplinaResumen.ausenciasJustificadas)} />
+          <MetricCard label="Pendientes validacion" value={String(data.disciplinaResumen.pendientesValidacion)} />
+          <MetricCard label="Falta administrativa" value={String(data.disciplinaResumen.faltasAdministrativas)} />
+        </div>
+
+        {data.incidenciasDisciplina.length === 0 ? (
+          <p className="mt-6 text-sm text-slate-500">
+            No se detectaron incidencias derivadas en el rango visible de asistencias.
+          </p>
+        ) : (
+          <div className="mt-6 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-left text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Fecha</th>
+                  <th className="px-4 py-3 font-medium">Empleado</th>
+                  <th className="px-4 py-3 font-medium">Cliente</th>
+                  <th className="px-4 py-3 font-medium">Estado</th>
+                  <th className="px-4 py-3 font-medium">Detalle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.incidenciasDisciplina.map((item) => (
+                  <tr
+                    key={`${item.assignmentId}-${item.fecha}-${item.estado}`}
+                    className="border-t border-slate-100 align-top"
+                  >
+                    <td className="px-4 py-3 text-slate-600">{item.fecha}</td>
+                    <td className="px-4 py-3 text-slate-900">{item.empleado}</td>
+                    <td className="px-4 py-3 text-slate-600">{item.cuentaCliente ?? 'Sin cliente'}</td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                        {item.estado}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {item.estado === 'RETARDO'
+                        ? `${item.minutosRetardo ?? 0} min sobre ${item.horarioEsperado ?? 'sin horario'}`
+                        : item.estado === 'AUSENCIA_JUSTIFICADA'
+                          ? 'Solicitud aprobada ligada al dia.'
+                          : item.estado === 'PENDIENTE_VALIDACION'
+                            ? 'Check-in en revision manual.'
+                            : 'Sin check-in valido en el dia laborable esperado.'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       <Card className="border-slate-200 bg-white">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -379,8 +803,8 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
               Nuevo borrador de asistencia
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Esta captura ya puede tomar geolocalizacion viva y selfie local. El sync remoto sigue
-              guardando hash, metadata y posicion; el upload binario de imagen queda para la siguiente iteracion.
+              Esta captura ya puede tomar geolocalizacion viva y selfie local. Cuando sincroniza, la selfie
+              se sube por el pipeline compartido de evidencias manteniendo hash, metadata y posicion.
             </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -429,12 +853,47 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
               />
             </label>
 
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-slate-700 md:col-span-2 xl:col-span-4">
+              <p className="font-semibold text-slate-950">Mision del dia</p>
+              {currentMission ? (
+                <>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="inline-flex rounded-full bg-white px-3 py-1 font-semibold text-sky-700">
+                      {currentMission.codigo ?? 'SIN-CODIGO'}
+                    </span>
+                    {missionSelection.avoidedImmediateRepeat && (
+                      <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-800">
+                        No repetida contra la visita anterior
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-slate-700">{currentMission.instruccion}</p>
+                  {selectedContext?.ultimaMisionCodigo && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Ultima mision en este PDV: {selectedContext.ultimaMisionCodigo}
+                    </p>
+                  )}
+                  <label className="mt-4 flex items-start gap-3 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      checked={misionConfirmada}
+                      onChange={(event) => setMisionConfirmada(event.target.checked)}
+                    />
+                    <span>Lei la mision del dia y confirmo que la ejecutare durante esta jornada.</span>
+                  </label>
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-rose-700">No hay misiones activas disponibles para asignar este check-in.</p>
+              )}
+            </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700 md:col-span-2 xl:col-span-2">
               <p className="font-semibold text-slate-950">Contexto GPS</p>
               {tieneGeocerca && selectedContext ? (
                 <>
                   <p className="mt-2">
-                    Objetivo: {Number(selectedContext.geocercaLatitud).toFixed(6)}, {Number(selectedContext.geocercaLongitud).toFixed(6)}
+                    Objetivo: {Number(selectedContext.geocercaLatitud).toFixed(6)},{' '}
+                    {Number(selectedContext.geocercaLongitud).toFixed(6)}
                   </p>
                   <p className="mt-1">Radio permitido: {selectedContext.geocercaRadioMetros} m</p>
                   <p className="mt-1">
@@ -450,10 +909,19 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
               {capturedPosition && (
                 <div className="mt-3 border-t border-slate-200 pt-3 text-xs text-slate-600">
                   <p>
-                    Captura: {capturedPosition.latitud.toFixed(6)}, {capturedPosition.longitud.toFixed(6)}
+                    Captura:{' '}
+                    {capturedPosition.latitud !== null && capturedPosition.longitud !== null
+                      ? `${capturedPosition.latitud.toFixed(6)}, ${capturedPosition.longitud.toFixed(6)}`
+                      : 'GPS no disponible'}
                   </p>
                   <p className="mt-1">Precision estimada: {capturedPosition.precision ?? 'N/D'} m</p>
-                  <p className="mt-1">Distancia a geocerca: {capturedPosition.distanciaMetros !== null ? Math.round(capturedPosition.distanciaMetros) : 'N/D'} m</p>
+                  <p className="mt-1">
+                    Distancia a geocerca:{' '}
+                    {capturedPosition.distanciaMetros !== null
+                      ? Math.round(capturedPosition.distanciaMetros)
+                      : 'N/D'}{' '}
+                    m
+                  </p>
                 </div>
               )}
               <div className="mt-4 flex flex-wrap gap-3">
@@ -471,24 +939,39 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700 md:col-span-2 xl:col-span-2">
               <p className="font-semibold text-slate-950">Selfie de check-in</p>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                La captura local calcula hash SHA-256 para trazabilidad. La carga binaria al storage se deja pendiente.
+                La captura usa la cámara nativa vía getUserMedia, sella la selfie con fecha, hora y GPS visible, y la comprime en cliente antes de subirla para mantener un peso operativo controlado.
               </p>
-              <label className="mt-4 block">
-                <span className="sr-only">Capturar selfie</span>
-                <input
-                  className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-950 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
-                  type="file"
-                  accept="image/*"
-                  capture="user"
-                  onChange={handleSelfieChange}
-                  disabled={isReadingSelfie}
-                />
-              </label>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setActiveCameraFlow('check-in')}
+                  isLoading={isReadingSelfie}
+                >
+                  Abrir cámara frontal
+                </Button>
+                {selfieCapture ? (
+                  <Button type="button" variant="ghost" onClick={() => setSelfieCapture(null)}>
+                    Limpiar selfie
+                  </Button>
+                ) : null}
+              </div>
+              <p className="mt-3 text-xs text-slate-500">
+                No se permite galería ni selección manual de archivo para el check-in operativo.
+              </p>
               {selfieCapture ? (
                 <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
                   <p className="font-semibold text-slate-950">{selfieCapture.fileName}</p>
-                  <p className="mt-1">Tamano: {Math.round(selfieCapture.fileSize / 1024)} KB</p>
+                  <p className="mt-1">Tamano final: {Math.round(selfieCapture.fileSize / 1024)} KB</p>
+                  <p className="mt-1">Tamano original: {Math.round(selfieCapture.originalBytes / 1024)} KB</p>
+                  <p className="mt-1">Objetivo cliente: {Math.round(selfieCapture.targetBytes / 1024)} KB ({selfieCapture.targetMet ? 'cumplido' : 'parcial'})</p>
                   <p className="mt-1 break-all">Hash: {selfieCapture.hash}</p>
+                  <p className="mt-1">
+                    GPS:{' '}
+                    {selfieCapture.latitud !== null && selfieCapture.longitud !== null
+                      ? `${selfieCapture.latitud.toFixed(6)}, ${selfieCapture.longitud.toFixed(6)}`
+                      : 'No disponible'}
+                  </p>
                 </div>
               ) : (
                 <p className="mt-3 text-xs text-slate-500">Sin selfie capturada todavia.</p>
@@ -513,23 +996,18 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
               </select>
             </label>
 
-            <label className="block text-sm text-slate-600">
-              Biometria
-              <select
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
-                value={biometriaEstado}
-                onChange={(event) =>
-                  setBiometriaEstado(
-                    event.target.value as 'PENDIENTE' | 'VALIDA' | 'RECHAZADA' | 'NO_EVALUADA'
-                  )
-                }
-              >
-                <option value="PENDIENTE">PENDIENTE</option>
-                <option value="VALIDA">VALIDA</option>
-                <option value="RECHAZADA">RECHAZADA</option>
-                <option value="NO_EVALUADA">NO_EVALUADA</option>
-              </select>
-            </label>
+            <div className="block text-sm text-slate-600">
+              <p>Biometria</p>
+              <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+                <p className="font-medium text-slate-950">Validacion biometrica del servidor</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  El check-in se sincroniza con selfie nativa y el servidor decide el estado final contra la referencia del expediente.
+                </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Estado inicial enviado: {selfieCapture ? 'PENDIENTE' : biometriaEstado}
+                </p>
+              </div>
+            </div>
 
             <label className="block text-sm text-slate-600">
               Estatus
@@ -590,11 +1068,170 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
       </Card>
 
       <Card className="border-slate-200 bg-white">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
+              Cierre de jornada
+            </p>
+            <h2 className="mt-2 text-lg font-semibold text-slate-950">Check-out operativo</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              El cierre usa la asistencia abierta seleccionada, requiere coordenadas de salida y bloquea la jornada si quedan ventas sin confirmar.
+            </p>
+          </div>
+          {openAttendance ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              Jornada abierta: <span className="font-semibold text-slate-950">{openAttendance.pdvClaveBtl}</span>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              El contexto actual no tiene una jornada abierta.
+            </div>
+          )}
+        </div>
+
+        {!openAttendance ? (
+          <p className="mt-6 text-sm text-slate-600">
+            Selecciona una asistencia con check-in activo y sin check-out para capturar el cierre de jornada.
+          </p>
+        ) : (
+          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700 md:col-span-2">
+              <p className="font-semibold text-slate-950">Resumen comercial</p>
+              <p className="mt-2">Ventas confirmadas: <span className="font-semibold text-emerald-700">{openAttendance.ventasConfirmadas}</span></p>
+              <p className="mt-1">Ventas pendientes: <span className="font-semibold text-rose-700">{openAttendance.ventasPendientesConfirmacion}</span></p>
+              <p className="mt-3 text-xs text-slate-500">
+                Si hay ventas pendientes, el endpoint rechazara el cierre con conflicto operacional.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700 md:col-span-2">
+              <p className="font-semibold text-slate-950">Ubicacion de salida</p>
+              {checkoutPosition ? (
+                <div className="mt-3 text-xs text-slate-600">
+                  <p>
+                    Captura:{' '}
+                    {checkoutPosition.latitud !== null && checkoutPosition.longitud !== null
+                      ? `${checkoutPosition.latitud.toFixed(6)}, ${checkoutPosition.longitud.toFixed(6)}`
+                      : 'GPS no disponible'}
+                  </p>
+                  <p className="mt-1">Precision estimada: {checkoutPosition.precision ?? 'N/D'} m</p>
+                  <p className="mt-1">
+                    Distancia a geocerca:{' '}
+                    {checkoutPosition.distanciaMetros !== null ? Math.round(checkoutPosition.distanciaMetros) : 'N/D'} m
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-slate-600">Aun no se capturan coordenadas de salida.</p>
+              )}
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCheckoutPosition}
+                  isLoading={isCapturingCheckoutPosition}
+                >
+                  Capturar salida GPS
+                </Button>
+                {checkoutPosition && (
+                  <Button type="button" variant="ghost" onClick={() => setCheckoutPosition(null)}>
+                    Limpiar salida
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <label className="block text-sm text-slate-600">
+              Estado GPS salida
+              <select
+                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+                value={checkoutEstadoGps}
+                onChange={(event) =>
+                  setCheckoutEstadoGps(
+                    event.target.value as 'PENDIENTE' | 'DENTRO_GEOCERCA' | 'FUERA_GEOCERCA' | 'SIN_GPS'
+                  )
+                }
+              >
+                <option value="PENDIENTE">PENDIENTE</option>
+                <option value="DENTRO_GEOCERCA">DENTRO_GEOCERCA</option>
+                <option value="FUERA_GEOCERCA">FUERA_GEOCERCA</option>
+                <option value="SIN_GPS">SIN_GPS</option>
+              </select>
+            </label>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700">
+              <p className="font-semibold text-slate-950">Selfie de salida</p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setActiveCameraFlow('check-out')}
+                  isLoading={isReadingCheckoutSelfie}
+                >
+                  Abrir cámara de salida
+                </Button>
+                {checkoutSelfieCapture ? (
+                  <Button type="button" variant="ghost" onClick={() => setCheckoutSelfieCapture(null)}>
+                    Limpiar selfie
+                  </Button>
+                ) : null}
+              </div>
+              <p className="mt-3 text-xs text-slate-500">
+                La selfie de salida se captura también con cámara nativa; sigue siendo opcional si la política del cliente no la exige.
+              </p>
+              {checkoutSelfieCapture ? (
+                <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+                  <p className="font-semibold text-slate-950">{checkoutSelfieCapture.fileName}</p>
+                  <p className="mt-1">Tamano final: {Math.round(checkoutSelfieCapture.fileSize / 1024)} KB</p>
+                  <p className="mt-1">Tamano original: {Math.round(checkoutSelfieCapture.originalBytes / 1024)} KB</p>
+                  <p className="mt-1">Objetivo cliente: {Math.round(checkoutSelfieCapture.targetBytes / 1024)} KB ({checkoutSelfieCapture.targetMet ? 'cumplido' : 'parcial'})</p>
+                  <p className="mt-1 break-all">Hash: {checkoutSelfieCapture.hash}</p>
+                  <p className="mt-1">
+                    GPS:{' '}
+                    {checkoutSelfieCapture.latitud !== null && checkoutSelfieCapture.longitud !== null
+                      ? `${checkoutSelfieCapture.latitud.toFixed(6)}, ${checkoutSelfieCapture.longitud.toFixed(6)}`
+                      : 'No disponible'}
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-slate-500">La selfie de salida es opcional si la politica del cliente no la exige.</p>
+              )}
+            </div>
+
+            <label className="block text-sm text-slate-600 md:col-span-2 xl:col-span-4">
+              Justificacion de salida
+              <textarea
+                className="mt-2 min-h-24 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+                value={checkoutJustificacion}
+                onChange={(event) => setCheckoutJustificacion(event.target.value)}
+                placeholder="Obligatoria si el cierre queda fuera de geocerca."
+              />
+            </label>
+
+            <div className="md:col-span-2 xl:col-span-4 flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                onClick={handleQueueCheckout}
+                isLoading={isClosingShift}
+                disabled={!offline.isSupported || openAttendance.ventasPendientesConfirmacion > 0}
+              >
+                Guardar check-out local
+              </Button>
+              {openAttendance.ventasPendientesConfirmacion > 0 && (
+                <p className="text-sm text-rose-700">
+                  Debes confirmar todas las ventas de esta jornada antes de cerrar el check-out.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card className="border-slate-200 bg-white">
         <p className="text-sm text-slate-500">Cobertura funcional</p>
         <p className="mt-2 text-sm leading-6 text-slate-700">
           Base de jornada diaria con check-in, check-out, GPS, mision del dia, biometria y
-          justificacion fuera de geocerca. La captura local ya toma posicion viva y selfie con hash;
-          el siguiente paso es subir imagen al storage y validar biometria real.
+          justificacion fuera de geocerca. La lectura operativa ya reconoce solicitudes aprobadas como dias justificados,
+          sin eximir metas ni cuotas comerciales.
         </p>
       </Card>
 
@@ -602,7 +1239,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-950">Asistencias recientes</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Trazabilidad de jornada por empleado, PDV y estatus operativo.
+            Trazabilidad de jornada por empleado, PDV, estatus operativo y justificacion por solicitud.
           </p>
         </div>
 
@@ -614,7 +1251,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
                 <th className="px-6 py-3 font-medium">Empleado</th>
                 <th className="px-6 py-3 font-medium">PDV</th>
                 <th className="px-6 py-3 font-medium">Check-in / out</th>
-                <th className="px-6 py-3 font-medium">GPS</th>
+                <th className="px-6 py-3 font-medium">GPS / ventas</th>
                 <th className="px-6 py-3 font-medium">Biometria</th>
                 <th className="px-6 py-3 font-medium">Estatus</th>
                 <th className="px-6 py-3 font-medium">Mision</th>
@@ -638,6 +1275,11 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
                     </td>
                     <td className="px-6 py-4">
                       <div className="font-medium text-slate-900">{asistencia.empleado}</div>
+                      {asistencia.diaJustificado && (
+                        <div className="mt-2 text-xs font-medium text-emerald-700">
+                          {asistencia.detalleJustificacion}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-slate-600">
                       <div className="font-medium text-slate-900">{asistencia.pdvClaveBtl}</div>
@@ -665,6 +1307,12 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
                           {asistencia.justificacionFueraGeocerca}
                         </div>
                       )}
+                      <div className="mt-2 text-xs text-slate-500">
+                        Ventas OK: {asistencia.ventasConfirmadas}
+                      </div>
+                      <div className={`mt-1 text-xs ${asistencia.ventasPendientesConfirmacion > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                        Pendientes: {asistencia.ventasPendientesConfirmacion}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <StatusPill
@@ -677,6 +1325,11 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
                         active={asistencia.estatus === 'VALIDA' || asistencia.estatus === 'CERRADA'}
                         label={asistencia.estatus}
                       />
+                      {asistencia.diaJustificado && (
+                        <div className="mt-2 text-xs text-emerald-700">
+                          Dia justificado por {asistencia.solicitudRelacionadaTipo}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-slate-600">
                       <div className="font-medium text-slate-900">
@@ -691,6 +1344,35 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
               )}
             </tbody>
           </table>
+        </div>
+      </Card>
+
+      <Card className="border-slate-200 bg-white">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-medium text-slate-900">Paginacion incremental</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Pagina {data.paginacion.page} de {data.paginacion.totalPages} | maximo{' '}
+              {data.paginacion.pageSize} registros por pagina | total {data.paginacion.totalItems}
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <PaginationLink
+              href={buildPageHref(data, Math.max(1, data.paginacion.page - 1))}
+              disabled={!canPrev}
+            >
+              Anterior
+            </PaginationLink>
+            <PaginationLink
+              href={buildPageHref(
+                data,
+                Math.min(data.paginacion.totalPages, data.paginacion.page + 1)
+              )}
+              disabled={!canNext}
+            >
+              Siguiente
+            </PaginationLink>
+          </div>
         </div>
       </Card>
     </div>
@@ -718,4 +1400,21 @@ function StatusPill({ active, label }: { active: boolean; label: string }) {
   )
 }
 
+function PaginationLink({ href, disabled, children }: { href: string; disabled: boolean; children: string }) {
+  if (disabled) {
+    return (
+      <span className="inline-flex items-center rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-400">
+        {children}
+      </span>
+    )
+  }
 
+  return (
+    <Link
+      href={href}
+      className="inline-flex items-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+    >
+      {children}
+    </Link>
+  )
+}

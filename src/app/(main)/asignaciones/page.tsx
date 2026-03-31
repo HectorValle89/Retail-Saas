@@ -1,4 +1,4 @@
-﻿import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 import { requerirActorActivo } from '@/lib/auth/session'
 import { AsignacionesPanel } from '@/features/asignaciones/components/AsignacionesPanel'
 import { obtenerPanelAsignaciones } from '@/features/asignaciones/services/asignacionService'
@@ -7,10 +7,25 @@ export const metadata = {
   title: 'Asignaciones | Field Force Platform',
 }
 
-export default async function AsignacionesPage() {
+interface AsignacionesPageProps {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
+}
+
+function pickString(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+export default async function AsignacionesPage({ searchParams }: AsignacionesPageProps) {
   const actor = await requerirActorActivo()
   const supabase = await createClient()
-  const data = await obtenerPanelAsignaciones(supabase, actor)
+  const params = (await searchParams) ?? {}
+  const data = await obtenerPanelAsignaciones(supabase, actor, {
+    filters: {
+      month: pickString(params.month),
+      supervisorEmpleadoId: pickString(params.supervisor_empleado_id),
+      estadoOperativo: pickString(params.estado_operativo),
+    },
+  })
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">

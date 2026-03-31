@@ -1,0 +1,4 @@
+interface:
+  display_name: "Arquitecto de Iconografia SaaS"
+  short_description: "Define iconografia SaaS premium coherente"
+  default_prompt: "Use $saas-premium-iconography-architect to define a premium SaaS icon specification for a product concept."

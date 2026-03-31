@@ -1,4 +1,9 @@
 import { cookies, headers } from 'next/headers'
+import {
+  getSingleTenantAccountId,
+  getSingleTenantAccountLabel,
+  isSingleTenantBackendEnabled,
+} from '@/lib/tenant/singleTenant'
 
 export const ACTIVE_ACCOUNT_COOKIE = 'ff_active_cuenta_cliente_id'
 export const ACTIVE_ACCOUNT_HEADER = 'x-retail-active-account-id'
@@ -21,12 +26,23 @@ export interface AccountScopeData {
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-const SCOPED_TABLES = new Set([
+export const SCOPED_TABLES = new Set([
   'asignacion',
+  'campana',
+  'campana_pdv',
+  'formacion_evento',
+  'formacion_asistencia',
   'asistencia',
   'venta',
+  'love_isdin',
+  'gasto',
+  'entrega_material',
   'cuota_empleado_periodo',
   'nomina_ledger',
+  'love_isdin_qr_codigo',
+  'love_isdin_qr_asignacion',
+  'love_isdin_qr_import_lote',
+  'love_isdin_resumen_diario',
   'audit_log',
   'cuenta_cliente_pdv',
   'dashboard_kpis',
@@ -37,7 +53,7 @@ function normalizeAccountId(value: string | null | undefined) {
   return UUID_PATTERN.test(normalized) ? normalized : null
 }
 
-function readTableFromRestUrl(url: URL) {
+export function readTableFromRestUrl(url: URL) {
   const marker = '/rest/v1/'
   const index = url.pathname.indexOf(marker)
 
@@ -50,7 +66,7 @@ function readTableFromRestUrl(url: URL) {
   return table ? decodeURIComponent(table) : null
 }
 
-function applyAccountFilterToRestUrl(url: URL, accountId: string) {
+export function applyAccountFilterToRestUrl(url: URL, accountId: string) {
   const table = readTableFromRestUrl(url)
 
   if (!table || !SCOPED_TABLES.has(table)) {
@@ -87,6 +103,13 @@ export function createTenantScopedFetch(
 }
 
 export async function readRequestAccountScope() {
+  if (isSingleTenantBackendEnabled()) {
+    return {
+      accountId: getSingleTenantAccountId(),
+      scope: 'scoped' as const,
+    }
+  }
+
   const requestHeaders = await headers()
   const cookieStore = await cookies()
 
@@ -101,5 +124,18 @@ export async function readRequestAccountScope() {
 }
 
 export function normalizeRequestedAccountId(value: unknown) {
+  if (isSingleTenantBackendEnabled()) {
+    return getSingleTenantAccountId()
+  }
+
   return normalizeAccountId(typeof value === 'string' ? value : null)
+}
+
+export function getSingleTenantScopeData(): AccountScopeData {
+  return {
+    enabled: false,
+    currentAccountId: getSingleTenantAccountId(),
+    currentAccountLabel: getSingleTenantAccountLabel(),
+    options: [],
+  }
 }

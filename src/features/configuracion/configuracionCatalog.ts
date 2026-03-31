@@ -1,3 +1,13 @@
+import {
+  PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
+  PDF_COMPRESSION_PROVIDER_OPTIONS,
+  PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_FAST_WEB_VIEW_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_IMAGE_DPI_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_IMAGE_QUALITY_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_OPTIMIZE_LEVEL_CONFIG_KEY,
+} from '@/lib/files/pdfCompressionConfig'
+
 export type EditableConfigKind = 'BOOLEAN' | 'NUMBER' | 'TEXT'
 
 export interface EditableConfigDefinition {
@@ -23,6 +33,18 @@ export interface TurnoCatalogoItem {
 export const TURNOS_CONFIG_KEY = 'asistencias.san_pablo.catalogo_turnos'
 export const OCR_PROVIDER_CONFIG_KEY = 'integraciones.ocr.preferred_provider'
 export const OCR_MODEL_CONFIG_KEY = 'integraciones.ocr.preferred_model'
+export const BIOMETRY_PROVIDER_CONFIG_KEY = 'integraciones.biometria.preferred_provider'
+export const MATERIALES_STOCK_BAJO_KEY = 'materiales.stock_bajo_umbral'
+export const LOVE_DAILY_QUOTA_CONFIG_KEY = 'love_isdin.cuota_diaria_default'
+export {
+  PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
+  PDF_COMPRESSION_PROVIDER_OPTIONS,
+  PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_FAST_WEB_VIEW_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_IMAGE_DPI_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_IMAGE_QUALITY_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_OPTIMIZE_LEVEL_CONFIG_KEY,
+}
 
 export const OCR_PROVIDER_OPTIONS = [
   { value: 'disabled', label: 'Deshabilitado' },
@@ -33,12 +55,20 @@ export const OCR_PROVIDER_OPTIONS = [
 
 export const GLOBAL_PARAMETER_DEFINITIONS: EditableConfigDefinition[] = [
   {
+    key: BIOMETRY_PROVIDER_CONFIG_KEY,
+    label: 'Proveedor biométrico',
+    description: 'Motor usado para validar selfie de check-in contra la referencia del empleado.',
+    module: 'asistencias',
+    kind: 'TEXT',
+    defaultValue: 'local-sharp',
+  },
+  {
     key: 'geocerca.radio_default_metros',
     label: 'Radio geocerca default (m)',
     description: 'Radio aplicado por defecto al crear o corregir geocercas de PDV.',
     module: 'asistencias',
     kind: 'NUMBER',
-    defaultValue: 100,
+    defaultValue: 150,
     min: 50,
     max: 300,
     step: 1,
@@ -84,9 +114,64 @@ export const GLOBAL_PARAMETER_DEFINITIONS: EditableConfigDefinition[] = [
     max: 60,
     step: 1,
   },
+  {
+    key: MATERIALES_STOCK_BAJO_KEY,
+    label: 'Umbral de stock bajo de materiales',
+    description: 'Minimo de materiales operativos pendientes por zona antes de alertar riesgo de abasto.',
+    module: 'materiales',
+    kind: 'NUMBER',
+    defaultValue: 2,
+    min: 0,
+    max: 50,
+    step: 1,
+  },
+  {
+    key: LOVE_DAILY_QUOTA_CONFIG_KEY,
+    label: 'Cuota diaria LOVE',
+    description: 'Meta diaria default de afiliaciones LOVE por dermoconsejera cuando no existe un override por periodo.',
+    module: 'love-isdin',
+    kind: 'NUMBER',
+    defaultValue: 3,
+    min: 0,
+    max: 20,
+    step: 1,
+  },
 ]
 
 export const RETENTION_PARAMETER_DEFINITIONS: EditableConfigDefinition[] = [
+  {
+    key: 'audit.retencion.operacion_dias',
+    label: 'Auditoria operativa (dias)',
+    description: 'Retencion minima de eventos operativos del audit_log, incluyendo asistencias, ventas y gastos.',
+    module: 'auditoria',
+    kind: 'NUMBER',
+    defaultValue: 730,
+    min: 365,
+    max: 3650,
+    step: 1,
+  },
+  {
+    key: 'audit.retencion.configuracion_dias',
+    label: 'Auditoria de configuracion (dias)',
+    description: 'Retencion minima de cambios administrativos y de catalogos en la bitacora.',
+    module: 'auditoria',
+    kind: 'NUMBER',
+    defaultValue: 730,
+    min: 365,
+    max: 3650,
+    step: 1,
+  },
+  {
+    key: 'audit.retencion.seguridad_dias',
+    label: 'Auditoria de seguridad (dias)',
+    description: 'Retencion minima de eventos de seguridad, accesos y anomalias de integridad.',
+    module: 'auditoria',
+    kind: 'NUMBER',
+    defaultValue: 730,
+    min: 365,
+    max: 3650,
+    step: 1,
+  },
   {
     key: 'archivos.retencion.expediente_dias',
     label: 'Expediente laboral (dias)',

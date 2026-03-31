@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import Link from 'next/link'
+import { useEffect, useState, type FormEvent } from 'react'
 import { OfflineStatusCard } from '@/components/pwa/OfflineStatusCard'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -20,26 +21,53 @@ function getLocalTimeValue() {
   }).format(new Date())
 }
 
+function buildPageHref(data: VentasPanelData, page: number) {
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  params.set('pageSize', String(data.paginacion.pageSize))
+  return `/ventas?${params.toString()}`
+}
+
+function MetricGlyph() {
+  return (
+    <span className="metric-icon-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+        <path d="M5 19V9" strokeLinecap="round" />
+        <path d="M12 19V5" strokeLinecap="round" />
+        <path d="M19 19v-7" strokeLinecap="round" />
+      </svg>
+    </span>
+  )
+}
+
 export function VentasPanel({ data }: { data: VentasPanelData }) {
   const offline = useOfflineSync()
-  const jornadasDisponibles = data.jornadasContexto.filter((jornada) => jornada.estatus !== 'RECHAZADA')
+  const todayOperationDate = getLocalDateValue()
+  const jornadasDisponibles = data.jornadasContexto.filter(
+    (jornada) => jornada.estatus !== 'RECHAZADA' && jornada.fechaOperacion === todayOperationDate
+  )
   const [jornadaId, setJornadaId] = useState(jornadasDisponibles[0]?.id ?? '')
-  const [productoNombre, setProductoNombre] = useState(data.ventas[0]?.producto ?? '')
-  const [productoCorto, setProductoCorto] = useState(data.ventas[0]?.productoCorto ?? '')
-  const [productoSku, setProductoSku] = useState(data.ventas[0]?.productoSku ?? '')
-  const [fechaVenta, setFechaVenta] = useState(getLocalDateValue())
-  const [horaVenta, setHoraVenta] = useState(getLocalTimeValue())
+  const [productoId, setProductoId] = useState(data.catalogoProductos[0]?.id ?? '')
+  const [fechaVenta, setFechaVenta] = useState('')
+  const [horaVenta, setHoraVenta] = useState('')
   const [totalUnidades, setTotalUnidades] = useState('1')
-  const [totalMonto, setTotalMonto] = useState('0')
   const [confirmada, setConfirmada] = useState(false)
-  const [observaciones, setObservaciones] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [feedback, setFeedback] = useState<{
     tone: 'success' | 'error'
     message: string
   } | null>(null)
+  const canPrev = data.paginacion.page > 1
+  const canNext = data.paginacion.page < data.paginacion.totalPages
 
   const selectedJornada = jornadasDisponibles.find((item) => item.id === jornadaId) ?? null
+  const selectedProducto =
+    data.catalogoProductos.find((item) => item.id === productoId) ?? null
+
+  useEffect(() => {
+    setFechaVenta((current) => current || getLocalDateValue())
+    setHoraVenta((current) => current || getLocalTimeValue())
+  }, [])
 
   const handleQueueDraft = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -50,20 +78,16 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
     }
 
     const units = Number(totalUnidades)
-    const amount = Number(totalMonto)
-
-    if (!productoNombre.trim()) {
-      setFeedback({ tone: 'error', message: 'El nombre del producto es obligatorio.' })
+    if (!selectedProducto) {
+      setFeedback({
+        tone: 'error',
+        message: 'Selecciona un producto del catalogo activo antes de guardar la venta.',
+      })
       return
     }
 
     if (!Number.isFinite(units) || units <= 0) {
       setFeedback({ tone: 'error', message: 'Las unidades deben ser mayores a cero.' })
-      return
-    }
-
-    if (!Number.isFinite(amount) || amount < 0) {
-      setFeedback({ tone: 'error', message: 'El monto debe ser cero o mayor.' })
       return
     }
 
@@ -77,22 +101,24 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
         asistencia_id: selectedJornada.id,
         empleado_id: selectedJornada.empleadoId,
         pdv_id: selectedJornada.pdvId,
-        producto_id: null,
-        producto_sku: productoSku.trim() || null,
-        producto_nombre: productoNombre.trim(),
-        producto_nombre_corto: productoCorto.trim() || null,
+        producto_id: selectedProducto.id,
+        producto_sku: selectedProducto.sku,
+        producto_nombre: selectedProducto.nombre,
+        producto_nombre_corto: selectedProducto.nombreCorto,
         fecha_utc: new Date(`${fechaVenta}T${horaVenta}:00`).toISOString(),
         total_unidades: units,
-        total_monto: amount,
+        total_monto: 0,
         confirmada,
         validada_por_empleado_id: confirmada ? selectedJornada.empleadoId : null,
         validada_en: confirmada ? new Date().toISOString() : null,
-        observaciones: observaciones.trim() || null,
+        observaciones: null,
         origen: 'OFFLINE_SYNC',
         metadata: {
           captura_local: true,
           origen_panel: 'ventas',
           jornada_contexto_id: selectedJornada.id,
+          fecha_operativa: selectedJornada.fechaOperacion,
+          metodo_ingreso: offline.isOnline ? 'APP_ONLINE' : 'APP_OFFLINE',
         },
       })
 
@@ -103,13 +129,11 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
       setFeedback({
         tone: 'success',
         message: offline.isOnline
-          ? 'Borrador comercial enviado a la cola local con intento de sync inmediato.'
-          : 'Venta guardada en local. Quedara pendiente hasta recuperar conectividad.',
+          ? `${selectedProducto.nombreCorto} guardado. Puedes registrar otra venta.`
+          : `${selectedProducto.nombreCorto} guardado en local. Puedes registrar otra venta.`,
       })
-      setObservaciones('')
       setConfirmada(false)
       setTotalUnidades('1')
-      setTotalMonto('0')
     } catch (error) {
       setFeedback({
         tone: 'error',
@@ -123,7 +147,7 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
   return (
     <div className="space-y-6">
       {!data.infraestructuraLista && (
-        <Card className="border-amber-200 bg-amber-50 text-amber-900">
+        <Card className="bg-amber-50 text-amber-900 ring-1 ring-amber-200">
           <p className="font-medium">Infraestructura pendiente</p>
           <p className="mt-2 text-sm">{data.mensajeInfraestructura}</p>
         </Card>
@@ -136,45 +160,44 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
       />
 
       <div className="grid gap-4 md:grid-cols-5">
-        <MetricCard label="Ventas visibles" value={String(data.resumen.total)} />
+        <MetricCard label="Ventas totales" value={String(data.resumen.total)} />
         <MetricCard label="Confirmadas" value={String(data.resumen.confirmadas)} />
         <MetricCard
           label="Pendientes confirmar"
           value={String(data.resumen.pendientesConfirmacion)}
         />
         <MetricCard label="Unidades" value={String(data.resumen.unidades)} />
-        <MetricCard label="Monto" value={`$${data.resumen.monto.toFixed(2)}`} />
       </div>
 
-      <Card className="border-slate-200 bg-white">
+      <Card className="bg-white">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--module-text)]">
               Captura local
             </p>
             <h2 className="mt-2 text-lg font-semibold text-slate-950">
               Nuevo borrador de venta
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              La venta se liga a una jornada existente para respetar la validacion de backend. Si
-              no hay red, la captura queda en IndexedDB hasta sincronizarse.
+              La venta se liga al check-in valido del dia. Puedes capturarla incluso despues del
+              check-out, siempre que sigas dentro de la ventana digital local del mismo dia.
             </p>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          <div className="surface-soft px-4 py-3 text-sm text-slate-600">
             Jornadas disponibles: <span className="font-semibold text-slate-950">{jornadasDisponibles.length}</span>
           </div>
         </div>
 
         {jornadasDisponibles.length === 0 ? (
           <p className="mt-6 text-sm text-amber-700">
-            Aun no hay jornadas validas recientes para tomar como contexto de venta.
+            Aun no hay un check-in valido del dia para tomar como contexto de venta.
           </p>
         ) : (
           <form className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={handleQueueDraft}>
             <label className="block text-sm text-slate-600 xl:col-span-2">
               Jornada base
               <select
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+                className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
                 value={jornadaId}
                 onChange={(event) => setJornadaId(event.target.value)}
               >
@@ -189,7 +212,7 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
             <label className="block text-sm text-slate-600">
               Fecha venta
               <input
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+                className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
                 type="date"
                 value={fechaVenta}
                 onChange={(event) => setFechaVenta(event.target.value)}
@@ -199,7 +222,7 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
             <label className="block text-sm text-slate-600">
               Hora venta
               <input
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+                className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
                 type="time"
                 value={horaVenta}
                 onChange={(event) => setHoraVenta(event.target.value)}
@@ -208,44 +231,34 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
 
             <label className="block text-sm text-slate-600 xl:col-span-2">
               Producto
-              <input
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
-                list="ventas-productos"
-                value={productoNombre}
-                onChange={(event) => setProductoNombre(event.target.value)}
-                placeholder="Fotoprotector Fusion Water"
-              />
-              <datalist id="ventas-productos">
-                {Array.from(new Set(data.ventas.map((venta) => venta.producto))).map((producto) => (
-                  <option key={producto} value={producto} />
+              <select
+                className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+                value={productoId}
+                onChange={(event) => setProductoId(event.target.value)}
+              >
+                <option value="">Selecciona un producto</option>
+                {data.catalogoProductos.map((producto) => (
+                  <option key={producto.id} value={producto.id}>
+                    {producto.nombreCorto}
+                  </option>
                 ))}
-              </datalist>
+              </select>
             </label>
 
-            <label className="block text-sm text-slate-600">
+            <label className="block text-sm text-slate-600 xl:col-span-2">
               Nombre corto
               <input
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
-                value={productoCorto}
-                onChange={(event) => setProductoCorto(event.target.value)}
-                placeholder="Fusion Water"
-              />
-            </label>
-
-            <label className="block text-sm text-slate-600">
-              SKU
-              <input
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
-                value={productoSku}
-                onChange={(event) => setProductoSku(event.target.value)}
-                placeholder="SKU-001"
+                className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+                value={selectedProducto?.nombreCorto ?? ''}
+                readOnly
+                placeholder="Se llena desde el catalogo"
               />
             </label>
 
             <label className="block text-sm text-slate-600">
               Unidades
               <input
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+                className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
                 type="number"
                 min="1"
                 value={totalUnidades}
@@ -253,19 +266,7 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
               />
             </label>
 
-            <label className="block text-sm text-slate-600">
-              Monto total
-              <input
-                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
-                type="number"
-                min="0"
-                step="0.01"
-                value={totalMonto}
-                onChange={(event) => setTotalMonto(event.target.value)}
-              />
-            </label>
-
-            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 xl:col-span-4">
+            <label className="flex items-center gap-3 rounded-[16px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-700 xl:col-span-4">
               <input
                 type="checkbox"
                 checked={confirmada}
@@ -274,19 +275,9 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
               Marcar como confirmada al sincronizar
             </label>
 
-            <label className="block text-sm text-slate-600 xl:col-span-4">
-              Observaciones
-              <textarea
-                className="mt-2 min-h-28 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
-                value={observaciones}
-                onChange={(event) => setObservaciones(event.target.value)}
-                placeholder="Notas de cierre, detalle comercial o validacion pendiente."
-              />
-            </label>
-
             <div className="xl:col-span-4 flex flex-wrap items-center gap-3">
               <Button type="submit" isLoading={isSaving} disabled={!offline.isSupported}>
-                Guardar borrador local
+                Guardar y capturar otra
               </Button>
               {feedback && (
                 <p
@@ -302,17 +293,15 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
         )}
       </Card>
 
-      <Card className="border-slate-200 bg-white">
+      <Card className="bg-white">
         <p className="text-sm text-slate-500">Cobertura funcional</p>
         <p className="mt-2 text-sm leading-6 text-slate-700">
-          Registro diario de ventas ligado a asistencia existente. La cola offline ya cubre
-          captura local; la siguiente iteracion debe cerrar confirmacion al check-out y detalle por
-          producto o linea.
+          Registro diario ligado a asistencia y a catalogo maestro de productos ISDIN.
         </p>
       </Card>
 
       <Card className="overflow-hidden p-0">
-        <div className="border-b border-slate-200 px-6 py-4">
+        <div className="border-b border-border/60 px-6 py-5">
           <h2 className="text-lg font-semibold text-slate-950">Ventas recientes</h2>
           <p className="mt-1 text-sm text-slate-500">
             Base comercial diaria ligada a jornada y lista para alimentar cuotas, reportes y nomina.
@@ -321,7 +310,7 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-left text-slate-500">
+            <thead className="bg-surface-subtle text-left text-slate-500">
               <tr>
                 <th className="px-6 py-3 font-medium">Fecha</th>
                 <th className="px-6 py-3 font-medium">Cuenta cliente</th>
@@ -340,7 +329,7 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
                 </tr>
               ) : (
                 data.ventas.map((venta) => (
-                  <tr key={venta.id} className="border-t border-slate-100 align-top">
+                  <tr key={venta.id} className="border-t border-border/40 align-top">
                     <td className="px-6 py-4 text-slate-600">{venta.fechaUtc}</td>
                     <td className="px-6 py-4 text-slate-600">
                       {venta.cuentaCliente ?? 'Sin cliente'}
@@ -353,9 +342,6 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
                     </td>
                     <td className="px-6 py-4 text-slate-600">
                       <div>{venta.totalUnidades} unidades</div>
-                      <div className="mt-1 text-xs text-slate-400">
-                        ${venta.totalMonto.toFixed(2)}
-                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <StatusPill
@@ -368,9 +354,6 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
                         active={venta.jornadaAbierta || venta.jornadaEstatus === 'CERRADA'}
                         label={venta.jornadaEstatus ?? 'SIN JORNADA'}
                       />
-                      {venta.observaciones && (
-                        <div className="mt-2 text-xs text-slate-500">{venta.observaciones}</div>
-                      )}
                     </td>
                   </tr>
                 ))
@@ -379,15 +362,49 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
           </table>
         </div>
       </Card>
+
+      <Card className="bg-white">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-medium text-slate-900">Paginacion incremental</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Pagina {data.paginacion.page} de {data.paginacion.totalPages} | maximo{' '}
+              {data.paginacion.pageSize} registros por pagina | total {data.paginacion.totalItems}
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <PaginationLink
+              href={buildPageHref(data, Math.max(1, data.paginacion.page - 1))}
+              disabled={!canPrev}
+            >
+              Anterior
+            </PaginationLink>
+            <PaginationLink
+              href={buildPageHref(
+                data,
+                Math.min(data.paginacion.totalPages, data.paginacion.page + 1)
+              )}
+              disabled={!canNext}
+            >
+              Siguiente
+            </PaginationLink>
+          </div>
+        </div>
+      </Card>
     </div>
   )
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <Card className="border-slate-200 bg-white">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
+    <Card className="bg-white">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-slate-500">{label}</p>
+          <p className="mt-3 text-3xl font-semibold text-slate-950">{value}</p>
+        </div>
+        <MetricGlyph />
+      </div>
     </Card>
   )
 }
@@ -401,5 +418,24 @@ function StatusPill({ active, label }: { active: boolean; label: string }) {
     >
       {label}
     </span>
+  )
+}
+
+function PaginationLink({ href, disabled, children }: { href: string; disabled: boolean; children: string }) {
+  if (disabled) {
+    return (
+      <span className="inline-flex items-center rounded-[14px] border border-border bg-white px-4 py-2 text-sm text-slate-400">
+        {children}
+      </span>
+    )
+  }
+
+  return (
+    <Link
+      href={href}
+      className="inline-flex items-center rounded-[14px] border border-border bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-[var(--module-border)] hover:bg-[var(--module-soft-bg)]"
+    >
+      {children}
+    </Link>
   )
 }

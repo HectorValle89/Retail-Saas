@@ -6,12 +6,17 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import {
+  getSingleTenantAccountLabel,
+  isSingleTenantUiEnabled,
+  resolveSingleTenantAccountOption,
+} from '@/lib/tenant/singleTenant'
+import {
   actualizarEstadoCuentaUsuario,
   actualizarPuestoUsuario,
   crearUsuarioAdministrativo,
   enviarResetPasswordUsuario,
-  ESTADO_USUARIO_ADMIN_INICIAL,
 } from '../actions'
+import { ESTADO_USUARIO_ADMIN_INICIAL } from '../state'
 import type {
   CuentaClienteDisponibleItem,
   EmpleadoDisponibleItem,
@@ -84,10 +89,14 @@ function getEstadoSesionLabel(value: EstadoSesionUsuario) {
 }
 
 export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
+  const fixedAccount = resolveSingleTenantAccountOption(data.cuentasClienteDisponibles)
+  const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount)
   const [search, setSearch] = useState('')
   const [estadoFilter, setEstadoFilter] = useState('ALL')
   const [puestoFilter, setPuestoFilter] = useState('ALL')
-  const [cuentaFilter, setCuentaFilter] = useState('ALL')
+  const [cuentaFilter, setCuentaFilter] = useState(
+    useSingleTenantUi ? fixedAccount?.id ?? 'ALL' : 'ALL'
+  )
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null)
   const deferredSearch = useDeferredValue(search.trim().toLowerCase())
 
@@ -186,8 +195,8 @@ export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
           <div>
             <h2 className="text-lg font-semibold text-slate-950">Alta administrativa</h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-500">
-              Crea un usuario provisional vinculado a un empleado existente. El panel devuelve el
-              username y password temporal para arrancar el flujo de activacion.
+              Crea el usuario provisional solo para expedientes que ya cerraron alta IMSS. El
+              panel devuelve el username y password temporal para arrancar el flujo de activacion.
             </p>
           </div>
           <p className="text-sm text-slate-500">
@@ -201,6 +210,8 @@ export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
             cuentasCliente={data.cuentasClienteDisponibles}
             empleados={data.empleadosDisponibles}
             disabled={!data.provisionamiento.backendAdminConfigurado}
+            fixedAccountId={useSingleTenantUi ? fixedAccount?.id ?? '' : ''}
+            useSingleTenantUi={useSingleTenantUi}
           />
         </div>
       </Card>
@@ -251,19 +262,28 @@ export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
               })),
             ]}
           />
-          <Select
-            label="Cuenta cliente"
-            value={cuentaFilter}
-            onChange={(event) => setCuentaFilter(event.target.value)}
-            options={[
-              { value: 'ALL', label: 'Todas' },
-              { value: 'INTERNO', label: 'Interno' },
-              ...data.cuentasClienteDisponibles.map((cuenta) => ({
-                value: cuenta.id,
-                label: `${cuenta.nombre} (${cuenta.identificador})`,
-              })),
-            ]}
-          />
+          {useSingleTenantUi ? (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-700">Cuenta operativa</p>
+              <div className="rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-sm font-medium text-slate-900">
+                {getSingleTenantAccountLabel()}
+              </div>
+            </div>
+          ) : (
+            <Select
+              label="Cuenta cliente"
+              value={cuentaFilter}
+              onChange={(event) => setCuentaFilter(event.target.value)}
+              options={[
+                { value: 'ALL', label: 'Todas' },
+                { value: 'INTERNO', label: 'Interno' },
+                ...data.cuentasClienteDisponibles.map((cuenta) => ({
+                  value: cuenta.id,
+                  label: `${cuenta.nombre} (${cuenta.identificador})`,
+                })),
+              ]}
+            />
+          )}
         </div>
       </Card>
 
@@ -438,10 +458,14 @@ function CrearUsuarioForm({
   empleados,
   cuentasCliente,
   disabled,
+  fixedAccountId,
+  useSingleTenantUi,
 }: {
   empleados: EmpleadoDisponibleItem[]
   cuentasCliente: CuentaClienteDisponibleItem[]
   disabled: boolean
+  fixedAccountId: string
+  useSingleTenantUi: boolean
 }) {
   const [state, formAction] = useActionState(
     crearUsuarioAdministrativo,
@@ -472,20 +496,30 @@ function CrearUsuarioForm({
           disabled={disabled}
           placeholder="Opcional; si se deja vacio se genera automaticamente"
         />
-        <Select
-          label="Cuenta cliente"
-          name="cuenta_cliente_id"
-          disabled={disabled}
-          options={[
-            { value: '', label: 'Interno / sin cuenta' },
-            ...cuentasCliente
-              .filter((cuenta) => cuenta.activa)
-              .map((cuenta) => ({
-                value: cuenta.id,
-                label: `${cuenta.nombre} (${cuenta.identificador})`,
-              })),
-          ]}
-        />
+        {useSingleTenantUi ? (
+          <div className="space-y-2">
+            <input type="hidden" name="cuenta_cliente_id" value={fixedAccountId} />
+            <p className="text-sm font-medium text-slate-700">Cuenta operativa</p>
+            <div className="rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-sm font-medium text-slate-900">
+              {getSingleTenantAccountLabel()}
+            </div>
+          </div>
+        ) : (
+          <Select
+            label="Cuenta cliente"
+            name="cuenta_cliente_id"
+            disabled={disabled}
+            options={[
+              { value: '', label: 'Interno / sin cuenta' },
+              ...cuentasCliente
+                .filter((cuenta) => cuenta.activa)
+                .map((cuenta) => ({
+                  value: cuenta.id,
+                  label: `${cuenta.nombre} (${cuenta.identificador})`,
+                })),
+            ]}
+          />
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <SubmitButton

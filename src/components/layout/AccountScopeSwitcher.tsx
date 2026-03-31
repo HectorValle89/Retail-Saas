@@ -1,12 +1,9 @@
-﻿'use client'
+'use client'
 
 import { useActionState, useState } from 'react'
 import { useFormStatus } from 'react-dom'
-import {
-  actualizarCuentaClienteActiva,
-  ESTADO_ACCOUNT_SCOPE_INICIAL,
-} from '@/actions/accountScope'
-import { Card } from '@/components/ui/card'
+import { actualizarCuentaClienteActiva } from '@/actions/accountScope'
+import { ESTADO_ACCOUNT_SCOPE_INICIAL } from '@/actions/accountScopeState'
 import { Select } from '@/components/ui/select'
 import type { AccountScopeData } from '@/lib/tenant/accountScope'
 
@@ -37,38 +34,33 @@ export function AccountScopeSwitcher({
   ]
 
   return (
-    <Card className="border border-sky-100 bg-sky-50/80 p-4" padding="none">
-      <div className="space-y-3 p-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
-            Alcance admin
-          </p>
-          <p className="mt-1 text-sm font-semibold text-slate-950">{currentAccountLabel}</p>
-          <p className="mt-1 text-xs text-slate-500">
-            Cambia entre vista global y una cuenta cliente puntual para revisar la operacion.
-          </p>
-        </div>
-
-        <form action={formAction} className="space-y-3">
-          <Select
-            name="account_id"
-            aria-label="Seleccion de cuenta cliente activa"
-            value={selectedValue}
-            onChange={(event) => setSelectedValue(event.target.value)}
-            options={selectOptions}
-            className="bg-white"
-          />
-          <div className="flex items-center gap-3">
-            <SubmitButton disabled={unchanged} />
-            {state.message && (
-              <p className={`text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {state.message}
-              </p>
-            )}
-          </div>
-        </form>
+    <div className="rounded-[18px] bg-surface-subtle/90 p-3 ring-1 ring-border/60">
+      <div className="mb-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          Alcance admin
+        </p>
+        <p className="mt-1 truncate text-sm font-medium text-slate-900">{currentAccountLabel}</p>
       </div>
-    </Card>
+
+      <form action={formAction} className="space-y-2.5">
+        <Select
+          name="account_id"
+          aria-label="Seleccion de cuenta cliente activa"
+          value={selectedValue}
+          onChange={(event) => setSelectedValue(event.target.value)}
+          options={selectOptions}
+          className="bg-white"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <SubmitButton disabled={unchanged} />
+          {state.message && (
+            <p className={`text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+              {state.message}
+            </p>
+          )}
+        </div>
+      </form>
+    </div>
   )
 }
 

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolveConfiguredOcrConfiguration } from '@/lib/ocr/gemini'
 import { OCR_MODEL_CONFIG_KEY, OCR_PROVIDER_CONFIG_KEY } from '@/features/configuracion/configuracionCatalog'
+import { buildRecruitingInbox, type EmployeeRecruitingInboxData } from '../lib/workflowInbox'
 
 type MaybeMany<T> = T | T[] | null
 
@@ -22,6 +23,78 @@ interface SupervisorRelacion {
   nombre_completo: string
 }
 
+interface PdvQueryRow {
+  id: string
+  nombre: string
+  clave_btl: string | null
+  zona: string | null
+  activo: boolean | null
+  cadena: MaybeMany<{
+    nombre: string | null
+  }>
+  ciudad: MaybeMany<{
+    nombre: string | null
+  }>
+}
+
+function isMissingPdvActivoColumn(message: string | null | undefined) {
+  if (!message) {
+    return false
+  }
+
+  const normalized = message.toLowerCase()
+  return (
+    normalized.includes('column pdv.activo does not exist') ||
+    normalized.includes('column pdv_1.activo does not exist')
+  )
+}
+
+async function fetchPdvsWithActivoCompatibility(supabase: SupabaseClient) {
+  const emptyResult = { data: [], error: null }
+
+  try {
+    const withActivo = await supabase
+      .from('pdv')
+      .select(`
+        id,
+        nombre,
+        clave_btl,
+        zona,
+        activo,
+        cadena:cadena_id(nombre),
+        ciudad:ciudad_id(nombre)
+      `)
+      .order('nombre', { ascending: true })
+
+    if (!withActivo || !isMissingPdvActivoColumn(withActivo.error?.message)) {
+      return withActivo ?? emptyResult
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : null
+    if (!isMissingPdvActivoColumn(message)) {
+      return emptyResult
+    }
+  }
+
+  try {
+    const withoutActivo = await supabase
+      .from('pdv')
+      .select(`
+        id,
+        nombre,
+        clave_btl,
+        zona,
+        cadena:cadena_id(nombre),
+        ciudad:ciudad_id(nombre)
+      `)
+      .order('nombre', { ascending: true })
+
+    return withoutActivo ?? emptyResult
+  } catch {
+    return emptyResult
+  }
+}
+
 interface EmpleadoQueryRow {
   id: string
   id_nomina: string | null
@@ -35,7 +108,16 @@ interface EmpleadoQueryRow {
   correo_electronico: string | null
   estatus_laboral: EmpleadoStatus
   fecha_alta: string | null
+  fecha_nacimiento: string | null
   fecha_baja: string | null
+  domicilio_completo: string | null
+  codigo_postal: string | null
+  edad: number | null
+  anios_laborando: number | null
+  sexo: string | null
+  estado_civil: string | null
+  originario: string | null
+  sbc_diario: number | null
   supervisor_empleado_id: string | null
   sueldo_base_mensual: number | null
   expediente_estado: ExpedienteEstado
@@ -47,6 +129,7 @@ interface EmpleadoQueryRow {
   imss_observaciones: string | null
   motivo_baja: string | null
   checklist_baja: Record<string, boolean> | null
+  metadata: Record<string, unknown> | null
   created_at: string
   updated_at: string
   supervisor: MaybeMany<SupervisorRelacion>
@@ -103,6 +186,42 @@ export interface SupervisorOption {
   nombreCompleto: string
 }
 
+export interface CoordinadorOption {
+  id: string
+  nombreCompleto: string
+}
+
+export interface PdvOption {
+  id: string
+  nombre: string
+  claveBtl: string | null
+  zona: string | null
+  cadena: string | null
+  ciudad: string | null
+}
+
+export type OnboardingExternalAccessStatus =
+  | 'PENDIENTE'
+  | 'SOLICITADO_A_VIRIDIANA'
+  | 'CONFIRMADO'
+
+export type OnboardingContractStatus = 'PENDIENTE' | 'AGENDADO' | 'FIRMADO'
+
+export interface OnboardingOperativoSummary {
+  pdvObjetivoId: string | null
+  pdvObjetivoLabel: string | null
+  coordinadorEmpleadoId: string | null
+  coordinadorNombre: string | null
+  fechaIngresoOficial: string | null
+  fechaIsdinizacion: string | null
+  accesosExternosStatus: OnboardingExternalAccessStatus | null
+  accesosExternosObservaciones: string | null
+  expedienteCompletoRecibido: boolean
+  contratoStatus: OnboardingContractStatus | null
+  contratoFirmadoEn: string | null
+  validacionFinalReclutamientoAt: string | null
+}
+
 export interface DocumentoOcrResultado {
   status: OcrStatus | string | null
   provider: string | null
@@ -114,6 +233,18 @@ export interface DocumentoOcrResultado {
   rfc: string | null
   nss: string | null
   address: string | null
+  postalCode: string | null
+  phoneNumber: string | null
+  email: string | null
+  birthDate: string | null
+  employmentStartDate: string | null
+  age: number | null
+  yearsWorking: number | null
+  sex: string | null
+  maritalStatus: string | null
+  originPlace: string | null
+  dailyBaseSalary: number | null
+  addressSourceDocumentType: string | null
   employer: string | null
   position: string | null
   documentNumber: string | null
@@ -168,7 +299,16 @@ export interface EmpleadoListadoItem {
   correoElectronico: string | null
   estatusLaboral: EmpleadoStatus
   fechaAlta: string | null
+  fechaNacimiento: string | null
   fechaBaja: string | null
+  domicilioCompleto: string | null
+  codigoPostal: string | null
+  edad: number | null
+  aniosLaborando: number | null
+  sexo: string | null
+  estadoCivil: string | null
+  originario: string | null
+  sbcDiario: number | null
   supervisorEmpleadoId: string | null
   supervisor: string | null
   sueldoBaseMensual: number | null
@@ -181,22 +321,39 @@ export interface EmpleadoListadoItem {
   imssObservaciones: string | null
   motivoBaja: string | null
   checklistBaja: Record<string, boolean>
+  workflowStage: string | null
+  workflowCancelReason: string | null
+  workflowCancelAt: string | null
+  workflowCancelFromStage: string | null
+  adminAccessPending: boolean
+  onboarding: OnboardingOperativoSummary
   username: string | null
   estadoCuenta: UsuarioEstado | null
   documentosCount: number
   documentos: DocumentoExpedienteItem[]
+  createdAt: string
+  updatedAt: string
 }
 
 export interface EmpleadosPanelData {
   resumen: EmpleadoResumen
   empleados: EmpleadoListadoItem[]
+  recruitingInbox: EmployeeRecruitingInboxData<EmpleadoListadoItem>
   infraestructuraLista: boolean
   mensajeInfraestructura?: string
   supervisors: SupervisorOption[]
+  coordinators: CoordinadorOption[]
+  pdvs: PdvOption[]
   zonas: string[]
   ocrProvider: string | null
   ocrDisponible: boolean
   pdfOptimizationAvailable: boolean
+}
+
+export interface EmpleadosExportPayload {
+  headers: string[]
+  rows: Array<Array<string | number | null>>
+  filenameBase: string
 }
 
 const PDF_OPTIMIZATION_AVAILABLE = true
@@ -212,6 +369,12 @@ const obtenerPrimero = <T>(value: MaybeMany<T>): T | null => {
 
 function mapChecklist(value: Record<string, boolean> | null | undefined) {
   return value && typeof value === 'object' ? value : {}
+}
+
+function mapRecord(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
 }
 
 function mapString(value: unknown) {
@@ -246,6 +409,25 @@ function mapArray(value: unknown) {
     .filter((item): item is string => Boolean(item))
 }
 
+function mapOnboardingSummary(metadata: Record<string, unknown>): OnboardingOperativoSummary {
+  const onboarding = mapRecord(metadata.onboarding_operativo)
+
+  return {
+    pdvObjetivoId: mapString(onboarding.pdv_objetivo_id),
+    pdvObjetivoLabel: mapString(onboarding.pdv_objetivo_label),
+    coordinadorEmpleadoId: mapString(onboarding.coordinador_empleado_id),
+    coordinadorNombre: mapString(onboarding.coordinador_nombre),
+    fechaIngresoOficial: mapString(onboarding.fecha_ingreso_oficial),
+    fechaIsdinizacion: mapString(onboarding.fecha_isdinizacion),
+    accesosExternosStatus: mapString(onboarding.accesos_externos_status) as OnboardingExternalAccessStatus | null,
+    accesosExternosObservaciones: mapString(onboarding.accesos_externos_observaciones),
+    expedienteCompletoRecibido: onboarding.expediente_completo_recibido === true,
+    contratoStatus: mapString(onboarding.contrato_status) as OnboardingContractStatus | null,
+    contratoFirmadoEn: mapString(onboarding.contrato_firmado_en),
+    validacionFinalReclutamientoAt: mapString(onboarding.validacion_final_reclutamiento_at),
+  }
+}
+
 function mapOcrResult(value: Record<string, unknown> | null | undefined): DocumentoOcrResultado {
   const payload = value && typeof value === 'object' ? value : {}
 
@@ -260,6 +442,18 @@ function mapOcrResult(value: Record<string, unknown> | null | undefined): Docume
     rfc: mapString(payload.rfc),
     nss: mapString(payload.nss),
     address: mapString(payload.address),
+    postalCode: mapString(payload.postalCode),
+    phoneNumber: mapString(payload.phoneNumber),
+    email: mapString(payload.email),
+    birthDate: mapString(payload.birthDate),
+    employmentStartDate: mapString(payload.employmentStartDate),
+    age: mapNumber(payload.age),
+    yearsWorking: mapNumber(payload.yearsWorking),
+    sex: mapString(payload.sex),
+    maritalStatus: mapString(payload.maritalStatus),
+    originPlace: mapString(payload.originPlace),
+    dailyBaseSalary: mapNumber(payload.dailyBaseSalary),
+    addressSourceDocumentType: mapString(payload.addressSourceDocumentType),
     employer: mapString(payload.employer),
     position: mapString(payload.position),
     documentNumber: mapString(payload.documentNumber),
@@ -332,7 +526,7 @@ async function buildSignedUrl(
 export async function obtenerPanelEmpleados(
   supabase: SupabaseClient
 ): Promise<EmpleadosPanelData> {
-  const [empleadosResult, usuariosResult, documentosResult, configuracionResult] = await Promise.all([
+  const [empleadosResult, usuariosResult, documentosResult, configuracionResult, pdvsResult] = await Promise.all([
     supabase
       .from('empleado')
       .select(`
@@ -348,7 +542,16 @@ export async function obtenerPanelEmpleados(
         correo_electronico,
         estatus_laboral,
         fecha_alta,
+        fecha_nacimiento,
         fecha_baja,
+        domicilio_completo,
+        codigo_postal,
+        edad,
+        anios_laborando,
+        sexo,
+        estado_civil,
+        originario,
+        sbc_diario,
         supervisor_empleado_id,
         sueldo_base_mensual,
         expediente_estado,
@@ -360,6 +563,7 @@ export async function obtenerPanelEmpleados(
         imss_observaciones,
         motivo_baja,
         checklist_baja,
+        metadata,
         created_at,
         updated_at,
         supervisor:supervisor_empleado_id(id, nombre_completo)
@@ -391,9 +595,17 @@ export async function obtenerPanelEmpleados(
       .from('configuracion')
       .select('clave, valor')
       .in('clave', [OCR_PROVIDER_CONFIG_KEY, OCR_MODEL_CONFIG_KEY]),
+    fetchPdvsWithActivoCompatibility(supabase),
+
   ])
 
-  const infraErrors = [empleadosResult.error, usuariosResult.error, documentosResult.error, configuracionResult.error]
+  const infraErrors = [
+    empleadosResult.error,
+    usuariosResult.error,
+    documentosResult.error,
+    configuracionResult.error,
+    pdvsResult?.error,
+  ]
     .filter(Boolean)
     .map((error) => error?.message)
 
@@ -417,9 +629,12 @@ export async function obtenerPanelEmpleados(
         imssEnProceso: 0,
       },
       empleados: [],
+      recruitingInbox: [],
       infraestructuraLista: false,
       mensajeInfraestructura: infraErrors.join(' '),
       supervisors: [],
+      coordinators: [],
+      pdvs: [],
       zonas: [],
       ocrProvider: ocrConfiguracion.provider,
       ocrDisponible: ocrConfiguracion.available,
@@ -475,6 +690,7 @@ export async function obtenerPanelEmpleados(
     const supervisor = obtenerPrimero(empleado.supervisor)
     const usuario = usuariosMap.get(empleado.id)
     const documentos = documentosByEmpleado.get(empleado.id) ?? []
+    const metadata = mapRecord(empleado.metadata)
 
     return {
       id: empleado.id,
@@ -489,7 +705,16 @@ export async function obtenerPanelEmpleados(
       correoElectronico: empleado.correo_electronico,
       estatusLaboral: empleado.estatus_laboral,
       fechaAlta: empleado.fecha_alta,
+      fechaNacimiento: empleado.fecha_nacimiento,
       fechaBaja: empleado.fecha_baja,
+      domicilioCompleto: empleado.domicilio_completo,
+      codigoPostal: empleado.codigo_postal,
+      edad: empleado.edad,
+      aniosLaborando: empleado.anios_laborando,
+      sexo: empleado.sexo,
+      estadoCivil: empleado.estado_civil,
+      originario: empleado.originario,
+      sbcDiario: empleado.sbc_diario,
       supervisorEmpleadoId: empleado.supervisor_empleado_id,
       supervisor: supervisor?.nombre_completo ?? null,
       sueldoBaseMensual: empleado.sueldo_base_mensual,
@@ -502,10 +727,18 @@ export async function obtenerPanelEmpleados(
       imssObservaciones: empleado.imss_observaciones,
       motivoBaja: empleado.motivo_baja,
       checklistBaja: mapChecklist(empleado.checklist_baja),
+      workflowStage: mapString(metadata.workflow_stage),
+      workflowCancelReason: mapString(metadata.alta_cancelada_motivo),
+      workflowCancelAt: mapString(metadata.alta_cancelada_at),
+      workflowCancelFromStage: mapString(metadata.alta_cancelada_desde_stage),
+      adminAccessPending: metadata.admin_access_pending === true,
+      onboarding: mapOnboardingSummary(metadata),
       username: usuario?.username ?? null,
       estadoCuenta: usuario?.estado_cuenta ?? null,
       documentosCount: documentos.length,
       documentos,
+      createdAt: empleado.created_at,
+      updatedAt: empleado.updated_at,
     }
   })
 
@@ -515,6 +748,29 @@ export async function obtenerPanelEmpleados(
       id: empleado.id,
       nombreCompleto: empleado.nombreCompleto,
     }))
+
+  const coordinators = empleados
+    .filter((empleado) => empleado.puesto === 'COORDINADOR' && empleado.estatusLaboral === 'ACTIVO')
+    .map((empleado) => ({
+      id: empleado.id,
+      nombreCompleto: empleado.nombreCompleto,
+    }))
+
+  const pdvs = (((pdvsResult?.data ?? []) as PdvQueryRow[]) ?? [])
+    .filter((pdv) => pdv.activo !== false)
+    .map((pdv) => {
+      const cadena = obtenerPrimero(pdv.cadena)
+      const ciudad = obtenerPrimero(pdv.ciudad)
+
+      return {
+        id: pdv.id,
+        nombre: pdv.nombre,
+        claveBtl: pdv.clave_btl,
+        zona: pdv.zona,
+        cadena: cadena?.nombre ?? null,
+        ciudad: ciudad?.nombre ?? null,
+      }
+    })
 
   const zonas = Array.from(
     new Set(empleados.map((empleado) => empleado.zona).filter((zona): zona is string => Boolean(zona)))
@@ -531,13 +787,164 @@ export async function obtenerPanelEmpleados(
       ).length,
     },
     empleados,
+    recruitingInbox: buildRecruitingInbox<EmpleadoListadoItem>(empleados),
     infraestructuraLista: infraErrors.length === 0,
     mensajeInfraestructura: infraErrors.length > 0 ? infraErrors.join(' ') : undefined,
     supervisors,
+    coordinators,
+    pdvs,
     zonas,
     ocrProvider: ocrConfiguracion.provider,
     ocrDisponible: ocrConfiguracion.available,
     pdfOptimizationAvailable: PDF_OPTIMIZATION_AVAILABLE,
+  }
+}
+
+export async function collectEmpleadosExportPayload(
+  supabase: SupabaseClient
+): Promise<EmpleadosExportPayload> {
+  const [empleadosResult, usuariosResult] = await Promise.all([
+    supabase
+      .from('empleado')
+      .select(`
+        id,
+        id_nomina,
+        nombre_completo,
+        curp,
+        nss,
+        rfc,
+        puesto,
+        zona,
+        telefono,
+        correo_electronico,
+        estatus_laboral,
+        fecha_alta,
+        fecha_nacimiento,
+        fecha_baja,
+        domicilio_completo,
+        codigo_postal,
+        edad,
+        anios_laborando,
+        sexo,
+        estado_civil,
+        originario,
+        sbc_diario,
+        supervisor_empleado_id,
+        expediente_estado,
+        expediente_validado_en,
+        imss_estado,
+        imss_fecha_solicitud,
+        imss_fecha_alta,
+        motivo_baja,
+        metadata,
+        supervisor:supervisor_empleado_id(id, nombre_completo)
+      `)
+      .order('nombre_completo', { ascending: true }),
+    supabase
+      .from('usuario')
+      .select('empleado_id, username, estado_cuenta')
+      .order('created_at', { ascending: false }),
+  ])
+
+  if (empleadosResult.error) {
+    throw new Error(empleadosResult.error.message)
+  }
+
+  if (usuariosResult.error) {
+    throw new Error(usuariosResult.error.message)
+  }
+
+  const usuariosMap = new Map<string, UsuarioQueryRow>()
+  for (const usuario of (usuariosResult.data ?? []) as UsuarioQueryRow[]) {
+    if (!usuariosMap.has(usuario.empleado_id)) {
+      usuariosMap.set(usuario.empleado_id, usuario)
+    }
+  }
+
+  const headers = [
+    'ID',
+    'ID nomina',
+    'Nombre completo',
+    'Puesto',
+    'Zona',
+    'Supervisor',
+    'Estatus laboral',
+    'Estado expediente',
+    'Estado IMSS',
+    'Correo',
+    'Telefono',
+    'Username',
+    'Estado cuenta',
+    'CURP',
+    'RFC',
+    'NSS',
+    'Fecha ingreso',
+    'Fecha nacimiento',
+    'Fecha baja',
+    'Domicilio completo',
+    'Codigo postal',
+    'Edad',
+    'Anios laborando',
+    'Sexo',
+    'Estado civil',
+    'Originario',
+    'SBC diario',
+    'Expediente validado en',
+    'IMSS fecha solicitud',
+    'IMSS fecha alta',
+    'Motivo baja',
+    'Pendiente acceso admin',
+    'Workflow stage',
+  ]
+
+  const rows = ((empleadosResult.data ?? []) as EmpleadoQueryRow[]).map((empleado) => {
+    const supervisor = obtenerPrimero(empleado.supervisor)
+    const usuario = usuariosMap.get(empleado.id)
+    const metadata = mapRecord(empleado.metadata)
+
+    return [
+      empleado.id,
+      empleado.id_nomina,
+      empleado.nombre_completo,
+      empleado.puesto,
+      empleado.zona,
+      supervisor?.nombre_completo ?? null,
+      empleado.estatus_laboral,
+      empleado.expediente_estado,
+      empleado.imss_estado,
+      empleado.correo_electronico,
+      empleado.telefono,
+      usuario?.username ?? null,
+      usuario?.estado_cuenta ?? null,
+      empleado.curp,
+      empleado.rfc,
+      empleado.nss,
+      empleado.fecha_alta,
+      empleado.fecha_nacimiento,
+      empleado.fecha_baja,
+      empleado.domicilio_completo,
+      empleado.codigo_postal,
+      empleado.edad,
+      empleado.anios_laborando,
+      empleado.sexo,
+      empleado.estado_civil,
+      empleado.originario,
+      empleado.sbc_diario,
+      empleado.expediente_validado_en,
+      empleado.imss_fecha_solicitud,
+      empleado.imss_fecha_alta,
+      empleado.motivo_baja,
+      metadata.admin_access_pending === true ? 'SI' : 'NO',
+      mapString(metadata.workflow_stage),
+    ]
+  })
+
+  const dateStamp = new Date().toISOString().slice(0, 10)
+
+  return {
+    headers,
+    rows,
+    filenameBase: `empleados-${dateStamp}`,
   }
 }
 

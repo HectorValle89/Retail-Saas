@@ -1,7 +1,9 @@
-﻿import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
 import { NextResponse, type NextRequest } from 'next/server'
+import { isPrimerAccesoPendiente } from '@/lib/auth/firstAccess'
 import { getAuthSessionContextStatus } from '@/lib/auth/sessionContext'
+import { getSingleTenantAccountId, isSingleTenantBackendEnabled } from '@/lib/tenant/singleTenant'
 import {
   ACTIVE_ACCOUNT_COOKIE,
   ACTIVE_ACCOUNT_HEADER,
@@ -18,10 +20,13 @@ type CookieToSet = {
 type UsuarioSesionRow = {
   estado_cuenta: string | null
   cuenta_cliente_id: string | null
-  empleado: { puesto: string | null } | Array<{ puesto: string | null }> | null
+  empleado:
+    | { puesto: string | null; metadata?: Record<string, unknown> | null }
+    | Array<{ puesto: string | null; metadata?: Record<string, unknown> | null }>
+    | null
 }
 
-const publicRoutes = ['/', '/login', '/forgot-password', '/check-email', '/update-password', '/activacion']
+const publicRoutes = ['/', '/offline', '/login', '/forgot-password', '/check-email', '/update-password', '/activacion']
 
 function esRutaProtegida(pathname: string) {
   return !publicRoutes.includes(pathname) && !pathname.startsWith('/_next')
@@ -37,6 +42,18 @@ function obtenerPuestoEmpleado(value: UsuarioSesionRow['empleado']) {
   }
 
   return value.puesto ?? null
+}
+
+function obtenerMetadataEmpleado(value: UsuarioSesionRow['empleado']) {
+  if (!value) {
+    return null
+  }
+
+  if (Array.isArray(value)) {
+    return value[0]?.metadata ?? null
+  }
+
+  return value.metadata ?? null
 }
 
 async function asegurarSesionActualizada(
@@ -79,6 +96,15 @@ async function asegurarSesionActualizada(
 }
 
 export async function updateSession(request: NextRequest) {
+  const contentType = request.headers.get('content-type')?.toLowerCase() ?? ''
+
+  // Next.js puede dejar el body multipart en estado no parseable si el proxy
+  // intercepta uploads. Para requests con archivos dejamos pasar la solicitud
+  // intacta y delegamos autenticacion/autorizacion a la ruta destino.
+  if (contentType.startsWith('multipart/form-data')) {
+    return NextResponse.next()
+  }
+
   const requestHeaders = new Headers(request.headers)
   let supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } })
 
@@ -136,15 +162,19 @@ export async function updateSession(request: NextRequest) {
 
   const { data: usuario } = await supabase
     .from('usuario')
-    .select('estado_cuenta, cuenta_cliente_id, empleado:empleado_id(puesto)')
+    .select('estado_cuenta, cuenta_cliente_id, empleado:empleado_id(puesto, metadata)')
     .eq('auth_user_id', currentUser.id)
     .maybeSingle()
 
   const usuarioActual = (usuario ?? null) as UsuarioSesionRow | null
   const puesto = obtenerPuestoEmpleado(usuarioActual?.empleado ?? null)
+  const metadataEmpleado = obtenerMetadataEmpleado(usuarioActual?.empleado ?? null)
+  const primerAccesoPendiente = isPrimerAccesoPendiente(metadataEmpleado)
   const requestedAccountId = normalizeRequestedAccountId(request.cookies.get(ACTIVE_ACCOUNT_COOKIE)?.value)
   const effectiveAccountId =
-    puesto === 'ADMINISTRADOR'
+    isSingleTenantBackendEnabled()
+      ? getSingleTenantAccountId()
+      : puesto === 'ADMINISTRADOR'
       ? requestedAccountId
       : normalizeRequestedAccountId(usuarioActual?.cuenta_cliente_id)
 
@@ -166,7 +196,15 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  if (estadoCuenta === 'ACTIVA' && (isAuthRoute || pathname === '/activacion' || pathname === '/check-email')) {
+  if (estadoCuenta === 'ACTIVA' && primerAccesoPendiente && pathname !== '/primer-acceso') {
+    return NextResponse.redirect(new URL('/primer-acceso', request.url))
+  }
+
+  if (
+    estadoCuenta === 'ACTIVA' &&
+    !primerAccesoPendiente &&
+    (isAuthRoute || pathname === '/activacion' || pathname === '/check-email' || pathname === '/primer-acceso')
+  ) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 

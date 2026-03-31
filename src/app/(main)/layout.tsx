@@ -1,5 +1,5 @@
-﻿import { Sidebar } from '@/components/layout/sidebar'
-import { obtenerAccountScopeData } from '@/features/clientes/services/accountScopeService'
+import { ModuleThemeLayer } from '@/components/layout/ModuleThemeLayer'
+import { Sidebar } from '@/components/layout/sidebar'
 import { requerirActorActivo } from '@/lib/auth/session'
 
 export default async function MainLayout({
@@ -8,12 +8,15 @@ export default async function MainLayout({
   children: React.ReactNode
 }) {
   const actor = await requerirActorActivo()
-  const accountScope = await obtenerAccountScopeData(actor)
+  const usesFieldShell =
+    actor.puesto === 'DERMOCONSEJERO' || actor.puesto === 'SUPERVISOR'
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Sidebar actor={actor} accountScope={accountScope} />
-      <main className="min-h-screen lg:ml-72">{children}</main>
+    <div className="min-h-screen bg-surface-subtle">
+      {!usesFieldShell && <Sidebar actor={actor} />}
+      <main className={usesFieldShell ? 'min-h-screen' : 'min-h-screen lg:ml-72'}>
+        <ModuleThemeLayer>{children}</ModuleThemeLayer>
+      </main>
     </div>
   )
 }

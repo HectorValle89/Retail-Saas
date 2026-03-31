@@ -28,20 +28,26 @@ export function OfflineStatusCard({
   offline,
   compact = false,
 }: OfflineStatusCardProps) {
+  const statusTone = !offline.hasHydrated
+    ? 'bg-slate-100 text-slate-700'
+    : offline.isOnline
+      ? 'bg-emerald-100 text-emerald-700'
+      : 'bg-amber-100 text-amber-800'
+
+  const statusLabel = !offline.hasHydrated
+    ? 'SINCRONIZANDO'
+    : offline.isOnline
+      ? 'ONLINE'
+      : 'OFFLINE'
+
   return (
     <Card className="border-slate-200 bg-white">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                offline.isOnline
-                  ? 'bg-emerald-100 text-emerald-700'
-                  : 'bg-amber-100 text-amber-800'
-              }`}
-            >
-              {offline.isOnline ? 'ONLINE' : 'OFFLINE'}
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusTone}`}>
+              {statusLabel}
             </span>
           </div>
           <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
@@ -75,7 +81,13 @@ export function OfflineStatusCard({
         </div>
       </div>
 
-      <div className={`mt-4 grid gap-3 ${compact ? 'grid-cols-2 lg:grid-cols-4' : 'md:grid-cols-4'}`}>
+      <div
+        className={`mt-4 grid gap-3 ${
+          compact
+            ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
+            : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-4'
+        }`}
+      >
         <Metric label="Pendientes" value={String(offline.summary.pending)} />
         <Metric label="Fallidos" value={String(offline.summary.failed)} />
         <Metric label="Asistencias local" value={String(offline.summary.asistenciaDrafts)} />

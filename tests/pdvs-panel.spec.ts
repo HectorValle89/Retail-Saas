@@ -11,11 +11,23 @@ function createFakePdvsSupabase(results: Record<string, QueryResult>) {
 
   return {
     from(table: string) {
+      let currentKey = table
+
       return {
         select() {
           return this
         },
-        eq() {
+        eq(_column: string, value: string) {
+          if (table === 'configuracion') {
+            if (value === 'geocerca.radio_default_metros') {
+              currentKey = 'configuracion:radio-default'
+            } else if (value === 'geocerca.fuera_permitida_con_justificacion') {
+              currentKey = 'configuracion:justificacion-default'
+            } else if (value === 'asistencias.san_pablo.catalogo_turnos') {
+              currentKey = 'configuracion'
+            }
+          }
+
           return this
         },
         order() {
@@ -23,13 +35,13 @@ function createFakePdvsSupabase(results: Record<string, QueryResult>) {
             return this
           }
 
-          return Promise.resolve(results[table])
+          return Promise.resolve(results[currentKey])
         },
         limit() {
-          return Promise.resolve(results[table])
+          return Promise.resolve(results[currentKey])
         },
         maybeSingle() {
-          return Promise.resolve(results[table])
+          return Promise.resolve(results[currentKey])
         },
       }
     },
@@ -175,6 +187,18 @@ test('consolida PDVs, horarios, supervisor e historial operativo', async () => {
       },
       error: null,
     },
+    'configuracion:radio-default': {
+      data: {
+        valor: 150,
+      },
+      error: null,
+    },
+    'configuracion:justificacion-default': {
+      data: {
+        valor: false,
+      },
+      error: null,
+    },
     regla_negocio: {
       data: {
         id: 'rule-horario',
@@ -242,10 +266,13 @@ test('consolida PDVs, horarios, supervisor e historial operativo', async () => {
     nomenclatura: 'SP-9-18',
     turno: 'Base semanal',
   })
+  expect(data.geocercaDefaultMetros).toBe(150)
+  expect(data.permiteCheckinConJustificacionDefault).toBe(false)
   expect(data.pdvs[0]).toMatchObject({
     id: 'pdv-1',
     cadena: 'SAN PABLO',
     ciudad: 'MONTERREY',
+    estado: 'NUEVO LEON',
     horarioMode: 'CADENA',
     supervisorActual: 'Ana Supervisor',
     geocercaCompleta: true,
@@ -278,6 +305,7 @@ test('consolida PDVs, horarios, supervisor e historial operativo', async () => {
     horaEntrada: '11:00:00',
     horaSalida: '19:00:00',
   })
+  expect(data.estados).toEqual(['CIUDAD DE MEXICO', 'NUEVO LEON'])
 })
 
 test('degrada el panel si la tabla pdv no esta disponible', async () => {
@@ -290,6 +318,8 @@ test('degrada el panel si la tabla pdv no esta disponible', async () => {
     ciudad: { data: [], error: null },
     empleado: { data: [], error: null },
     configuracion: { data: null, error: null },
+    'configuracion:radio-default': { data: null, error: null },
+    'configuracion:justificacion-default': { data: null, error: null },
     regla_negocio: { data: null, error: null },
     asignacion: { data: [], error: null },
     asistencia: { data: [], error: null },
@@ -300,4 +330,5 @@ test('degrada el panel si la tabla pdv no esta disponible', async () => {
   expect(data.infraestructuraLista).toBe(false)
   expect(data.mensajeInfraestructura).toContain('relation public.pdv does not exist')
   expect(data.pdvs).toHaveLength(0)
+  expect(data.geocercaDefaultMetros).toBe(150)
 })

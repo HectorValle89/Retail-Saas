@@ -3,6 +3,8 @@ import { obtenerPanelConfiguracion } from '../src/features/configuracion/service
 import {
   OCR_MODEL_CONFIG_KEY,
   OCR_PROVIDER_CONFIG_KEY,
+  PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY,
   TURNOS_CONFIG_KEY,
 } from '../src/features/configuracion/configuracionCatalog'
 
@@ -45,9 +47,17 @@ function createFakeConfiguracionSupabase(results: Record<string, QueryResult>) {
 test('consolida catalogos, parametros y OCR centralizado para configuracion', async () => {
   const previousProvider = process.env.OCR_PROVIDER
   const previousKey = process.env.GEMINI_API_KEY
+  const previousPdfProvider = process.env.PDF_COMPRESSION_PROVIDER
+  const previousFetch = global.fetch
 
   delete process.env.OCR_PROVIDER
   process.env.GEMINI_API_KEY = 'secret'
+  delete process.env.PDF_COMPRESSION_PROVIDER
+  global.fetch = (async () =>
+    ({
+      ok: true,
+      status: 200,
+    }) as Response) as typeof fetch
 
   try {
     const client = createFakeConfiguracionSupabase({
@@ -97,6 +107,20 @@ test('consolida catalogos, parametros y OCR centralizado para configuracion', as
             valor: 120,
             descripcion: 'Retencion selfies',
             modulo: 'storage',
+          },
+          {
+            id: 'cfg-pdf-provider',
+            clave: PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
+            valor: 'stirling',
+            descripcion: 'Proveedor PDF',
+            modulo: 'integraciones',
+          },
+          {
+            id: 'cfg-pdf-url',
+            clave: PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY,
+            valor: 'http://stirling.local',
+            descripcion: 'Base URL Stirling',
+            modulo: 'integraciones',
           },
         ],
         error: null,
@@ -192,7 +216,9 @@ test('consolida catalogos, parametros y OCR centralizado para configuracion', as
       horaEntrada: '09:00:00',
       horaSalida: '18:00:00',
     })
-    expect(data.parametrosGlobales[0]).toMatchObject({
+    expect(
+      data.parametrosGlobales.find((item) => item.key === 'geocerca.radio_default_metros')
+    ).toMatchObject({
       key: 'geocerca.radio_default_metros',
       value: '150',
       persisted: true,
@@ -210,6 +236,13 @@ test('consolida catalogos, parametros y OCR centralizado para configuracion', as
       status: 'LISTO',
       available: true,
     })
+    expect(data.pdfCompression).toMatchObject({
+      source: 'CONFIGURACION',
+      effectiveProvider: 'stirling',
+      effectiveBaseUrl: 'http://stirling.local',
+      status: 'LISTO',
+      available: true,
+    })
   } finally {
     if (previousProvider === undefined) {
       delete process.env.OCR_PROVIDER
@@ -222,6 +255,14 @@ test('consolida catalogos, parametros y OCR centralizado para configuracion', as
     } else {
       process.env.GEMINI_API_KEY = previousKey
     }
+
+    if (previousPdfProvider === undefined) {
+      delete process.env.PDF_COMPRESSION_PROVIDER
+    } else {
+      process.env.PDF_COMPRESSION_PROVIDER = previousPdfProvider
+    }
+
+    global.fetch = previousFetch
   }
 })
 
@@ -254,10 +295,14 @@ test('marca infraestructura parcial cuando falta alguna tabla base de configurac
   expect(data.infraestructuraLista).toBe(false)
   expect(data.mensajeInfraestructura).toContain('relation public.configuracion does not exist')
   expect(data.turnos).toHaveLength(0)
-  expect(data.parametrosGlobales[0]).toMatchObject({
+  expect(
+    data.parametrosGlobales.find((item) => item.key === 'geocerca.radio_default_metros')
+  ).toMatchObject({
     key: 'geocerca.radio_default_metros',
-    value: '100',
+    value: '150',
     persisted: false,
   })
   expect(data.ocr.status).toBe('DESHABILITADO')
+  expect(data.pdfCompression.status).toBe('LISTO')
+  expect(data.pdfCompression.effectiveProvider).toBe('local')
 })

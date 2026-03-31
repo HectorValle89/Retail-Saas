@@ -1,4 +1,4 @@
-import type { Asistencia, Venta } from '@/types/database'
+import type { Asistencia, LoveIsdin, Venta } from '@/types/database'
 
 export type OfflineStoreName =
   | 'asistencia_local'
@@ -13,11 +13,26 @@ export type OfflineQueueStatus = 'pending' | 'processing' | 'failed'
 
 export type OfflineConflictStrategy = 'server_wins' | 'client_wins'
 
+export interface OfflineQueuedFile {
+  file: File
+  fileName: string
+  mimeType: string
+  fileSize: number
+  capturedAt: string
+  localHash: string | null
+}
+
 export type OfflineAsistenciaPayload = Partial<Asistencia> & {
   id: string
+  offline_selfie_check_in?: OfflineQueuedFile | null
+  offline_selfie_check_out?: OfflineQueuedFile | null
 }
 
 export type OfflineVentaPayload = Partial<Venta> & {
+  id: string
+}
+
+export type OfflineLovePayload = Partial<LoveIsdin> & {
   id: string
 }
 

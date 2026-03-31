@@ -1,21 +1,33 @@
 'use client'
 
+import { X } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
-import { useOfflineSync } from '@/hooks/useOfflineSync'
 import { Button } from '@/components/ui/button'
+import { useOfflineSync } from '@/hooks/useOfflineSync'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
 }
 
+const PWA_INSTALL_DISMISSED_KEY = 'retail.pwa.install-dismissed'
+
 export function PwaBootstrap() {
   const offline = useOfflineSync()
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [serviceWorkerReady, setServiceWorkerReady] = useState(false)
   const [isInstalling, setIsInstalling] = useState(false)
+  const [isStandalone, setIsStandalone] = useState(false)
+  const [isMobileBrowser, setIsMobileBrowser] = useState(false)
+  const [isIos, setIsIos] = useState(false)
+  const [showInstallHelp, setShowInstallHelp] = useState(false)
+  const [isDismissed, setIsDismissed] = useState(false)
 
   useEffect(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      return
+    }
+
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
       return
     }
@@ -35,6 +47,22 @@ export function PwaBootstrap() {
       return
     }
 
+    setIsDismissed(window.sessionStorage.getItem(PWA_INSTALL_DISMISSED_KEY) === '1')
+
+    const userAgent = window.navigator.userAgent.toLowerCase()
+    const compactViewportQuery = window.matchMedia('(max-width: 767px)')
+    const standalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone)
+
+    const syncViewportFlags = (matchesCompactViewport: boolean) => {
+      setIsMobileBrowser(matchesCompactViewport || /android|iphone|ipad|ipod|mobile/.test(userAgent))
+    }
+
+    setIsStandalone(standalone)
+    setIsIos(/iphone|ipad|ipod/.test(userAgent))
+    syncViewportFlags(compactViewportQuery.matches)
+
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault()
       setInstallPrompt(event as BeforeInstallPromptEvent)
@@ -43,19 +71,30 @@ export function PwaBootstrap() {
     const handleAppInstalled = () => {
       setInstallPrompt(null)
       setIsInstalling(false)
+      setShowInstallHelp(false)
+      setIsStandalone(true)
+      window.sessionStorage.removeItem(PWA_INSTALL_DISMISSED_KEY)
+      setIsDismissed(false)
+    }
+
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      syncViewportFlags(event.matches)
     }
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
     window.addEventListener('appinstalled', handleAppInstalled)
+    compactViewportQuery.addEventListener('change', handleViewportChange)
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
       window.removeEventListener('appinstalled', handleAppInstalled)
+      compactViewportQuery.removeEventListener('change', handleViewportChange)
     }
   }, [])
 
   const handleInstall = async () => {
     if (!installPrompt) {
+      setShowInstallHelp(true)
       return
     }
 
@@ -70,7 +109,21 @@ export function PwaBootstrap() {
     }
   }
 
-  if (!serviceWorkerReady && !installPrompt && !offline.summary.pending && !offline.summary.failed) {
+  const handleDismiss = () => {
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(PWA_INSTALL_DISMISSED_KEY, '1')
+    }
+    setIsDismissed(true)
+    setShowInstallHelp(false)
+  }
+
+  const installAssistAvailable =
+    process.env.NODE_ENV === 'production' &&
+    serviceWorkerReady &&
+    !isStandalone &&
+    (Boolean(installPrompt) || isMobileBrowser)
+
+  if (!serviceWorkerReady || !installAssistAvailable || isDismissed) {
     return null
   }
 
@@ -82,55 +135,48 @@ export function PwaBootstrap() {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
               PWA de campo
             </p>
-            <h2 className="mt-2 text-base font-semibold text-slate-950">
-              {offline.isOnline ? 'Operacion conectada' : 'Modo sin conexion'}
-            </h2>
+            <h2 className="mt-2 text-base font-semibold text-slate-950">Instalar app</h2>
             <p className="mt-1 text-sm text-slate-600">
               {offline.isOnline
-                ? 'La cola local puede sincronizar asistencias y ventas.'
-                : 'Los nuevos registros se guardan localmente y esperan red.'}
+                ? 'La instalacion te da acceso rapido y la sincronizacion en campo sigue funcionando automaticamente.'
+                : 'Puedes instalarla aun sin red. Cuando vuelva la conexion, la cola local intentara sincronizarse sola.'}
             </p>
           </div>
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-              offline.isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'
-            }`}
+          <button
+            type="button"
+            onClick={handleDismiss}
+            className="rounded-full border border-slate-200 p-2 text-slate-400 transition hover:text-slate-600"
+            aria-label="Cerrar ayuda de instalacion"
           >
-            {offline.isOnline ? 'Online' : 'Offline'}
-          </span>
-        </div>
-
-        <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-          <MiniMetric label="Pend." value={String(offline.summary.pending)} />
-          <MiniMetric label="Error" value={String(offline.summary.failed)} />
-          <MiniMetric label="Sync" value={String(offline.summary.syncedDrafts)} />
+            <X size={16} weight="bold" />
+          </button>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-3">
           <Button
             size="sm"
-            onClick={() => void offline.syncNow()}
-            isLoading={offline.isSyncing}
-            disabled={!offline.isOnline || !offline.isSupported}
+            onClick={() => void handleInstall()}
+            isLoading={Boolean(installPrompt) && isInstalling}
           >
-            Sincronizar
+            Instalar app
           </Button>
-          {installPrompt && (
-            <Button size="sm" variant="outline" onClick={handleInstall} isLoading={isInstalling}>
-              Instalar app
-            </Button>
-          )}
+          <Button size="sm" variant="outline" onClick={handleDismiss}>
+            Cerrar
+          </Button>
         </div>
-      </div>
-    </div>
-  )
-}
 
-function MiniMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl bg-slate-50 px-3 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</p>
-      <p className="mt-2 text-xl font-semibold text-slate-950">{value}</p>
+        {showInstallHelp && !installPrompt && (
+          <p className="mt-3 text-xs text-slate-600">
+            {isIos
+              ? 'En iPhone abre Compartir y elige "Agregar a pantalla de inicio" para instalar la app.'
+              : 'Si el navegador no muestra el prompt automatico, abre el menu del navegador y elige "Instalar app" o "Agregar a pantalla de inicio".'}
+          </p>
+        )}
+
+        <p className="mt-3 text-xs text-slate-500">
+          El detalle de sincronizacion offline sigue disponible dentro de los modulos operativos y en la pagina offline.
+        </p>
+      </div>
     </div>
   )
 }

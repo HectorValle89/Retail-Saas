@@ -6,6 +6,7 @@ import {
   type BusinessRuleRow,
   type SchedulePriorityRuleDefinition,
 } from '@/features/reglas/lib/businessRules'
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
 import type { Pdv } from '@/types/database'
 
 type MaybeMany<T> = T | T[] | null
@@ -27,6 +28,7 @@ interface CiudadRelacion {
   id: string
   nombre: string
   zona: string
+  estado: string | null
 }
 
 interface GeocercaRelacion {
@@ -113,6 +115,91 @@ interface PdvMetadata {
   horario_chain_horario?: string
 }
 
+function isMissingCiudadEstadoColumn(message: string | null | undefined) {
+  if (!message) {
+    return false
+  }
+
+  const normalized = message.toLowerCase()
+  return normalized.includes('column ciudad.estado does not exist') || normalized.includes('column ciudad_1.estado does not exist')
+}
+
+async function fetchPdvsWithCityStateCompatibility(supabase: SupabaseClient) {
+  const withState = await supabase
+    .from('pdv')
+    .select(`
+        id,
+        clave_btl,
+        cadena_id,
+        ciudad_id,
+        id_cadena,
+        nombre,
+        direccion,
+        zona,
+        formato,
+        horario_entrada,
+        horario_salida,
+        estatus,
+        metadata,
+        created_at,
+        updated_at,
+        cadena:cadena_id(id, codigo, nombre),
+        ciudad:ciudad_id(id, nombre, zona, estado),
+        geocerca_pdv(id, latitud, longitud, radio_tolerancia_metros, permite_checkin_con_justificacion),
+        supervisor_pdv(id, activo, fecha_inicio, fecha_fin, empleado:empleado_id(id, nombre_completo, zona, estatus_laboral)),
+        horario_pdv(id, nivel_prioridad, fecha_especifica, dia_semana, codigo_turno, hora_entrada, hora_salida, activo, observaciones)
+      `)
+    .order('nombre', { ascending: true })
+
+  if (!isMissingCiudadEstadoColumn(withState.error?.message)) {
+    return withState
+  }
+
+  return supabase
+    .from('pdv')
+    .select(`
+        id,
+        clave_btl,
+        cadena_id,
+        ciudad_id,
+        id_cadena,
+        nombre,
+        direccion,
+        zona,
+        formato,
+        horario_entrada,
+        horario_salida,
+        estatus,
+        metadata,
+        created_at,
+        updated_at,
+        cadena:cadena_id(id, codigo, nombre),
+        ciudad:ciudad_id(id, nombre, zona),
+        geocerca_pdv(id, latitud, longitud, radio_tolerancia_metros, permite_checkin_con_justificacion),
+        supervisor_pdv(id, activo, fecha_inicio, fecha_fin, empleado:empleado_id(id, nombre_completo, zona, estatus_laboral)),
+        horario_pdv(id, nivel_prioridad, fecha_especifica, dia_semana, codigo_turno, hora_entrada, hora_salida, activo, observaciones)
+      `)
+    .order('nombre', { ascending: true })
+}
+
+async function fetchCitiesWithStateCompatibility(supabase: SupabaseClient) {
+  const withState = await supabase
+    .from('ciudad')
+    .select('id, nombre, zona, estado')
+    .eq('activa', true)
+    .order('nombre', { ascending: true })
+
+  if (!isMissingCiudadEstadoColumn(withState.error?.message)) {
+    return withState
+  }
+
+  return supabase
+    .from('ciudad')
+    .select('id, nombre, zona')
+    .eq('activa', true)
+    .order('nombre', { ascending: true })
+}
+
 export interface PdvResumen {
   total: number
   activos: number
@@ -131,6 +218,7 @@ export interface PdvCiudadOption {
   id: string
   nombre: string
   zona: string
+  estado: string | null
 }
 
 export interface PdvSupervisorOption {
@@ -198,6 +286,7 @@ export interface PdvListadoItem {
   cadena: string | null
   ciudadId: string | null
   ciudad: string | null
+  estado: string | null
   zona: string | null
   direccion: string | null
   formato: string | null
@@ -228,9 +317,17 @@ export interface PdvsPanelData {
   mensajeInfraestructura?: string
   cadenas: PdvCadenaOption[]
   ciudades: PdvCiudadOption[]
+  estados: string[]
   zonas: string[]
   supervisores: PdvSupervisorOption[]
   turnosCadena: PdvTurnoCatalogOption[]
+  geocercaDefaultMetros: number
+  permiteCheckinConJustificacionDefault: boolean
+}
+export interface PdvsExportPayload {
+  headers: string[]
+  rows: Array<Array<string | number | null>>
+  filenameBase: string
 }
 
 const SIGNED_DAY_LABELS = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado']
@@ -252,6 +349,31 @@ function mapString(value: unknown) {
 
 function mapMetadata(value: unknown) {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+}
+
+function mapConfigNumber(value: unknown, fallback: number) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    return fallback
+  }
+
+  return parsed
+}
+
+function mapConfigBoolean(value: unknown, fallback: boolean) {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (value === 'true') {
+    return true
+  }
+
+  if (value === 'false') {
+    return false
+  }
+
+  return fallback
 }
 
 function mapTurnCatalog(value: unknown): PdvTurnoCatalogOption[] {
@@ -280,7 +402,7 @@ function mapTurnCatalog(value: unknown): PdvTurnoCatalogOption[] {
         horaEntrada,
         horaSalida,
         tipo,
-        label: labelParts.join(' � '),
+        label: labelParts.join(' · '),
       }
     })
     .filter((item): item is PdvTurnoCatalogOption => Boolean(item))
@@ -472,40 +594,24 @@ function groupRecentItems<T extends { pdv_id: string }>(items: T[]) {
 export async function obtenerPanelPdvs(
   supabase: SupabaseClient
 ): Promise<PdvsPanelData> {
-  const [pdvsResult, cadenasResult, ciudadesResult, supervisorsResult, turnCatalogResult, scheduleRuleResult, asignacionesResult, asistenciasResult] = await Promise.all([
-    supabase
-      .from('pdv')
-      .select(`
-        id,
-        clave_btl,
-        cadena_id,
-        ciudad_id,
-        id_cadena,
-        nombre,
-        direccion,
-        zona,
-        formato,
-        horario_entrada,
-        horario_salida,
-        estatus,
-        metadata,
-        created_at,
-        updated_at,
-        cadena:cadena_id(id, codigo, nombre),
-        ciudad:ciudad_id(id, nombre, zona),
-        geocerca_pdv(id, latitud, longitud, radio_tolerancia_metros, permite_checkin_con_justificacion),
-        supervisor_pdv(id, activo, fecha_inicio, fecha_fin, empleado:empleado_id(id, nombre_completo, zona, estatus_laboral)),
-        horario_pdv(id, nivel_prioridad, fecha_especifica, dia_semana, codigo_turno, hora_entrada, hora_salida, activo, observaciones)
-      `)
-      .order('nombre', { ascending: true }),
+  const [pdvsResult, ciudadesResult] = await Promise.all([
+    fetchPdvsWithCityStateCompatibility(supabase),
+    fetchCitiesWithStateCompatibility(supabase),
+  ])
+
+  const [
+      cadenasResult,
+      supervisorsResult,
+      turnCatalogResult,
+      geocercaDefaultResult,
+    geocercaJustificacionResult,
+    scheduleRuleResult,
+    asignacionesResult,
+    asistenciasResult,
+  ] = await Promise.all([
     supabase
       .from('cadena')
       .select('id, codigo, nombre')
-      .eq('activa', true)
-      .order('nombre', { ascending: true }),
-    supabase
-      .from('ciudad')
-      .select('id, nombre, zona')
       .eq('activa', true)
       .order('nombre', { ascending: true }),
     supabase
@@ -518,6 +624,16 @@ export async function obtenerPanelPdvs(
       .from('configuracion')
       .select('valor')
       .eq('clave', 'asistencias.san_pablo.catalogo_turnos')
+      .maybeSingle(),
+    supabase
+      .from('configuracion')
+      .select('valor')
+      .eq('clave', 'geocerca.radio_default_metros')
+      .maybeSingle(),
+    supabase
+      .from('configuracion')
+      .select('valor')
+      .eq('clave', 'geocerca.fuera_permitida_con_justificacion')
       .maybeSingle(),
     supabase
       .from('regla_negocio')
@@ -550,6 +666,8 @@ export async function obtenerPanelPdvs(
     ciudadesResult.error,
     supervisorsResult.error,
     turnCatalogResult.error,
+    geocercaDefaultResult.error,
+    geocercaJustificacionResult.error,
     scheduleRuleResult.error,
     asignacionesResult.error,
     asistenciasResult.error,
@@ -565,13 +683,24 @@ export async function obtenerPanelPdvs(
       mensajeInfraestructura: infraErrors.join(' '),
       cadenas: [],
       ciudades: [],
+      estados: [],
       zonas: [],
       supervisores: [],
       turnosCadena: [],
+      geocercaDefaultMetros: 150,
+      permiteCheckinConJustificacionDefault: true,
     }
   }
 
   const turnosCadena = mapTurnCatalog((turnCatalogResult.data as ConfiguracionTurnoRow | null)?.valor)
+  const geocercaDefaultMetros = mapConfigNumber(
+    (geocercaDefaultResult.data as ConfiguracionTurnoRow | null)?.valor,
+    150
+  )
+  const permiteCheckinConJustificacionDefault = mapConfigBoolean(
+    (geocercaJustificacionResult.data as ConfiguracionTurnoRow | null)?.valor,
+    true
+  )
   const scheduleRule = readSchedulePriorityRule(
     (scheduleRuleResult.data as ReglaNegocioQueryRow | null) ?? null
   )
@@ -603,6 +732,7 @@ export async function obtenerPanelPdvs(
       cadena: cadena?.nombre ?? null,
       ciudadId: pdv.ciudad_id,
       ciudad: ciudad?.nombre ?? null,
+      estado: ciudad?.estado ?? resolveMexicoStateFromCity(ciudad?.nombre) ?? null,
       zona: pdv.zona ?? ciudad?.zona ?? null,
       direccion: pdv.direccion,
       formato: pdv.formato,
@@ -663,9 +793,22 @@ export async function obtenerPanelPdvs(
   const cadenas = (((cadenasResult.data ?? []) as CadenaRelacion[]) || [])
     .map((item) => ({ id: item.id, codigo: item.codigo, nombre: item.nombre }))
   const ciudades = (((ciudadesResult.data ?? []) as CiudadRelacion[]) || [])
-    .map((item) => ({ id: item.id, nombre: item.nombre, zona: item.zona }))
+    .map((item) => ({
+      id: item.id,
+      nombre: item.nombre,
+      zona: item.zona,
+      estado: item.estado ?? resolveMexicoStateFromCity(item.nombre) ?? null,
+    }))
   const supervisores = (((supervisorsResult.data ?? []) as EmpleadoRelacion[]) || [])
     .map((item) => ({ id: item.id, nombreCompleto: item.nombre_completo, zona: item.zona }))
+  const estados = Array.from(
+    new Set(
+      pdvs
+        .map((pdv) => pdv.estado)
+        .concat(ciudades.map((city) => city.estado))
+        .filter((item): item is string => Boolean(item))
+    )
+  ).sort((left, right) => left.localeCompare(right, 'es-MX'))
 
   const zonas = Array.from(
     new Set(
@@ -689,8 +832,114 @@ export async function obtenerPanelPdvs(
     mensajeInfraestructura: infraErrors.length > 0 ? infraErrors.join(' ') : undefined,
     cadenas,
     ciudades,
+    estados,
     zonas,
     supervisores,
     turnosCadena,
+    geocercaDefaultMetros,
+    permiteCheckinConJustificacionDefault,
+  }
+}
+function formatSupervisorHistory(items: PdvSupervisorHistoryItem[]) {
+  if (items.length === 0) {
+    return 'Sin historial'
+  }
+
+  return items
+    .map((item) => {
+      const empleado = item.empleado ?? 'Sin supervisor'
+      const vigencia = item.fechaFin ? `${item.fechaInicio} a ${item.fechaFin}` : `desde ${item.fechaInicio}`
+      return `${empleado} (${item.activo ? 'Activo' : 'Historico'} · ${vigencia})`
+    })
+    .join(' | ')
+}
+
+function formatHorarios(items: PdvHorarioItem[]) {
+  if (items.length === 0) {
+    return 'Sin horario'
+  }
+
+  return items
+    .map((item) => {
+      const tramo =
+        item.horaEntrada && item.horaSalida
+          ? `${item.horaEntrada.slice(0, 5)}-${item.horaSalida.slice(0, 5)}`
+          : 'Sin tramo'
+      const code = item.code ? ` · ${item.code}` : ''
+      const observations = item.observations ? ` · ${item.observations}` : ''
+      return `${item.dayLabel}: ${tramo}${code}${observations}`
+    })
+    .join(' | ')
+}
+
+function sanitizeFilenameDate(value: string) {
+  return value.replace(/[^0-9-]/g, '')
+}
+
+export async function collectPdvsExportPayload(supabase: SupabaseClient): Promise<PdvsExportPayload> {
+  const data = await obtenerPanelPdvs(supabase)
+
+  if (!data.infraestructuraLista && data.mensajeInfraestructura) {
+    throw new Error(data.mensajeInfraestructura)
+  }
+
+  const headers = [
+    'CLAVE_BTL',
+    'ID_CADENA',
+    'CADENA_CODIGO',
+    'CADENA',
+    'PDV',
+    'DIRECCION',
+    'CIUDAD',
+    'ESTADO',
+    'ZONA',
+    'FORMATO',
+    'ESTATUS',
+    'SUPERVISOR_ACTUAL',
+    'SUPERVISOR_VIGENTE_DESDE',
+    'LATITUD',
+    'LONGITUD',
+    'RADIO_METROS',
+    'PERMITE_CHECKIN_CON_JUSTIFICACION',
+    'GEOCERCA_COMPLETA',
+    'HORARIO_MODO',
+    'HORARIO_BASE_ENTRADA',
+    'HORARIO_BASE_SALIDA',
+    'HORARIOS_DETALLE',
+    'HISTORIAL_SUPERVISORES',
+  ]
+
+  const rows = data.pdvs.map((pdv) => [
+    pdv.claveBtl,
+    pdv.idCadena,
+    pdv.cadenaCodigo,
+    pdv.cadena,
+    pdv.nombre,
+    pdv.direccion,
+    pdv.ciudad,
+    pdv.estado,
+    pdv.zona,
+    pdv.formato,
+    pdv.estatus,
+    pdv.supervisorActual,
+    pdv.supervisorVigenteDesde,
+    pdv.latitud,
+    pdv.longitud,
+    pdv.radioMetros,
+    pdv.permiteCheckinConJustificacion ? 'SI' : 'NO',
+    pdv.geocercaCompleta ? 'SI' : 'NO',
+    pdv.horarioMode,
+    pdv.horarioEntrada,
+    pdv.horarioSalida,
+    formatHorarios(pdv.horarios),
+    formatSupervisorHistory(pdv.supervisorHistorial),
+  ])
+
+  const today = sanitizeFilenameDate(new Date().toISOString().slice(0, 10))
+
+  return {
+    headers,
+    rows,
+    filenameBase: `pdvs-${today}`,
   }
 }

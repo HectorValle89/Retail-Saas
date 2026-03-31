@@ -3,28 +3,31 @@
 import { revalidatePath } from 'next/cache'
 import { obtenerClienteAdmin } from '@/lib/auth/admin'
 import { requerirAdministradorActivo } from '@/lib/auth/session'
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
 import type { ConfiguracionSistema } from '@/types/database'
+import { parseProductCatalogWorkbook } from './lib/productCatalogImport'
+import {
+  ESTADO_CONFIGURACION_ADMIN_INICIAL,
+  type ConfiguracionAdminActionState,
+} from './state'
 import {
   EDITABLE_PARAMETER_DEFINITION_MAP,
   OCR_MODEL_CONFIG_KEY,
   OCR_PROVIDER_CONFIG_KEY,
   OCR_PROVIDER_OPTIONS,
+  PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
+  PDF_COMPRESSION_PROVIDER_OPTIONS,
+  PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_FAST_WEB_VIEW_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_IMAGE_DPI_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_IMAGE_QUALITY_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_OPTIMIZE_LEVEL_CONFIG_KEY,
   TURNOS_CONFIG_KEY,
   coerceEditableConfigValue,
   parseTurnosCatalogo,
   serializeTurnosCatalogo,
   type TurnoCatalogoItem,
 } from './configuracionCatalog'
-
-export interface ConfiguracionAdminActionState {
-  ok: boolean
-  message: string | null
-}
-
-export const ESTADO_CONFIGURACION_ADMIN_INICIAL: ConfiguracionAdminActionState = {
-  ok: false,
-  message: null,
-}
 
 function buildState(
   partial: Partial<ConfiguracionAdminActionState>
@@ -69,6 +72,21 @@ function normalizePositiveNumber(value: FormDataEntryValue | null, label: string
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(`${label} debe ser mayor a cero.`)
+  }
+
+  return parsed
+}
+
+function normalizeIntegerInRange(
+  value: FormDataEntryValue | null,
+  label: string,
+  min: number,
+  max: number
+) {
+  const parsed = Number(normalizeRequiredText(value, label))
+
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(`${label} debe ser un entero entre ${min} y ${max}.`)
   }
 
   return parsed
@@ -207,6 +225,16 @@ function revalidatePathsByConfigKey(key: string) {
     revalidatePath('/empleados')
   }
 
+  if (key.startsWith('integraciones.pdf')) {
+    revalidatePath('/empleados')
+    revalidatePath('/solicitudes')
+    revalidatePath('/gastos')
+    revalidatePath('/materiales')
+    revalidatePath('/mensajes')
+    revalidatePath('/rutas')
+    revalidatePath('/campanas')
+  }
+
   if (key.startsWith('nomina.')) {
     revalidatePath('/nomina')
     revalidatePath('/dashboard')
@@ -219,6 +247,79 @@ function revalidatePathsByConfigKey(key: string) {
 
   if (key.startsWith('auth.')) {
     revalidatePath('/admin/users')
+  }
+}
+
+export async function importarCatalogoProductos(
+  _prevState: ConfiguracionAdminActionState,
+  formData: FormData
+): Promise<ConfiguracionAdminActionState> {
+  const actor = await requerirAdministradorActivo()
+
+  try {
+    const service = await getAdminService()
+    const uploadedFile = formData.get('catalogo_productos_file')
+
+    if (!(uploadedFile instanceof File)) {
+      return buildState({ message: 'Adjunta un archivo XLSX para importar el catalogo.' })
+    }
+
+    if (!uploadedFile.name.toLowerCase().endsWith('.xlsx')) {
+      return buildState({ message: 'El catalogo debe estar en formato XLSX.' })
+    }
+
+    const bytes = new Uint8Array(await uploadedFile.arrayBuffer())
+    const parsed = parseProductCatalogWorkbook(bytes)
+    const importedAt = new Date().toISOString()
+
+    const payload = parsed.rows.map((item) => ({
+      sku: item.sku,
+      nombre: item.nombre,
+      nombre_corto: item.nombreCorto,
+      categoria: item.categoria,
+      top_30: item.top30,
+      activo: item.activo,
+      metadata: {
+        fuente: 'catalogo_isdin_admin_upload',
+        archivo: uploadedFile.name,
+        importado_en: importedAt,
+      },
+      updated_at: importedAt,
+    }))
+
+    const { error } = await service.from('producto').upsert(payload, { onConflict: 'sku' })
+
+    if (error) {
+      return buildState({
+        message: error.message || 'No fue posible importar el catalogo de productos.',
+      })
+    }
+
+    await registrarEventoAudit(service, actor.usuarioId, 'producto', 'catalogo-isdin', {
+      evento: 'configuracion_catalogo_productos_importado',
+      archivo: uploadedFile.name,
+      productos_procesados: parsed.rows.length,
+      filas_descartadas: parsed.skippedRows,
+    })
+
+    revalidateCommonPaths()
+    revalidatePath('/ventas')
+    revalidatePath('/reportes')
+    revalidatePath('/campanas')
+
+    return buildState({
+      ok: true,
+      message: `Catalogo importado: ${parsed.rows.length} productos actualizados${
+        parsed.skippedRows > 0 ? `, ${parsed.skippedRows} filas descartadas` : ''
+      }.`,
+    })
+  } catch (error) {
+    return buildState({
+      message:
+        error instanceof Error
+          ? error.message
+          : 'No fue posible importar el catalogo de productos.',
+    })
   }
 }
 
@@ -331,9 +432,23 @@ export async function guardarCiudad(
   try {
     const service = await getAdminService()
     const ciudadId = normalizeOptionalText(formData.get('ciudad_id'))
+    const nombre = normalizeCatalogText(formData.get('nombre'), 'Ciudad')
+    const estadoCapturado = normalizeOptionalText(formData.get('estado'))
+    const estadoDerivado = resolveMexicoStateFromCity(nombre)
+    const estado = estadoCapturado
+      ? normalizeCatalogText(estadoCapturado, 'Estado')
+      : estadoDerivado
+
+    if (!estado) {
+      return buildState({
+        message: 'No fue posible derivar el estado. Capturalo manualmente para esta ciudad.',
+      })
+    }
+
     const payload = {
-      nombre: normalizeCatalogText(formData.get('nombre'), 'Ciudad'),
+      nombre,
       zona: normalizeCatalogText(formData.get('zona'), 'Zona'),
+      estado,
       activa: normalizeBoolean(formData.get('activa')),
       updated_at: new Date().toISOString(),
     }
@@ -342,7 +457,7 @@ export async function guardarCiudad(
       ? service.from('ciudad').update(payload).eq('id', ciudadId)
       : service.from('ciudad').insert(payload)
 
-    const { data, error } = await query.select('id, nombre, zona').maybeSingle()
+    const { data, error } = await query.select('id, nombre, zona, estado').maybeSingle()
 
     if (error || !data) {
       return buildState({ message: error?.message ?? 'No fue posible guardar la ciudad.' })
@@ -352,10 +467,12 @@ export async function guardarCiudad(
       evento: ciudadId ? 'configuracion_ciudad_actualizada' : 'configuracion_ciudad_creada',
       nombre: data.nombre,
       zona: data.zona,
+      estado: data.estado,
     })
 
     revalidateCommonPaths()
     revalidatePath('/pdvs')
+    revalidatePath('/dashboard')
 
     return buildState({
       ok: true,
@@ -623,6 +740,112 @@ export async function guardarOcrConfiguracion(
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible guardar la configuracion OCR.',
+    })
+  }
+}
+
+export async function guardarPdfCompressionConfiguracion(
+  _prevState: ConfiguracionAdminActionState,
+  formData: FormData
+): Promise<ConfiguracionAdminActionState> {
+  const actor = await requerirAdministradorActivo()
+
+  try {
+    const service = await getAdminService()
+    const provider = normalizeRequiredText(formData.get('provider'), 'Proveedor').toLowerCase()
+    const baseUrl = normalizeOptionalText(formData.get('stirling_base_url'))
+    const optimizeLevel = normalizeIntegerInRange(
+      formData.get('optimize_level'),
+      'Nivel de optimizacion',
+      0,
+      4
+    )
+    const imageQuality = normalizeIntegerInRange(
+      formData.get('image_quality'),
+      'Calidad de imagen',
+      10,
+      100
+    )
+    const imageDpi = normalizeIntegerInRange(formData.get('image_dpi'), 'DPI de imagen', 72, 600)
+    const fastWebView = normalizeBoolean(formData.get('fast_web_view'))
+    const allowedProviders = new Set(PDF_COMPRESSION_PROVIDER_OPTIONS.map((item) => item.value))
+
+    if (
+      !allowedProviders.has(
+        provider as (typeof PDF_COMPRESSION_PROVIDER_OPTIONS)[number]['value']
+      )
+    ) {
+      return buildState({ message: 'El proveedor PDF seleccionado no es valido.' })
+    }
+
+    if (provider === 'stirling' && !baseUrl) {
+      return buildState({
+        message: 'Stirling PDF requiere una URL base para quedar disponible.',
+      })
+    }
+
+    const providerRow = await upsertConfiguracion(service, {
+      key: PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
+      value: provider,
+      description: 'Proveedor preferido para compresion PDF documental.',
+      module: 'integraciones',
+    })
+    await upsertConfiguracion(service, {
+      key: PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY,
+      value: baseUrl ?? '',
+      description: 'URL base del servicio Stirling PDF para compresion documental.',
+      module: 'integraciones',
+    })
+    await upsertConfiguracion(service, {
+      key: PDF_COMPRESSION_STIRLING_OPTIMIZE_LEVEL_CONFIG_KEY,
+      value: optimizeLevel,
+      description: 'Nivel de optimizacion aplicado por Stirling PDF.',
+      module: 'integraciones',
+    })
+    await upsertConfiguracion(service, {
+      key: PDF_COMPRESSION_STIRLING_IMAGE_QUALITY_CONFIG_KEY,
+      value: imageQuality,
+      description: 'Calidad JPEG interna usada por Stirling PDF al recomprimir imagenes.',
+      module: 'integraciones',
+    })
+    await upsertConfiguracion(service, {
+      key: PDF_COMPRESSION_STIRLING_IMAGE_DPI_CONFIG_KEY,
+      value: imageDpi,
+      description: 'DPI objetivo para imagenes internas en PDFs comprimidos.',
+      module: 'integraciones',
+    })
+    await upsertConfiguracion(service, {
+      key: PDF_COMPRESSION_STIRLING_FAST_WEB_VIEW_CONFIG_KEY,
+      value: fastWebView,
+      description: 'Activa fast web view en PDFs procesados por Stirling.',
+      module: 'integraciones',
+    })
+
+    await registrarEventoAudit(service, actor.usuarioId, 'configuracion', providerRow.id, {
+      evento: 'configuracion_pdf_compression_actualizada',
+      provider,
+      stirling_base_url: baseUrl,
+      optimize_level: optimizeLevel,
+      image_quality: imageQuality,
+      image_dpi: imageDpi,
+      fast_web_view: fastWebView,
+    })
+
+    revalidatePathsByConfigKey('integraciones.pdf')
+
+    return buildState({
+      ok: true,
+      message:
+        provider === 'stirling'
+          ? 'Compresion PDF central actualizada. El API key de Stirling sigue gobernado por variables de entorno.'
+          : 'Compresion PDF local activada desde configuracion central.',
+    })
+  } catch (error) {
+    return buildState({
+      message:
+        error instanceof Error
+          ? error.message
+          : 'No fue posible guardar la configuracion de compresion PDF.',
     })
   }
 }

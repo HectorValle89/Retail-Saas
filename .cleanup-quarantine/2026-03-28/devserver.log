@@ -1,0 +1,16 @@
+
+> saas-factory-app@0.1.0 dev
+> next dev --turbopack
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.228:3000
+- Environments: .env.local
+- Experiments (use with caution):
+  · proxyClientMaxBodySize: "15mb"
+  · serverActions
+
+✓ Starting...
+⨯ Unable to acquire lock at D:\IA\Retail\.next\dev\lock, is another instance of next dev running?
+  Suggestion: If you intended to restart next dev, terminate the other process, and then try again.
+[?25h

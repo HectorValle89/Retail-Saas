@@ -687,3 +687,35 @@ Recordar qué skills ya se usaron en la conversación para no repetir.
 **Última actualización:** 2026-02-05  
 **Proyecto:** Beteele SAAS Platform  
 **Total de Skills:** 20 organizadas en 8 carpetas temáticas
+
+## Retail Local Skills Policy
+
+Cuando este repositorio participe en el flujo de trabajo, `GEMINI.md` debe subordinarse a la fuente de verdad canonica en `.kiro/specs/field-force-platform/` y a la politica obligatoria de uso de skills locales en `.claude/skills/`.
+
+### Regla Operativa
+
+Antes de planear o editar codigo en Retail, el agente debe identificar y leer las `SKILL.md` relevantes. Como minimo:
+
+- `09-encoding/utf8-standard` para documentos, migraciones, seeds y reconciliacion.
+- `05-code-review/typescript-strict-typing` para TypeScript, Supabase y contratos de datos.
+- `06-performance/offline-sync-patterns` para IndexedDB, sync queue y trabajo offline.
+- `01-testing-tdd/pwa-service-worker` para manifest, service worker y cache.
+- `02-testing-e2e/playwright-testing` para flujos criticos de UI.
+- `02-testing-e2e/tailwind-mobile-first` para vistas moviles y compactas.
+- `03-debugging/systematic-debugging` para bloqueos o regresiones no triviales.
+- `06-performance/sql-indexing-strategy` para tablas, queries e indices.
+
+### Regla Irrompible de Encoding
+
+- Todo documento, migracion, seed o configuracion debe conservar UTF-8 sin BOM y line endings LF.
+- Antes de cerrar una iteracion que toque esos archivos se debe ejecutar `npm run docs:check-encoding`.
+- Queda prohibido reserializar archivos sensibles con flujos tipo `Get-Content ... | Set-Content ...`.
+
+### Matriz Resumida por Backlog
+
+- Fases 0-2: encoding, SQL indexing, strict typing.
+- Fase 3: strict typing, e2e, SQL indexing.
+- Fase 4 y modulos moviles: pwa-service-worker, offline-sync-patterns, tailwind-mobile-first, playwright-testing, systematic-debugging.
+- Fases 5-7: strict typing, SQL indexing, debugging, playwright; sumar PWA/offline cuando haya cache o sync.
+
+Si hay conflicto entre este archivo y `.kiro/specs/field-force-platform/`, prevalece la especificacion canonica.

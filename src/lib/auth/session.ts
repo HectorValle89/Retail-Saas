@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 import { readRequestAccountScope } from '@/lib/tenant/accountScope'
+import { isSingleTenantBackendEnabled } from '@/lib/tenant/singleTenant'
 import { createClient } from '@/lib/supabase/server'
+import { isPrimerAccesoPendiente } from '@/lib/auth/firstAccess'
 import type { EstadoCuenta, Puesto } from '@/types/database'
 
 export interface ActorActual {
@@ -14,6 +16,7 @@ export interface ActorActual {
   estadoCuenta: EstadoCuenta
   nombreCompleto: string
   puesto: Puesto
+  primerAccesoPendiente?: boolean
 }
 
 export async function obtenerActorActual(): Promise<ActorActual | null> {
@@ -38,7 +41,7 @@ export async function obtenerActorActual(): Promise<ActorActual | null> {
 
   const { data: empleado } = await supabase
     .from('empleado')
-    .select('id, nombre_completo, puesto')
+    .select('id, nombre_completo, puesto, metadata')
     .eq('id', usuario.empleado_id)
     .maybeSingle()
 
@@ -48,9 +51,11 @@ export async function obtenerActorActual(): Promise<ActorActual | null> {
 
   const requestScope = await readRequestAccountScope()
   const cuentaClienteId =
-    empleado.puesto === 'ADMINISTRADOR'
-      ? requestScope.accountId
-      : usuario.cuenta_cliente_id
+    isSingleTenantBackendEnabled()
+      ? requestScope.accountId ?? usuario.cuenta_cliente_id
+      : empleado.puesto === 'ADMINISTRADOR'
+        ? requestScope.accountId
+        : usuario.cuenta_cliente_id
 
   return {
     authUserId: user.id,
@@ -63,6 +68,7 @@ export async function obtenerActorActual(): Promise<ActorActual | null> {
     estadoCuenta: usuario.estado_cuenta as EstadoCuenta,
     nombreCompleto: empleado.nombre_completo,
     puesto: empleado.puesto as Puesto,
+    primerAccesoPendiente: isPrimerAccesoPendiente(empleado.metadata),
   }
 }
 
@@ -81,6 +87,10 @@ export async function requerirActorActivo() {
 
   if (actor.estadoCuenta !== 'ACTIVA') {
     redirect('/activacion')
+  }
+
+  if (actor.primerAccesoPendiente) {
+    redirect('/primer-acceso')
   }
 
   return actor

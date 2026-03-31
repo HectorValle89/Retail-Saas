@@ -5,6 +5,11 @@ import { revalidatePath } from 'next/cache'
 import { obtenerClienteAdmin, obtenerUrlBaseAplicacion } from '@/lib/auth/admin'
 import { requerirAdministradorActivo } from '@/lib/auth/session'
 import type { Empleado, EstadoCuenta, Puesto } from '@/types/database'
+import { ESTADO_USUARIO_ADMIN_INICIAL, type UsuarioAdminActionState } from './state'
+import {
+  canSendProvisionalCredentialsEmail,
+  sendProvisionalCredentialsEmail,
+} from '@/lib/notifications/provisionalCredentialsEmail'
 
 type MaybeMany<T> = T | T[] | null
 
@@ -36,22 +41,6 @@ interface UsuarioGestionRow {
   correo_electronico: string | null
   empleado: MaybeMany<EmpleadoRelacion>
   cuenta_cliente: MaybeMany<CuentaClienteRelacion>
-}
-
-export interface UsuarioAdminActionState {
-  ok: boolean
-  message: string | null
-  generatedUsername: string | null
-  temporaryPassword: string | null
-  temporaryEmail: string | null
-}
-
-export const ESTADO_USUARIO_ADMIN_INICIAL: UsuarioAdminActionState = {
-  ok: false,
-  message: null,
-  generatedUsername: null,
-  temporaryPassword: null,
-  temporaryEmail: null,
 }
 
 const PUESTOS_DISPONIBLES: Puesto[] = [
@@ -325,11 +314,64 @@ export async function crearUsuarioAdministrativo(
     cuentaClienteId,
   })
 
+  let deliveryMessage =
+    'Usuario creado con password temporal listo para activacion.'
+
+  if (empleado.correo_electronico && canSendProvisionalCredentialsEmail()) {
+    try {
+      const appUrl = await obtenerUrlBaseAplicacion()
+      await sendProvisionalCredentialsEmail({
+        to: empleado.correo_electronico,
+        employeeName: empleado.nombre_completo,
+        username,
+        temporaryPassword,
+        loginUrl: `${appUrl}/login`,
+      })
+
+      await registrarEventoAudit(service, {
+        tabla: 'usuario',
+        registroId: insertedUser.id,
+        payload: {
+          evento: 'usuario_credenciales_provisionales_enviadas',
+          username,
+          destino: empleado.correo_electronico,
+        },
+        usuarioId: actor.usuarioId,
+        cuentaClienteId,
+      })
+
+      deliveryMessage =
+        'Usuario creado y credenciales provisionales enviadas al correo del empleado.'
+    } catch (error) {
+      await registrarEventoAudit(service, {
+        tabla: 'usuario',
+        registroId: insertedUser.id,
+        payload: {
+          evento: 'usuario_credenciales_provisionales_error_email',
+          username,
+          destino: empleado.correo_electronico,
+          error: error instanceof Error ? error.message : 'unknown_email_error',
+        },
+        usuarioId: actor.usuarioId,
+        cuentaClienteId,
+      })
+
+      deliveryMessage =
+        'Usuario creado, pero el envio de credenciales por correo fallo. Comparte temporalmente las credenciales por un canal alterno y revisa la configuracion de email.'
+    }
+  } else if (empleado.correo_electronico) {
+    deliveryMessage =
+      'Usuario creado. Hay correo del empleado, pero el canal de email no esta configurado; comparte temporalmente las credenciales por un canal alterno.'
+  } else {
+    deliveryMessage =
+      'Usuario creado. El empleado no tiene correo registrado, asi que las credenciales deben compartirse por un canal alterno.'
+  }
+
   revalidatePath('/admin/users')
 
   return buildState({
     ok: true,
-    message: 'Usuario creado con password temporal listo para activacion.',
+    message: deliveryMessage,
     generatedUsername: username,
     temporaryPassword,
     temporaryEmail,

@@ -1,3 +1,4 @@
+import type { DBSchema, IDBPDatabase } from 'idb'
 import type {
   OfflineDraftRecord,
   OfflineQueueSummary,
@@ -7,41 +8,46 @@ import type {
 
 const DB_NAME = 'retail-offline-db'
 const DB_VERSION = 1
-
 const DRAFT_STORES = ['asistencia_local', 'venta_local', 'love_local'] as const
 
-function ensureIndexedDb() {
-  if (typeof window === 'undefined' || !('indexedDB' in window)) {
-    throw new Error('IndexedDB no esta disponible en este entorno.')
+interface OfflineDbSchema extends DBSchema {
+  asistencia_local: {
+    key: string
+    value: OfflineDraftRecord<unknown>
+  }
+  venta_local: {
+    key: string
+    value: OfflineDraftRecord<unknown>
+  }
+  love_local: {
+    key: string
+    value: OfflineDraftRecord<unknown>
+  }
+  sync_queue: {
+    key: string
+    value: OfflineSyncQueueItem<unknown>
+    indexes: {
+      status: string
+      created_at: string
+    }
+  }
+  meta: {
+    key: string
+    value: Record<string, unknown>
   }
 }
 
-function requestToPromise<T>(request: IDBRequest<T>) {
-  return new Promise<T>((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error ?? new Error('Fallo en IndexedDB.'))
-  })
-}
+let dbPromise: Promise<IDBPDatabase<OfflineDbSchema>> | null = null
 
-function transactionDone(transaction: IDBTransaction) {
-  return new Promise<void>((resolve, reject) => {
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () =>
-      reject(transaction.error ?? new Error('La transaccion de IndexedDB fallo.'))
-    transaction.onabort = () =>
-      reject(transaction.error ?? new Error('La transaccion de IndexedDB fue abortada.'))
-  })
-}
+async function createDatabase(): Promise<IDBPDatabase<OfflineDbSchema>> {
+  if (typeof window === 'undefined' || typeof indexedDB === 'undefined') {
+    throw new Error('Offline database requires a browser environment with IndexedDB support')
+  }
 
-async function openDatabase() {
-  ensureIndexedDb()
+  const { openDB } = await import('idb')
 
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = window.indexedDB.open(DB_NAME, DB_VERSION)
-
-    request.onupgradeneeded = () => {
-      const database = request.result
-
+  return openDB<OfflineDbSchema>(DB_NAME, DB_VERSION, {
+    upgrade(database) {
       if (!database.objectStoreNames.contains('asistencia_local')) {
         database.createObjectStore('asistencia_local', { keyPath: 'id' })
       }
@@ -63,53 +69,49 @@ async function openDatabase() {
       if (!database.objectStoreNames.contains('meta')) {
         database.createObjectStore('meta', { keyPath: 'key' })
       }
-    }
-
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error ?? new Error('No fue posible abrir IndexedDB.'))
+    },
   })
 }
 
-export async function putRecord<T>(storeName: OfflineStoreName, value: T) {
-  const db = await openDatabase()
-  const transaction = db.transaction(storeName, 'readwrite')
-  const store = transaction.objectStore(storeName)
-  store.put(value)
-  await transactionDone(transaction)
+function getDb() {
+  if (!dbPromise) {
+    dbPromise = createDatabase()
+  }
+
+  return dbPromise
 }
 
-export async function getAllRecords<T>(storeName: OfflineStoreName) {
-  const db = await openDatabase()
-  const transaction = db.transaction(storeName, 'readonly')
-  const store = transaction.objectStore(storeName)
-  const result = await requestToPromise(store.getAll())
-  await transactionDone(transaction)
-  return result as T[]
+export async function putRecord<K extends OfflineStoreName>(
+  storeName: K,
+  value: OfflineDbSchema[K]['value']
+) {
+  const db = await getDb()
+  await db.put(storeName, value)
+  return value
 }
 
-export async function getRecord<T>(storeName: OfflineStoreName, id: string) {
-  const db = await openDatabase()
-  const transaction = db.transaction(storeName, 'readonly')
-  const store = transaction.objectStore(storeName)
-  const result = await requestToPromise(store.get(id))
-  await transactionDone(transaction)
-  return (result as T | undefined) ?? null
+export async function getAllRecords(storeName: OfflineStoreName): Promise<Record<string, unknown>[]> {
+  const db = await getDb()
+  return (await db.getAll(storeName)) as Record<string, unknown>[]
+}
+
+export async function getRecord(storeName: OfflineStoreName, id: string) {
+  const db = await getDb()
+  return (await db.get(storeName, id)) ?? null
 }
 
 export async function deleteRecord(storeName: OfflineStoreName, id: string) {
-  const db = await openDatabase()
-  const transaction = db.transaction(storeName, 'readwrite')
-  const store = transaction.objectStore(storeName)
-  store.delete(id)
-  await transactionDone(transaction)
+  const db = await getDb()
+  await db.delete(storeName, id)
 }
 
 export async function getOfflineQueueSummary(): Promise<OfflineQueueSummary> {
+  const db = await getDb()
   const [queueItems, asistenciaDrafts, ventaDrafts, loveDrafts] = await Promise.all([
-    getAllRecords<OfflineSyncQueueItem>('sync_queue'),
-    getAllRecords<OfflineDraftRecord<Record<string, unknown>>>('asistencia_local'),
-    getAllRecords<OfflineDraftRecord<Record<string, unknown>>>('venta_local'),
-    getAllRecords<OfflineDraftRecord<Record<string, unknown>>>('love_local'),
+    db.getAll('sync_queue'),
+    db.getAll('asistencia_local'),
+    db.getAll('venta_local'),
+    db.getAll('love_local'),
   ])
 
   return {
@@ -126,22 +128,24 @@ export async function getOfflineQueueSummary(): Promise<OfflineQueueSummary> {
 }
 
 export async function getSortedQueueItems() {
-  const items = await getAllRecords<OfflineSyncQueueItem>('sync_queue')
+  const db = await getDb()
+  const items = await db.getAll('sync_queue')
   return items.sort((left, right) => left.created_at.localeCompare(right.created_at))
 }
 
 export async function markDraftSyncState(
   storeName: Extract<OfflineStoreName, 'asistencia_local' | 'venta_local' | 'love_local'>,
   id: string,
-  state: Pick<OfflineDraftRecord<Record<string, unknown>>, 'sync_status' | 'synced_at' | 'last_error'>
+  state: Pick<OfflineDraftRecord<unknown>, 'sync_status' | 'synced_at' | 'last_error'>
 ) {
-  const current = await getRecord<OfflineDraftRecord<Record<string, unknown>>>(storeName, id)
+  const db = await getDb()
+  const current = await db.get(storeName, id)
 
   if (!current) {
     return
   }
 
-  await putRecord(storeName, {
+  await db.put(storeName, {
     ...current,
     ...state,
   })

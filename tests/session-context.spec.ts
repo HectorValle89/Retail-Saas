@@ -78,3 +78,18 @@ test('mantiene consistencia en 250 escenarios pseudoaleatorios', () => {
     expect(status.exceededGraceWindow, `iteracion ${index}`).toBe(expectedExceeded)
   }
 })
+test('mantiene una ventana de gracia antes de invalidar la sesion stale', () => {
+  const issuedAtMs = Date.UTC(2026, 2, 14, 21, 20, 0)
+  const contextUpdatedAtMs = issuedAtMs + 30_000
+
+  const status = getAuthSessionContextStatus({
+    accessToken: createAccessToken(Math.floor(issuedAtMs / 1000)),
+    appMetadata: {
+      auth_context_updated_at: new Date(contextUpdatedAtMs).toISOString(),
+    },
+    now: contextUpdatedAtMs + AUTH_CONTEXT_INVALIDATION_WINDOW_MS - 1_000,
+  })
+
+  expect(status.isStale).toBe(true)
+  expect(status.exceededGraceWindow).toBe(false)
+})

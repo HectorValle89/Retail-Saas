@@ -44,6 +44,12 @@ export function getWeekEndIso(weekStart: string) {
   return toIsoDate(date)
 }
 
+export function getNextWeekStartIso(value?: string | Date) {
+  const currentWeekStart = toUtcDate(getWeekStartIso(value))
+  currentWeekStart.setUTCDate(currentWeekStart.getUTCDate() + 7)
+  return toIsoDate(currentWeekStart)
+}
+
 export function getWeekDayLabel(dayNumber: number) {
   return WEEK_DAY_OPTIONS.find((item) => item.value === dayNumber)?.label ?? 'Sin dia'
 }

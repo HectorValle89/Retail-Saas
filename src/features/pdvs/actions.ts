@@ -3,27 +3,43 @@
 import { revalidatePath } from 'next/cache'
 import { obtenerClienteAdmin } from '@/lib/auth/admin'
 import { requerirAdministradorActivo } from '@/lib/auth/session'
+import type { PdvActionState, PdvCreateDraft } from './state'
 
 interface AdminServiceResult {
   service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>
 }
 
-type PdvActionState = {
-  ok: boolean
-  message: string | null
-}
-
 type HorarioModeInput = 'CADENA' | 'PERSONALIZADO'
-
-const ESTADO_INICIAL: PdvActionState = {
-  ok: false,
-  message: null,
-}
 
 function buildState(partial: Partial<PdvActionState>): PdvActionState {
   return {
-    ...ESTADO_INICIAL,
+    ok: false,
+    message: null,
+    fields: null,
     ...partial,
+  }
+}
+
+function captureCreatePdvDraft(formData: FormData): PdvCreateDraft {
+  return {
+    clave_btl: String(formData.get('clave_btl') ?? '').trim(),
+    nombre: String(formData.get('nombre') ?? '').trim(),
+    cadena_id: String(formData.get('cadena_id') ?? '').trim(),
+    ciudad_id: String(formData.get('ciudad_id') ?? '').trim(),
+    zona: String(formData.get('zona') ?? '').trim(),
+    direccion: String(formData.get('direccion') ?? '').trim(),
+    formato: String(formData.get('formato') ?? '').trim(),
+    id_cadena: String(formData.get('id_cadena') ?? '').trim(),
+    estatus: String(formData.get('estatus') ?? 'ACTIVO').trim() === 'INACTIVO' ? 'INACTIVO' : 'ACTIVO',
+    coordenadas: String(formData.get('coordenadas') ?? '').trim(),
+    radio_tolerancia_metros: String(formData.get('radio_tolerancia_metros') ?? '').trim(),
+    permite_checkin_con_justificacion: formData.get('permite_checkin_con_justificacion') === 'on',
+    supervisor_empleado_id: String(formData.get('supervisor_empleado_id') ?? '').trim(),
+    horario_mode: String(formData.get('horario_mode') ?? 'CADENA').trim() === 'PERSONALIZADO' ? 'PERSONALIZADO' : 'CADENA',
+    turno_nomenclatura: String(formData.get('turno_nomenclatura') ?? '').trim(),
+    hora_entrada: String(formData.get('hora_entrada') ?? '').trim(),
+    hora_salida: String(formData.get('hora_salida') ?? '').trim(),
+    horario_observaciones: String(formData.get('horario_observaciones') ?? '').trim(),
   }
 }
 
@@ -85,6 +101,30 @@ function normalizeTime(value: FormDataEntryValue | null, label: string) {
   return time
 }
 
+function normalizeCoordinatesFromFormData(formData: FormData) {
+  const coordinatesRaw = normalizeOptionalText(formData.get('coordenadas'))
+
+  if (coordinatesRaw) {
+    const parts = coordinatesRaw
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+
+    if (parts.length !== 2) {
+      throw new Error('Coordenadas debe tener el formato "latitud, longitud".')
+    }
+
+    const latitud = normalizeCoordinate(parts[0], 'Latitud', -90, 90)
+    const longitud = normalizeCoordinate(parts[1], 'Longitud', -180, 180)
+
+    return { latitud, longitud }
+  }
+
+  const latitud = normalizeCoordinate(formData.get('latitud'), 'Latitud', -90, 90)
+  const longitud = normalizeCoordinate(formData.get('longitud'), 'Longitud', -180, 180)
+
+  return { latitud, longitud }
+}
 
 function normalizeHorarioMode(value: FormDataEntryValue | null): HorarioModeInput {
   const mode = normalizeRequiredText(value, 'Modo de horario')
@@ -422,6 +462,7 @@ export async function crearPdv(
   formData: FormData
 ): Promise<PdvActionState> {
   const actor = await requerirAdministradorActivo()
+  const fields = captureCreatePdvDraft(formData)
 
   try {
     const { service } = await getAdminService()
@@ -434,8 +475,7 @@ export async function crearPdv(
     const formato = normalizeOptionalText(formData.get('formato'))
     const idCadena = normalizeOptionalText(formData.get('id_cadena'))
     const estatus = normalizePdvStatus(formData.get('estatus'))
-    const latitud = normalizeCoordinate(formData.get('latitud'), 'Latitud', -90, 90)
-    const longitud = normalizeCoordinate(formData.get('longitud'), 'Longitud', -180, 180)
+    const { latitud, longitud } = normalizeCoordinatesFromFormData(formData)
     const radioMetros = normalizeIntegerRange(formData.get('radio_tolerancia_metros'), 'Radio de geocerca', 1, 1000)
     const permiteJustificacion = normalizeBoolean(formData.get('permite_checkin_con_justificacion'))
     const supervisorEmpleadoId = normalizeRequiredText(formData.get('supervisor_empleado_id'), 'Supervisor')
@@ -510,6 +550,7 @@ export async function crearPdv(
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible crear el PDV.',
+      fields,
     })
   }
 }
@@ -583,8 +624,7 @@ export async function actualizarGeocercaPdv(
   try {
     const { service } = await getAdminService()
     const pdvId = normalizeRequiredText(formData.get('pdv_id'), 'PDV')
-    const latitud = normalizeCoordinate(formData.get('latitud'), 'Latitud', -90, 90)
-    const longitud = normalizeCoordinate(formData.get('longitud'), 'Longitud', -180, 180)
+    const { latitud, longitud } = normalizeCoordinatesFromFormData(formData)
     const radioMetros = normalizeIntegerRange(formData.get('radio_tolerancia_metros'), 'Radio de geocerca', 1, 1000)
     const permiteJustificacion = normalizeBoolean(formData.get('permite_checkin_con_justificacion'))
 
@@ -676,5 +716,3 @@ export async function actualizarSupervisorPdv(
     })
   }
 }
-
-export { ESTADO_INICIAL as ESTADO_PDV_INICIAL }

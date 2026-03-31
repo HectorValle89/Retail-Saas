@@ -585,7 +585,7 @@ insert into public.configuracion (clave, valor, descripcion, modulo)
 values
   (
     'geocerca.radio_default_metros',
-    '100'::jsonb,
+    '150'::jsonb,
     'Radio de geocerca por defecto confirmado por negocio para v1.',
     'asistencias'
   ),
@@ -623,7 +623,7 @@ values
     'ALERTA',
     10,
     jsonb_build_object(
-      'radio_default_metros', 100,
+      'radio_default_metros', 150,
       'evalua_desviacion', true
     ),
     jsonb_build_object(

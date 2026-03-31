@@ -2,7 +2,7 @@
 
 import { startTransition, useEffect, useEffectEvent, useState } from 'react'
 import { getOfflineQueueSummary } from '@/lib/offline/offlineDb'
-import { OFFLINE_QUEUE_EVENT, processSyncQueue } from '@/lib/offline/syncQueue'
+import { OFFLINE_QUEUE_EVENT, OFFLINE_SYNC_TAG, processSyncQueue } from '@/lib/offline/syncQueue'
 import type { OfflineQueueSummary } from '@/lib/offline/types'
 
 const EMPTY_SUMMARY: OfflineQueueSummary = {
@@ -15,9 +15,36 @@ const EMPTY_SUMMARY: OfflineQueueSummary = {
   syncedDrafts: 0,
 }
 
+async function notifyServiceWorkerSyncComplete(payload: {
+  tag: string
+  requestId: string
+  ok: boolean
+  error?: string
+}) {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    return
+  }
+
+  const controller = navigator.serviceWorker.controller
+  if (controller) {
+    controller.postMessage({
+      type: 'OFFLINE_SYNC_COMPLETE',
+      ...payload,
+    })
+    return
+  }
+
+  const registration = await navigator.serviceWorker.ready
+  registration.active?.postMessage({
+    type: 'OFFLINE_SYNC_COMPLETE',
+    ...payload,
+  })
+}
+
 export interface OfflineSyncState {
   isSupported: boolean
   isOnline: boolean
+  hasHydrated: boolean
   isSyncing: boolean
   summary: OfflineQueueSummary
   lastSyncedAt: string | null
@@ -28,9 +55,8 @@ export interface OfflineSyncState {
 
 export function useOfflineSync(): OfflineSyncState {
   const [isSupported, setIsSupported] = useState(true)
-  const [isOnline, setIsOnline] = useState(
-    typeof navigator === 'undefined' ? true : navigator.onLine
-  )
+  const [isOnline, setIsOnline] = useState(true)
+  const [hasHydrated, setHasHydrated] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [summary, setSummary] = useState<OfflineQueueSummary>(EMPTY_SUMMARY)
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
@@ -53,26 +79,34 @@ export function useOfflineSync(): OfflineSyncState {
     }
   }
 
-  const syncNow = async () => {
+  const runSyncCycle = async () => {
     if (typeof window === 'undefined' || !navigator.onLine) {
       setIsOnline(typeof navigator === 'undefined' ? true : navigator.onLine)
       await refreshSummary()
       return
     }
 
+    setIsSyncing(true)
+    setIsSupported(true)
+
     try {
-      setIsSyncing(true)
-      setIsSupported(true)
       const result = await processSyncQueue()
       startTransition(() => {
         setSummary(result.summary)
       })
       setLastSyncedAt(new Date().toISOString())
       setLastError(null)
-    } catch (error) {
-      setLastError(error instanceof Error ? error.message : 'No fue posible sincronizar la cola.')
+      return result
     } finally {
       setIsSyncing(false)
+    }
+  }
+
+  const syncNow = async () => {
+    try {
+      await runSyncCycle()
+    } catch (error) {
+      setLastError(error instanceof Error ? error.message : 'No fue posible sincronizar la cola.')
     }
   }
 
@@ -89,6 +123,7 @@ export function useOfflineSync(): OfflineSyncState {
       return
     }
 
+    setHasHydrated(true)
     setIsOnline(navigator.onLine)
 
     const handleQueueChange = () => {
@@ -113,10 +148,47 @@ export function useOfflineSync(): OfflineSyncState {
       }
     }
 
+    const handleServiceWorkerMessage = (
+      event: MessageEvent<{ type?: string; tag?: string; requestId?: string }>
+    ) => {
+      if (event.data?.type !== 'OFFLINE_SYNC_REQUEST' || event.data.tag !== OFFLINE_SYNC_TAG) {
+        return
+      }
+
+      const requestId = event.data.requestId
+      if (!requestId) {
+        syncNowEvent()
+        return
+      }
+
+      void (async () => {
+        try {
+          await runSyncCycle()
+          await notifyServiceWorkerSyncComplete({
+            tag: OFFLINE_SYNC_TAG,
+            requestId,
+            ok: true,
+          })
+        } catch (error) {
+          setLastError(
+            error instanceof Error ? error.message : 'No fue posible sincronizar la cola offline.'
+          )
+          await notifyServiceWorkerSyncComplete({
+            tag: OFFLINE_SYNC_TAG,
+            requestId,
+            ok: false,
+            error:
+              error instanceof Error ? error.message : 'No fue posible sincronizar la cola offline.',
+          })
+        }
+      })()
+    }
+
     window.addEventListener(OFFLINE_QUEUE_EVENT, handleQueueChange)
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    navigator.serviceWorker?.addEventListener('message', handleServiceWorkerMessage)
 
     refreshSummaryEvent()
     if (navigator.onLine) {
@@ -128,12 +200,14 @@ export function useOfflineSync(): OfflineSyncState {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      navigator.serviceWorker?.removeEventListener('message', handleServiceWorkerMessage)
     }
   }, [])
 
   return {
     isSupported,
     isOnline,
+    hasHydrated,
     isSyncing,
     summary,
     lastSyncedAt,

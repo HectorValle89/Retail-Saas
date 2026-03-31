@@ -3,14 +3,14 @@ import { readAuthContextUpdatedAt } from '@/lib/auth/sessionContext'
 import { createServiceClient } from '@/lib/supabase/server'
 import type {
   CuentaCliente,
-  Database,
   Empleado,
   EstadoCuenta,
   Puesto,
   UsuarioSistema,
 } from '@/types/database'
 
-type RetailSupabaseClient = SupabaseClient<Database>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type RetailSupabaseClient = SupabaseClient<any>
 type MaybeMany<T> = T | T[] | null
 
 type EmpleadoRelacion = Pick<
@@ -40,7 +40,14 @@ interface UsuarioQueryRow
 
 type EmpleadoQueryRow = Pick<
   Empleado,
-  'id' | 'id_nomina' | 'nombre_completo' | 'puesto' | 'estatus_laboral' | 'correo_electronico'
+  | 'id'
+  | 'id_nomina'
+  | 'nombre_completo'
+  | 'puesto'
+  | 'estatus_laboral'
+  | 'correo_electronico'
+  | 'imss_estado'
+  | 'metadata'
 >
 
 type CuentaClienteQueryRow = Pick<CuentaCliente, 'id' | 'nombre' | 'identificador' | 'activa'>
@@ -320,7 +327,7 @@ export async function obtenerPanelUsuarios(
       .order('updated_at', { ascending: false }),
     supabase
       .from('empleado')
-      .select('id, id_nomina, nombre_completo, puesto, estatus_laboral, correo_electronico')
+      .select('id, id_nomina, nombre_completo, puesto, estatus_laboral, correo_electronico, imss_estado, metadata')
       .neq('estatus_laboral', 'BAJA')
       .order('nombre_completo', { ascending: true }),
     supabase
@@ -523,7 +530,18 @@ export async function obtenerPanelUsuarios(
       activa: cuenta.activa,
     })),
     empleadosDisponibles: empleadosRaw
-      .filter((empleado) => !empleadosAsignados.has(empleado.id))
+      .filter((empleado) => {
+        if (empleadosAsignados.has(empleado.id)) {
+          return false
+        }
+
+        const metadata =
+          empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
+            ? (empleado.metadata as Record<string, unknown>)
+            : {}
+
+        return empleado.imss_estado === 'ALTA_IMSS' && metadata.admin_access_pending === true
+      })
       .map((empleado) => ({
         id: empleado.id,
         idNomina: empleado.id_nomina,
@@ -534,3 +552,5 @@ export async function obtenerPanelUsuarios(
       })),
   }
 }
+
+

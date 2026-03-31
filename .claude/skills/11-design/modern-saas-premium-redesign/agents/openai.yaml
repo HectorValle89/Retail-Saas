@@ -1,0 +1,5 @@
+interface:
+  display_name: "Modern SaaS Premium Redesign"
+  short_description: "Eleva visualmente apps SaaS enterprise"
+  brand_color: "#2CB67D"
+  default_prompt: "Use $modern-saas-premium-redesign to evolve an existing SaaS UI into a premium visual system without changing navigation or logic."

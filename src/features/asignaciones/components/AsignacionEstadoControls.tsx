@@ -2,10 +2,8 @@
 
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
-import {
-  actualizarEstadoPublicacionAsignacion,
-  ESTADO_ASIGNACION_INICIAL,
-} from '../actions'
+import { actualizarEstadoPublicacionAsignacion } from '../actions'
+import { ESTADO_ASIGNACION_INICIAL } from '../state'
 
 interface AsignacionEstadoControlsProps {
   asignacionId: string

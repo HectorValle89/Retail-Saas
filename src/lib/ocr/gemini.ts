@@ -22,6 +22,18 @@ export interface GeminiOcrExtractionResult {
   rfc: string | null
   nss: string | null
   address: string | null
+  postalCode: string | null
+  phoneNumber: string | null
+  email: string | null
+  birthDate: string | null
+  employmentStartDate: string | null
+  age: number | null
+  yearsWorking: number | null
+  sex: string | null
+  maritalStatus: string | null
+  originPlace: string | null
+  dailyBaseSalary: number | null
+  addressSourceDocumentType: string | null
   employer: string | null
   position: string | null
   documentNumber: string | null
@@ -105,6 +117,18 @@ function buildBaseResult(
     rfc: null,
     nss: null,
     address: null,
+    postalCode: null,
+    phoneNumber: null,
+    email: null,
+    birthDate: null,
+    employmentStartDate: null,
+    age: null,
+    yearsWorking: null,
+    sex: null,
+    maritalStatus: null,
+    originPlace: null,
+    dailyBaseSalary: null,
+    addressSourceDocumentType: null,
     employer: null,
     position: null,
     documentNumber: null,
@@ -130,6 +154,38 @@ function normalizeText(value: unknown) {
   return normalized || null
 }
 
+function translateGeminiNarrative(value: string | null) {
+  if (!value) {
+    return null
+  }
+
+  let translated = value.trim()
+
+  const replacements: Array<[RegExp, string]> = [
+    [/The document is mostly legible, but there are inconsistencies in personal data and employment history\./gi, 'El documento es mayormente legible, pero hay inconsistencias en los datos personales y en el historial laboral.'],
+    [/The document is mostly legible\./gi, 'El documento es mayormente legible.'],
+    [/The document is legible and the key fields are clear\./gi, 'El documento es legible y los campos clave son claros.'],
+    [/The document is legible\./gi, 'El documento es legible.'],
+    [/Multiple addresses are present, and the sex on the INE mismatches other documents\./gi, 'Hay multiples domicilios y el sexo que aparece en la INE no coincide con otros documentos.'],
+    [/Multiple addresses are present\./gi, 'Hay multiples domicilios en el expediente.'],
+    [/Employment start date and daily base salary are not clearly defined\./gi, 'La fecha de ingreso y el SBC diario no estan claramente definidos.'],
+    [/Employment start date is not clearly defined\./gi, 'La fecha de ingreso no esta claramente definida.'],
+    [/Daily base salary is not clearly defined\./gi, 'El SBC diario no esta claramente definido.'],
+    [/Personal data/gi, 'datos personales'],
+    [/employment history/gi, 'historial laboral'],
+    [/daily base salary/gi, 'SBC diario'],
+    [/employment start date/gi, 'fecha de ingreso'],
+    [/Multiple addresses/gi, 'Multiples domicilios'],
+    [/The sex on the INE mismatches other documents/gi, 'El sexo que aparece en la INE no coincide con otros documentos'],
+  ]
+
+  for (const [pattern, replacement] of replacements) {
+    translated = translated.replace(pattern, replacement)
+  }
+
+  return translated
+}
+
 function normalizeStringArray(value: unknown) {
   if (!Array.isArray(value)) {
     return []
@@ -138,6 +194,28 @@ function normalizeStringArray(value: unknown) {
   return value
     .map((item) => normalizeText(item))
     .filter((item): item is string => Boolean(item))
+}
+
+function normalizeNumber(value: unknown) {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  const parsed = Number(String(value).replace(/[^0-9.-]+/g, ''))
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function normalizeIsoDate(value: unknown) {
+  const normalized = normalizeText(value)
+  if (!normalized) {
+    return null
+  }
+
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null
 }
 
 function extractJsonCandidate(rawText: string) {
@@ -164,13 +242,34 @@ function extractJsonCandidate(rawText: string) {
 function buildPrompt(expectedDocumentType: string, employeeName?: string | null) {
   return [
     'Eres un extractor OCR+IA para expedientes laborales de Mexico.',
-    'Analiza el documento adjunto y devuelve solo JSON valido, sin markdown ni texto adicional.',
+    'Analiza TODO el expediente adjunto antes de extraer cualquier dato y devuelve solo JSON valido, sin markdown ni texto adicional.',
+    'Todas las cadenas narrativas que devuelvas deben estar en espanol latino.',
     'No inventes datos. Si un dato no aparece claramente, usa null.',
+    'Ignora informacion de documentos no oficiales aunque parezca plausible. No completes campos con inferencias ni con datos estimados.',
     'Usa status=ok cuando el documento sea legible y los campos clave esten claros.',
     'Usa status=needs_review cuando el documento sea parcial o exista ambiguedad.',
     'Usa status=unreadable cuando practicamente no se pueda leer.',
     `Tipo esperado: ${expectedDocumentType}.`,
     `Empleado esperado: ${employeeName ?? 'desconocido'}.`,
+    'Si el archivo es un expediente completo con multiples documentos, primero identifica cada documento y despues consolida solo los datos provenientes de fuentes autorizadas.',
+    'FUENTES AUTORIZADAS POR CAMPO:',
+    '- employeeName: usar solo CURP, acta de nacimiento, constancia RFC o INE. Ignorar nombre de CV, cartas o formatos internos si contradicen documentos oficiales.',
+    '- curp: usar solo documento CURP o acta de nacimiento si la CURP aparece claramente. No tomar CURP de CV ni de formatos internos.',
+    '- rfc: usar solo constancia de situacion fiscal / RFC oficial del SAT. Ignorar RFC escrito en CV, solicitudes o formatos internos.',
+    '- nss: usar solo carta de derechos del IMSS / documento oficial donde aparezca el NSS. Ignorar NSS de CV, contratos o notas internas.',
+    '- birthDate: usar solo CURP, acta de nacimiento o INE. Si se puede derivar con certeza desde la CURP oficial, se permite; si hay conflicto, usa null.',
+    '- address y postalCode: usar solo COMPROBANTE_DOMICILIO. COMPROBANTE_DOMICILIO valido incluye recibo de luz, agua, telefono, internet, gas u otro servicio del hogar. Prioriza SIEMPRE el comprobante de domicilio por encima de la INE. Solo usa la INE para domicilio si no existe un comprobante de domicilio legible en el expediente.',
+    '- phoneNumber y email: usar solo CV o solicitud del candidato cuando esten claramente visibles. Si no existe CV legible, usa null.',
+    '- sex: usar solo CURP, acta de nacimiento o INE.',
+    '- maritalStatus: usar solo acta de nacimiento, INE u otro documento oficial que lo exprese claramente. No inferirlo.',
+    '- originPlace: usar solo acta de nacimiento, CURP o INE cuando el lugar de origen/nacimiento sea explicito.',
+    '- employmentStartDate, yearsWorking, dailyBaseSalary, employer, position: tratarlos como irrelevantes para este flujo si no vienen en un documento oficial laboral expresamente autorizado. No inferirlos desde CV ni desde cartas informales.',
+    'DOCUMENTOS IRRELEVANTES PARA DATOS PERSONALES: cartas simples, formatos internos, curriculum vitae (excepto telefono y correo), contratos borrador, notas manuscritas, checklist internos, solicitudes sin soporte oficial y cualquier hoja no oficial.',
+    'Si dos documentos oficiales se contradicen, usa null en el campo afectado, agrega una explicacion en mismatchHints y deja status=needs_review.',
+    'Si un campo solo aparece en una fuente no autorizada, usa null y puedes explicar en observations que fue descartado por no ser oficial.',
+    'Devuelve birthDate y employmentStartDate en formato YYYY-MM-DD cuando sea posible.',
+    'Devuelve age y yearsWorking como enteros.',
+    'Devuelve dailyBaseSalary como numero decimal sin simbolos.',
     'Schema JSON requerido:',
     JSON.stringify(
       {
@@ -181,6 +280,18 @@ function buildPrompt(expectedDocumentType: string, employeeName?: string | null)
         rfc: 'string | null',
         nss: 'string | null',
         address: 'string | null',
+        postalCode: 'string | null',
+        phoneNumber: 'string | null',
+        email: 'string | null',
+        birthDate: 'YYYY-MM-DD | null',
+        employmentStartDate: 'YYYY-MM-DD | null',
+        age: 'number | null',
+        yearsWorking: 'number | null',
+        sex: 'string | null',
+        maritalStatus: 'string | null',
+        originPlace: 'string | null',
+        dailyBaseSalary: 'number | null',
+        addressSourceDocumentType: 'COMPROBANTE_DOMICILIO | INE | OTRO | null',
         employer: 'string | null',
         position: 'string | null',
         documentNumber: 'string | null',
@@ -219,14 +330,26 @@ function normalizeGeminiResult(
     rfc: normalizeIdentifier(payload.rfc),
     nss: normalizeIdentifier(payload.nss),
     address: normalizeText(payload.address),
+    postalCode: normalizeText(payload.postalCode),
+    phoneNumber: normalizeText(payload.phoneNumber),
+    email: normalizeText(payload.email),
+    birthDate: normalizeIsoDate(payload.birthDate),
+    employmentStartDate: normalizeIsoDate(payload.employmentStartDate),
+    age: normalizeNumber(payload.age),
+    yearsWorking: normalizeNumber(payload.yearsWorking),
+    sex: normalizeText(payload.sex),
+    maritalStatus: normalizeText(payload.maritalStatus),
+    originPlace: normalizeText(payload.originPlace),
+    dailyBaseSalary: normalizeNumber(payload.dailyBaseSalary),
+    addressSourceDocumentType: normalizeText(payload.addressSourceDocumentType),
     employer: normalizeText(payload.employer),
     position: normalizeText(payload.position),
     documentNumber: normalizeText(payload.documentNumber),
     keyDates: normalizeStringArray(payload.keyDates),
     extractedText: normalizeText(payload.extractedText),
-    confidenceSummary: normalizeText(payload.confidenceSummary),
-    mismatchHints: normalizeStringArray(payload.mismatchHints),
-    observations: normalizeStringArray(payload.observations),
+    confidenceSummary: translateGeminiNarrative(normalizeText(payload.confidenceSummary)),
+    mismatchHints: normalizeStringArray(payload.mismatchHints).map((item) => translateGeminiNarrative(item) ?? item),
+    observations: normalizeStringArray(payload.observations).map((item) => translateGeminiNarrative(item) ?? item),
     usage,
   })
 }
@@ -259,6 +382,9 @@ export async function extractDocumentWithGemini({
     generationConfig: {
       responseMimeType: 'application/json',
       temperature: 0.1,
+      thinkingConfig: {
+        thinkingBudget: 0,
+      },
     },
   }
 

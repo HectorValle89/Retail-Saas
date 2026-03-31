@@ -1,4 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_FAST_WEB_VIEW_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_IMAGE_DPI_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_IMAGE_QUALITY_CONFIG_KEY,
+  PDF_COMPRESSION_STIRLING_OPTIMIZE_LEVEL_CONFIG_KEY,
+  buildResolvedPdfCompressionConfiguration,
+  probePdfCompressionProvider,
+} from '@/lib/files/pdfCompressionConfig'
 import { resolveConfiguredOcrConfiguration } from '@/lib/ocr/gemini'
 import type {
   ConfiguracionSistema,
@@ -67,6 +77,7 @@ export interface CiudadCatalogoItem {
   id: string
   nombre: string
   zona: string
+  estado: string | null
   activa: boolean
 }
 
@@ -91,6 +102,23 @@ export interface OcrConfiguracionItem {
   message: string
 }
 
+export interface PdfCompressionConfiguracionItem {
+  preferredProvider: string | null
+  envProvider: string | null
+  effectiveProvider: string
+  source: 'CONFIGURACION' | 'ENTORNO'
+  status: 'LISTO' | 'FALTA_BASE_URL' | 'INALCANZABLE'
+  available: boolean
+  message: string
+  effectiveBaseUrl: string | null
+  effectiveOptimizeLevel: string
+  effectiveImageQuality: string
+  effectiveImageDpi: string
+  effectiveFastWebView: string
+  apiKeyConfigured: boolean
+  healthEndpoint: string | null
+}
+
 export interface ConfiguracionPanelData {
   resumen: ConfiguracionResumen
   productos: ProductoCatalogoItem[]
@@ -102,6 +130,7 @@ export interface ConfiguracionPanelData {
   parametrosNomina: ParametroEditableItem[]
   misiones: MisionCatalogoItem[]
   ocr: OcrConfiguracionItem
+  pdfCompression: PdfCompressionConfiguracionItem
   infraestructuraLista: boolean
   mensajeInfraestructura?: string
 }
@@ -211,6 +240,103 @@ function buildOcrConfigItem(configRows: ConfiguracionSistema[]): OcrConfiguracio
   }
 }
 
+async function buildPdfCompressionConfigItem(
+  configRows: ConfiguracionSistema[]
+): Promise<PdfCompressionConfiguracionItem> {
+  const resolved = buildResolvedPdfCompressionConfiguration({
+    preferredProvider: configRows.find((item) => item.clave === PDF_COMPRESSION_PROVIDER_CONFIG_KEY)?.valor,
+    preferredBaseUrl: configRows.find(
+      (item) => item.clave === PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY
+    )?.valor,
+    preferredOptimizeLevel: configRows.find(
+      (item) => item.clave === PDF_COMPRESSION_STIRLING_OPTIMIZE_LEVEL_CONFIG_KEY
+    )?.valor,
+    preferredImageQuality: configRows.find(
+      (item) => item.clave === PDF_COMPRESSION_STIRLING_IMAGE_QUALITY_CONFIG_KEY
+    )?.valor,
+    preferredImageDpi: configRows.find(
+      (item) => item.clave === PDF_COMPRESSION_STIRLING_IMAGE_DPI_CONFIG_KEY
+    )?.valor,
+    preferredFastWebView: configRows.find(
+      (item) => item.clave === PDF_COMPRESSION_STIRLING_FAST_WEB_VIEW_CONFIG_KEY
+    )?.valor,
+    envProvider: process.env.PDF_COMPRESSION_PROVIDER,
+    envBaseUrl: process.env.STIRLING_PDF_BASE_URL,
+    envApiKey: process.env.STIRLING_PDF_API_KEY,
+    envOptimizeLevel: process.env.STIRLING_PDF_OPTIMIZE_LEVEL,
+    envImageQuality: process.env.STIRLING_PDF_IMAGE_QUALITY,
+    envImageDpi: process.env.STIRLING_PDF_IMAGE_DPI,
+    envFastWebView: process.env.STIRLING_PDF_FAST_WEB_VIEW,
+  })
+
+  const probe = await probePdfCompressionProvider(resolved)
+  const preferredProvider = mapConfigTextValue(
+    configRows.find((item) => item.clave === PDF_COMPRESSION_PROVIDER_CONFIG_KEY)?.valor
+  )
+  const envProvider = mapConfigTextValue(process.env.PDF_COMPRESSION_PROVIDER)
+
+  if (resolved.status === 'stirling_missing_base_url') {
+    return {
+      preferredProvider,
+      envProvider,
+      effectiveProvider: resolved.provider,
+      source: resolved.source,
+      status: 'FALTA_BASE_URL',
+      available: false,
+      message: 'Stirling PDF esta seleccionado, pero falta URL base en configuracion o entorno.',
+      effectiveBaseUrl: resolved.stirlingBaseUrl,
+      effectiveOptimizeLevel: resolved.optimizeLevel,
+      effectiveImageQuality: resolved.imageQuality,
+      effectiveImageDpi: resolved.imageDpi,
+      effectiveFastWebView: resolved.fastWebView,
+      apiKeyConfigured: resolved.apiKeyConfigured,
+      healthEndpoint: null,
+    }
+  }
+
+  if (!probe.healthy) {
+    return {
+      preferredProvider,
+      envProvider,
+      effectiveProvider: resolved.provider,
+      source: resolved.source,
+      status: 'INALCANZABLE',
+      available: resolved.provider === 'local',
+      message:
+        resolved.provider === 'local'
+          ? 'La compresion PDF local sigue disponible.'
+          : probe.message,
+      effectiveBaseUrl: resolved.stirlingBaseUrl,
+      effectiveOptimizeLevel: resolved.optimizeLevel,
+      effectiveImageQuality: resolved.imageQuality,
+      effectiveImageDpi: resolved.imageDpi,
+      effectiveFastWebView: resolved.fastWebView,
+      apiKeyConfigured: resolved.apiKeyConfigured,
+      healthEndpoint: probe.endpoint,
+    }
+  }
+
+  return {
+    preferredProvider,
+    envProvider,
+    effectiveProvider: resolved.provider,
+    source: resolved.source,
+    status: 'LISTO',
+    available: true,
+    message:
+      resolved.provider === 'local'
+        ? 'La compresion PDF usa el pipeline local con pdf-lib.'
+        : `La compresion PDF usa Stirling PDF${probe.endpoint ? ` en ${probe.endpoint}` : ''}.`,
+    effectiveBaseUrl: resolved.stirlingBaseUrl,
+    effectiveOptimizeLevel: resolved.optimizeLevel,
+    effectiveImageQuality: resolved.imageQuality,
+    effectiveImageDpi: resolved.imageDpi,
+    effectiveFastWebView: resolved.fastWebView,
+    apiKeyConfigured: resolved.apiKeyConfigured,
+    healthEndpoint: probe.endpoint,
+  }
+}
+
 function mapConfigTextValue(value: unknown) {
   const normalized = String(value ?? '').trim()
   return normalized || null
@@ -241,7 +367,7 @@ export async function obtenerPanelConfiguracion(
       .order('nombre', { ascending: true }),
     supabase
       .from('ciudad')
-      .select('id, nombre, zona, activa')
+      .select('id, nombre, zona, estado, activa')
       .order('nombre', { ascending: true }),
     supabase
       .from('mision_dia')
@@ -273,7 +399,7 @@ export async function obtenerPanelConfiguracion(
   }))
   const cadenas = ((cadenasResult.data ?? []) as CadenaRow[]).map((item) => ({
     id: item.id,
-    codigo: item.codigo,
+    codigo: item.codigo ?? '',
     nombre: item.nombre,
     factorCuotaDefault: item.factor_cuota_default,
     activa: item.activa,
@@ -282,6 +408,7 @@ export async function obtenerPanelConfiguracion(
     id: item.id,
     nombre: item.nombre,
     zona: item.zona,
+    estado: item.estado,
     activa: item.activa,
   }))
   const misiones = ((misionesResult.data ?? []) as MisionDia[]).map((item) => ({
@@ -303,6 +430,7 @@ export async function obtenerPanelConfiguracion(
   const parametrosNomina = PAYROLL_PARAMETER_DEFINITIONS.map((definition) =>
     buildParametroEditable(definition, configuracionMap.get(definition.key) ?? null)
   )
+  const pdfCompression = await buildPdfCompressionConfigItem(configuracionRows)
 
   return {
     resumen: {
@@ -324,6 +452,7 @@ export async function obtenerPanelConfiguracion(
     parametrosNomina,
     misiones,
     ocr: buildOcrConfigItem(configuracionRows),
+    pdfCompression,
     infraestructuraLista: infraestructuraErrors.length === 0,
     mensajeInfraestructura:
       infraestructuraErrors.length > 0

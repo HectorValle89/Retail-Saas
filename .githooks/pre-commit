@@ -1,0 +1,21 @@
+#!/bin/sh
+
+echo "Verificando encoding UTF-8 en archivos sensibles staged..."
+npm run docs:check-encoding -- --staged
+status=$?
+
+if [ $status -ne 0 ]; then
+  echo "Pre-commit bloqueado: corrige los problemas de encoding antes de hacer commit."
+  exit $status
+fi
+
+echo "Verificando reconciliacion conservadora de tasks.md..."
+npm run backlog:check-reconciliation
+status=$?
+
+if [ $status -ne 0 ]; then
+  echo "Pre-commit bloqueado: no cierres backlog canonico sin trabajo real staged."
+  exit $status
+fi
+
+exit 0

@@ -1,0 +1,91 @@
+⨯ Error: A "use server" file can only export async functions, found object.
+Read more: https://nextjs.org/docs/messages/invalid-use-server-value
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_7bfb9bb6._.js:372:239)
+    at module evaluation (.next-internal\server\app\(auth)\login\page\actions.js (server actions loader):1:1)
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_db4cd72d._.js:753:505)
+> 1 | export {desactivarSuscripcionPush as '40323f26db3643b4f9ab28189ee8e223dcfaa51e06'} from 'ACTIONS_MODULE0'
+    | ^
+  2 | export {obtenerEstadoPushActual as '000802f438ebc8dd75ae7ea7ca25c30ba6e31c7709'} from 'ACTIONS_MODULE0'
+  3 | export {registrarSuscripcionPush as '406cb1355cef26e657adca444daa6f7482bb5b7c2b'} from 'ACTIONS_MODULE0'
+  4 | export {login as '40ef6cdfef73b84aafdebce031862304ffb42c0bfd'} from 'ACTIONS_MODULE1' {
+  digest: '1607766305@E352'
+}
+⚠ Fast Refresh had to perform a full reload due to a runtime error.
+⨯ Error: A "use server" file can only export async functions, found object.
+Read more: https://nextjs.org/docs/messages/invalid-use-server-value
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_46d41810._.js:290:239)
+    at module evaluation (.next-internal\server\app\(main)\dashboard\page\actions.js (server actions loader):4:1)
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_46d41810._.js:324:517)
+  2 | export {obtenerEstadoPushActual as '000802f438ebc8dd75ae7ea7ca25c30ba6e31c7709'} from 'ACTIONS_MODULE0'
+  3 | export {registrarSuscripcionPush as '406cb1355cef26e657adca444daa6f7482bb5b7c2b'} from 'ACTIONS_MODULE0'
+> 4 | export {actualizarCuentaClienteActiva as '603b6e582778b2cb42355c20a28fe107541143fd6b'} from 'ACTIONS_MODULE1'
+    | ^
+  5 | export {ESTADO_ACCOUNT_SCOPE_INICIAL as '7f2991c9982c2ee5ac083a81c8ab94b95da42c2250'} from 'ACTIONS_MODULE1'
+  6 | {
+  digest: '1015602827@E352'
+}
+⨯ Error: A "use server" file can only export async functions, found object.
+Read more: https://nextjs.org/docs/messages/invalid-use-server-value
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_46d41810._.js:290:239)
+    at module evaluation (.next-internal\server\app\(main)\dashboard\page\actions.js (server actions loader):4:1)
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_46d41810._.js:324:517)
+  2 | export {obtenerEstadoPushActual as '000802f438ebc8dd75ae7ea7ca25c30ba6e31c7709'} from 'ACTIONS_MODULE0'
+  3 | export {registrarSuscripcionPush as '406cb1355cef26e657adca444daa6f7482bb5b7c2b'} from 'ACTIONS_MODULE0'
+> 4 | export {actualizarCuentaClienteActiva as '603b6e582778b2cb42355c20a28fe107541143fd6b'} from 'ACTIONS_MODULE1'
+    | ^
+  5 | export {ESTADO_ACCOUNT_SCOPE_INICIAL as '7f2991c9982c2ee5ac083a81c8ab94b95da42c2250'} from 'ACTIONS_MODULE1'
+  6 | {
+  digest: '1015602827@E352'
+}
+⨯ Error: A "use server" file can only export async functions, found object.
+Read more: https://nextjs.org/docs/messages/invalid-use-server-value
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_f807ef65._.js:290:239)
+    at module evaluation (.next-internal\server\app\(main)\asistencias\page\actions.js (server actions loader):4:1)
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_f807ef65._.js:324:519)
+  2 | export {obtenerEstadoPushActual as '000802f438ebc8dd75ae7ea7ca25c30ba6e31c7709'} from 'ACTIONS_MODULE0'
+  3 | export {registrarSuscripcionPush as '406cb1355cef26e657adca444daa6f7482bb5b7c2b'} from 'ACTIONS_MODULE0'
+> 4 | export {actualizarCuentaClienteActiva as '603b6e582778b2cb42355c20a28fe107541143fd6b'} from 'ACTIONS_MODULE1'
+    | ^
+  5 | export {ESTADO_ACCOUNT_SCOPE_INICIAL as '7f2991c9982c2ee5ac083a81c8ab94b95da42c2250'} from 'ACTIONS_MODULE1'
+  6 | {
+  digest: '3322112930@E352'
+}
+⨯ Error: A "use server" file can only export async functions, found object.
+Read more: https://nextjs.org/docs/messages/invalid-use-server-value
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_f807ef65._.js:290:239)
+    at module evaluation (.next-internal\server\app\(main)\asistencias\page\actions.js (server actions loader):4:1)
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_f807ef65._.js:324:519)
+  2 | export {obtenerEstadoPushActual as '000802f438ebc8dd75ae7ea7ca25c30ba6e31c7709'} from 'ACTIONS_MODULE0'
+  3 | export {registrarSuscripcionPush as '406cb1355cef26e657adca444daa6f7482bb5b7c2b'} from 'ACTIONS_MODULE0'
+> 4 | export {actualizarCuentaClienteActiva as '603b6e582778b2cb42355c20a28fe107541143fd6b'} from 'ACTIONS_MODULE1'
+    | ^
+  5 | export {ESTADO_ACCOUNT_SCOPE_INICIAL as '7f2991c9982c2ee5ac083a81c8ab94b95da42c2250'} from 'ACTIONS_MODULE1'
+  6 | {
+  digest: '3322112930@E352'
+}
+⨯ Error: A "use server" file can only export async functions, found object.
+Read more: https://nextjs.org/docs/messages/invalid-use-server-value
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_46d41810._.js:290:239)
+    at module evaluation (.next-internal\server\app\(main)\dashboard\page\actions.js (server actions loader):4:1)
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_46d41810._.js:324:517)
+  2 | export {obtenerEstadoPushActual as '000802f438ebc8dd75ae7ea7ca25c30ba6e31c7709'} from 'ACTIONS_MODULE0'
+  3 | export {registrarSuscripcionPush as '406cb1355cef26e657adca444daa6f7482bb5b7c2b'} from 'ACTIONS_MODULE0'
+> 4 | export {actualizarCuentaClienteActiva as '603b6e582778b2cb42355c20a28fe107541143fd6b'} from 'ACTIONS_MODULE1'
+    | ^
+  5 | export {ESTADO_ACCOUNT_SCOPE_INICIAL as '7f2991c9982c2ee5ac083a81c8ab94b95da42c2250'} from 'ACTIONS_MODULE1'
+  6 | {
+  digest: '1015602827@E352'
+}
+⨯ Error: A "use server" file can only export async functions, found object.
+Read more: https://nextjs.org/docs/messages/invalid-use-server-value
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_46d41810._.js:290:239)
+    at module evaluation (.next-internal\server\app\(main)\dashboard\page\actions.js (server actions loader):4:1)
+    at module evaluation (D:\IA\Retail\.next\dev\server\chunks\ssr\_46d41810._.js:324:517)
+  2 | export {obtenerEstadoPushActual as '000802f438ebc8dd75ae7ea7ca25c30ba6e31c7709'} from 'ACTIONS_MODULE0'
+  3 | export {registrarSuscripcionPush as '406cb1355cef26e657adca444daa6f7482bb5b7c2b'} from 'ACTIONS_MODULE0'
+> 4 | export {actualizarCuentaClienteActiva as '603b6e582778b2cb42355c20a28fe107541143fd6b'} from 'ACTIONS_MODULE1'
+    | ^
+  5 | export {ESTADO_ACCOUNT_SCOPE_INICIAL as '7f2991c9982c2ee5ac083a81c8ab94b95da42c2250'} from 'ACTIONS_MODULE1'
+  6 | {
+  digest: '1015602827@E352'
+}

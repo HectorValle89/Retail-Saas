@@ -1,10 +1,12 @@
-﻿import 'server-only'
+import 'server-only'
 
 import type { ActorActual } from '@/lib/auth/session'
 import {
   type AccountScopeData,
   type AccountScopeOption,
+  getSingleTenantScopeData,
 } from '@/lib/tenant/accountScope'
+import { isSingleTenantBackendEnabled } from '@/lib/tenant/singleTenant'
 import { createServiceClient } from '@/lib/supabase/server'
 import type { CuentaCliente } from '@/types/database'
 
@@ -34,6 +36,10 @@ function buildAdminScope(
 export async function obtenerAccountScopeData(
   actor: ActorActual
 ): Promise<AccountScopeData> {
+  if (isSingleTenantBackendEnabled()) {
+    return getSingleTenantScopeData()
+  }
+
   if (actor.puesto !== 'ADMINISTRADOR') {
     return buildDisabledScope(actor.cuentaClienteId)
   }

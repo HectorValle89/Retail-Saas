@@ -52,7 +52,8 @@ values
   ('CHE', 'CHEDRAUI', 1.20, true),
   ('CIT', 'CITY MARKET', 1.25, true),
   ('SEP', 'SEPHORA', 1.30, true),
-  ('FRA', 'FRAGUA', 1.10, true)
+  ('FRA', 'FRAGUA', 1.10, true),
+  ('TEST', 'TEST', 1.00, true)
 on conflict (codigo) do update
 set
   nombre = excluded.nombre,
@@ -60,21 +61,43 @@ set
   activa = excluded.activa,
   updated_at = now();
 
-insert into public.ciudad (nombre, zona, activa)
+insert into public.ciudad (nombre, zona, estado, activa)
 values
-  ('CIUDAD DE MEXICO', 'Centro', true),
-  ('MONTERREY', 'Noreste', true),
-  ('GUADALAJARA', 'Occidente', true),
-  ('PUEBLA', 'Centro-Sur', true),
-  ('MERIDA', 'Sureste', true),
-  ('QUERETARO', 'Centro-Norte', true),
-  ('LEON', 'Centro-Norte', true),
-  ('HERMOSILLO', 'Noroeste', true),
-  ('CULIACAN', 'Noroeste', true),
-  ('MAZATLAN', 'Noroeste', true)
+  ('AGUASCALIENTES', 'Centro-Norte', 'AGUASCALIENTES', true),
+  ('ATIZAPAN DE ZARAGOZA', 'TEST', 'ESTADO DE MEXICO', true),
+  ('AZCAPOTZALCO', 'TEST', 'CIUDAD DE MEXICO', true),
+  ('CANCUN', 'Sureste', 'QUINTANA ROO', true),
+  ('CDMX', 'Centro', 'CIUDAD DE MEXICO', true),
+  ('CIUDAD DE MEXICO', 'Centro', 'CIUDAD DE MEXICO', true),
+  ('COAHUILA', 'Noreste', 'COAHUILA', true),
+  ('COYOACAN', 'TEST', 'CIUDAD DE MEXICO', true),
+  ('CUAJIMALPA DE MORELOS', 'TEST', 'CIUDAD DE MEXICO', true),
+  ('MONTERREY', 'Noreste', 'NUEVO LEON', true),
+  ('GUADALAJARA', 'Occidente', 'JALISCO', true),
+  ('CUERNAVACA', 'Centro-Sur', 'MORELOS', true),
+  ('GUANAJUATO', 'Centro-Norte', 'GUANAJUATO', true),
+  ('IRAPUATO', 'Centro-Norte', 'GUANAJUATO', true),
+  ('NICOLAS ROMERO', 'TEST', 'ESTADO DE MEXICO', true),
+  ('PUEBLA', 'Centro-Sur', 'PUEBLA', true),
+  ('MERIDA', 'Sureste', 'YUCATAN', true),
+  ('MOCHIS', 'Noroeste', 'SINALOA', true),
+  ('LOS MOCHIS', 'Noroeste', 'SINALOA', true),
+  ('OAXACA', 'Sur', 'OAXACA', true),
+  ('QUERETARO', 'Centro-Norte', 'QUERETARO', true),
+  ('LEON', 'Centro-Norte', 'GUANAJUATO', true),
+  ('REYNOSA', 'Noreste', 'TAMAULIPAS', true),
+  ('SAN FRANCISCO DEL RINCON', 'Centro-Norte', 'GUANAJUATO', true),
+  ('TAMPICO', 'Noreste', 'TAMAULIPAS', true),
+  ('TIJUANA', 'Noroeste', 'BAJA CALIFORNIA', true),
+  ('TLALNEPANTLA DE BAZ', 'TEST', 'ESTADO DE MEXICO', true),
+  ('TOLUCA', 'Centro', 'ESTADO DE MEXICO', true),
+  ('HERMOSILLO', 'Noroeste', 'SONORA', true),
+  ('CULIACAN', 'Noroeste', 'SINALOA', true),
+  ('MAZATLAN', 'Noroeste', 'SINALOA', true)
 on conflict (nombre) do update
 set
   zona = excluded.zona,
+  estado = excluded.estado,
   activa = excluded.activa,
   updated_at = now();
 
@@ -82,7 +105,7 @@ insert into public.configuracion (clave, valor, descripcion, modulo)
 values
   (
     'geocerca.radio_default_metros',
-    '100'::jsonb,
+    '150'::jsonb,
     'Radio de geocerca por defecto confirmado por negocio para v1.',
     'asistencias'
   ),
@@ -144,7 +167,7 @@ values
     'ALERTA',
     10,
     jsonb_build_object(
-      'radio_default_metros', 100,
+      'radio_default_metros', 150,
       'evalua_desviacion', true
     ),
     jsonb_build_object(
@@ -567,6 +590,110 @@ values
     '11:00',
     '20:00',
     'ACTIVO'
+  ),
+  (
+    'BTL-TST-GUS-01',
+    (select id from public.cadena where codigo = 'TEST'),
+    (select id from public.ciudad where nombre = 'ATIZAPAN DE ZARAGOZA'),
+    'TST-001',
+    'GUS TEST 1',
+    'Av. Xochimanga 43, San Miguel Xochimanga, 52927 Cdad. Lopez Mateos, Mex.',
+    'TEST',
+    'test',
+    '10:00',
+    '19:00',
+    'ACTIVO'
+  ),
+  (
+    'BTL-TST-GUS-02',
+    (select id from public.cadena where codigo = 'TEST'),
+    (select id from public.ciudad where nombre = 'NICOLAS ROMERO'),
+    'TST-002',
+    'GUS TEST 2',
+    'Bodega Aurrera Nicolas Romero Cto. Gral. Anaya Manzana 018, Zaragoza, 54457 Cdad. Nicolas Romero, Mex.',
+    'TEST',
+    'test',
+    '10:00',
+    '19:00',
+    'ACTIVO'
+  ),
+  (
+    'BTL-TST-JAVI-01',
+    (select id from public.cadena where codigo = 'TEST'),
+    (select id from public.ciudad where nombre = 'CUAJIMALPA DE MORELOS'),
+    'TST-003',
+    'JAVI TES 1',
+    'Fuente de la Luna 100, Col Fuentes del Pedregal, CP 14140',
+    'TEST',
+    'test',
+    '10:00',
+    '19:00',
+    'ACTIVO'
+  ),
+  (
+    'BTL-TST-JAVI-02',
+    (select id from public.cadena where codigo = 'TEST'),
+    (select id from public.ciudad where nombre = 'COYOACAN'),
+    'TST-004',
+    'JAVI TES 2',
+    'Calle museo 81 casa 5 San Pablo Tepetlapa 04620 Coyoacan CDMX',
+    'TEST',
+    'test',
+    '10:00',
+    '19:00',
+    'ACTIVO'
+  ),
+  (
+    'BTL-TST-HECT-01',
+    (select id from public.cadena where codigo = 'TEST'),
+    (select id from public.ciudad where nombre = 'CUAJIMALPA DE MORELOS'),
+    'TST-005',
+    'HECT TES 1',
+    'Av. Secretaria de Marina 458-B, Lomas de Vista Hermosa, Cuajimalpa de Morelos, 05129 Ciudad de Mexico, CDMX',
+    'TEST',
+    'test',
+    '10:00',
+    '19:00',
+    'ACTIVO'
+  ),
+  (
+    'BTL-TST-HECT-02',
+    (select id from public.cadena where codigo = 'TEST'),
+    (select id from public.ciudad where nombre = 'TLALNEPANTLA DE BAZ'),
+    'TST-006',
+    'HECT TES 2',
+    'Penins. de Indochina 19, U.H. Rosario II Sector III, 54090 Tlalnepantla, Mex.',
+    'TEST',
+    'test',
+    '10:00',
+    '19:00',
+    'ACTIVO'
+  ),
+  (
+    'BTL-TST-HECT-03',
+    (select id from public.cadena where codigo = 'TEST'),
+    (select id from public.ciudad where nombre = 'AZCAPOTZALCO'),
+    'TST-007',
+    'HECT TES 3',
+    'Eje 5 Nte 990, Santa Barbara, Azcapotzalco, 02230 Ciudad de Mexico, CDMX',
+    'TEST',
+    'test',
+    '10:00',
+    '19:00',
+    'ACTIVO'
+  ),
+  (
+    'BTL-TST-HECT-04',
+    (select id from public.cadena where codigo = 'TEST'),
+    (select id from public.ciudad where nombre = 'AZCAPOTZALCO'),
+    'TST-008',
+    'HECT TES 4',
+    'Nueva Rosario, 02128 Ciudad de Mexico, CDMX',
+    'TEST',
+    'test',
+    '10:00',
+    '19:00',
+    'ACTIVO'
   )
 on conflict (clave_btl) do update
 set
@@ -615,6 +742,62 @@ values
     (select id from public.pdv where clave_btl = 'BTL-SEP-4001'),
     20.7098780,
     -103.4121930,
+    100,
+    true
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-GUS-01'),
+    19.5796636,
+    -99.2194452,
+    100,
+    true
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-GUS-02'),
+    19.6279306,
+    -99.3219257,
+    100,
+    true
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-JAVI-01'),
+    19.3073231,
+    -99.2221518,
+    100,
+    true
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-JAVI-02'),
+    19.3221044,
+    -99.1443169,
+    100,
+    true
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-HECT-01'),
+    19.3849231,
+    -99.2659694,
+    100,
+    true
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-HECT-02'),
+    19.5129231,
+    -99.1857827,
+    100,
+    true
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-HECT-03'),
+    19.5041963,
+    -99.1781070,
+    100,
+    true
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-HECT-04'),
+    19.5031591,
+    -99.1895185,
     100,
     true
   )
@@ -723,6 +906,62 @@ values
     true,
     '2026-03-01',
     null
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-GUS-01'),
+    (select id from public.empleado where correo_electronico = 'test_supervisor_01@fieldforce.test'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-GUS-02'),
+    (select id from public.empleado where correo_electronico = 'test_supervisor_01@fieldforce.test'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-JAVI-01'),
+    (select id from public.empleado where correo_electronico = 'test_supervisor_02@fieldforce.test'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-JAVI-02'),
+    (select id from public.empleado where correo_electronico = 'test_supervisor_02@fieldforce.test'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-HECT-01'),
+    (select id from public.empleado where correo_electronico = 'test_supervisor_03@fieldforce.test'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-HECT-02'),
+    (select id from public.empleado where correo_electronico = 'test_supervisor_03@fieldforce.test'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-HECT-03'),
+    (select id from public.empleado where correo_electronico = 'test_supervisor_03@fieldforce.test'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.pdv where clave_btl = 'BTL-TST-HECT-04'),
+    (select id from public.empleado where correo_electronico = 'test_supervisor_03@fieldforce.test'),
+    true,
+    '2026-03-01',
+    null
   )
 on conflict (pdv_id, empleado_id, fecha_inicio) do update
 set
@@ -756,6 +995,62 @@ values
   (
     (select id from public.cuenta_cliente where identificador = 'isdin_mexico'),
     (select id from public.pdv where clave_btl = 'BTL-SEP-4001'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
+    (select id from public.pdv where clave_btl = 'BTL-TST-GUS-01'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
+    (select id from public.pdv where clave_btl = 'BTL-TST-GUS-02'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
+    (select id from public.pdv where clave_btl = 'BTL-TST-JAVI-01'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
+    (select id from public.pdv where clave_btl = 'BTL-TST-JAVI-02'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
+    (select id from public.pdv where clave_btl = 'BTL-TST-HECT-01'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
+    (select id from public.pdv where clave_btl = 'BTL-TST-HECT-02'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
+    (select id from public.pdv where clave_btl = 'BTL-TST-HECT-03'),
+    true,
+    '2026-03-01',
+    null
+  ),
+  (
+    (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
+    (select id from public.pdv where clave_btl = 'BTL-TST-HECT-04'),
     true,
     '2026-03-01',
     null
@@ -1033,7 +1328,7 @@ values
     null,
     null,
     'SIN_GPS',
-    'Sin seÃƒÂ±al en el dispositivo durante el intento inicial.',
+    'Sin señal en el dispositivo durante el intento inicial.',
     coalesce(
       (select id from public.mision_dia where codigo = 'M0004' limit 1),
       (select id from public.mision_dia order by orden asc offset 3 limit 1)

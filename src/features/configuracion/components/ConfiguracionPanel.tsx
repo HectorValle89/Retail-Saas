@@ -8,16 +8,22 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import {
   eliminarTurnoCatalogo,
-  ESTADO_CONFIGURACION_ADMIN_INICIAL,
   guardarCadena,
   guardarCiudad,
   guardarMisionDia,
   guardarOcrConfiguracion,
+  guardarPdfCompressionConfiguracion,
   guardarParametroConfiguracion,
   guardarProducto,
   guardarTurnoCatalogo,
+  importarCatalogoProductos,
 } from '../actions'
-import { OCR_PROVIDER_OPTIONS, type TurnoCatalogoItem } from '../configuracionCatalog'
+import {
+  OCR_PROVIDER_OPTIONS,
+  PDF_COMPRESSION_PROVIDER_OPTIONS,
+  type TurnoCatalogoItem,
+} from '../configuracionCatalog'
+import { ESTADO_CONFIGURACION_ADMIN_INICIAL } from '../state'
 import type {
   CadenaCatalogoItem,
   CiudadCatalogoItem,
@@ -25,6 +31,7 @@ import type {
   MisionCatalogoItem,
   OcrConfiguracionItem,
   ParametroEditableItem,
+  PdfCompressionConfiguracionItem,
   ProductoCatalogoItem,
 } from '../services/configuracionService'
 
@@ -43,6 +50,19 @@ function getOcrTone(status: OcrConfiguracionItem['status']) {
     case 'FALTA_API_KEY':
       return 'bg-amber-100 text-amber-700'
     case 'NO_IMPLEMENTADO':
+      return 'bg-rose-100 text-rose-700'
+    default:
+      return 'bg-slate-100 text-slate-700'
+  }
+}
+
+function getPdfCompressionTone(status: PdfCompressionConfiguracionItem['status']) {
+  switch (status) {
+    case 'LISTO':
+      return 'bg-emerald-100 text-emerald-700'
+    case 'FALTA_BASE_URL':
+      return 'bg-amber-100 text-amber-700'
+    case 'INALCANZABLE':
       return 'bg-rose-100 text-rose-700'
     default:
       return 'bg-slate-100 text-slate-700'
@@ -172,6 +192,7 @@ export function ConfiguracionPanel({ data }: { data: ConfiguracionPanelData }) {
               title="Catalogo de productos"
               description="CRUD operativo para ventas, reportes y catalogo comercial visible en campo."
             />
+            <ImportCatalogForm />
             <Input
               label="Buscar producto"
               value={productSearch}
@@ -274,6 +295,14 @@ export function ConfiguracionPanel({ data }: { data: ConfiguracionPanelData }) {
 
           <Card className="space-y-4 p-6">
             <SectionHeader
+              title="Compresion PDF"
+              description="Proveedor runtime del pipeline PDF para expedientes, IMSS, solicitudes, gastos y adjuntos."
+            />
+            <PdfCompressionConfigForm item={data.pdfCompression} />
+          </Card>
+
+          <Card className="space-y-4 p-6">
+            <SectionHeader
               title="Retencion de archivos"
               description="Minimos operativos para storage de expediente, selfies y exportaciones."
             />
@@ -308,6 +337,56 @@ function MetricCard({ label, value }: { label: string; value: string }) {
       <p className="text-sm text-slate-500">{label}</p>
       <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
     </Card>
+  )
+}
+
+function ImportCatalogForm() {
+  const [state, formAction] = useActionState(
+    importarCatalogoProductos,
+    ESTADO_CONFIGURACION_ADMIN_INICIAL
+  )
+
+  return (
+    <form
+      action={formAction}
+      className="space-y-4 rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/50 p-4"
+    >
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-slate-950">Actualizar catalogo ISDIN</p>
+          <p className="text-xs text-slate-600">
+            Carga tu XLSX activo para crear o actualizar productos por SKU. Ventas usara este
+            catalogo como fuente maestra.
+          </p>
+        </div>
+        <StatusPill label="XLSX" tone="bg-emerald-100 text-emerald-700" />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+        <div className="w-full">
+          <label
+            htmlFor="catalogo-productos-file"
+            className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-foreground-tertiary"
+          >
+            Archivo catalogo
+          </label>
+          <input
+            id="catalogo-productos-file"
+            name="catalogo_productos_file"
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="w-full rounded-[12px] border border-border bg-white px-4 py-3 text-sm text-slate-900 file:mr-4 file:rounded-full file:border-0 file:bg-emerald-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-emerald-800 hover:border-primary-200 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+          />
+        </div>
+
+        <SubmitActionButton
+          label="Importar catalogo"
+          pendingLabel="Importando..."
+        />
+      </div>
+
+      <StateMessage state={state} />
+    </form>
   )
 }
 
@@ -440,12 +519,13 @@ function CiudadForm({ item }: { item?: CiudadCatalogoItem }) {
         </div>
         {item && <StatusPill label={formatBooleanLabel(item.activa)} tone={getStatusTone(item.activa)} />}
       </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Input label="Ciudad" name="nombre" defaultValue={item?.nombre} placeholder="MONTERREY" />
-        <Input label="Zona" name="zona" defaultValue={item?.zona} placeholder="NORTE" />
-        <Select
-          label="Activa"
-          name="activa"
+        <div className="grid gap-4 md:grid-cols-2">
+          <Input label="Ciudad" name="nombre" defaultValue={item?.nombre} placeholder="MONTERREY" />
+          <Input label="Zona" name="zona" defaultValue={item?.zona} placeholder="NORTE" />
+          <Input label="Estado" name="estado" defaultValue={item?.estado ?? ''} placeholder="NUEVO LEON" />
+          <Select
+            label="Activa"
+            name="activa"
           defaultValue={item ? String(item.activa) : 'true'}
           options={[
             { value: 'true', label: 'Activa' },
@@ -472,19 +552,19 @@ function TurnoForm({ item }: { item?: TurnoCatalogoItem }) {
 
   return (
     <div className={`rounded-2xl border ${item ? 'border-slate-200 bg-slate-50' : 'border-dashed border-slate-300 bg-white'} p-4`}>
-      <form action={formAction} className="space-y-4">
-        <input type="hidden" name="turno_original" value={item?.nomenclatura ?? ''} />
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-slate-950">
-              {item ? item.nomenclatura : 'Alta de turno catalogo'}
-            </p>
-            <p className="text-xs text-slate-500">
-              {item?.turno ?? 'Nomenclatura, descripcion operativa y rango horario reusable.'}
-            </p>
-          </div>
-          {item && <TurnoDeleteForm nomenclatura={item.nomenclatura} />}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-950">
+            {item ? item.nomenclatura : 'Alta de turno catalogo'}
+          </p>
+          <p className="text-xs text-slate-500">
+            {item?.turno ?? 'Nomenclatura, descripcion operativa y rango horario reusable.'}
+          </p>
         </div>
+        {item && <TurnoDeleteForm nomenclatura={item.nomenclatura} />}
+      </div>
+      <form action={formAction} className="mt-4 space-y-4">
+        <input type="hidden" name="turno_original" value={item?.nomenclatura ?? ''} />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <Input
             label="Nomenclatura"
@@ -706,6 +786,133 @@ function OcrConfigForm({ item }: { item: OcrConfiguracionItem }) {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <SubmitActionButton label="Guardar OCR" pendingLabel="Guardando OCR..." />
+          <StateMessage state={state} />
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function PdfCompressionConfigForm({ item }: { item: PdfCompressionConfiguracionItem }) {
+  const [state, formAction] = useActionState(
+    guardarPdfCompressionConfiguracion,
+    ESTADO_CONFIGURACION_ADMIN_INICIAL
+  )
+
+  return (
+    <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          <div className="flex items-center justify-between gap-3">
+            <p className="font-semibold text-slate-950">Estado runtime</p>
+            <StatusPill label={item.status} tone={getPdfCompressionTone(item.status)} />
+          </div>
+          <dl className="mt-3 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <dt>Fuente</dt>
+              <dd className="font-medium text-slate-900">{item.source}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt>Proveedor efectivo</dt>
+              <dd className="font-medium text-slate-900">{item.effectiveProvider}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt>URL base</dt>
+              <dd className="truncate font-medium text-slate-900">
+                {item.effectiveBaseUrl ?? 'n/a'}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt>API key env</dt>
+              <dd className="font-medium text-slate-900">
+                {item.apiKeyConfigured ? 'configurada' : 'no configurada'}
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          <p className="font-semibold text-slate-950">Diagnostico</p>
+          <p className="mt-3 leading-6">{item.message}</p>
+          <dl className="mt-3 space-y-2 text-xs">
+            <div className="flex items-center justify-between gap-3">
+              <dt>Optimize level</dt>
+              <dd className="font-semibold text-slate-900">{item.effectiveOptimizeLevel}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt>Image quality</dt>
+              <dd className="font-semibold text-slate-900">{item.effectiveImageQuality}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt>Image DPI</dt>
+              <dd className="font-semibold text-slate-900">{item.effectiveImageDpi}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt>Fast web view</dt>
+              <dd className="font-semibold text-slate-900">{item.effectiveFastWebView}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+      <form action={formAction} className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <Select
+            label="Proveedor preferido"
+            name="provider"
+            defaultValue={item.preferredProvider ?? item.envProvider ?? 'local'}
+            options={PDF_COMPRESSION_PROVIDER_OPTIONS.map((option) => ({
+              value: option.value,
+              label: option.label,
+            }))}
+          />
+          <Input
+            label="URL base Stirling"
+            name="stirling_base_url"
+            defaultValue={item.effectiveBaseUrl ?? 'http://127.0.0.1:8088'}
+            placeholder="http://127.0.0.1:8088"
+          />
+          <Input
+            label="Nivel de optimizacion"
+            name="optimize_level"
+            type="number"
+            min="0"
+            max="4"
+            defaultValue={item.effectiveOptimizeLevel}
+          />
+          <Input
+            label="Calidad de imagen"
+            name="image_quality"
+            type="number"
+            min="10"
+            max="100"
+            defaultValue={item.effectiveImageQuality}
+          />
+          <Input
+            label="DPI de imagen"
+            name="image_dpi"
+            type="number"
+            min="72"
+            max="600"
+            defaultValue={item.effectiveImageDpi}
+          />
+          <Select
+            label="Fast web view"
+            name="fast_web_view"
+            defaultValue={item.effectiveFastWebView}
+            options={[
+              { value: 'true', label: 'Si' },
+              { value: 'false', label: 'No' },
+            ]}
+          />
+        </div>
+        <p className="text-xs text-slate-500">
+          El API key de Stirling se mantiene en variables de entorno. La configuracion central
+          gobierna proveedor, endpoint y tuning.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <SubmitActionButton
+            label="Guardar compresion PDF"
+            pendingLabel="Guardando compresion..."
+          />
           <StateMessage state={state} />
         </div>
       </form>

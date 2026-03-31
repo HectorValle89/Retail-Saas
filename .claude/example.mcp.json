@@ -25,7 +25,7 @@
       "args": [
         "-y",
         "@supabase/mcp-server-supabase@latest",
-        "--project-ref=YOUR_SUPABASE_PROJECT_REF"
+        "--project-ref=jbdfutvkfvmaulmnfwkk"
       ],
       "env": {
         "SUPABASE_ACCESS_TOKEN": "YOUR_SUPABASE_ACCESS_TOKEN"
@@ -57,11 +57,16 @@
         "run",
         "-i",
         "--rm",
-        "-e", "MCP_MODE=stdio",
-        "-e", "LOG_LEVEL=error",
-        "-e", "DISABLE_CONSOLE_OUTPUT=true",
-        "-e", "N8N_API_URL=YOUR_N8N_API_URL",
-        "-e", "N8N_API_KEY=YOUR_N8N_API_KEY",
+        "-e",
+        "MCP_MODE=stdio",
+        "-e",
+        "LOG_LEVEL=error",
+        "-e",
+        "DISABLE_CONSOLE_OUTPUT=true",
+        "-e",
+        "N8N_API_URL=YOUR_N8N_API_URL",
+        "-e",
+        "N8N_API_KEY=YOUR_N8N_API_KEY",
         "ghcr.io/czlonkowski/n8n-mcp:latest"
       ]
     },

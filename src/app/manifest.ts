@@ -1,5 +1,5 @@
-import type { MetadataRoute } from 'next'
-import { siteConfig } from '@/config/siteConfig'
+import type { MetadataRoute } from 'next';
+import { siteConfig } from '@/config/siteConfig';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -9,8 +9,8 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: '/dashboard',
     display: 'standalone',
     orientation: 'portrait',
-    background_color: '#f8fafc',
-    theme_color: '#0f172a',
+    background_color: '#f4f8fb',
+    theme_color: '#1a7fd4',
     lang: 'es-MX',
     categories: ['business', 'productivity'],
     icons: [
@@ -43,6 +43,5 @@ export default function manifest(): MetadataRoute.Manifest {
         url: '/offline',
       },
     ],
-  }
+  };
 }
-

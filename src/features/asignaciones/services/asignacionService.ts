@@ -12,7 +12,17 @@ import {
   type AssignmentValidationPdv,
   type SupervisorAsignacionRow,
 } from '../lib/assignmentValidation'
+import {
+  buildAssignmentEngineAlerts,
+  type AssignmentEngineNature,
+  type AssignmentEngineRow,
+} from '../lib/assignmentEngine'
 import { rangesOverlap } from '../lib/assignmentPlanning'
+import {
+  getMaterializedMonthlyCalendar,
+  type MaterializedMonthlyCalendar,
+  type MaterializedMonthlyFilters,
+} from './asignacionMaterializationService'
 
 type MaybeMany<T> = T | T[] | null
 
@@ -63,6 +73,13 @@ interface AsignacionQueryRow
     | 'horario_referencia'
     | 'fecha_inicio'
     | 'fecha_fin'
+    | 'naturaleza'
+    | 'retorna_a_base'
+    | 'asignacion_base_id'
+    | 'asignacion_origen_id'
+    | 'prioridad'
+    | 'motivo_movimiento'
+    | 'generado_automaticamente'
     | 'estado_publicacion'
     | 'observaciones'
     | 'created_at'
@@ -110,6 +127,10 @@ export interface AsignacionListadoItem {
   zona: string | null
   cadena: string | null
   estadoPublicacion: string
+  naturaleza: AssignmentEngineNature
+  retornaABase: boolean
+  prioridad: number
+  motivoMovimiento: string | null
   issues: AssignmentIssue[]
   bloqueada: boolean
   alertasCount: number
@@ -155,6 +176,17 @@ export interface AsignacionVistaDiaItem {
   zona: string | null
 }
 
+export interface AsignacionCalendarioFilters {
+  month: string
+  supervisorEmpleadoId: string | null
+  estadoOperativo: MaterializedMonthlyFilters['estadoOperativo'] | null
+}
+
+export interface AsignacionSupervisorCalendarioOption {
+  id: string
+  nombre: string
+}
+
 export interface AsignacionesPanelData {
   resumen: AsignacionResumen
   asignaciones: AsignacionListadoItem[]
@@ -163,8 +195,13 @@ export interface AsignacionesPanelData {
   turnosDisponibles: AsignacionTurnoOption[]
   avisosGlobales: AsignacionNoticeItem[]
   vistaDia: AsignacionVistaDiaItem[]
+  calendarioMensual: MaterializedMonthlyCalendar | null
+  filtrosCalendario: AsignacionCalendarioFilters
+  supervisoresCalendario: AsignacionSupervisorCalendarioOption[]
+  supervisorCalendarioBloqueado: boolean
   infraestructuraLista: boolean
   mensajeInfraestructura?: string
+  mensajeCalendario?: string
 }
 
 const EMPTY_DATA: AsignacionesPanelData = {
@@ -184,6 +221,14 @@ const EMPTY_DATA: AsignacionesPanelData = {
   turnosDisponibles: [],
   avisosGlobales: [],
   vistaDia: [],
+  calendarioMensual: null,
+  filtrosCalendario: {
+    month: '',
+    supervisorEmpleadoId: null,
+    estadoOperativo: null,
+  },
+  supervisoresCalendario: [],
+  supervisorCalendarioBloqueado: false,
   infraestructuraLista: false,
 }
 
@@ -222,6 +267,50 @@ function buildTurnoLabel(item: ReturnType<typeof parseTurnosCatalogo>[number]) {
   }
 
   return parts.join(' - ')
+}
+
+const CALENDARIO_ESTADOS_OPERATIVOS = [
+  'ASIGNADA_PDV',
+  'FORMACION',
+  'VACACIONES',
+  'INCAPACIDAD',
+  'FALTA_JUSTIFICADA',
+  'SIN_ASIGNACION',
+] as const satisfies ReadonlyArray<NonNullable<MaterializedMonthlyFilters['estadoOperativo']>>
+
+function getCurrentMonthValue() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+  }).format(new Date())
+}
+
+function normalizeCalendarMonth(value: string | null | undefined) {
+  return /^\d{4}-\d{2}$/.test(String(value ?? '').trim()) ? String(value).trim() : getCurrentMonthValue()
+}
+
+function normalizeCalendarEstadoOperativo(
+  value: string | null | undefined
+): MaterializedMonthlyFilters['estadoOperativo'] | null {
+  const normalized = String(value ?? '').trim().toUpperCase()
+  if (!normalized) {
+    return null
+  }
+
+  return CALENDARIO_ESTADOS_OPERATIVOS.includes(
+    normalized as (typeof CALENDARIO_ESTADOS_OPERATIVOS)[number]
+  )
+    ? (normalized as MaterializedMonthlyFilters['estadoOperativo'])
+    : null
+}
+
+interface ObtenerPanelAsignacionesOptions {
+  filters?: {
+    month?: string | null
+    supervisorEmpleadoId?: string | null
+    estadoOperativo?: string | null
+  }
 }
 
 function buildVisiblePdvIds(
@@ -361,8 +450,15 @@ function buildVistaDia(
 
 export async function obtenerPanelAsignaciones(
   supabase: SupabaseClient,
-  actor: ActorActual
+  actor: ActorActual,
+  options: ObtenerPanelAsignacionesOptions = {}
 ): Promise<AsignacionesPanelData> {
+  const month = normalizeCalendarMonth(options.filters?.month)
+  const supervisorEmpleadoId =
+    actor.puesto === 'SUPERVISOR'
+      ? actor.empleadoId
+      : options.filters?.supervisorEmpleadoId?.trim() || null
+  const estadoOperativo = normalizeCalendarEstadoOperativo(options.filters?.estadoOperativo)
   const [
     asignacionesResult,
     empleadosResult,
@@ -387,6 +483,13 @@ export async function obtenerPanelAsignaciones(
         horario_referencia,
         fecha_inicio,
         fecha_fin,
+        naturaleza,
+        retorna_a_base,
+        asignacion_base_id,
+        asignacion_origen_id,
+        prioridad,
+        motivo_movimiento,
+        generado_automaticamente,
         observaciones,
         estado_publicacion,
         created_at,
@@ -561,12 +664,71 @@ export async function obtenerPanelAsignaciones(
       zona: pdv?.zona ?? employee?.zona ?? null,
       cadena: chain?.nombre ?? null,
       estadoPublicacion: row.estado_publicacion,
+      naturaleza: row.naturaleza ?? 'BASE',
+      retornaABase: row.retorna_a_base ?? false,
+      prioridad: row.prioridad ?? 100,
+      motivoMovimiento: row.motivo_movimiento ?? null,
       issues,
       bloqueada: issues.some((issue) => issue.severity === 'ERROR'),
       alertasCount: resumenIssues.alertas.length,
       requiereConfirmacionAlertas: resumenIssues.alertas.length > 0,
     }
   })
+
+  const engineAlerts = buildAssignmentEngineAlerts(
+    assignments as AssignmentEngineRow[],
+    new Date().toISOString().slice(0, 10)
+  ).map<AsignacionNoticeItem>((alert) => ({
+    code: `${alert.code}-${alert.assignmentId ?? alert.empleadoId ?? alert.pdvId ?? 'global'}`,
+    severity: alert.severity,
+    label:
+      alert.code === 'TEMPORAL_POR_VENCER'
+        ? 'Movimiento por vencer'
+        : alert.code === 'DC_SIN_PDV_PROXIMO'
+          ? 'Dermoconsejera sin PDV'
+          : 'PDV quedara libre',
+    message: alert.message,
+  }))
+
+  const actorZone = employeeMap.get(actor.empleadoId)?.zona ?? null
+  const supervisoresCalendario = employees
+    .filter((item) => item.puesto === 'SUPERVISOR' && item.estatus_laboral === 'ACTIVO')
+    .filter((item) => {
+      if (actor.puesto === 'SUPERVISOR') {
+        return item.id === actor.empleadoId
+      }
+
+      if (actor.puesto === 'COORDINADOR' && actorZone) {
+        return item.zona === actorZone
+      }
+
+      return true
+    })
+    .map((item) => ({ id: item.id, nombre: item.nombre_completo }))
+    .sort((left, right) => left.nombre.localeCompare(right.nombre, 'es-MX'))
+
+  let calendarioMensual: MaterializedMonthlyCalendar | null = null
+  let mensajeCalendario: string | undefined
+
+  try {
+    calendarioMensual = await getMaterializedMonthlyCalendar(
+      {
+        month,
+        supervisorEmpleadoId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : supervisorEmpleadoId ?? undefined,
+        coordinadorEmpleadoId: actor.puesto === 'COORDINADOR' ? actor.empleadoId : undefined,
+        cuentaClienteId: actor.cuentaClienteId ?? undefined,
+        zona: actor.puesto === 'COORDINADOR' ? actorZone ?? undefined : undefined,
+        estadoOperativo: estadoOperativo ?? undefined,
+      },
+      supabase as SupabaseClient<any>
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'No fue posible cargar el calendario mensual.'
+    mensajeCalendario =
+      message.includes('asignacion_diaria_resuelta') || message.includes('schema cache')
+        ? 'La vista mensual operativa estara disponible cuando la base termine de materializar asignacion_diaria_resuelta.'
+        : message
+  }
 
   return {
     resumen: {
@@ -585,9 +747,18 @@ export async function obtenerPanelAsignaciones(
     empleadosDisponibles,
     pdvsDisponibles,
     turnosDisponibles,
-    avisosGlobales: buildGlobalNotices(actor, assignments, employees, pdvs),
+    avisosGlobales: [...buildGlobalNotices(actor, assignments, employees, pdvs), ...engineAlerts],
     vistaDia: buildVistaDia(actor, asignaciones, employeeMap, pdvMap),
+    calendarioMensual,
+    filtrosCalendario: {
+      month,
+      supervisorEmpleadoId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : supervisorEmpleadoId,
+      estadoOperativo,
+    },
+    supervisoresCalendario,
+    supervisorCalendarioBloqueado: actor.puesto === 'SUPERVISOR',
     infraestructuraLista: true,
+    mensajeCalendario,
   }
 }
 

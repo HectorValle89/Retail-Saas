@@ -7,6 +7,7 @@ import {
   AUTH_CONTEXT_POLL_INTERVAL_MS,
   getAuthSessionContextStatus,
 } from '@/lib/auth/sessionContext'
+import { isSupabaseAuthNetworkError } from '@/lib/supabase/authClientErrors'
 
 export function AuthSessionMonitor() {
   const router = useRouter()
@@ -67,6 +68,15 @@ export function AuthSessionMonitor() {
         }
 
         router.refresh()
+      } catch (error) {
+        if (isSupabaseAuthNetworkError(error)) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('AuthSessionMonitor omitio una verificacion de sesion por fallo de red.', error)
+          }
+          return
+        }
+
+        console.error('AuthSessionMonitor encontro un error inesperado al validar la sesion.', error)
       } finally {
         checking = false
       }
