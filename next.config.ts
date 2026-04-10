@@ -1,28 +1,8 @@
 import type { NextConfig } from 'next'
 
 function getAllowedDevOrigins() {
-  // En producción (Cloudflare) no tenemos acceso a node:os y no es necesario
-  if (process.env.NODE_ENV !== 'development') {
-    return ['localhost']
-  }
-
-  try {
-    const { networkInterfaces } = require('node:os')
-    const interfaces = networkInterfaces()
-    const allowedHosts = new Set<string>(['localhost', '127.0.0.1'])
-
-    for (const entries of Object.values(interfaces)) {
-      for (const entry of entries ?? []) {
-        if (entry.internal || entry.family !== 'IPv4') {
-          continue
-        }
-        allowedHosts.add(entry.address)
-      }
-    }
-    return Array.from(allowedHosts)
-  } catch {
-    return ['localhost']
-  }
+  // En producción (Cloudflare) no necesitamos inspeccionar la red local
+  return ['localhost', '127.0.0.1']
 }
 
 const nextConfig: NextConfig = {
