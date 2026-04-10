@@ -1,6 +1,5 @@
 'use server'
 
-import { Buffer } from 'node:buffer'
 import { revalidatePath } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requerirPuestosActivos } from '@/lib/auth/session'

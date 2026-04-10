@@ -1,4 +1,35 @@
-import type { Borders, Fill, Font, Worksheet } from 'exceljs'
+// Tipos standalone para evitar dependencia de exceljs en Edge Runtime
+// Este archivo se conserva como referencia de diseño para futura migración
+// a un entorno que soporte estilos XLSX avanzados (Worker dedicado, etc.)
+
+interface BorderStyle {
+  style: string
+  color: { argb: string }
+}
+
+interface Borders {
+  top?: BorderStyle
+  left?: BorderStyle
+  bottom?: BorderStyle
+  right?: BorderStyle
+}
+
+interface Fill {
+  type: string
+  pattern: string
+  fgColor: { argb: string }
+}
+
+interface Font {
+  name?: string
+  size?: number
+  color?: { argb: string }
+  bold?: boolean
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Worksheet = any
+
 import type { ReportExportPayload } from './reporteExport'
 
 const BORDER_THIN: Partial<Borders> = {
