@@ -5134,3 +5134,10 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 - Se mantuvo la logica funcional Edge-safe como passthrough o degradacion compatible, sin cambiar interfaz ni flujo de negocio.
 - Validaciones ejecutadas:
   - Borrado de referencias de `sharp` en `src/` de produccion mediante barrido textual
+
+## 2026-04-10 - Cloudflare: middleware Edge migrado desde proxy
+- Cloudflare Pages seguia fallando por `/_middleware` sin Edge Runtime aunque el build local ya era limpio.
+- Se sustituyo la entrada `proxy.ts` por `middleware.ts` en la raiz del proyecto, exportando `runtime = 'edge'` y delegando a `src/lib/supabase/proxy.ts` para conservar la misma logica de sesion.
+- Se eliminaron los wrappers obsoletos `proxy.ts` y `src/proxy.ts` para evitar que el build siguiera tomando una ruta de middleware incompatible.
+- Validacion ejecutada:
+  - `npm run build` OK tras la migracion de middleware
