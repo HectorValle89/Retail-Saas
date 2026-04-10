@@ -5098,3 +5098,77 @@ equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding:
 - No se cambiaron esquema, código, permisos ni contratos de UI; el cambio es solo de datos operativos para que rutas/asignaciones hereden el supervisor correcto desde PDV.
 - Validaciones ejecutadas:
   - Validación DB post-carga: 162 relaciones activas para los 162 PDVs del archivo y `mismatches = 0`
+
+## 2026-04-10 - Migración completa a Cloudflare Edge Runtime (Antigravity)
+
+### Contexto
+El usuario solicitó desplegar la aplicación Next.js 16 en Cloudflare Pages. El proceso de build en Cloudflare fallaba repetidamente porque múltiples módulos del servidor importaban APIs nativas de Node.js (`node:crypto`, `node:stream`, `node:path`, `node:buffer`) y librerías binarias (`sharp`, `exceljs`) incompatibles con el Edge Runtime de Cloudflare.
+
+### Acciones ejecutadas
+
+#### Fase 1 — Inyección de `runtime = 'edge'`
+- Se inyectó `export const runtime = 'edge'` en **66 archivos** de rutas y páginas (`page.tsx`, `layout.tsx`, `route.ts`) para forzar la ejecución en el entorno serverless de Cloudflare.
+
+#### Fase 2 — Refactorización de `node:crypto`
+- **`src/lib/audit/integrity.ts`**: Reemplazado `createHash('sha256')` síncrono por `crypto.subtle.digest('SHA-256', ...)` asíncrono (Web Crypto API).
+- **`src/lib/files/sha256.ts`**: Misma migración a `crypto.subtle` para el helper de hashing compartido.
+- **`src/features/bitacora/services/bitacoraService.ts`**: Actualizado para consumir la versión asíncrona del hashing, propagando `async/await` a todas las funciones dependientes.
+- **`src/features/empleados/actions.ts`**: Reemplazado `crypto.randomBytes(9).toString('base64url')` por `globalThis.crypto.getRandomValues()` + conversión manual base64url.
+- **`src/features/usuarios/actions.ts`**: Misma migración de generación de contraseñas temporales.
+
+#### Fase 3 — Desactivación de `sharp` (procesamiento de imágenes nativo)
+- **`src/lib/files/documentOptimization.ts`**: Desactivados `import sharp` e `import path from 'node:path'`. La función `optimizeImageDocument` fue reemplazada por un passthrough que devuelve la imagen sin procesar (la compresión se mantiene client-side vía `ClientImageFileInput`). Usos de `path.basename()` reemplazados por string literal.
+- **`src/lib/biometrics/attendanceBiometrics.ts`**: Desactivado `sharp` (ya estaba mockeado desde un corte anterior para Edge).
+- **`src/features/love-isdin/lib/loveQrImport.ts`**: Desactivados `import path` e `import sharp`. Usos de `path.posix.basename()` y `path.extname()` reemplazados por funciones inline equivalentes. `convertLoveQrImageForDashboard` ahora devuelve la imagen original sin conversión TIFF→PNG.
+
+#### Fase 4 — Migración de Excel: `exceljs` → `xlsx` (SheetJS)
+- **`src/app/api/bitacora/export/route.ts`**: Reescrito completamente. Eliminadas dependencias de `node:stream` (`Readable`, `PassThrough`) y `exceljs`. La generación de XLSX ahora usa `XLSX.utils.aoa_to_sheet()` + `XLSX.write()` en memoria, compatible con Edge.
+- **`src/app/api/asistencias/export/route.ts`**: Misma migración. `Buffer.from()` reemplazado por `new TextEncoder().encode()` para CSV. Frozen panes traducidos a `ws['!freeze']` de SheetJS.
+- **`src/app/api/reportes/export/route.ts`**: Migrado a SheetJS con soporte de múltiples hojas (`extraSheets`), anchos de columna (`!cols`) y eliminación de la dependencia de `applyReportWorksheetStyling` (que usaba tipos de `exceljs`).
+- **`src/app/api/reportes/scheduled-export/route.ts`**: Misma migración para reportes programados/cron.
+- **`src/features/reportes/services/reporteXlsxTheme.ts`**: Eliminado `import type { ... } from 'exceljs'`. Reemplazado por definiciones de tipo standalone inline. El archivo se conserva como referencia de diseño para futura migración a un entorno con estilos XLSX avanzados.
+
+#### Fase 5 — Limpieza de `node:buffer`
+- **`src/features/materiales/actions.ts`**: Eliminado `import { Buffer } from 'node:buffer'`. `Buffer` ya está disponible como global en Edge Runtime de Next.js.
+
+### Estado final de compatibilidad (código de producción)
+| Dependencia | Imports activos | Estado |
+|-------------|----------------|--------|
+| `node:crypto` | 0 | ✅ Eliminado — usa Web Crypto API |
+| `node:stream` | 0 | ✅ Eliminado — usa `ReadableStream` nativo |
+| `node:path` | 0 | ✅ Eliminado — usa funciones inline |
+| `node:buffer` | 0 | ✅ Eliminado — `Buffer` global |
+| `sharp` | 0 | ✅ Desactivado — compresión client-side |
+| `exceljs` | 0 | ✅ Reemplazado por `xlsx` (SheetJS) |
+
+**Nota**: Los archivos `.test.ts` conservan imports de `sharp`, `node:fs`, `node:vm` y `node:path` porque **no se incluyen en el build de producción** de Cloudflare.
+
+### Decisiones de diseño
+
+1. **Compresión de imágenes**: Se acepta que `sharp` no puede correr en Edge. La compresión se mantiene en el cliente vía `ClientImageFileInput` (WebP, máximo 200KB). Para procesamiento avanzado futuro (TIFF→PNG, biometría), se recomienda una Supabase Edge Function o un Worker dedicado.
+2. **Estilos XLSX**: La versión SheetJS genera archivos Excel funcionales con datos, múltiples hojas y anchos de columna, pero **sin estilos visuales avanzados** (colores, bordes, fondos). El archivo `reporteXlsxTheme.ts` se conserva como referencia para cuando se migre la generación de reportes a un entorno Node.js completo (Worker o función serverless).
+3. **Hashing asíncrono**: Toda la cadena de auditoría e integridad ahora es `async`. Esto fue un cambio profundo que tocó `bitacoraService.ts`, `integrity.ts` y `sha256.ts`.
+
+### Commits generados
+1. `fix(cloudflare): remove remaining node.js modules and mock sharp for compatibility` (`ee85cc4`)
+2. `feat(cloudflare): re-enable Excel exports using Edge-compatible sheetjs` (`3997adf`)
+3. `fix(cloudflare): remove last node:buffer and exceljs type imports blocking Edge build` (`afd2e25`)
+
+### Variables de entorno en Cloudflare
+Todas las variables de `.env.local` fueron configuradas en el panel de Cloudflare Pages:
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`
+- `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`
+- `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL`
+- `GEMINI_API_KEY`, `REPORTES_CRON_SECRET`
+
+### Bloqueadores conocidos
+- **Build en Cloudflare**: En espera de resultado del último push. Los 3 commits anteriores fallaron por dependencias de Node.js que ya fueron resueltas.
+- **Funcionalidad reducida en producción**: Procesamiento avanzado de imágenes (biometría, TIFF→PNG de QR) y estilos XLSX avanzados están desactivados temporalmente.
+
+### Siguiente corte recomendado
+1. Verificar que el build de Cloudflare pase con el código actual.
+2. Si hay errores residuales, revisar el log y corregir.
+3. Una vez desplegado, probar flujos críticos: login, dashboard, exportación CSV/XLSX, check-in.
+4. Evaluar mover procesamiento de imágenes pesado a Supabase Edge Functions o Cloudflare Worker dedicado.
+
