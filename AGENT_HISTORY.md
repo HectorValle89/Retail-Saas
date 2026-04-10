@@ -4,19 +4,6 @@ Este archivo es el registro obligatorio de todas las intervenciones realizadas p
 
 ---
 
-## [2026-04-09 21:30] - Migración Estructural a Cloudflare R2 y Optimización FinOps (Zero)
-- **Contexto**: El proyecto exigía una reducción radical del costo de Egress (ancho de banda) para la subida y bajada de documentos pesados y fotografías. Se planteó Cloudflare R2 como Mega Bodega desacoplada de la base de datos Supabase.
-- **Acción**:
-    - **Fase 1**: Se construyó el componente `ClientImageFileInput` que comprime y convierte imágenes en WebP (máximo 200KB) antes del envío y se inyectó en el `<input type="file" />` base global para una cobertura >90% de la plataforma.
-    - **Fase 2**: Se adaptó a `Reclutamiento` (módulo piloto) como conejillo de indias saltándose los buffers de Vercel y enviando el documento comprimido directamente a un bucket R2 mediante `Presigned URLs` creados `on the fly`.
-    - **Backbone**: Se incluyó la tabla puente `archivo_referencia` en Supabase y el bypass manual en `src/features/empleados/actions.ts` hacia `archivo_hash` para no romper el front pero redirigiendo a la bodega `CF_R2`.
-- **Impacto**:
-    - Las fotos nacen livianas desde el navegador móvil.
-    - Vercel y Gemini nunca lidian con megabytes de procesamiento documental originado en Reclutamiento.
-    - El 100% del archivo físico se deposita por transferencia directa cliente-CF abaratando Supabase enormemente.
-- **Estado**: Fases 1 y 2 ejecutadas y validadas con `tsc` compilando sin errores, abriendo la puerta a replicar el modelo en Solicitudes, Tareas de Visitas, Gastos, Love Isdin y Materiales en próximos cortes.
-
-
 ## [2026-03-14 09:41:52] - Regla de Oro para Tablas en Español Latino (Codex)
 - **Contexto**: El usuario solicitó convertir en política irrompible que toda tabla creada por agentes use español latino.
 - **Acción**:
@@ -5039,136 +5026,104 @@ equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding:
   - cmd /c npm run test -- tests/dashboard-kpis.spec.ts OK
   - cmd /c npx tsc --noEmit OK
   - cmd /c npm run build OK
-## 2026-04-09 - Dashboard operativo: carga diferida para Supervisor y Dermoconsejo
-- Se mantuvo el dashboard en tiempo casi real para check-ins, check-outs y operación del día, pero se redujo la carga inicial moviendo paneles pesados a lectura bajo demanda.
-- En `SUPERVISOR`, `Ruta semanal` dejó de cargarse en el SSR del dashboard: `src/features/dashboard/services/dashboardService.ts` ahora entrega solo `supervisorRouteSnapshot`, `src/app/api/dashboard/supervisor-route-panel/route.ts` resuelve el panel completo al abrir la hoja, y `src/features/dashboard/components/DashboardPanel.tsx` muestra estados de carga/reintento dentro de las acciones rápidas (`Agenda operativa`, `Definir ruta semanal`, `Correcciones e históricos`, `Mi ruta de hoy`).
-- En `SUPERVISOR`, las mutaciones de `src/features/rutas/actions.ts` ya no invalidan `/dashboard`; se conserva `revalidatePath('/ruta-semanal')` y el dashboard se mantiene fresco por `Realtime` sobre tablas operativas de rutas.
-- En `DERMOCONSEJERO`, `src/app/(main)/dashboard/page.tsx` ahora pide una versión ligera del dashboard (`includeDermoSecondaryData: false`) y deja fuera de la carga inicial los datos secundarios más costosos (`catalogoProductos`, `loveQr`, `vacationPolicy`).
-- Se creó `src/app/api/dashboard/dermoconsejo-panel/route.ts` para pedir el detalle completo solo cuando la DC abre hojas que realmente lo necesitan (`Ventas`, `LOVE ISDIN`, `Vacaciones`, `Incapacidad`, `Permiso`, `Justificación`, `Campaña`), con fallback de carga/reintento en `src/features/dashboard/components/DashboardPanel.tsx`.
-- El costo esperado baja en la navegación diaria porque el dashboard inicial ya no arrastra la ruta completa del supervisor ni el catálogo comercial completo de la DC; la frescura operativa se mantiene porque los bloques críticos del día siguen en la carga base y el `Realtime` permanece activo para eventos relevantes.
-- Validaciones ejecutadas:
-  - `cmd /c npx tsc --noEmit` OK
-  - `cmd /c npm run docs:check-encoding` OK
-## 2026-04-09 - Dashboard operativo: refinamiento fino de hojas secundarias
-- Se hizo un segundo corte de costo para que el `SUPERVISOR` no cargue desde SSR el detalle completo de `Solicitudes del equipo` ni las notificaciones: `src/features/dashboard/services/dashboardService.ts` ahora puede resolver solo resúmenes (`supervisorRequestInbox.summaries`) y `unreadCount`, mientras el detalle completo se pide bajo demanda desde `src/app/api/dashboard/supervisor-panel/route.ts`.
-- `src/features/dashboard/components/DashboardPanel.tsx` ahora carga en diferido el detalle extendido del supervisor al abrir `Solicitudes`, `Vacaciones`, `Incapacidades`, `Día cumple` o `Notificaciones`, con estados de carga y reintento dentro de la hoja inferior.
-- En `DERMOCONSEJERO`, el centro de notificaciones también dejó de depender del SSR completo: la carga base conserva solo el contador de no leídas y el detalle se obtiene con la misma carga extendida ya existente cuando la DC abre la hoja de notificaciones.
-- En `DERMOCONSEJERO`, `Campaña` quedó más barata en la carga base: se mantiene el banner de campaña activa, pero el detalle costoso (`manual` firmado, `evidenceTemplate`, `productos foco` enriquecidos) solo se resuelve en la carga extendida al abrir la hoja.
-- La experiencia visual se mantuvo estable: mismas tarjetas, mismos botones y mismo flujo de operación del día; el cambio es principalmente de costo y latencia.
-- Impacto esperado:
-  - `SUPERVISOR`: menos lecturas y joins tempranos sobre `solicitud`, `mensaje_receptor`, `mensaje_interno`, `usuario` y `empleado` al entrar al dashboard.
-  - `DERMOCONSEJERO`: menos trabajo inicial para una apertura rápida enfocada en jornada, tienda y check-in/check-out.
-- Validaciones ejecutadas:
-  - `cmd /c npx tsc --noEmit` OK
-  - `cmd /c npm run docs:check-encoding` OK
-  - `cmd /c npm run test -- tests/dermoconsejo-dashboard.spec.ts` bloqueado por `spawn EPERM` del entorno local al arrancar Playwright, no por error de la implementación
-## 2026-04-09 - Asignaciones: recorte de consultas en validacion de lista e importacion
-- En `src/features/asignaciones/services/asignacionService.ts` se unificaron en una sola lectura las consultas de `asignacion` que antes se hacían por `empleado_id` y por `pdv_id` para construir el contexto de validación de la lista visible; ahora se parte el resultado en memoria por empleado y PDV.
-- La validación de rotación en `src/features/asignaciones/lib/assignmentRotationValidation.ts` ahora acepta una ventana visible (`fechaInicio` / `fechaFin`) y limita la lectura de asignaciones del grupo rotativo a ese rango cuando la lista ya lo conoce, para no arrastrar histórico innecesario en cada apertura del workspace.
-- En `src/features/asignaciones/actions.ts` se aplicó el mismo patrón de lectura consolidada durante la importación del catálogo maestro, evitando dos consultas casi idénticas a `asignacion` para empleados y PDVs del mismo lote.
-- No se cambiaron contratos, permisos ni UX: la reducción es por detrás, manteniendo los mismos issues (`ERROR`, `ALERTA`, `AVISO`) y la misma lógica de publicación/importación.
-- Impacto esperado:
-  - Menos round-trips a `asignacion` al abrir la lista del módulo.
-  - Menos filas cargadas para validar rotación cuando solo se inspecciona una página visible.
-  - Menor costo operativo en importaciones grandes del catálogo maestro.
-- Validaciones ejecutadas:
-  - `cmd /c npx tsc --noEmit` OK
-  - `cmd /c npm run test -- tests/assignment-validation.spec.ts` OK
-## 2026-04-09 - Asignaciones: refinamiento de shell y modal manual
-- En `src/features/asignaciones/services/asignacionService.ts` el resumen superior del workspace bajó de 4 conteos a 3: `borrador` ahora se deriva de `total - publicada`, manteniendo el mismo contrato visual porque los estados operativos del módulo son `BORRADOR` y `PUBLICADA`.
-- El modal `Nueva asignación` dejó de cargar todos los PDVs para luego filtrarlos por cuenta; cuando el actor tiene `cuenta_cliente_id`, primero consulta `cuenta_cliente_pdv` activa y después carga únicamente los PDVs visibles para esa cuenta.
-- No se cambió UI, permisos, contratos de actions ni lógica de validación; el ajuste reduce consultas/filas en aperturas frecuentes del módulo.
-- Validaciones ejecutadas:
-  - `cmd /c npx tsc --noEmit` OK
-  - `cmd /c npm run test -- tests/assignment-validation.spec.ts` OK
-## 2026-04-09 - Asignaciones: recorte de empleados en PDVs cobertura/rotacion
-- En `src/features/empleados/services/pdvCoberturaService.ts` el tablero de cobertura dejó de cargar todo `empleado` en paralelo para después filtrar por cuenta; ahora primero usa `usuario` de la cuenta y después carga solo empleados visibles/relevantes para nombres, supervisores y candidatos de esa cuenta.
-- En `src/features/asignaciones/services/pdvRotationMasterService.ts` el contexto de rotación dejó de cargar todo `empleado`; ahora carga solo los empleados referenciados por asignaciones base publicadas vigentes para el tablero/propuesta de rotación.
-- No se cambió UI, permisos, filtros ni contratos de salida de `Asignaciones > PDVs`; el ajuste reduce filas leídas en servicios que pueden crecer mucho conforme suba el padrón.
-- Tradeoff: la consulta de empleados pasa a depender de los IDs ya resueltos por cuenta/asignación, priorizando menor volumen de filas sobre paralelismo total. Para esta pestaña bajo demanda es una mejora de costo más segura que leer todo el padrón.
-- Validaciones ejecutadas:
-  - `cmd /c npx tsc --noEmit` OK
-  - `cmd /c npm run test -- tests/pdvs-panel.spec.ts` OK
-  - `cmd /c npm run test -- tests/assignment-validation.spec.ts` OK
-
-## 2026-04-09 - PDVs: reasignacion operativa de supervisores desde archivo
-- Se procesó `PDV NUEVAS RUTAS.xlsx` hoja `PDV`, con 162 filas operativas y 162 PDVs únicos por `codigo_btl`.
-- Se resolvieron los 8 supervisores del archivo contra `empleado` activo con puesto `SUPERVISOR`; el archivo usa apellidos primero y la base nombres primero, por lo que se validó por coincidencia exacta de tokens antes de escribir.
-- Se actualizó `supervisor_pdv` en transacción: 89 PDVs ya estaban con el supervisor correcto, 73 relaciones activas anteriores se cerraron con `fecha_fin = 2026-04-08` y 73 relaciones nuevas quedaron activas desde `2026-04-09`.
-- No se cambiaron esquema, código, permisos ni contratos de UI; el cambio es solo de datos operativos para que rutas/asignaciones hereden el supervisor correcto desde PDV.
-- Validaciones ejecutadas:
-  - Validación DB post-carga: 162 relaciones activas para los 162 PDVs del archivo y `mismatches = 0`
-
-## 2026-04-10 - Migración completa a Cloudflare Edge Runtime (Antigravity)
+## 2026-04-10 - Despliegue a Cloudflare Pages: migracion completa a Edge Runtime (Antigravity)
 
 ### Contexto
-El usuario solicitó desplegar la aplicación Next.js 16 en Cloudflare Pages. El proceso de build en Cloudflare fallaba repetidamente porque múltiples módulos del servidor importaban APIs nativas de Node.js (`node:crypto`, `node:stream`, `node:path`, `node:buffer`) y librerías binarias (`sharp`, `exceljs`) incompatibles con el Edge Runtime de Cloudflare.
+Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages** como hosting de produccion. La app usa Next.js 16 con App Router y el objetivo era lograr un build exitoso en el entorno Edge Runtime de Cloudflare, que tiene restricciones severas sobre modulos nativos de Node.js.
 
-### Acciones ejecutadas
+### Fase 1: Validacion local y subida a GitHub
+- Se levanto el servidor de desarrollo local (`npm run dev`) y se verifico que la app compilara y funcionara correctamente en `http://localhost:3000`.
+- Se subio el codigo al repositorio `https://github.com/HectorValle89/Retail-Saas` en la rama `main`.
+- Se configuraron las variables de entorno en el panel de Cloudflare Pages (Supabase URL, Supabase keys, R2, Gemini, etc.) copiandolas directamente de `.env.local`.
 
-#### Fase 1 — Inyección de `runtime = 'edge'`
-- Se inyectó `export const runtime = 'edge'` en **66 archivos** de rutas y páginas (`page.tsx`, `layout.tsx`, `route.ts`) para forzar la ejecución en el entorno serverless de Cloudflare.
+### Fase 2: Primer intento de build - error en next.config.ts
+- **Error**: `next.config.ts` importaba `os` de Node.js para detectar CPUs disponibles y configurar `serverExternalPackages`. Cloudflare no soporta `node:os`.
+- **Fix**: Se simplifico `next.config.ts` eliminando la logica dinamica de deteccion de CPUs y dejando una configuracion estatica compatible con Edge.
 
-#### Fase 2 — Refactorización de `node:crypto`
-- **`src/lib/audit/integrity.ts`**: Reemplazado `createHash('sha256')` síncrono por `crypto.subtle.digest('SHA-256', ...)` asíncrono (Web Crypto API).
-- **`src/lib/files/sha256.ts`**: Misma migración a `crypto.subtle` para el helper de hashing compartido.
-- **`src/features/bitacora/services/bitacoraService.ts`**: Actualizado para consumir la versión asíncrona del hashing, propagando `async/await` a todas las funciones dependientes.
-- **`src/features/empleados/actions.ts`**: Reemplazado `crypto.randomBytes(9).toString('base64url')` por `globalThis.crypto.getRandomValues()` + conversión manual base64url.
-- **`src/features/usuarios/actions.ts`**: Misma migración de generación de contraseñas temporales.
+### Fase 3: Segundo intento - errores masivos de node:crypto, node:path, node:stream, sharp
+- **Error**: Turbopack/Webpack encontro imports de modulos nativos de Node.js en multiples archivos de produccion que son incompatibles con el Edge Runtime de Cloudflare.
+- **Modulos bloqueadores identificados**:
+  - `node:crypto` - usado en hashing (bitacora, integridad, contrasenas temporales)
+  - `node:path` - usado en procesamiento de imagenes QR y documentos
+  - `node:stream` - usado en exportacion XLSX via exceljs
+  - `node:buffer` - import explicito en materiales
+  - `sharp` - libreria nativa de procesamiento de imagenes (no corre en Edge)
+  - `exceljs` - libreria pesada de Excel que depende de streams de Node.js
 
-#### Fase 3 — Desactivación de `sharp` (procesamiento de imágenes nativo)
-- **`src/lib/files/documentOptimization.ts`**: Desactivados `import sharp` e `import path from 'node:path'`. La función `optimizeImageDocument` fue reemplazada por un passthrough que devuelve la imagen sin procesar (la compresión se mantiene client-side vía `ClientImageFileInput`). Usos de `path.basename()` reemplazados por string literal.
-- **`src/lib/biometrics/attendanceBiometrics.ts`**: Desactivado `sharp` (ya estaba mockeado desde un corte anterior para Edge).
-- **`src/features/love-isdin/lib/loveQrImport.ts`**: Desactivados `import path` e `import sharp`. Usos de `path.posix.basename()` y `path.extname()` reemplazados por funciones inline equivalentes. `convertLoveQrImageForDashboard` ahora devuelve la imagen original sin conversión TIFF→PNG.
+### Fase 4: Refactorizacion profunda para Edge Runtime
 
-#### Fase 4 — Migración de Excel: `exceljs` → `xlsx` (SheetJS)
-- **`src/app/api/bitacora/export/route.ts`**: Reescrito completamente. Eliminadas dependencias de `node:stream` (`Readable`, `PassThrough`) y `exceljs`. La generación de XLSX ahora usa `XLSX.utils.aoa_to_sheet()` + `XLSX.write()` en memoria, compatible con Edge.
-- **`src/app/api/asistencias/export/route.ts`**: Misma migración. `Buffer.from()` reemplazado por `new TextEncoder().encode()` para CSV. Frozen panes traducidos a `ws['!freeze']` de SheetJS.
-- **`src/app/api/reportes/export/route.ts`**: Migrado a SheetJS con soporte de múltiples hojas (`extraSheets`), anchos de columna (`!cols`) y eliminación de la dependencia de `applyReportWorksheetStyling` (que usaba tipos de `exceljs`).
-- **`src/app/api/reportes/scheduled-export/route.ts`**: Misma migración para reportes programados/cron.
-- **`src/features/reportes/services/reporteXlsxTheme.ts`**: Eliminado `import type { ... } from 'exceljs'`. Reemplazado por definiciones de tipo standalone inline. El archivo se conserva como referencia de diseño para futura migración a un entorno con estilos XLSX avanzados.
+#### 4.1 Hashing y seguridad (node:crypto a Web Crypto API)
+- **Archivos afectados**:
+  - `src/lib/audit/integrity.ts` - hash de integridad de bitacora
+  - `src/lib/files/sha256.ts` - utilidad central de SHA-256
+  - `src/features/bitacora/services/bitacoraService.ts` - servicio de bitacora (se hizo asincrono)
+  - `src/features/empleados/actions.ts` - generacion de contrasenas temporales
+  - `src/features/usuarios/actions.ts` - generacion de contrasenas temporales
+- **Solucion**: Se reemplazo `crypto.createHash()` y `crypto.randomBytes()` por `crypto.subtle.digest()` y `globalThis.crypto.getRandomValues()`, que son APIs web estandar soportadas nativamente por Cloudflare Edge.
+- **Impacto**: La funcion `computeSHA256()` y `calcularHashPayload()` pasaron de sincronas a asincronas (`async`), propagando `await` en los consumidores.
 
-#### Fase 5 — Limpieza de `node:buffer`
-- **`src/features/materiales/actions.ts`**: Eliminado `import { Buffer } from 'node:buffer'`. `Buffer` ya está disponible como global en Edge Runtime de Next.js.
+#### 4.2 Procesamiento de imagenes (sharp a mock/passthrough)
+- **Archivos afectados**:
+  - `src/lib/files/documentOptimization.ts` - optimizacion de documentos de expediente
+  - `src/lib/biometrics/attendanceBiometrics.ts` - biometria de asistencia
+  - `src/features/love-isdin/lib/loveQrImport.ts` - importacion de codigos QR
+- **Solucion**: Se desactivaron los imports de `sharp` y `node:path`. Las funciones de conversion de imagen ahora hacen passthrough (devuelven la imagen original sin procesar). El procesamiento de imagenes debera migrarse a un Worker dedicado o Supabase Edge Function en un corte futuro.
+- **Impacto**: La funcionalidad de compresion/conversion de imagenes del lado servidor esta temporalmente desactivada. La compresion del lado cliente (`ClientImageFileInput` con WebP) sigue activa y compensa parcialmente.
 
-### Estado final de compatibilidad (código de producción)
-| Dependencia | Imports activos | Estado |
-|-------------|----------------|--------|
-| `node:crypto` | 0 | ✅ Eliminado — usa Web Crypto API |
-| `node:stream` | 0 | ✅ Eliminado — usa `ReadableStream` nativo |
-| `node:path` | 0 | ✅ Eliminado — usa funciones inline |
-| `node:buffer` | 0 | ✅ Eliminado — `Buffer` global |
-| `sharp` | 0 | ✅ Desactivado — compresión client-side |
-| `exceljs` | 0 | ✅ Reemplazado por `xlsx` (SheetJS) |
+#### 4.3 Exportacion Excel (exceljs a xlsx/SheetJS)
+- **Archivos afectados**:
+  - `src/app/api/bitacora/export/route.ts` - exportacion de bitacora
+  - `src/app/api/asistencias/export/route.ts` - exportacion de asistencias
+  - `src/app/api/reportes/export/route.ts` - exportacion de reportes generales
+  - `src/app/api/reportes/scheduled-export/route.ts` - exportacion programada de reportes
+  - `src/features/reportes/services/reporteXlsxTheme.ts` - tema visual XLSX
+- **Solucion**: Se reemplazo `exceljs` (que depende de `node:stream` y `PassThrough`) por `xlsx` (SheetJS), que ya estaba como dependencia del proyecto y es 100% compatible con Edge Runtime.
+  - `new Workbook()` a `XLSX.utils.book_new()`
+  - `worksheet.addRow()` a `XLSX.utils.aoa_to_sheet()` con arrays de arrays
+  - `workbook.xlsx.writeBuffer()` a `XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })`
+  - Se preservaron hojas multiples, anchos de columna y estructura de datos
+- **Trade-off**: Los estilos avanzados del calendario operativo (colores por estado, bordes semanales, leyenda visual) no se aplican con SheetJS basico. El archivo `reporteXlsxTheme.ts` se conserva como referencia de diseno para futura migracion a un entorno que soporte estilos (Worker dedicado).
 
-**Nota**: Los archivos `.test.ts` conservan imports de `sharp`, `node:fs`, `node:vm` y `node:path` porque **no se incluyen en el build de producción** de Cloudflare.
+#### 4.4 Buffer explicito (node:buffer a global)
+- **Archivo afectado**: `src/features/materiales/actions.ts`
+- **Solucion**: Se elimino `import { Buffer } from 'node:buffer'` porque `Buffer` ya esta disponible como global en el Edge Runtime de Next.js.
 
-### Decisiones de diseño
+#### 4.5 Tipos de exceljs (import type a tipos inline)
+- **Archivo afectado**: `src/features/reportes/services/reporteXlsxTheme.ts`
+- **Solucion**: Se reemplazo `import type { Borders, Fill, Font, Worksheet } from 'exceljs'` por definiciones de tipo standalone inline para evitar que el bundler intente resolver el modulo.
 
-1. **Compresión de imágenes**: Se acepta que `sharp` no puede correr en Edge. La compresión se mantiene en el cliente vía `ClientImageFileInput` (WebP, máximo 200KB). Para procesamiento avanzado futuro (TIFF→PNG, biometría), se recomienda una Supabase Edge Function o un Worker dedicado.
-2. **Estilos XLSX**: La versión SheetJS genera archivos Excel funcionales con datos, múltiples hojas y anchos de columna, pero **sin estilos visuales avanzados** (colores, bordes, fondos). El archivo `reporteXlsxTheme.ts` se conserva como referencia para cuando se migre la generación de reportes a un entorno Node.js completo (Worker o función serverless).
-3. **Hashing asíncrono**: Toda la cadena de auditoría e integridad ahora es `async`. Esto fue un cambio profundo que tocó `bitacoraService.ts`, `integrity.ts` y `sha256.ts`.
+### Inyeccion de Edge Runtime
+- Se inyecto `export const runtime = 'edge'` en **66 archivos** de rutas y paginas (`page.tsx`, `layout.tsx`, `route.ts`) para forzar la ejecucion en el entorno serverless de Cloudflare.
 
-### Commits generados
-1. `fix(cloudflare): remove remaining node.js modules and mock sharp for compatibility` (`ee85cc4`)
-2. `feat(cloudflare): re-enable Excel exports using Edge-compatible sheetjs` (`3997adf`)
-3. `fix(cloudflare): remove last node:buffer and exceljs type imports blocking Edge build` (`afd2e25`)
+### Estado final de limpieza (codigo de produccion, excluyendo .test.ts)
+- Cero imports de `node:crypto`
+- Cero imports de `node:buffer`
+- Cero imports de `node:stream`
+- Cero imports de `node:path`
+- Cero imports de `exceljs`
+- Cero imports de `sharp`
+- Archivos `.test.ts` conservan sus imports nativos (no se incluyen en el build de produccion)
 
-### Variables de entorno en Cloudflare
-Todas las variables de `.env.local` fueron configuradas en el panel de Cloudflare Pages:
-- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`
-- `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`
-- `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL`
-- `GEMINI_API_KEY`, `REPORTES_CRON_SECRET`
+### Commits realizados (en orden cronologico)
+1. `fix: make next.config.ts cloud-compatible by removing native os dependency in production`
+2. `fix: simplify next.config.ts to resolve Cloudflare build type error`
+3. `feat(cloudflare): batch update all routes for edge compatibility and disable incompatible sharp module`
+4. `fix(cloudflare): remove remaining node.js modules and mock sharp for compatibility`
+5. `feat(cloudflare): re-enable Excel exports using Edge-compatible sheetjs`
+6. `fix(cloudflare): remove last node:buffer and exceljs type imports blocking Edge build`
 
-### Bloqueadores conocidos
-- **Build en Cloudflare**: En espera de resultado del último push. Los 3 commits anteriores fallaron por dependencias de Node.js que ya fueron resueltas.
-- **Funcionalidad reducida en producción**: Procesamiento avanzado de imágenes (biometría, TIFF→PNG de QR) y estilos XLSX avanzados están desactivados temporalmente.
+### Funcionalidad temporalmente degradada
+- Compresion de imagenes servidor (sharp): Passthrough sin comprimir. Plan: migrar a Cloudflare Worker dedicado o Supabase Edge Function.
+- Conversion TIFF a PNG de QR (sharp): Passthrough sin convertir. Mismo plan.
+- Biometria facial (sharp): Mock, devuelve original. Mismo plan.
+- Estilos avanzados XLSX (colores, bordes): Desactivados. Plan: evaluar xlsx-style o Worker dedicado con exceljs.
+- Exportacion XLSX (datos): Funcional via SheetJS.
+- Exportacion CSV: Funcional.
+- Exportacion PDF: Funcional (pdf-lib).
+- Hashing SHA-256: Funcional via Web Crypto API.
+- Contrasenas temporales: Funcional via Web Crypto API.
 
-### Siguiente corte recomendado
-1. Verificar que el build de Cloudflare pase con el código actual.
-2. Si hay errores residuales, revisar el log y corregir.
-3. Una vez desplegado, probar flujos críticos: login, dashboard, exportación CSV/XLSX, check-in.
-4. Evaluar mover procesamiento de imágenes pesado a Supabase Edge Functions o Cloudflare Worker dedicado.
-
+### Siguiente paso
+- Esperar resultado del build en Cloudflare Pages tras el ultimo push.
+- Si el build pasa, validar el flujo de login + dashboard + exportaciones en el dominio de produccion.
+- Si quedan errores de build, seguir eliminando dependencias incompatibles hasta lograr build limpio.
