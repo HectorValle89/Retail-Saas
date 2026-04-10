@@ -1,12 +1,11 @@
 export const runtime = 'edge';
-import { Workbook, type Worksheet } from 'exceljs'
+import * as XLSX from 'xlsx'
 import { NextRequest, NextResponse } from 'next/server'
 import type { ActorActual } from '@/lib/auth/session'
 import { createServiceClient } from '@/lib/supabase/server'
 import { collectReportExportPayload, isExportFormat, isExportSectionKey, type ExportSectionKey, type ReportExportPayload } from '@/features/reportes/services/reporteExport'
 import { buildReportPdf } from '@/features/reportes/services/reportePdf'
 import { getScheduledReportPeriod } from '@/features/reportes/services/reporteScheduleService'
-import { applyReportWorksheetStyling } from '@/features/reportes/services/reporteXlsxTheme'
 
 interface ScheduleRow {
   id: string
@@ -28,80 +27,39 @@ function buildCsvBytes(payload: ReportExportPayload) {
       .join(',')
   )
 
-  return Buffer.from(`\uFEFF${lines.join('\n')}\n`, 'utf8')
+  return new TextEncoder().encode(`\uFEFF${lines.join('\n')}\n`)
 }
 
-function parseFreezeCell(cell: string | undefined) {
-  if (!cell) {
-    return null
+function buildXlsxBytes(payload: ReportExportPayload) {
+  const wb = XLSX.utils.book_new()
+
+  const populateSheet = (p: Partial<ReportExportPayload>) => {
+    const rows = [
+      ...(p.xlsx?.leadingRows ?? []),
+      p.headers ?? [],
+      ...(p.rows ?? []),
+      ...(p.xlsx?.footerRows ?? []),
+    ]
+    const ws = XLSX.utils.aoa_to_sheet(rows)
+    if (p.xlsx?.columnWidths) {
+      ws['!cols'] = p.xlsx.columnWidths.map((w) => ({ wch: w }))
+    }
+    return ws
   }
 
-  const match = /^([A-Z]+)(\d+)$/.exec(cell.toUpperCase())
-  if (!match) {
-    return null
-  }
-
-  const columnLetters = match[1]
-  const rowNumber = Number(match[2])
-  let xSplit = 0
-  for (const char of columnLetters) {
-    xSplit = xSplit * 26 + (char.charCodeAt(0) - 64)
-  }
-
-  return {
-    xSplit: Math.max(0, xSplit - 1),
-    ySplit: Math.max(0, rowNumber - 1),
-  }
-}
-
-function populateWorksheet(worksheet: Worksheet, payload: ReportExportPayload) {
-  if (payload.xlsx?.columnWidths?.length) {
-    worksheet.columns = payload.xlsx.columnWidths.map((width) => ({ width }))
-  }
-
-  const frozenView = parseFreezeCell(payload.xlsx?.freezeCell)
-  if (frozenView) {
-    worksheet.views = [{ state: 'frozen', ...frozenView }]
-  }
-
-  for (const row of payload.xlsx?.leadingRows ?? []) {
-    worksheet.addRow(row.map((value) => value ?? ''))
-  }
-
-  worksheet.addRow(payload.headers)
-  for (const row of payload.rows) {
-    worksheet.addRow(row.map((value) => value ?? ''))
-  }
-
-  for (const row of payload.xlsx?.footerRows ?? []) {
-    worksheet.addRow(row.map((value) => value ?? ''))
-  }
-
-  for (const merge of payload.xlsx?.merges ?? []) {
-    worksheet.mergeCells(merge)
-  }
-
-  applyReportWorksheetStyling(worksheet, payload)
-}
-
-async function buildXlsxBytes(payload: ReportExportPayload) {
-  const workbook = new Workbook()
-  const worksheet = workbook.addWorksheet(payload.sheetName ?? 'reportes')
-  populateWorksheet(worksheet, payload)
+  const mainWs = populateSheet(payload)
+  XLSX.utils.book_append_sheet(wb, mainWs, payload.sheetName ?? 'reportes')
 
   for (const sheet of payload.extraSheets ?? []) {
-    const extraWorksheet = workbook.addWorksheet(sheet.name)
-    populateWorksheet(extraWorksheet, {
-      filenameBase: payload.filenameBase,
+    const extraWs = populateSheet({
       headers: sheet.headers,
       rows: sheet.rows,
-      sheetName: sheet.name,
       xlsx: sheet.xlsx,
     })
+    XLSX.utils.book_append_sheet(wb, extraWs, sheet.name)
   }
 
-  const buffer = await workbook.xlsx.writeBuffer()
-  return Buffer.from(buffer)
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
 }
 
 async function buildActorFromSchedule(service: ReturnType<typeof createServiceClient>, schedule: ScheduleRow): Promise<ActorActual> {

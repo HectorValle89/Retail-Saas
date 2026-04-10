@@ -1,5 +1,5 @@
 export const runtime = 'edge';
-import { Workbook } from 'exceljs'
+import * as XLSX from 'xlsx'
 import { NextRequest, NextResponse } from 'next/server'
 import { obtenerActorActual } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
@@ -17,19 +17,26 @@ function escapeCsvValue(value: string | number | null) {
 
 function buildCsv(payload: Awaited<ReturnType<typeof buildAttendanceAdminExportPayload>>) {
   const rows = [...payload.leadingRows, payload.headers, ...payload.rows, ...payload.footerRows]
-  return Buffer.from(`\uFEFF${rows.map((row) => row.map((value) => escapeCsvValue(value)).join(',')).join('\n')}`, 'utf8')
+  return new TextEncoder().encode(`\uFEFF${rows.map((row) => row.map((value) => escapeCsvValue(value)).join(',')).join('\n')}`)
 }
 
 async function buildXlsx(payload: Awaited<ReturnType<typeof buildAttendanceAdminExportPayload>>) {
-  const workbook = new Workbook()
-  const sheet = workbook.addWorksheet('asistencias')
-  for (const row of payload.leadingRows) sheet.addRow(row.map((value) => value ?? ''))
-  sheet.addRow(payload.headers)
-  for (const row of payload.rows) sheet.addRow(row.map((value) => value ?? ''))
-  for (const row of payload.footerRows) sheet.addRow(row.map((value) => value ?? ''))
-  sheet.views = [{ state: 'frozen', xSplit: 4, ySplit: payload.leadingRows.length + 1 }]
-  const buffer = await workbook.xlsx.writeBuffer()
-  return Buffer.from(buffer)
+  const rows = [...payload.leadingRows, payload.headers, ...payload.rows, ...payload.footerRows]
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+
+  // Congelar paneles (equivalente a ExcelJS views)
+  ws['!freeze'] = {
+    xSplit: 4,
+    ySplit: payload.leadingRows.length + 1,
+    topLeftCell: XLSX.utils.encode_cell({ c: 4, r: payload.leadingRows.length + 1 }),
+    state: 'frozen',
+  }
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'asistencias')
+
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+  return buffer
 }
 
 export async function GET(request: NextRequest) {

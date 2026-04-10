@@ -1,6 +1,5 @@
 export const runtime = 'edge';
-// import { Readable, PassThrough } from 'node:stream'
-// import ExcelJS from 'exceljs'
+import * as XLSX from 'xlsx'
 import { NextRequest, NextResponse } from 'next/server'
 import { obtenerActorActual } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
@@ -18,7 +17,6 @@ function escapeCsvValue(value: string | number | null) {
 }
 
 function buildCsvSignaturePreamble(payload: Awaited<ReturnType<typeof collectBitacoraExportPayload>>) {
-  const encoder = new TextEncoder()
   const lines = [
     `# bitacora_export_signature=${payload.signature.digest}`,
     `# bitacora_export_algorithm=${payload.signature.algorithm}`,
@@ -27,39 +25,32 @@ function buildCsvSignaturePreamble(payload: Awaited<ReturnType<typeof collectBit
     `# bitacora_export_invalid_rows=${payload.signature.invalidRows}`,
   ]
 
-  return encoder.encode(`\uFEFF${lines.join('\n')}\n`)
+  return new TextEncoder().encode(`\uFEFF${lines.join('\n')}\n`)
 }
 
-function buildXlsxStream_orig(payload: Awaited<ReturnType<typeof collectBitacoraExportPayload>>) {
-  const output = new PassThrough()
+function buildXlsxBuffer(payload: Awaited<ReturnType<typeof collectBitacoraExportPayload>>) {
+  // Hoja principal de bitácora
+  const wsData = [payload.headers, ...payload.rows]
+  const ws = XLSX.utils.aoa_to_sheet(wsData)
 
-  void (async () => {
-    try {
-      const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: output, useStyles: false, useSharedStrings: false })
-      const worksheet = workbook.addWorksheet('bitacora')
-      const metadata = workbook.addWorksheet('firma')
+  // Hoja de firma/metadatos
+  const metaData = [
+    ['campo', 'valor'],
+    ['signature', payload.signature.digest],
+    ['algorithm', payload.signature.algorithm],
+    ['generated_at', payload.signature.generatedAt],
+    ['total_rows', payload.signature.totalRows],
+    ['invalid_rows', payload.signature.invalidRows],
+  ]
+  const wsMeta = XLSX.utils.aoa_to_sheet(metaData)
 
-      worksheet.addRow(payload.headers).commit()
-      for (const row of payload.rows) {
-        worksheet.addRow(row.map((value) => value ?? '')).commit()
-      }
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'bitacora')
+  XLSX.utils.book_append_sheet(wb, wsMeta, 'firma')
 
-      metadata.addRow(['campo', 'valor']).commit()
-      metadata.addRow(['signature', payload.signature.digest]).commit()
-      metadata.addRow(['algorithm', payload.signature.algorithm]).commit()
-      metadata.addRow(['generated_at', payload.signature.generatedAt]).commit()
-      metadata.addRow(['total_rows', payload.signature.totalRows]).commit()
-      metadata.addRow(['invalid_rows', payload.signature.invalidRows]).commit()
-
-      worksheet.commit()
-      metadata.commit()
-      await workbook.commit()
-    } catch (error) {
-      output.destroy(error instanceof Error ? error : new Error('No fue posible generar el archivo XLSX.'))
-    }
-  })()
-
-  return Readable.toWeb(output) as ReadableStream<Uint8Array>
+  // Generar el buffer en formato XLSX (bookType: 'xlsx')
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+  return buf
 }
 
 export async function GET(request: NextRequest) {
@@ -86,7 +77,8 @@ export async function GET(request: NextRequest) {
     })
 
     if (format === 'xlsx') {
-      return new Response(buildXlsxStream(payload), {
+      const buf = buildXlsxBuffer(payload)
+      return new Response(buf, {
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           'Content-Disposition': `attachment; filename="${payload.filenameBase}.xlsx"`,
@@ -121,9 +113,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
-
-
-function buildXlsxStream(payload: any) {
-    throw new Error('Exportacion XLSX no disponible en este entorno. Usa CSV.');
 }
