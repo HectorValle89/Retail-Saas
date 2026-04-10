@@ -12,6 +12,7 @@ import {
 import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
 import { createServiceClient } from '@/lib/supabase/server'
 import { computeSHA256 } from '@/lib/files/sha256'
+import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
 import { analyzeMaterialDistributionWithGemini } from './lib/materialDistributionGemini'
 import {
   parseMaterialDistributionWorkbook,
@@ -248,6 +249,51 @@ async function uploadMaterialEvidence(
     thumbnailUrl: stored.miniatura?.url ?? null,
     thumbnailHash: stored.miniatura?.hash ?? null,
   }
+}
+
+async function resolveMaterialEvidence(
+  service: TypedSupabaseClient,
+  {
+    actorUsuarioId,
+    cuentaClienteId,
+    empleadoId,
+    flowPrefix,
+    file,
+    directReference,
+  }: {
+    actorUsuarioId: string
+    cuentaClienteId: string
+    empleadoId: string
+    flowPrefix: string
+    file: File | null
+    directReference: ReturnType<typeof readDirectR2Reference>
+  }
+) {
+  if (hasDirectR2Reference(directReference)) {
+    const registered = await registerDirectR2Evidence(service, {
+      actorUsuarioId,
+      modulo: `materiales_${flowPrefix}`,
+      referenciaEntidadId: empleadoId,
+      reference: directReference,
+    })
+
+    return {
+      url: registered.url,
+      hash: registered.hash,
+    }
+  }
+
+  if (!file) {
+    return null
+  }
+
+  return uploadMaterialEvidence(service, {
+    actorUsuarioId,
+    cuentaClienteId,
+    empleadoId,
+    flowPrefix,
+    file,
+  })
 }
 
 async function insertAuditLog(
@@ -1324,6 +1370,12 @@ export async function registrarEntregaPromocional(
     const materialCatalogoId = normalizeRequiredText(formData.get('material_catalogo_id'), 'Material')
     const cantidadEntregada = normalizePositiveInteger(formData.get('cantidad_entregada'), 'Cantidad entregada')
     const observaciones = normalizeOptionalText(formData.get('observaciones'))
+
+    // Phase 2: Intercepcion limpia R2 (Subida Directa)
+    const materialEvidenceR2 = readDirectR2Reference(formData, 'evidencia_material')
+    const pdvEvidenceR2 = readDirectR2Reference(formData, 'evidencia_pdv')
+    const ticketEvidenceR2 = readDirectR2Reference(formData, 'ticket_compra')
+
     const evidenciaMaterial =
       asUploadedFile(formData.get('evidencia_material')) ??
       (() => {
@@ -1397,30 +1449,37 @@ export async function registrarEntregaPromocional(
     }
 
     const [evidenciaPromocionalStored, evidenciaPdvStored, ticketStored] = await Promise.all([
-      uploadMaterialEvidence(service, {
+      resolveMaterialEvidence(service, {
         actorUsuarioId: actor.usuarioId,
         cuentaClienteId,
         empleadoId: actor.empleadoId,
         flowPrefix: 'entrega-promocional',
         file: evidenciaMaterial,
+        directReference: materialEvidenceR2,
       }),
-      uploadMaterialEvidence(service, {
+      resolveMaterialEvidence(service, {
         actorUsuarioId: actor.usuarioId,
         cuentaClienteId,
         empleadoId: actor.empleadoId,
         flowPrefix: 'entrega-pdv',
         file: evidenciaPdv,
+        directReference: pdvEvidenceR2,
       }),
       ticketCompra
-        ? uploadMaterialEvidence(service, {
+        ? resolveMaterialEvidence(service, {
             actorUsuarioId: actor.usuarioId,
             cuentaClienteId,
             empleadoId: actor.empleadoId,
             flowPrefix: 'entrega-ticket',
             file: ticketCompra,
+            directReference: ticketEvidenceR2,
           })
         : Promise.resolve(null),
     ])
+
+    if (!evidenciaPromocionalStored || !evidenciaPdvStored) {
+      throw new Error('No fue posible consolidar la evidencia de entrega del material.')
+    }
 
     const { data: created, error } = await service
       .from('material_entrega_promocional')

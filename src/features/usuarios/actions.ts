@@ -97,12 +97,6 @@ function buildPreferredUsername(
     return explicit
   }
 
-  const nomina = sanitizeToken(empleado.id_nomina ?? '')
-
-  if (nomina) {
-    return nomina
-  }
-
   const nombre = sanitizeToken(empleado.nombre_completo)
 
   if (nombre) {

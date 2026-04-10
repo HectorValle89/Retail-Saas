@@ -14,6 +14,7 @@ const PWA_INSTALL_DISMISSED_KEY = 'retail.pwa.install-dismissed'
 
 export function PwaBootstrap() {
   const offline = useOfflineSync()
+  const isLocalHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [serviceWorkerReady, setServiceWorkerReady] = useState(false)
   const [isInstalling, setIsInstalling] = useState(false)
@@ -24,7 +25,7 @@ export function PwaBootstrap() {
   const [isDismissed, setIsDismissed] = useState(false)
 
   useEffect(() => {
-    if (process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV !== 'production' || isLocalHost) {
       return
     }
 
@@ -40,7 +41,7 @@ export function PwaBootstrap() {
       .catch(() => {
         setServiceWorkerReady(false)
       })
-  }, [])
+  }, [isLocalHost])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -90,7 +91,7 @@ export function PwaBootstrap() {
       window.removeEventListener('appinstalled', handleAppInstalled)
       compactViewportQuery.removeEventListener('change', handleViewportChange)
     }
-  }, [])
+  }, [isLocalHost])
 
   const handleInstall = async () => {
     if (!installPrompt) {

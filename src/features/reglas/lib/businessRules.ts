@@ -26,7 +26,12 @@ export type ScheduleResolutionLevel =
   | 'CADENA_BASE'
   | 'GLOBAL'
 export type SolicitudTipo = keyof typeof APPROVAL_FLOW_RULE_CODES
-export type ApprovalActor = 'SUPERVISOR' | 'COORDINADOR' | 'NOMINA' | 'ADMINISTRADOR'
+export type ApprovalActor =
+  | 'SUPERVISOR'
+  | 'COORDINADOR'
+  | 'RECLUTAMIENTO'
+  | 'NOMINA'
+  | 'ADMINISTRADOR'
 
 export interface SupervisorInheritanceRuleDefinition {
   id: string | null
@@ -120,24 +125,25 @@ const DEFAULT_APPROVAL_FLOWS: Record<SolicitudTipo, Omit<ApprovalFlowDefinition,
   VACACIONES: {
     code: APPROVAL_FLOW_RULE_CODES.VACACIONES,
     solicitudTipo: 'VACACIONES',
-    description: 'Vacaciones requieren aprobacion de SUPERVISOR y confirmacion final de COORDINADOR.',
+    description: 'Vacaciones notifican a SUPERVISOR como cortesía y se resuelven directamente por COORDINADOR.',
     severity: 'ERROR',
     priority: 210,
     minNoticeDays: 30,
     steps: [
-      { actor: 'SUPERVISOR', targetStatus: 'VALIDADA_SUP', slaHours: 24 },
       { actor: 'COORDINADOR', targetStatus: 'REGISTRADA', slaHours: 48 },
     ],
   },
   INCAPACIDAD: {
     code: APPROVAL_FLOW_RULE_CODES.INCAPACIDAD,
     solicitudTipo: 'INCAPACIDAD',
-    description: 'Incapacidades pasan por validacion operativa de SUPERVISOR y formalizacion de NOMINA.',
+    description:
+      'Incapacidades pasan por validacion operativa de SUPERVISOR, revision documental de RECLUTAMIENTO y formalizacion de NOMINA.',
     severity: 'ERROR',
     priority: 220,
     minNoticeDays: null,
     steps: [
       { actor: 'SUPERVISOR', targetStatus: 'VALIDADA_SUP', slaHours: 24 },
+      { actor: 'RECLUTAMIENTO', targetStatus: 'VALIDADA_SUP', slaHours: 24 },
       { actor: 'NOMINA', targetStatus: 'REGISTRADA_RH', slaHours: 48 },
     ],
   },
@@ -431,6 +437,7 @@ export const SOLICITUD_TIPO_OPTIONS = (
 export const APPROVAL_ACTOR_OPTIONS = [
   { value: 'SUPERVISOR', label: 'Supervisor' },
   { value: 'COORDINADOR', label: 'Coordinador' },
+  { value: 'RECLUTAMIENTO', label: 'Reclutamiento' },
   { value: 'NOMINA', label: 'Nomina' },
   { value: 'ADMINISTRADOR', label: 'Administrador' },
 ] as const

@@ -23,14 +23,47 @@ export interface FormacionTargetingMetadata {
   locationLatitude: number | null
   locationLongitude: number | null
   locationRadiusMeters: number | null
-  manualDocument: {
-    url: string | null
-    hash: string | null
-    fileName: string | null
-    mimeType: string | null
-    uploadedAt: string | null
-    uploadedBy: string | null
-  } | null
+  supervisorPdvConfirmation: FormacionSupervisorPdvConfirmationMetadata
+  pdvSupervisorConfirmations: FormacionPdvSupervisorConfirmationItem[]
+  notificationPlan: FormacionNotificationPlanMetadata
+}
+
+export interface FormacionSupervisorPdvConfirmationMetadata {
+  required: boolean
+  confirmed: boolean
+  confirmedAt: string | null
+  confirmedByEmployeeId: string | null
+  contactName: string | null
+  contactRole: string | null
+  notes: string | null
+}
+
+export interface FormacionPdvSupervisorConfirmationItem {
+  pdvId: string
+  pdvName: string | null
+  confirmed: boolean
+  confirmedAt: string | null
+  confirmedByEmployeeId: string | null
+  contactName: string | null
+  contactRole: string | null
+  notes: string | null
+}
+
+export interface FormacionReminderPlanItem {
+  key: 'DAY_MINUS_3' | 'DAY_MINUS_2' | 'DAY_MINUS_1'
+  label: string
+  offsetDays: number
+  scheduledFor: string | null
+  sentAt: string | null
+  status: 'PENDIENTE' | 'ENVIADO' | 'OMITIDO' | 'NO_APLICA'
+  recipientScope: 'DCS_Y_SUPERVISORES'
+}
+
+export interface FormacionNotificationPlanMetadata {
+  initialNotificationSentAt: string | null
+  lastNotificationSentAt: string | null
+  recipientEmployeeIds: string[]
+  reminders: FormacionReminderPlanItem[]
 }
 
 export interface FormacionLegacyParticipant {
@@ -87,6 +120,82 @@ function uniqueStrings(values: string[]) {
   )
 }
 
+function normalizeReminderStatus(value: unknown): FormacionReminderPlanItem['status'] {
+  return value === 'ENVIADO' || value === 'OMITIDO' || value === 'NO_APLICA' ? value : 'PENDIENTE'
+}
+
+function buildEmptySupervisorConfirmation(): FormacionSupervisorPdvConfirmationMetadata {
+  return {
+    required: true,
+    confirmed: false,
+    confirmedAt: null,
+    confirmedByEmployeeId: null,
+    contactName: null,
+    contactRole: null,
+    notes: null,
+  }
+}
+
+function buildEmptyNotificationPlan(): FormacionNotificationPlanMetadata {
+  return {
+    initialNotificationSentAt: null,
+    lastNotificationSentAt: null,
+    recipientEmployeeIds: [],
+    reminders: [],
+  }
+}
+
+function normalizePdvSupervisorConfirmationItem(
+  raw: Record<string, unknown>
+): FormacionPdvSupervisorConfirmationItem | null {
+  const pdvId =
+    typeof raw.pdv_id === 'string'
+      ? raw.pdv_id
+      : typeof raw.pdvId === 'string'
+        ? raw.pdvId
+        : null
+
+  if (!pdvId) {
+    return null
+  }
+
+  return {
+    pdvId,
+    pdvName:
+      typeof raw.pdv_name === 'string'
+        ? raw.pdv_name
+        : typeof raw.pdvName === 'string'
+          ? raw.pdvName
+          : null,
+    confirmed: Boolean(raw.confirmed),
+    confirmedAt:
+      typeof raw.confirmed_at === 'string'
+        ? raw.confirmed_at
+        : typeof raw.confirmedAt === 'string'
+          ? raw.confirmedAt
+          : null,
+    confirmedByEmployeeId:
+      typeof raw.confirmed_by_employee_id === 'string'
+        ? raw.confirmed_by_employee_id
+        : typeof raw.confirmedByEmployeeId === 'string'
+          ? raw.confirmedByEmployeeId
+          : null,
+    contactName:
+      typeof raw.contact_name === 'string'
+        ? raw.contact_name
+        : typeof raw.contactName === 'string'
+          ? raw.contactName
+          : null,
+    contactRole:
+      typeof raw.contact_role === 'string'
+        ? raw.contact_role
+        : typeof raw.contactRole === 'string'
+          ? raw.contactRole
+          : null,
+    notes: typeof raw.notes === 'string' ? raw.notes : null,
+  }
+}
+
 export function normalizeFormacionLegacyParticipant(
   raw: Record<string, unknown>
 ): FormacionLegacyParticipant {
@@ -137,7 +246,9 @@ export function normalizeFormacionTargetingMetadata(value: unknown): FormacionTa
       locationLatitude: null,
       locationLongitude: null,
       locationRadiusMeters: null,
-      manualDocument: null,
+      supervisorPdvConfirmation: buildEmptySupervisorConfirmation(),
+      pdvSupervisorConfirmations: [],
+      notificationPlan: buildEmptyNotificationPlan(),
     }
   }
 
@@ -160,10 +271,41 @@ export function normalizeFormacionTargetingMetadata(value: unknown): FormacionTa
   const pdvIds = Array.isArray(raw.pdv_ids)
     ? uniqueStrings(raw.pdv_ids.map((item) => String(item ?? '')))
     : []
-  const rawManual =
-    raw.manual_document && typeof raw.manual_document === 'object' && !Array.isArray(raw.manual_document)
-      ? (raw.manual_document as Record<string, unknown>)
+  const rawSupervisorConfirmation =
+    raw.supervisor_pdv_confirmation &&
+    typeof raw.supervisor_pdv_confirmation === 'object' &&
+    !Array.isArray(raw.supervisor_pdv_confirmation)
+      ? (raw.supervisor_pdv_confirmation as Record<string, unknown>)
       : null
+  const rawNotificationPlan =
+    raw.notification_plan && typeof raw.notification_plan === 'object' && !Array.isArray(raw.notification_plan)
+      ? (raw.notification_plan as Record<string, unknown>)
+      : null
+  const pdvSupervisorConfirmations = Array.isArray(raw.pdv_supervisor_confirmations)
+    ? raw.pdv_supervisor_confirmations
+        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+        .map((item) => normalizePdvSupervisorConfirmationItem(item))
+        .filter((item): item is FormacionPdvSupervisorConfirmationItem => Boolean(item))
+    : []
+  const reminders = Array.isArray(rawNotificationPlan?.reminders)
+    ? rawNotificationPlan.reminders
+        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+        .map<FormacionReminderPlanItem>((item) => ({
+          key: item.key === 'DAY_MINUS_3' || item.key === 'DAY_MINUS_2' || item.key === 'DAY_MINUS_1' ? item.key : 'DAY_MINUS_1',
+          label: typeof item.label === 'string' ? item.label : 'Recordatorio',
+          offsetDays: Number.isFinite(Number(item.offset_days)) ? Number(item.offset_days) : 1,
+          scheduledFor:
+            typeof item.scheduled_for === 'string'
+              ? item.scheduled_for
+              : typeof item.scheduledFor === 'string'
+                ? item.scheduledFor
+                : null,
+          sentAt:
+            typeof item.sent_at === 'string' ? item.sent_at : typeof item.sentAt === 'string' ? item.sentAt : null,
+          status: normalizeReminderStatus(item.status),
+          recipientScope: 'DCS_Y_SUPERVISORES',
+        }))
+    : []
 
   return {
     targetingMode,
@@ -188,16 +330,60 @@ export function normalizeFormacionTargetingMetadata(value: unknown): FormacionTa
     locationLatitude: Number.isFinite(Number(raw.location_latitude)) ? Number(raw.location_latitude) : null,
     locationLongitude: Number.isFinite(Number(raw.location_longitude)) ? Number(raw.location_longitude) : null,
     locationRadiusMeters: Number.isFinite(Number(raw.location_radius_meters)) ? Number(raw.location_radius_meters) : null,
-    manualDocument: rawManual
+    supervisorPdvConfirmation: rawSupervisorConfirmation
       ? {
-          url: typeof rawManual.url === 'string' ? rawManual.url : null,
-          hash: typeof rawManual.hash === 'string' ? rawManual.hash : null,
-          fileName: typeof rawManual.fileName === 'string' ? rawManual.fileName : typeof rawManual.file_name === 'string' ? rawManual.file_name : null,
-          mimeType: typeof rawManual.mimeType === 'string' ? rawManual.mimeType : typeof rawManual.mime_type === 'string' ? rawManual.mime_type : null,
-          uploadedAt: typeof rawManual.uploadedAt === 'string' ? rawManual.uploadedAt : typeof rawManual.uploaded_at === 'string' ? rawManual.uploaded_at : null,
-          uploadedBy: typeof rawManual.uploadedBy === 'string' ? rawManual.uploadedBy : typeof rawManual.uploaded_by === 'string' ? rawManual.uploaded_by : null,
+          required: rawSupervisorConfirmation.required !== false,
+          confirmed: Boolean(rawSupervisorConfirmation.confirmed),
+          confirmedAt:
+            typeof rawSupervisorConfirmation.confirmed_at === 'string'
+              ? rawSupervisorConfirmation.confirmed_at
+              : typeof rawSupervisorConfirmation.confirmedAt === 'string'
+                ? rawSupervisorConfirmation.confirmedAt
+                : null,
+          confirmedByEmployeeId:
+            typeof rawSupervisorConfirmation.confirmed_by_employee_id === 'string'
+              ? rawSupervisorConfirmation.confirmed_by_employee_id
+              : typeof rawSupervisorConfirmation.confirmedByEmployeeId === 'string'
+                ? rawSupervisorConfirmation.confirmedByEmployeeId
+                : null,
+          contactName:
+            typeof rawSupervisorConfirmation.contact_name === 'string'
+              ? rawSupervisorConfirmation.contact_name
+              : typeof rawSupervisorConfirmation.contactName === 'string'
+                ? rawSupervisorConfirmation.contactName
+                : null,
+          contactRole:
+            typeof rawSupervisorConfirmation.contact_role === 'string'
+              ? rawSupervisorConfirmation.contact_role
+              : typeof rawSupervisorConfirmation.contactRole === 'string'
+                ? rawSupervisorConfirmation.contactRole
+                : null,
+          notes: typeof rawSupervisorConfirmation.notes === 'string' ? rawSupervisorConfirmation.notes : null,
         }
-      : null,
+      : buildEmptySupervisorConfirmation(),
+    pdvSupervisorConfirmations,
+    notificationPlan: rawNotificationPlan
+      ? {
+          initialNotificationSentAt:
+            typeof rawNotificationPlan.initial_notification_sent_at === 'string'
+              ? rawNotificationPlan.initial_notification_sent_at
+              : typeof rawNotificationPlan.initialNotificationSentAt === 'string'
+                ? rawNotificationPlan.initialNotificationSentAt
+                : null,
+          lastNotificationSentAt:
+            typeof rawNotificationPlan.last_notification_sent_at === 'string'
+              ? rawNotificationPlan.last_notification_sent_at
+              : typeof rawNotificationPlan.lastNotificationSentAt === 'string'
+                ? rawNotificationPlan.lastNotificationSentAt
+                : null,
+          recipientEmployeeIds: Array.isArray(rawNotificationPlan.recipient_employee_ids)
+            ? uniqueStrings(rawNotificationPlan.recipient_employee_ids.map((item) => String(item ?? '')))
+            : Array.isArray(rawNotificationPlan.recipientEmployeeIds)
+              ? uniqueStrings(rawNotificationPlan.recipientEmployeeIds.map((item) => String(item ?? '')))
+              : [],
+          reminders,
+        }
+      : buildEmptyNotificationPlan(),
   }
 }
 
@@ -223,15 +409,11 @@ export function buildFormacionTargetingMetadata(input: {
   locationLatitude?: number | null
   locationLongitude?: number | null
   locationRadiusMeters?: number | null
-  manualDocument?: {
-    url: string | null
-    hash: string | null
-    fileName: string | null
-    mimeType: string | null
-    uploadedAt: string | null
-    uploadedBy: string | null
-  } | null
+  supervisorPdvConfirmation?: Partial<FormacionSupervisorPdvConfirmationMetadata> | null
+  pdvSupervisorConfirmations?: Array<Partial<FormacionPdvSupervisorConfirmationItem> & { pdvId: string }> | null
+  notificationPlan?: Partial<FormacionNotificationPlanMetadata> | null
 }) {
+  const notificationPlan = input.notificationPlan ?? null
   return {
     targeting_mode: input.primarySupervisorId ? 'SUPERVISOR_SCOPE' : 'PDV_SCOPE',
     event_type: input.eventType ?? 'FORMACION',
@@ -255,7 +437,34 @@ export function buildFormacionTargetingMetadata(input: {
     location_latitude: input.locationLatitude ?? null,
     location_longitude: input.locationLongitude ?? null,
     location_radius_meters: input.locationRadiusMeters ?? null,
-    manual_document: input.manualDocument ?? null,
+    supervisor_pdv_confirmation: {
+      ...buildEmptySupervisorConfirmation(),
+      ...(input.supervisorPdvConfirmation ?? {}),
+    },
+    pdv_supervisor_confirmations: (input.pdvSupervisorConfirmations ?? []).map((item) => ({
+      pdv_id: item.pdvId,
+      pdv_name: item.pdvName ?? null,
+      confirmed: item.confirmed ?? false,
+      confirmed_at: item.confirmedAt ?? null,
+      confirmed_by_employee_id: item.confirmedByEmployeeId ?? null,
+      contact_name: item.contactName ?? null,
+      contact_role: item.contactRole ?? null,
+      notes: item.notes ?? null,
+    })),
+    notification_plan: {
+      ...buildEmptyNotificationPlan(),
+      ...(notificationPlan ?? {}),
+      recipient_employee_ids: uniqueStrings(notificationPlan?.recipientEmployeeIds ?? []),
+      reminders: (notificationPlan?.reminders ?? []).map((item) => ({
+        key: item.key,
+        label: item.label,
+        offset_days: item.offsetDays,
+        scheduled_for: item.scheduledFor,
+        sent_at: item.sentAt,
+        status: item.status,
+        recipient_scope: item.recipientScope,
+      })),
+    },
   }
 }
 

@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from 'react'
 import { Card } from '@/components/ui/card'
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { ModalPanel } from '@/components/ui/modal-panel'
 import type { NominaPanelData } from '../services/nominaService'
 import { CreatePeriodoNominaForm } from './CreatePeriodoNominaForm'
@@ -367,14 +368,13 @@ export function NominaPanel({
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <Card className="min-w-0 overflow-hidden border-slate-200 bg-white px-4 py-5">
-      <div className="flex min-h-[92px] flex-col items-center justify-center text-center">
-        <p className="text-xs leading-4 text-slate-500">{label}</p>
-        <p className="mt-3 w-full truncate text-[1.1rem] font-semibold leading-tight tracking-[-0.02em] text-slate-950 sm:text-[1.25rem]">
-          {value}
-        </p>
-      </div>
-    </Card>
+    <SharedMetricCard
+      label={label}
+      value={value}
+      className="min-w-0 px-4 py-5"
+      labelClassName="text-xs leading-4 text-center"
+      valueClassName="w-full truncate text-[1.1rem] leading-tight tracking-[-0.02em] text-center sm:text-[1.25rem]"
+    />
   )
 }
 

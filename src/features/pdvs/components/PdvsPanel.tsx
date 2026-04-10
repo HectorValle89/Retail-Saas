@@ -1,10 +1,12 @@
 'use client';
 
-import { useActionState, useDeferredValue, useEffect, useState, type ReactNode } from 'react';
+import { useActionState, useEffect, useState, useTransition, type ReactNode } from 'react';
 import { useFormStatus } from 'react-dom';
+import { usePathname, useRouter } from 'next/navigation';
 import { MexicoMap, type MexicoMapPoint } from '@/components/maps/MexicoMap';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
 import { ModalPanel } from '@/components/ui/modal-panel';
 import { Select } from '@/components/ui/select';
 import {
@@ -16,12 +18,10 @@ import {
 } from '../actions';
 import { ESTADO_PDV_INICIAL, type PdvCreateDraft } from '../state';
 import type {
-  PdvAttendanceHistoryItem,
   PdvCadenaOption,
   PdvCiudadOption,
   PdvHorarioItem,
   PdvListadoItem,
-  PdvSupervisorHistoryItem,
   PdvSupervisorOption,
   PdvTurnoCatalogOption,
   PdvsPanelData,
@@ -39,34 +39,12 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return 'Sin registro';
-  }
-
-  return new Intl.DateTimeFormat('es-MX', {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
-}
-
 function formatTime(value: string | null) {
   if (!value) {
     return 'Sin horario';
   }
 
   return value.slice(0, 5);
-}
-
-function formatDistance(value: number | null) {
-  if (value === null) {
-    return 'Sin medicion';
-  }
-
-  return `${Math.round(value)} m`;
 }
 
 function getPdvTone(value: string) {
@@ -105,30 +83,6 @@ function getHorarioTone(mode: PdvListadoItem['horarioMode']) {
   return 'bg-rose-100 text-rose-700';
 }
 
-function getGpsTone(value: PdvAttendanceHistoryItem['estadoGps']) {
-  if (value === 'DENTRO_GEOCERCA') {
-    return 'bg-emerald-100 text-emerald-700';
-  }
-
-  if (value === 'FUERA_GEOCERCA') {
-    return 'bg-rose-100 text-rose-700';
-  }
-
-  return 'bg-slate-100 text-slate-700';
-}
-
-function getAsistenciaTone(value: PdvAttendanceHistoryItem['estatus']) {
-  if (value === 'VALIDA' || value === 'CERRADA') {
-    return 'bg-emerald-100 text-emerald-700';
-  }
-
-  if (value === 'RECHAZADA') {
-    return 'bg-rose-100 text-rose-700';
-  }
-
-  return 'bg-amber-100 text-amber-700';
-}
-
 function getHorarioLabel(mode: PdvListadoItem['horarioMode']) {
   switch (mode) {
     case 'CADENA':
@@ -153,18 +107,20 @@ export function PdvsPanel({
   canEdit: boolean;
   actorPuesto: string;
 }) {
-  const [search, setSearch] = useState('');
-  const [cadenaFilter, setCadenaFilter] = useState('ALL');
-  const [ciudadFilter, setCiudadFilter] = useState('ALL');
-  const [estadoFilter, setEstadoFilter] = useState('ALL');
-  const [zonaFilter, setZonaFilter] = useState('ALL');
-  const [supervisorFilter, setSupervisorFilter] = useState('ALL');
-  const [estatusFilter, setEstatusFilter] = useState('ALL');
-  const [selectedPdvId, setSelectedPdvId] = useState<string | null>(data.pdvs[0]?.id ?? null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const [isNavigating, startTransition] = useTransition();
+  const [search, setSearch] = useState(data.filters.search);
+  const [cadenaFilter, setCadenaFilter] = useState(data.filters.cadenaId || 'ALL');
+  const [ciudadFilter, setCiudadFilter] = useState(data.filters.ciudadId || 'ALL');
+  const [estadoFilter, setEstadoFilter] = useState(data.filters.estado || 'ALL');
+  const [zonaFilter, setZonaFilter] = useState(data.filters.zona || 'ALL');
+  const [supervisorFilter, setSupervisorFilter] = useState(data.filters.supervisorId || 'ALL');
+  const [estatusFilter, setEstatusFilter] = useState(data.filters.estatus || 'ALL');
+  const [selectedPdvId, setSelectedPdvId] = useState<string | null>(data.hasActiveFilters ? data.pdvs[0]?.id ?? null : null);
   const [detailPdvId, setDetailPdvId] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [toast, setToast] = useState<{ tone: 'success' | 'error' | 'info'; message: string } | null>(null);
-  const deferredSearch = useDeferredValue(search.trim().toLowerCase());
   const selectedPdv = data.pdvs.find((pdv) => pdv.id === detailPdvId) ?? null;
 
   useEffect(() => {
@@ -176,6 +132,36 @@ export function PdvsPanel({
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
+  const applyFilters = () => {
+    const params = new URLSearchParams();
+    const normalizedSearch = search.trim();
+    if (normalizedSearch) {
+      params.set('search', normalizedSearch);
+    }
+    if (cadenaFilter !== 'ALL') {
+      params.set('cadena', cadenaFilter);
+    }
+    if (ciudadFilter !== 'ALL') {
+      params.set('ciudad', ciudadFilter);
+    }
+    if (estadoFilter !== 'ALL') {
+      params.set('estado', estadoFilter);
+    }
+    if (zonaFilter !== 'ALL') {
+      params.set('zona', zonaFilter);
+    }
+    if (supervisorFilter !== 'ALL') {
+      params.set('supervisor', supervisorFilter);
+    }
+    if (estatusFilter !== 'ALL') {
+      params.set('estatus', estatusFilter);
+    }
+
+    startTransition(() => {
+      router.push(params.size > 0 ? `${pathname}?${params.toString()}` : pathname);
+    });
+  };
+
   const clearFilters = () => {
     setSearch('');
     setCadenaFilter('ALL');
@@ -184,46 +170,12 @@ export function PdvsPanel({
     setZonaFilter('ALL');
     setSupervisorFilter('ALL');
     setEstatusFilter('ALL');
+    startTransition(() => {
+      router.push(pathname);
+    });
   };
 
-  const pdvsFiltrados = data.pdvs.filter((pdv) => {
-    const matchesSearch = !deferredSearch
-      ? true
-      : [
-          pdv.nombre,
-          pdv.claveBtl,
-          pdv.cadena,
-          pdv.ciudad,
-          pdv.estado,
-          pdv.zona,
-          pdv.direccion,
-          pdv.supervisorActual,
-        ]
-          .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(deferredSearch));
-
-    const matchesCadena = cadenaFilter === 'ALL' || pdv.cadenaId === cadenaFilter;
-    const matchesCiudad = ciudadFilter === 'ALL' || pdv.ciudadId === ciudadFilter;
-    const matchesEstado = estadoFilter === 'ALL' || (pdv.estado ?? 'SIN_ESTADO') === estadoFilter;
-    const matchesZona = zonaFilter === 'ALL' || (pdv.zona ?? 'SIN_ZONA') === zonaFilter;
-    const matchesSupervisor =
-      supervisorFilter === 'ALL'
-        ? true
-        : supervisorFilter === 'SIN_SUPERVISOR'
-          ? !pdv.supervisorActualId
-          : pdv.supervisorActualId === supervisorFilter;
-    const matchesStatus = estatusFilter === 'ALL' || pdv.estatus === estatusFilter;
-
-    return (
-      matchesSearch &&
-      matchesCadena &&
-      matchesCiudad &&
-      matchesEstado &&
-      matchesZona &&
-      matchesSupervisor &&
-      matchesStatus
-    );
-  });
+  const pdvsFiltrados = data.pdvs;
 
   return (
     <div className="space-y-6">
@@ -298,8 +250,15 @@ export function PdvsPanel({
             <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
-                  Mostrando <span className="font-semibold text-slate-900">{pdvsFiltrados.length}</span>{' '}
-                  de <span className="font-semibold text-slate-900">{data.pdvs.length}</span> PDVs.
+                  {data.hasActiveFilters ? (
+                    <>
+                      Mostrando <span className="font-semibold text-slate-900">{pdvsFiltrados.length}</span> PDVs filtrados.
+                    </>
+                  ) : (
+                    <>
+                      Aplica al menos un filtro para consultar el catalogo y evitar una carga automatica pesada.
+                    </>
+                  )}
                 </div>
                 <a
                   href="/api/pdvs/export"
@@ -400,13 +359,22 @@ export function PdvsPanel({
                 />
               </div>
               <div className="md:col-span-2 xl:col-span-3">
-                <div className="flex h-full flex-col justify-end">
+                <div className="flex h-full flex-col justify-end gap-3 sm:flex-row sm:items-end">
+                  <button
+                    type="button"
+                    onClick={applyFilters}
+                    disabled={isNavigating}
+                    className="inline-flex min-h-11 w-full items-center justify-center rounded-[16px] border border-slate-900 bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isNavigating ? 'Consultando...' : 'Aplicar filtros'}
+                  </button>
                   <button
                     type="button"
                     onClick={clearFilters}
-                    className="inline-flex min-h-11 w-full items-center justify-center rounded-[16px] bg-[var(--module-primary)] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[var(--module-hover)]"
+                    disabled={isNavigating}
+                    className="inline-flex min-h-11 w-full items-center justify-center rounded-[16px] border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Borrar filtros
+                    Limpiar
                   </button>
                 </div>
               </div>
@@ -421,47 +389,59 @@ export function PdvsPanel({
             setSelectedPdvId(pdvId);
             setDetailPdvId(pdvId);
           }}
+          hasActiveFilters={data.hasActiveFilters}
         />
       </div>
 
       <Card className="overflow-hidden p-0">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-left text-slate-500">
-              <tr>
-                <th className="px-6 py-3 font-medium">PDV</th>
-                <th className="px-6 py-3 font-medium">Cadena / ciudad</th>
-                <th className="px-6 py-3 font-medium">Geocerca</th>
-                <th className="px-6 py-3 font-medium">Horario</th>
-                <th className="px-6 py-3 font-medium">Supervisor</th>
-                <th className="px-6 py-3 font-medium">Detalle</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pdvsFiltrados.length === 0 ? (
+        {data.hasActiveFilters ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-left text-slate-500">
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
-                    No hay PDVs que coincidan con los filtros activos.
-                  </td>
+                  <th className="px-6 py-3 font-medium">PDV</th>
+                  <th className="px-6 py-3 font-medium">Cadena / ciudad</th>
+                  <th className="px-6 py-3 font-medium">Geocerca</th>
+                  <th className="px-6 py-3 font-medium">Horario</th>
+                  <th className="px-6 py-3 font-medium">Supervisor</th>
+                  <th className="px-6 py-3 font-medium">Detalle</th>
                 </tr>
-              ) : (
-                pdvsFiltrados.map((pdv) => (
-                  <PdvRow
-                    key={pdv.id}
-                    data={data}
-                    pdv={pdv}
-                    canEdit={canEdit}
-                    expanded={false}
-                    onToggle={() => {
-                      setSelectedPdvId(pdv.id);
-                      setDetailPdvId(pdv.id);
-                    }}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {pdvsFiltrados.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
+                      No hay PDVs que coincidan con los filtros activos.
+                    </td>
+                  </tr>
+                ) : (
+                  pdvsFiltrados.map((pdv) => (
+                    <PdvRow
+                      key={pdv.id}
+                      data={data}
+                      pdv={pdv}
+                      canEdit={canEdit}
+                      expanded={false}
+                      onToggle={() => {
+                        setSelectedPdvId(pdv.id);
+                        setDetailPdvId(pdv.id);
+                      }}
+                    />
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="flex min-h-[220px] items-center justify-center px-6 py-10 text-center">
+            <div className="max-w-2xl space-y-3">
+              <p className="text-lg font-semibold text-slate-900">Vista diferida para bajar consumo</p>
+              <p className="text-sm leading-6 text-slate-500">
+                El catalogo de PDVs ya no se carga ni se lista automaticamente. Primero aplica un filtro y despues revisamos mapa, tabla y detalle del punto de venta.
+              </p>
+            </div>
+          </div>
+        )}
       </Card>
 
       {selectedPdv ? (
@@ -670,28 +650,17 @@ function PdvRow({
 
               <DetailCard
                 title="Supervisor"
-                description="Supervisor heredado por asignacion al PDV y su historial reciente."
+                description="Supervisor vigente del punto de venta."
               >
-                <SupervisorHistoryList items={pdv.supervisorHistorial} />
+                <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-2">
+                  <InfoRow label="Supervisor actual" value={pdv.supervisorActual ?? 'Pendiente'} />
+                  <InfoRow label="Vigente desde" value={formatDate(pdv.supervisorVigenteDesde)} />
+                </div>
                 {canEdit && (
                   <div className="mt-4">
                     <SupervisorForm data={data} pdv={pdv} />
                   </div>
                 )}
-              </DetailCard>
-
-              <DetailCard
-                title="Historial de asignaciones"
-                description="Ultimas asignaciones publicadas o en borrador para este PDV."
-              >
-                <AssignmentHistoryList items={pdv.historialAsignaciones} />
-              </DetailCard>
-
-              <DetailCard
-                title="Historial de asistencias"
-                description="Ultimas jornadas registradas en el PDV, con estado GPS y check-in."
-              >
-                <AttendanceHistoryList items={pdv.historialAsistencias} />
               </DetailCard>
             </div>
           </td>
@@ -714,7 +683,7 @@ function PdvDetailModal({
   data: PdvsPanelData;
   canEdit: boolean;
 }) {
-  const [tab, setTab] = useState<'general' | 'geocerca' | 'operacion'>('general');
+  const [tab, setTab] = useState<'general' | 'geocerca' | 'horario'>('general');
 
   return (
     <ModalPanel
@@ -732,8 +701,8 @@ function PdvDetailModal({
           <DetailTabButton active={tab === 'geocerca'} onClick={() => setTab('geocerca')}>
             Geocerca
           </DetailTabButton>
-          <DetailTabButton active={tab === 'operacion'} onClick={() => setTab('operacion')}>
-            Operacion
+          <DetailTabButton active={tab === 'horario'} onClick={() => setTab('horario')}>
+            Horario
           </DetailTabButton>
         </div>
 
@@ -755,8 +724,11 @@ function PdvDetailModal({
               ) : null}
             </DetailCard>
 
-            <DetailCard title="Supervisor" description="Cobertura vigente e historial reciente.">
-              <SupervisorHistoryList items={pdv.supervisorHistorial} />
+            <DetailCard title="Supervisor" description="Supervisor vigente del punto de venta.">
+              <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-2">
+                <InfoRow label="Supervisor actual" value={pdv.supervisorActual ?? 'Pendiente'} />
+                <InfoRow label="Vigente desde" value={formatDate(pdv.supervisorVigenteDesde)} />
+              </div>
               {canEdit ? (
                 <div className="mt-4">
                   <SupervisorForm data={data} pdv={pdv} />
@@ -767,7 +739,7 @@ function PdvDetailModal({
         ) : null}
 
         {tab === 'geocerca' ? (
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-4 xl:grid-cols-1">
             <DetailCard title="Geocerca" description="Coordenadas, radio y justificacion.">
               <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-2">
                 <InfoRow
@@ -793,18 +765,11 @@ function PdvDetailModal({
                 </div>
               ) : null}
             </DetailCard>
-
-            <DetailCard
-              title="Historial de asistencias"
-              description="Ultimas jornadas registradas."
-            >
-              <AttendanceHistoryList items={pdv.historialAsistencias} />
-            </DetailCard>
           </div>
         ) : null}
 
-        {tab === 'operacion' ? (
-          <div className="grid gap-4 xl:grid-cols-2">
+        {tab === 'horario' ? (
+          <div className="grid gap-4 xl:grid-cols-1">
             <DetailCard title="Horario" description="Horario efectivo y herencia.">
               <HorarioSummary horarios={pdv.horarios} />
               {canEdit ? (
@@ -813,20 +778,12 @@ function PdvDetailModal({
                 </div>
               ) : null}
             </DetailCard>
-
-            <DetailCard
-              title="Historial de asignaciones"
-              description="Ultimos movimientos del PDV."
-            >
-              <AssignmentHistoryList items={pdv.historialAsignaciones} />
-            </DetailCard>
           </div>
         ) : null}
       </div>
     </ModalPanel>
   );
 }
-
 function DetailTabButton({
   active,
   onClick,
@@ -1326,10 +1283,12 @@ function CoverageMap({
   pdvs,
   selectedPdvId,
   onSelect,
+  hasActiveFilters,
 }: {
   pdvs: PdvListadoItem[];
   selectedPdvId: string | null;
   onSelect: (pdvId: string) => void;
+  hasActiveFilters: boolean;
 }) {
   const points = pdvs.filter(
     (item) => item.latitud !== null && item.longitud !== null && item.geocercaCompleta
@@ -1382,10 +1341,13 @@ function CoverageMap({
         ) : (
           <div className="flex h-[320px] items-center justify-center rounded-[28px] border border-slate-200 bg-slate-50 px-6 text-center sm:h-[360px]">
             <div className="max-w-sm space-y-2">
-              <p className="text-base font-semibold text-slate-900">Sin resultados en el mapa</p>
+              <p className="text-base font-semibold text-slate-900">
+                {hasActiveFilters ? 'Sin resultados en el mapa' : 'Mapa diferido'}
+              </p>
               <p className="text-sm leading-6 text-slate-500">
-                No hay puntos de venta con geocerca dentro de los filtros actuales. Ajusta los
-                filtros o borralos para volver a ver ubicaciones en Mexico.
+                {hasActiveFilters
+                  ? 'No hay puntos de venta con geocerca dentro de los filtros actuales. Ajusta los filtros o limpialos para volver a ver ubicaciones en Mexico.'
+                  : 'El mapa ya no se dibuja automaticamente. Primero aplica un filtro para consultar solo el subconjunto necesario de PDVs.'}
               </p>
             </div>
           </div>
@@ -1445,113 +1407,6 @@ function HorarioSummary({ horarios }: { horarios: PdvHorarioItem[] }) {
     </div>
   );
 }
-function SupervisorHistoryList({ items }: { items: PdvSupervisorHistoryItem[] }) {
-  if (items.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
-        Sin historial de supervisor cargado.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {items.map((item) => (
-        <div
-          key={item.id}
-          className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600"
-        >
-          <div className="flex flex-wrap gap-2">
-            <StatusPill
-              label={item.activo ? 'ACTIVO' : 'HISTORICO'}
-              className={
-                item.activo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'
-              }
-            />
-          </div>
-          <p className="mt-3 font-medium text-slate-900">
-            {item.empleado ?? 'Supervisor sin nombre'}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            {formatDate(item.fechaInicio)} - {formatDate(item.fechaFin)}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AssignmentHistoryList({ items }: { items: PdvListadoItem['historialAsignaciones'] }) {
-  if (items.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
-        Sin asignaciones recientes para este PDV.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {items.map((item) => (
-        <div
-          key={item.id}
-          className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600"
-        >
-          <div className="flex flex-wrap gap-2">
-            <StatusPill label={item.tipo} className="bg-sky-100 text-sky-700" />
-            <StatusPill
-              label={item.estadoPublicacion}
-              className={
-                item.estadoPublicacion === 'PUBLICADA'
-                  ? 'bg-emerald-100 text-emerald-700'
-                  : 'bg-amber-100 text-amber-700'
-              }
-            />
-          </div>
-          <p className="mt-3 font-medium text-slate-900">
-            {item.empleado ?? 'Sin empleado vinculado'}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            {formatDate(item.fechaInicio)} - {formatDate(item.fechaFin)}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AttendanceHistoryList({ items }: { items: PdvAttendanceHistoryItem[] }) {
-  if (items.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
-        Sin asistencias recientes para este PDV.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {items.map((item) => (
-        <div
-          key={item.id}
-          className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600"
-        >
-          <div className="flex flex-wrap gap-2">
-            <StatusPill label={item.estatus} className={getAsistenciaTone(item.estatus)} />
-            <StatusPill label={item.estadoGps} className={getGpsTone(item.estadoGps)} />
-          </div>
-          <p className="mt-3 font-medium text-slate-900">{item.empleado}</p>
-          <div className="mt-1 grid gap-1 text-xs text-slate-500">
-            <span>fecha: {formatDate(item.fechaOperacion)}</span>
-            <span>check-in: {formatDateTime(item.checkInUtc)}</span>
-            <span>distancia: {formatDistance(item.distanciaCheckInMetros)}</span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function buildCadenaOptions(cadenas: PdvCadenaOption[]) {
   return [
     { value: '', label: 'Selecciona una cadena' },
@@ -1645,12 +1500,7 @@ function SubmitButton({
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card className="border-slate-200 bg-white">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
-    </Card>
-  );
+  return <SharedMetricCard label={label} value={value} />;
 }
 
 function StatusPill({ label, className }: { label: ReactNode; className: string }) {

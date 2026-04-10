@@ -30,6 +30,11 @@ export interface EmpleadoActionState {
   ocrSnapshot: EmpleadoOcrSnapshot | null
 }
 
+export interface CoberturaPdvOperativaActionState {
+  ok: boolean
+  message: string | null
+}
+
 export const ESTADO_EMPLEADO_INICIAL: EmpleadoActionState = {
   ok: false,
   message: null,
@@ -38,4 +43,9 @@ export const ESTADO_EMPLEADO_INICIAL: EmpleadoActionState = {
   temporaryEmail: null,
   duplicatedUpload: false,
   ocrSnapshot: null,
+}
+
+export const ESTADO_COBERTURA_PDV_OPERATIVA_INICIAL: CoberturaPdvOperativaActionState = {
+  ok: false,
+  message: null,
 }

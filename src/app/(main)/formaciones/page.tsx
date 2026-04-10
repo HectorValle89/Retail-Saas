@@ -24,7 +24,7 @@ export default async function FormacionesPage() {
         </p>
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">Formaciones</h1>
         <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-          Eventos formativos, registro de asistentes, impacto en gastos operativos y notificaciones activadas por el equipo.
+          Planea formaciones operativas con alcance por PDV, confirmación previa del supervisor, coordenadas completas y recordatorios automáticos a DCs y supervisión.
         </p>
       </header>
 

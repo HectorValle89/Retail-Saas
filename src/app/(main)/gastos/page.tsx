@@ -8,7 +8,7 @@ export const metadata = {
 }
 
 export default async function GastosPage() {
-  await requerirPuestosActivos(['ADMINISTRADOR', 'NOMINA', 'SUPERVISOR', 'COORDINADOR', 'LOGISTICA'])
+  await requerirPuestosActivos(['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'LOGISTICA'])
   const supabase = await createClient()
   const data = await obtenerPanelGastos(supabase)
 

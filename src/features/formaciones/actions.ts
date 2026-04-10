@@ -13,11 +13,16 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Asignacion, Empleado, CuentaCliente, FormacionEvento, FormacionAsistencia } from '@/types/database'
 import {
   buildFormacionTargetingMetadata,
+  type FormacionPdvSupervisorConfirmationItem,
+  type FormacionNotificationPlanMetadata,
+  type FormacionReminderPlanItem,
+  type FormacionSupervisorPdvConfirmationMetadata,
   normalizeFormacionAttendanceMetadata,
   normalizeFormacionTargetingMetadata,
 } from '@/features/formaciones/lib/formacionTargeting'
 import { resolveFormacionPdvState } from '@/features/formaciones/lib/formacionTargeting'
 import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
+import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
 import {
   ESTADO_FORMACION_ADMIN_INICIAL,
   type FormacionAdminActionState,
@@ -34,7 +39,11 @@ const MANAGER_ROLES = [
 
 const READ_ROLES = [...MANAGER_ROLES, 'DERMOCONSEJERO']
 const FORMACION_EVIDENCE_BUCKET = 'operacion-evidencias'
-const FORMACION_ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
+const FORMACION_REMINDER_BLUEPRINT = [
+  { key: 'DAY_MINUS_3', label: 'Recordatorio 3 dias antes', offsetDays: 3 },
+  { key: 'DAY_MINUS_2', label: 'Recordatorio 2 dias antes', offsetDays: 2 },
+  { key: 'DAY_MINUS_1', label: 'Recordatorio 1 dia antes', offsetDays: 1 },
+] as const
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TypedSupabaseClient = SupabaseClient<any>
@@ -114,6 +123,26 @@ function normalizeNumber(value: FormDataEntryValue | null, label: string) {
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
+function parseCoordinatePair(value: string | null) {
+  if (!value) {
+    return { latitude: null, longitude: null }
+  }
+
+  const parts = value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  if (parts.length !== 2) {
+    return { latitude: Number.NaN, longitude: Number.NaN }
+  }
+
+  return {
+    latitude: Number(parts[0]),
+    longitude: Number(parts[1]),
+  }
+}
+
 function normalizeLineList(value: string) {
   return value
     .split(/\r?\n/)
@@ -183,37 +212,187 @@ async function registrarEventoAudit(
   })
 }
 
-async function uploadFormacionManual({
-  service,
-  actorUsuarioId,
-  eventoId,
-  file,
-}: {
-  service: TypedSupabaseClient
-  actorUsuarioId: string
-  eventoId: string
-  file: File
-}) {
-  if (!FORMACION_ALLOWED_MIME_TYPES.includes(file.type || 'application/pdf')) {
-    throw new Error('El archivo de requisitos debe ser PDF o imagen compatible.')
+function buildReminderScheduleIso(operationDate: string, offsetDays: number) {
+  const [year, month, day] = operationDate.split('-').map((value) => Number(value))
+  const date = new Date(Date.UTC(year, month - 1, day, 15, 0, 0))
+  date.setUTCDate(date.getUTCDate() - offsetDays)
+  return date.toISOString()
+}
+
+function buildFormacionReminderPlan(
+  operationDate: string,
+  previousPlan?: FormacionNotificationPlanMetadata | null
+): FormacionReminderPlanItem[] {
+  const previousReminders = new Map((previousPlan?.reminders ?? []).map((item) => [item.key, item] as const))
+
+  return FORMACION_REMINDER_BLUEPRINT.map((item) => {
+    const previous = previousReminders.get(item.key)
+    const scheduledFor = buildReminderScheduleIso(operationDate, item.offsetDays)
+    const operationMoment = new Date(`${operationDate}T15:00:00.000Z`).getTime()
+
+    return {
+      key: item.key,
+      label: item.label,
+      offsetDays: item.offsetDays,
+      scheduledFor,
+      sentAt: previous?.sentAt ?? null,
+      status:
+        previous?.status && previous.status !== 'PENDIENTE'
+          ? previous.status
+          : new Date(scheduledFor).getTime() >= operationMoment
+            ? 'NO_APLICA'
+            : 'PENDIENTE',
+      recipientScope: 'DCS_Y_SUPERVISORES',
+    }
+  })
+}
+
+function parseSupervisorConfirmation(
+  formData: FormData,
+  actor: ActorActual,
+  previousConfirmation?: FormacionSupervisorPdvConfirmationMetadata | null
+): FormacionSupervisorPdvConfirmationMetadata {
+  const confirmed = Boolean(formData.get('supervisor_pdv_confirmado'))
+  const contactName = normalizeOptionalText(formData.get('supervisor_pdv_contacto'))
+  const contactRole = normalizeOptionalText(formData.get('supervisor_pdv_contacto_puesto'))
+  const notes = normalizeOptionalText(formData.get('supervisor_pdv_notas'))
+
+  if (!confirmed) {
+    return {
+      required: true,
+      confirmed: false,
+      confirmedAt: previousConfirmation?.confirmed ? previousConfirmation.confirmedAt : null,
+      confirmedByEmployeeId: previousConfirmation?.confirmed ? previousConfirmation.confirmedByEmployeeId : null,
+      contactName: null,
+      contactRole: null,
+      notes: null,
+    }
   }
 
-  const stored = await storeOptimizedEvidence({
-    service,
-    bucket: FORMACION_EVIDENCE_BUCKET,
-    actorUsuarioId,
-    storagePrefix: `formaciones/${eventoId}/manual`,
-    file,
-  })
+  if (!contactName) {
+    throw new Error('Indica con quien hablo el supervisor en el PDV.')
+  }
+
+  if (!notes) {
+    throw new Error('Captura notas de la confirmacion con el PDV.')
+  }
 
   return {
-    url: stored.archivo.url,
-    hash: stored.archivo.hash,
-    fileName: file.name,
-    mimeType: file.type || 'application/pdf',
-    uploadedAt: new Date().toISOString(),
-    uploadedBy: actorUsuarioId,
+    required: true,
+    confirmed: true,
+    confirmedAt: previousConfirmation?.confirmed ? previousConfirmation.confirmedAt : new Date().toISOString(),
+    confirmedByEmployeeId: previousConfirmation?.confirmed ? previousConfirmation.confirmedByEmployeeId : actor.empleadoId,
+    contactName,
+    contactRole,
+    notes,
   }
+}
+
+function buildInitialPdvSupervisorConfirmations(input: {
+  pdvIds: string[]
+  pdvCatalog: Array<{ id: string; nombre: string }>
+  previousConfirmations: FormacionPdvSupervisorConfirmationItem[]
+}) {
+  const previousByPdv = new Map(input.previousConfirmations.map((item) => [item.pdvId, item] as const))
+
+  return input.pdvIds.map<FormacionPdvSupervisorConfirmationItem>((pdvId) => {
+    const previous = previousByPdv.get(pdvId)
+    const pdvName = input.pdvCatalog.find((item) => item.id === pdvId)?.nombre ?? previous?.pdvName ?? null
+
+    return {
+      pdvId,
+      pdvName,
+      confirmed: previous?.confirmed ?? false,
+      confirmedAt: previous?.confirmedAt ?? null,
+      confirmedByEmployeeId: previous?.confirmedByEmployeeId ?? null,
+      contactName: previous?.contactName ?? null,
+      contactRole: previous?.contactRole ?? null,
+      notes: previous?.notes ?? null,
+    }
+  })
+}
+
+function buildRecipientEmployeeIds(
+  participants: FormacionParticipantePayload[],
+  supervisorId: string | null
+) {
+  return Array.from(
+    new Set(
+      [
+        ...participants
+          .filter((item) => item.puesto === 'DERMOCONSEJERO')
+          .map((item) => item.empleado_id),
+        supervisorId,
+      ].filter((item): item is string => Boolean(item))
+    )
+  )
+}
+
+function buildFormacionNotificationBody(input: {
+  eventoNombre: string
+  operationDate: string
+  modality: 'PRESENCIAL' | 'EN_LINEA'
+  locationAddress: string | null
+  eventType: 'FORMACION' | 'ISDINIZACION'
+  reminderLabel?: string | null
+}) {
+  const headline = input.reminderLabel
+    ? `${input.reminderLabel}: ${input.eventoNombre}`
+    : `${input.eventType === 'ISDINIZACION' ? 'ISDINIZACION' : 'Formacion'} programada: ${input.eventoNombre}`
+  const modalityLabel = input.modality === 'EN_LINEA' ? 'En linea' : 'Presencial'
+  const locationLine = input.locationAddress ? ` Sede: ${input.locationAddress}.` : ''
+  return `${headline}. Fecha operativa ${input.operationDate}. Modalidad: ${modalityLabel}.${locationLine}`
+}
+
+async function publishInternalMessage(
+  service: TypedSupabaseClient,
+  input: {
+    cuentaClienteId: string
+    actorUsuarioId: string
+    title: string
+    body: string
+    recipientIds: string[]
+    metadata: Record<string, unknown>
+  }
+) {
+  if (input.recipientIds.length === 0) {
+    return null
+  }
+
+  const { data: message, error: messageError } = await service
+    .from('mensaje_interno')
+    .insert({
+      cuenta_cliente_id: input.cuentaClienteId,
+      creado_por_usuario_id: input.actorUsuarioId,
+      titulo: input.title,
+      cuerpo: input.body,
+      tipo: 'MENSAJE',
+      grupo_destino: 'TODOS_DCS',
+      opciones_respuesta: [],
+      metadata: input.metadata,
+    })
+    .select('id')
+    .maybeSingle()
+
+  if (messageError || !message?.id) {
+    throw new Error(messageError?.message ?? 'No fue posible publicar el mensaje interno de la formacion.')
+  }
+
+  const { error: recipientError } = await service.from('mensaje_receptor').insert(
+    input.recipientIds.map((empleadoId) => ({
+      mensaje_id: message.id,
+      cuenta_cliente_id: input.cuentaClienteId,
+      empleado_id: empleadoId,
+      estado: 'PENDIENTE' as const,
+      metadata: input.metadata,
+    }))
+  )
+
+  if (recipientError) {
+    throw new Error(recipientError.message)
+  }
+
+  return message.id
 }
 
 async function notifyFormacionParticipants(
@@ -227,8 +406,8 @@ async function notifyFormacionParticipants(
     modality,
     participants,
     supervisorId,
-    coordinatorId,
     operationDate,
+    locationAddress,
   }: {
     cuentaClienteId: string
     actorUsuarioId: string
@@ -238,72 +417,56 @@ async function notifyFormacionParticipants(
     modality: 'PRESENCIAL' | 'EN_LINEA'
     participants: FormacionParticipantePayload[]
     supervisorId: string | null
-    coordinatorId: string | null
     operationDate: string
+    locationAddress: string | null
   }
 ) {
-  const recipientIds = Array.from(
-    new Set(
-      [
-        ...participants.map((item) => item.empleado_id),
-        supervisorId,
-        coordinatorId,
-      ].filter((item): item is string => Boolean(item))
-    )
-  )
+  const recipientIds = buildRecipientEmployeeIds(participants, supervisorId)
 
   if (recipientIds.length === 0) {
-    return
+    return {
+      initialNotificationSentAt: null,
+      lastNotificationSentAt: null,
+      recipientEmployeeIds: [],
+      reminders: buildFormacionReminderPlan(operationDate),
+    } satisfies FormacionNotificationPlanMetadata
   }
 
   const title =
     eventType === 'ISDINIZACION'
       ? 'ISDINIZACION programada'
       : 'Formacion programada'
-  const body = `${eventoNombre} reemplaza la operacion habitual del ${operationDate}. Modalidad: ${
-    modality === 'EN_LINEA' ? 'En linea' : 'Presencial'
-  }.`
+  const body = buildFormacionNotificationBody({
+    eventoNombre,
+    operationDate,
+    modality,
+    locationAddress,
+    eventType,
+  })
+  const sentAt = new Date().toISOString()
 
-  const { data: message, error: messageError } = await service
-    .from('mensaje_interno')
-    .insert({
-      cuenta_cliente_id: cuentaClienteId,
-      creado_por_usuario_id: actorUsuarioId,
-      titulo: title,
-      cuerpo: body,
-      tipo: 'MENSAJE',
-      grupo_destino: 'TODOS_DCS',
-      opciones_respuesta: [],
-      metadata: {
-        origen: 'formacion_evento',
-        evento_id: eventoId,
-        event_type: eventType,
-        modality,
-        operation_date: operationDate,
-      },
-    })
-    .select('id')
-    .maybeSingle()
-
-  if (messageError || !message?.id) {
-    throw new Error(messageError?.message ?? 'No fue posible generar la notificacion de la formacion.')
-  }
-
-  const recipientRows = recipientIds.map((empleadoId) => ({
-    mensaje_id: message.id,
-    cuenta_cliente_id: cuentaClienteId,
-    empleado_id: empleadoId,
-    estado: 'PENDIENTE' as const,
+  await publishInternalMessage(service, {
+    cuentaClienteId,
+    actorUsuarioId,
+    title,
+    body,
+    recipientIds,
     metadata: {
       origen: 'formacion_evento',
       evento_id: eventoId,
+      event_type: eventType,
+      modality,
+      operation_date: operationDate,
+      trigger: 'CREACION',
     },
-  }))
+  })
 
-  const { error: recipientError } = await service.from('mensaje_receptor').insert(recipientRows)
-  if (recipientError) {
-    throw new Error(recipientError.message)
-  }
+  return {
+    initialNotificationSentAt: sentAt,
+    lastNotificationSentAt: sentAt,
+    recipientEmployeeIds: recipientIds,
+    reminders: buildFormacionReminderPlan(operationDate),
+  } satisfies FormacionNotificationPlanMetadata
 }
 
 function buildParticipantPayload(
@@ -617,6 +780,7 @@ async function resolveSupervisorFormationScope(
     supervisor,
     coordinator,
     pdvIds,
+    pdvs: Array.from(pdvById.values()),
     stateNames: Array.from(new Set(scopedPdvs.map((pdv) => pdvById.get(pdv.id)?.estado ?? 'Sin estado'))).sort((a, b) =>
       a.localeCompare(b, 'es-MX')
     ),
@@ -807,23 +971,6 @@ async function syncAsistenciasEvento(
   )
 }
 
-function buildNotificationLines(value: string) {
-  return normalizeLineList(value).map((line) => {
-    const [canalRaw, mensajeRaw] = line.split('|').map((part) => part.trim())
-
-    if (!mensajeRaw) {
-      throw new Error('Cada notificación requiere un mensaje.')
-    }
-
-    return {
-      canal: canalRaw || 'GENERAL',
-      mensaje: mensajeRaw,
-      estado: 'PENDIENTE',
-      enviado_en: new Date().toISOString(),
-    }
-  })
-}
-
 async function pickAccountId(
   actor: Awaited<ReturnType<typeof requerirGestorFormaciones>> | ActorActual,
   service: TypedSupabaseClient,
@@ -877,21 +1024,17 @@ export async function guardarFormacion(
     const fechaFin = normalizeDate(formData.get('fecha_fin'), 'Fecha fin')
     const horarioInicio = normalizeTime(formData.get('horario_inicio'), 'Horario inicio')
     const horarioFin = normalizeTime(formData.get('horario_fin'), 'Horario fin')
-    const estadoRaw = normalizeOptionalText(formData.get('estado')) ?? 'BORRADOR'
+    const estadoRaw = normalizeOptionalText(formData.get('estado')) ?? 'PROGRAMADA'
     const estado = estadoRaw as FormacionEvento['estado']
     const responsableId = normalizeOptionalText(formData.get('responsable_id'))
     const selectedSupervisorId = normalizeRequiredText(formData.get('supervisor_id'), 'Supervisor')
     const selectedCoordinatorId = normalizeOptionalText(formData.get('coordinador_id'))
     const selectedPdvIds = normalizeSelectedIds(formData, 'pdv_id')
     const ubicacionDireccion = normalizeOptionalText(formData.get('ubicacion_direccion'))
+    const ubicacionCoordenadasRaw = normalizeOptionalText(formData.get('ubicacion_coordenadas'))
     const ubicacionLatitudRaw = normalizeOptionalText(formData.get('ubicacion_latitud'))
     const ubicacionLongitudRaw = normalizeOptionalText(formData.get('ubicacion_longitud'))
     const ubicacionRadioRaw = normalizeOptionalText(formData.get('ubicacion_radio_metros'))
-    const gastosText = String(formData.get('gastos_operativos') ?? '')
-    const gastosOperativos = gastosText ? buildExpenseLines(gastosText) : []
-    const notificacionesText = String(formData.get('notificaciones') ?? '')
-    const notificaciones = notificacionesText ? buildNotificationLines(notificacionesText) : []
-    const manualFile = formData.get('manual_pdf')
     const previousEventResult = eventoId
       ? await service
           .from('formacion_evento')
@@ -916,8 +1059,19 @@ export async function guardarFormacion(
       throw new Error('Selecciona al menos un PDV participante para el evento.')
     }
 
-    const locationLatitude = ubicacionLatitudRaw === null ? null : Number(ubicacionLatitudRaw)
-    const locationLongitude = ubicacionLongitudRaw === null ? null : Number(ubicacionLongitudRaw)
+    const coordinatesPair = parseCoordinatePair(ubicacionCoordenadasRaw)
+    const locationLatitude =
+      ubicacionCoordenadasRaw !== null
+        ? coordinatesPair.latitude
+        : ubicacionLatitudRaw === null
+          ? null
+          : Number(ubicacionLatitudRaw)
+    const locationLongitude =
+      ubicacionCoordenadasRaw !== null
+        ? coordinatesPair.longitude
+        : ubicacionLongitudRaw === null
+          ? null
+          : Number(ubicacionLongitudRaw)
     const locationRadiusMeters = ubicacionRadioRaw === null ? null : Number(ubicacionRadioRaw)
 
     if (modalidad === 'PRESENCIAL') {
@@ -926,7 +1080,7 @@ export async function guardarFormacion(
       }
 
       if (!Number.isFinite(locationLatitude) || !Number.isFinite(locationLongitude)) {
-        throw new Error('La latitud y longitud del evento presencial son obligatorias.')
+        throw new Error('Las coordenadas del evento presencial son obligatorias y deben tener formato "latitud, longitud".')
       }
     }
 
@@ -967,6 +1121,16 @@ export async function guardarFormacion(
       (selectedCoordinatorId === resolvedScope.coordinator?.id
         ? resolvedScope.coordinator?.nombre_completo ?? null
         : selectedCoordinator?.nombre ?? null)
+    const supervisorPdvConfirmation = parseSupervisorConfirmation(
+      formData,
+      actor,
+      previousTargeting.supervisorPdvConfirmation
+    )
+    const pdvSupervisorConfirmations = buildInitialPdvSupervisorConfirmations({
+      pdvIds: scopedPdvIds,
+      pdvCatalog: resolvedScope.pdvs.map((item) => ({ id: item.id, nombre: item.nombre })),
+      previousConfirmations: previousTargeting.pdvSupervisorConfirmations,
+    })
 
     const nextMetadata = buildFormacionTargetingMetadata({
       eventType: tipoEvento,
@@ -991,7 +1155,14 @@ export async function guardarFormacion(
       locationLongitude: modalidad === 'PRESENCIAL' && Number.isFinite(locationLongitude) ? locationLongitude : null,
       locationRadiusMeters:
         modalidad === 'PRESENCIAL' && Number.isFinite(locationRadiusMeters) ? locationRadiusMeters : 100,
-      manualDocument: previousTargeting.manualDocument,
+      supervisorPdvConfirmation,
+      pdvSupervisorConfirmations,
+      notificationPlan: {
+        initialNotificationSentAt: previousTargeting.notificationPlan.initialNotificationSentAt,
+        lastNotificationSentAt: previousTargeting.notificationPlan.lastNotificationSentAt,
+        recipientEmployeeIds: previousTargeting.notificationPlan.recipientEmployeeIds,
+        reminders: buildFormacionReminderPlan(fechaInicio, previousTargeting.notificationPlan),
+      },
     })
 
     const payload: Partial<FormacionEvento> = {
@@ -1005,8 +1176,8 @@ export async function guardarFormacion(
       fecha_fin: fechaFin,
       estado,
       participantes,
-      gastos_operativos: gastosOperativos,
-      notificaciones,
+      gastos_operativos: [],
+      notificaciones: [],
       metadata: nextMetadata,
       updated_by_usuario_id: actor.usuarioId,
     }
@@ -1068,29 +1239,6 @@ export async function guardarFormacion(
       throw new Error('No se pudo resolver el identificador del evento.')
     }
 
-    if (manualFile instanceof File && manualFile.size > 0) {
-      const manualDocument = await uploadFormacionManual({
-        service,
-        actorUsuarioId: actor.usuarioId,
-        eventoId: resolvedEventoId,
-        file: manualFile,
-      })
-
-      const { error: manualUpdateError } = await service
-        .from('formacion_evento')
-        .update({
-          metadata: {
-            ...nextMetadata,
-            manual_document: manualDocument,
-          },
-        })
-        .eq('id', resolvedEventoId)
-
-      if (manualUpdateError) {
-        throw new Error(manualUpdateError.message)
-      }
-    }
-
     if (resolvedEventoId) {
       await refreshFormacionMaterialization(service, {
         previousFechaInicio: previousEvent?.fecha_inicio ?? null,
@@ -1105,7 +1253,7 @@ export async function guardarFormacion(
       })
     }
 
-    await notifyFormacionParticipants(service, {
+    const notificationPlan = await notifyFormacionParticipants(service, {
       cuentaClienteId: cuentaCliente.id,
       actorUsuarioId: actor.usuarioId,
       eventoId: resolvedEventoId,
@@ -1114,15 +1262,167 @@ export async function guardarFormacion(
       modality: modalidad,
       participants: participantes,
       supervisorId: resolvedScope.supervisor.id,
-      coordinatorId: resolvedCoordinatorId,
       operationDate: fechaInicio,
+      locationAddress: modalidad === 'PRESENCIAL' ? ubicacionDireccion : sede,
     })
+
+    const metadataWithNotifications = buildFormacionTargetingMetadata({
+      eventType: tipoEvento,
+      modality: modalidad,
+      stateNames: resolvedScope.stateNames,
+      supervisorIds: [resolvedScope.supervisor.id],
+      coordinatorIds: [resolvedCoordinatorId].filter((item): item is string => Boolean(item)),
+      pdvIds: scopedPdvIds,
+      operationDate: fechaInicio,
+      scheduleStart: horarioInicio,
+      scheduleEnd: horarioFin,
+      primarySupervisorId: resolvedScope.supervisor.id,
+      primaryCoordinatorId: resolvedCoordinatorId,
+      supervisorName: resolvedScope.supervisor.nombre_completo,
+      coordinatorName: resolvedCoordinatorName,
+      expectedDcCount: participantes.filter((item) => item.puesto === 'DERMOCONSEJERO').length,
+      expectedSupervisorCount: participantes.some((item) => item.puesto === 'SUPERVISOR') ? 1 : 0,
+      expectedCoordinatorCount: resolvedCoordinatorId ? 1 : 0,
+      expectedStoreCount: scopedPdvIds.length,
+      locationAddress: modalidad === 'PRESENCIAL' ? ubicacionDireccion : sede,
+      locationLatitude: modalidad === 'PRESENCIAL' && Number.isFinite(locationLatitude) ? locationLatitude : null,
+      locationLongitude: modalidad === 'PRESENCIAL' && Number.isFinite(locationLongitude) ? locationLongitude : null,
+      locationRadiusMeters:
+        modalidad === 'PRESENCIAL' && Number.isFinite(locationRadiusMeters) ? locationRadiusMeters : 100,
+      supervisorPdvConfirmation,
+      pdvSupervisorConfirmations,
+      notificationPlan,
+    })
+
+    const { error: metadataUpdateError } = await service
+      .from('formacion_evento')
+      .update({
+        metadata: metadataWithNotifications,
+      })
+      .eq('id', resolvedEventoId)
+
+    if (metadataUpdateError) {
+      throw new Error(metadataUpdateError.message)
+    }
 
     revalidateFormacionPaths()
 
-    return buildState({ ok: true, message: 'Formación guardada correctamente.' })
+    return buildState({ ok: true, message: 'Formación guardada correctamente y con notificaciones automáticas activadas.' })
   } catch (error) {
     return buildState({ message: error instanceof Error ? error.message : 'Error desconocido.' })
+  }
+}
+
+export async function confirmarAvisoPdvFormacion(
+  prevState: FormacionAdminActionState,
+  formData: FormData
+): Promise<FormacionAdminActionState> {
+  void prevState
+
+  try {
+    const actor = await requerirActorActivo()
+    if (actor.estadoCuenta !== 'ACTIVA' || actor.puesto !== 'SUPERVISOR') {
+      throw new Error('Solo el supervisor responsable puede confirmar avisos al PDV.')
+    }
+
+    const eventoId = normalizeRequiredText(formData.get('evento_id'), 'Evento')
+    const pdvId = normalizeRequiredText(formData.get('pdv_id'), 'PDV')
+    const confirmed = Boolean(formData.get('confirmado'))
+    const scope = await readRequestAccountScope()
+    const requestedAccountId = normalizeRequestedAccountId(scope)
+    const targetAccountId = requestedAccountId ?? actor.cuentaClienteId
+    const service = createServiceClient()
+
+    const { data: evento, error } = await service
+      .from('formacion_evento')
+      .select('id, cuenta_cliente_id, metadata')
+      .eq('id', eventoId)
+      .maybeSingle()
+
+    if (error || !evento) {
+      throw new Error(error?.message ?? 'No se encontró la formación seleccionada.')
+    }
+
+    if (targetAccountId && evento.cuenta_cliente_id !== targetAccountId) {
+      throw new Error('La formación no pertenece a la cuenta activa.')
+    }
+
+    const targeting = normalizeFormacionTargetingMetadata(evento.metadata ?? {})
+
+    if (targeting.primarySupervisorId !== actor.empleadoId) {
+      throw new Error('Solo el supervisor asignado a esta formación puede confirmar los avisos por PDV.')
+    }
+
+    if (!targeting.pdvIds.includes(pdvId)) {
+      throw new Error('El PDV no pertenece al alcance de esta formación.')
+    }
+
+    const nextConfirmations = targeting.pdvSupervisorConfirmations.map((item) =>
+      item.pdvId === pdvId
+        ? {
+            ...item,
+            confirmed,
+            confirmedAt: confirmed ? new Date().toISOString() : null,
+            confirmedByEmployeeId: confirmed ? actor.empleadoId : null,
+            contactName: confirmed ? item.contactName : null,
+            contactRole: confirmed ? item.contactRole : null,
+            notes: confirmed ? item.notes : null,
+          }
+        : item
+    )
+
+    const nextMetadata = buildFormacionTargetingMetadata({
+      eventType: targeting.eventType,
+      modality: targeting.modality,
+      stateNames: targeting.stateNames,
+      supervisorIds: targeting.supervisorIds,
+      coordinatorIds: targeting.coordinatorIds,
+      pdvIds: targeting.pdvIds,
+      operationDate: targeting.operationDate,
+      scheduleStart: targeting.scheduleStart,
+      scheduleEnd: targeting.scheduleEnd,
+      primarySupervisorId: targeting.primarySupervisorId,
+      primaryCoordinatorId: targeting.primaryCoordinatorId,
+      supervisorName: targeting.supervisorName,
+      coordinatorName: targeting.coordinatorName,
+      expectedDcCount: targeting.expectedDcCount,
+      expectedSupervisorCount: targeting.expectedSupervisorCount,
+      expectedCoordinatorCount: targeting.expectedCoordinatorCount,
+      expectedStoreCount: targeting.expectedStoreCount,
+      locationAddress: targeting.locationAddress,
+      locationLatitude: targeting.locationLatitude,
+      locationLongitude: targeting.locationLongitude,
+      locationRadiusMeters: targeting.locationRadiusMeters,
+      pdvSupervisorConfirmations: nextConfirmations,
+      supervisorPdvConfirmation: targeting.supervisorPdvConfirmation,
+      notificationPlan: targeting.notificationPlan,
+    })
+
+    const { error: updateError } = await service
+      .from('formacion_evento')
+      .update({
+        metadata: nextMetadata,
+        updated_by_usuario_id: actor.usuarioId,
+      })
+      .eq('id', eventoId)
+
+    if (updateError) {
+      throw new Error(updateError.message)
+    }
+
+    revalidateFormacionPaths()
+
+    return buildState({
+      ok: true,
+      message: confirmed
+        ? 'Aviso al PDV confirmado para esta formación.'
+        : 'La confirmación del PDV se devolvió a pendiente.',
+    })
+  } catch (error) {
+    return buildState({
+      ok: false,
+      message: error instanceof Error ? error.message : 'No fue posible actualizar la confirmación del PDV.',
+    })
   }
 }
 
@@ -1213,8 +1513,9 @@ async function registrarMovimientoAsistenciaFormacion(
     const service = createServiceClient() as TypedSupabaseClient
     const eventoId = normalizeRequiredText(formData.get('evento_id'), 'Formacion')
     const selfie = formData.get('selfie')
+    const selfieR2 = readDirectR2Reference(formData, 'selfie')
 
-    if (!(selfie instanceof File) || selfie.size === 0) {
+    if ((!hasDirectR2Reference(selfieR2)) && (!(selfie instanceof File) || selfie.size === 0)) {
       throw new Error('La selfie desde camara es obligatoria.')
     }
 
@@ -1243,13 +1544,28 @@ async function registrarMovimientoAsistenciaFormacion(
       throw new Error('No se encontro la formacion seleccionada.')
     }
 
-    const stored = await storeOptimizedEvidence({
-      service,
-      bucket: 'evidencias-operacion',
-      actorUsuarioId: actor.usuarioId,
-      storagePrefix: `formaciones/${eventoId}/${actor.empleadoId}/${mode.toLowerCase()}`,
-      file: selfie,
-    })
+    const stored = hasDirectR2Reference(selfieR2)
+      ? await (async () => {
+          const registered = await registerDirectR2Evidence(service, {
+            actorUsuarioId: actor.usuarioId,
+            modulo: `formaciones_${mode.toLowerCase()}`,
+            referenciaEntidadId: eventoId,
+            reference: selfieR2,
+          })
+          return {
+            archivo: {
+              url: registered.url,
+              hash: registered.hash,
+            },
+          }
+        })()
+      : await storeOptimizedEvidence({
+          service,
+          bucket: 'evidencias-operacion',
+          actorUsuarioId: actor.usuarioId,
+          storagePrefix: `formaciones/${eventoId}/${actor.empleadoId}/${mode.toLowerCase()}`,
+          file: selfie as File,
+        })
 
     const latitude = normalizeOptionalText(formData.get('latitude'))
     const longitude = normalizeOptionalText(formData.get('longitude'))

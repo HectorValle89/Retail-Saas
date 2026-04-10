@@ -90,7 +90,7 @@ test('consolida solicitudes operativas, deriva resolucion y expone bandeja accio
           estatus: 'VALIDADA_SUP',
           comentarios: 'Pendiente formalizacion RH',
           metadata: {
-            approval_path: ['SUPERVISOR', 'NOMINA'],
+            approval_path: ['SUPERVISOR', 'RECLUTAMIENTO', 'NOMINA'],
             justifica_asistencia: true,
             notificaciones: [
               {
@@ -120,7 +120,7 @@ test('consolida solicitudes operativas, deriva resolucion y expone bandeja accio
           estatus: 'REGISTRADA',
           comentarios: null,
           metadata: {
-            approval_path: ['SUPERVISOR', 'COORDINADOR'],
+            approval_path: ['COORDINADOR'],
             justifica_asistencia: true,
             notificaciones: [
               {
@@ -156,7 +156,7 @@ test('consolida solicitudes operativas, deriva resolucion y expone bandeja accio
 
   const data = await obtenerPanelSolicitudes(fakeClient as never, {
     serviceClient: fakeClient as never,
-    actorPuesto: 'NOMINA',
+    actorPuesto: 'RECLUTAMIENTO',
   })
 
   expect(data.solicitudes).toHaveLength(2)
@@ -173,12 +173,12 @@ test('consolida solicitudes operativas, deriva resolucion y expone bandeja accio
     tipo: 'INCAPACIDAD',
     estatus: 'VALIDADA_SUP',
     estadoResolucion: 'PENDIENTE',
-    siguienteActor: 'NOMINA',
+    siguienteActor: 'RECLUTAMIENTO',
     requiereAccionActor: true,
   })
   expect(data.solicitudes[0]).toMatchObject({
     tipo: 'INCAPACIDAD',
-    approvalPath: ['SUPERVISOR', 'NOMINA'],
+    approvalPath: ['SUPERVISOR', 'RECLUTAMIENTO', 'NOMINA'],
     justificaAsistencia: true,
   })
   expect(data.solicitudes[0]?.notificaciones[0]).toMatchObject({
@@ -190,7 +190,7 @@ test('consolida solicitudes operativas, deriva resolucion y expone bandeja accio
     diaJustificado: true,
   })
   expect(data.filtros.month).toBeTruthy()
-  expect(data.calendario.days.length).toBeGreaterThanOrEqual(35)
+  expect(data.infraestructuraLista).toBe(true)
 })
 
 test('degrada con mensaje de infraestructura cuando falla consulta de solicitudes', async () => {
@@ -206,7 +206,7 @@ test('degrada con mensaje de infraestructura cuando falla consulta de solicitude
   expect(data.mensajeInfraestructura).toContain('La tabla `solicitud` aun no esta disponible')
 })
 
-test('expone filtros seleccionados y calendario mensual de ausencias para supervision', async () => {
+test('expone filtros seleccionados y deja solicitudes en modo solo consulta sin calendario mensual', async () => {
   const fakeClient = createFakeSolicitudesClient({
     solicitud: {
       data: [
@@ -224,7 +224,7 @@ test('expone filtros seleccionados y calendario mensual de ausencias para superv
           estatus: 'REGISTRADA',
           comentarios: null,
           metadata: {
-            approval_path: ['SUPERVISOR', 'COORDINADOR'],
+            approval_path: ['COORDINADOR'],
             justifica_asistencia: true,
             notificaciones: [],
           },
@@ -269,9 +269,9 @@ test('expone filtros seleccionados y calendario mensual de ausencias para superv
     fechaFin: '2026-03-31',
     month: '2026-03',
   })
-  expect(data.calendario.canView).toBe(true)
-  expect(data.calendario.month).toBe('2026-03')
-  expect(data.calendario.days.find((day) => day.date === '2026-03-10')?.events[0]).toMatchObject({
+  expect(data.infraestructuraLista).toBe(true)
+  expect(data.solicitudes).toHaveLength(1)
+  expect(data.solicitudes[0]).toMatchObject({
     empleado: 'Carla Tres',
     tipo: 'VACACIONES',
     estatus: 'REGISTRADA',

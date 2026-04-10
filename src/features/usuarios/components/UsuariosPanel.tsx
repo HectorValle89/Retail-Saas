@@ -2,8 +2,10 @@
 
 import { useActionState, useDeferredValue, useState, type ReactNode } from 'react'
 import { useFormStatus } from 'react-dom'
+import { ModalPanel } from '@/components/ui/modal-panel'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { Select } from '@/components/ui/select'
 import {
   getSingleTenantAccountLabel,
@@ -97,7 +99,7 @@ export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
   const [cuentaFilter, setCuentaFilter] = useState(
     useSingleTenantUi ? fixedAccount?.id ?? 'ALL' : 'ALL'
   )
-  const [expandedUserId, setExpandedUserId] = useState<string | null>(null)
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
   const deferredSearch = useDeferredValue(search.trim().toLowerCase())
 
   const usuariosFiltrados = data.usuarios.filter((usuario) => {
@@ -127,6 +129,7 @@ export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
 
   const mostrarAlertaProvisionamiento =
     !data.provisionamiento.backendAdminConfigurado || data.provisionamiento.usuariosSinAuth > 0
+  const selectedUser = data.usuarios.find((usuario) => usuario.id === selectedUserId) ?? null
 
   return (
     <div className="space-y-6">
@@ -221,8 +224,8 @@ export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
           <div>
             <h2 className="text-lg font-semibold text-slate-950">Estado de usuarios</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Filtros operativos por estado, puesto y cuenta cliente, con diagnostico de sesiones
-              activas, claims stale y acciones administrativas.
+              Vista resumida por empleado. Las acciones administrativas y el detalle completo viven
+              dentro de la ficha individual.
             </p>
           </div>
           <p className="text-sm text-slate-500">
@@ -287,78 +290,67 @@ export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
         </div>
       </Card>
 
-      <Card className="overflow-hidden p-0">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-left text-slate-500">
-              <tr>
-                <th className="px-6 py-3 font-medium">Empleado</th>
-                <th className="px-6 py-3 font-medium">Acceso</th>
-                <th className="px-6 py-3 font-medium">Cuenta</th>
-                <th className="px-6 py-3 font-medium">Estado</th>
-                <th className="px-6 py-3 font-medium">Sesion</th>
-                <th className="px-6 py-3 font-medium">Rol</th>
-                <th className="px-6 py-3 font-medium">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {usuariosFiltrados.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
-                    No hay usuarios que coincidan con los filtros activos.
-                  </td>
-                </tr>
-              ) : (
-                usuariosFiltrados.map((usuario) => (
-                  <UsuarioRow
-                    key={usuario.id}
-                    canManage={data.provisionamiento.backendAdminConfigurado}
-                    expanded={expandedUserId === usuario.id}
-                    onToggleSessions={() =>
-                      setExpandedUserId((current) => (current === usuario.id ? null : usuario.id))
-                    }
-                    puestos={data.puestosDisponibles}
-                    usuario={usuario}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <div className="space-y-3">
+        {usuariosFiltrados.length === 0 ? (
+          <Card className="px-6 py-8 text-center text-slate-500">
+            No hay usuarios que coincidan con los filtros activos.
+          </Card>
+        ) : (
+          usuariosFiltrados.map((usuario) => (
+            <UsuarioRow
+              key={usuario.id}
+              canManage={data.provisionamiento.backendAdminConfigurado}
+              onOpenDetail={() => setSelectedUserId(usuario.id)}
+              usuario={usuario}
+            />
+          ))
+        )}
+      </div>
+
+      {selectedUser ? (
+        <UsuarioDetailModal
+          canManage={data.provisionamiento.backendAdminConfigurado}
+          onClose={() => setSelectedUserId(null)}
+          puestos={data.puestosDisponibles}
+          usuario={selectedUser}
+        />
+      ) : null}
     </div>
   )
 }
 
 function UsuarioRow({
   usuario,
-  puestos,
   canManage,
-  expanded,
-  onToggleSessions,
+  onOpenDetail,
 }: {
   usuario: UsuarioListadoItem
-  puestos: string[]
   canManage: boolean
-  expanded: boolean
-  onToggleSessions: () => void
+  onOpenDetail: () => void
 }) {
   return (
-    <>
-      <tr className="border-t border-slate-100 align-top">
-        <td className="px-6 py-4">
-          <div className="font-medium text-slate-900">{usuario.empleado}</div>
-          <div className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-400">
-            {formatPuesto(usuario.puesto)}
-          </div>
-        </td>
-        <td className="px-6 py-4 text-slate-600">
-          <div className="font-medium text-slate-900">{usuario.username ?? 'Sin username'}</div>
-          <div className="mt-1 text-xs text-slate-500">negocio: {usuario.correo ?? 'sin correo'}</div>
-          <div className="mt-1 text-xs text-slate-500">auth: {usuario.correoAuth ?? 'sin correo auth'}</div>
-          <div className="mt-2 flex flex-wrap gap-2">
+    <Card className="border-slate-200 bg-white p-4 sm:p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-base font-semibold text-slate-950">{usuario.empleado}</p>
             <StatusPill
-              label={usuario.authVinculado ? 'VINCULADO' : 'PENDIENTE'}
+              label={usuario.estadoCuenta}
+              className={getEstadoCuentaTone(usuario.estadoCuenta)}
+            />
+            <StatusPill
+              label={getEstadoSesionLabel(usuario.estadoSesion)}
+              className={getEstadoSesionTone(usuario.estadoSesion)}
+            />
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
+            <span>{formatPuesto(usuario.puesto)}</span>
+            <span>{usuario.username ?? 'Sin username'}</span>
+            <span>{usuario.cuentaCliente ?? 'Interno'}</span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <StatusPill
+              label={usuario.authVinculado ? 'AUTH OK' : 'SIN AUTH'}
               className={
                 usuario.authVinculado
                   ? 'bg-emerald-100 text-emerald-700'
@@ -373,87 +365,359 @@ function UsuarioRow({
                   : 'bg-amber-100 text-amber-700'
               }
             />
+            {usuario.sesionesActivas > 0 ? (
+              <StatusPill
+                label={`${usuario.sesionesActivas} sesiones activas`}
+                className="bg-violet-100 text-violet-700"
+              />
+            ) : null}
           </div>
-        </td>
-        <td className="px-6 py-4 text-slate-600">
-          <div className="font-medium text-slate-900">{usuario.cuentaCliente ?? 'Interno'}</div>
-          <div className="mt-1 text-xs text-slate-400">
-            {usuario.cuentaClienteIdentificador ?? 'sin cuenta cliente'}
-          </div>
-        </td>
-        <td className="px-6 py-4 text-slate-600">
-          <StatusPill
-            label={usuario.estadoCuenta}
-            className={getEstadoCuentaTone(usuario.estadoCuenta)}
-          />
-          <div className="mt-2 text-xs text-slate-500">
-            actualizado: {formatDateTime(usuario.actualizadoEn)}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            ultimo acceso app: {formatDateTime(usuario.ultimoAccesoEn)}
-          </div>
-        </td>
-        <td className="px-6 py-4 text-slate-600">
-          <StatusPill
-            label={getEstadoSesionLabel(usuario.estadoSesion)}
-            className={getEstadoSesionTone(usuario.estadoSesion)}
-          />
-          <div className="mt-2 text-xs text-slate-500">sesiones activas: {usuario.sesionesActivas}</div>
-          <div className="mt-1 text-xs text-slate-500">
-            ultimo sign-in auth: {formatDateTime(usuario.ultimoSignInAuthEn)}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            contexto auth: {formatDateTime(usuario.authContextUpdatedAt)}
-          </div>
-          {usuario.sesiones.length > 0 && (
-            <button
-              type="button"
-              className="mt-3 text-xs font-semibold text-sky-700 hover:text-sky-900"
-              onClick={onToggleSessions}
-            >
-              {expanded
-                ? 'Ocultar sesiones activas'
-                : `Ver ${usuario.sesiones.length} sesiones activas`}
-            </button>
-          )}
-        </td>
-        <td className="px-6 py-4">
-          <CambioPuestoForm
-            currentPuesto={usuario.puesto}
-            disabled={!canManage}
-            empleado={usuario.empleado}
-            puestos={puestos}
-            usuarioId={usuario.id}
-          />
-        </td>
-        <td className="px-6 py-4">
-          <div className="space-y-4">
-            <EstadoCuentaForm
-              currentState={usuario.estadoCuenta}
-              disabled={!canManage}
-              empleado={usuario.empleado}
-              usuarioId={usuario.id}
-            />
-            <ResetPasswordForm
-              disabled={!canManage || !usuario.puedeResetPassword}
-              disabledReason={usuario.motivoNoReset}
-              empleado={usuario.empleado}
-              usuarioId={usuario.id}
-            />
-          </div>
-        </td>
-      </tr>
-      {expanded && usuario.sesiones.length > 0 && (
-        <tr className="border-t border-slate-100 bg-slate-50/70">
-          <td colSpan={7} className="px-6 py-4">
-            <SessionDetails sessions={usuario.sesiones} />
-          </td>
-        </tr>
-      )}
-    </>
+        </div>
+
+        <div className="flex flex-col items-stretch gap-2 sm:flex-row lg:flex-col lg:items-end">
+          <button
+            type="button"
+            onClick={onOpenDetail}
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+          >
+            Ver empleado
+          </button>
+          {!canManage ? (
+            <p className="max-w-52 text-xs text-amber-700">
+              El backend admin debe estar listo para operar cambios.
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </Card>
   )
 }
 
+function UsuarioDetailModal({
+  usuario,
+  puestos,
+  canManage,
+  onClose,
+}: {
+  usuario: UsuarioListadoItem
+  puestos: string[]
+  canManage: boolean
+  onClose: () => void
+}) {
+  const [tab, setTab] = useState<'resumen' | 'acciones' | 'seguridad' | 'actividad' | 'sesiones'>('resumen')
+
+  return (
+    <ModalPanel
+      open
+      onClose={onClose}
+      title={usuario.empleado}
+      subtitle={`${formatPuesto(usuario.puesto)} · ${usuario.username ?? 'Sin username'}`}
+      maxWidthClassName="max-w-6xl"
+    >
+      <div className="space-y-6">
+        <section className="overflow-hidden rounded-[28px] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-sky-50 shadow-[0_18px_48px_rgba(15,23,42,0.07)]">
+          <div className="flex flex-col gap-5 p-5 sm:p-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap gap-2">
+                <StatusPill
+                  label={usuario.estadoCuenta}
+                  className={getEstadoCuentaTone(usuario.estadoCuenta)}
+                />
+                <StatusPill
+                  label={getEstadoSesionLabel(usuario.estadoSesion)}
+                  className={getEstadoSesionTone(usuario.estadoSesion)}
+                />
+                <StatusPill
+                  label={usuario.authVinculado ? 'AUTH VINCULADO' : 'SIN AUTH'}
+                  className={
+                    usuario.authVinculado
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-slate-100 text-slate-700'
+                  }
+                />
+                <StatusPill
+                  label={usuario.correoVerificado ? 'EMAIL VERIFICADO' : 'EMAIL SIN VERIFICAR'}
+                  className={
+                    usuario.correoVerificado
+                      ? 'bg-sky-100 text-sky-700'
+                      : 'bg-amber-100 text-amber-700'
+                  }
+                />
+              </div>
+
+              <div className="mt-4 grid gap-3 text-sm text-slate-600 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl bg-white/90 px-4 py-3 shadow-sm ring-1 ring-white">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Cuenta
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-900">
+                    {usuario.cuentaCliente ?? 'Interno'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {usuario.cuentaClienteIdentificador ?? 'Sin cuenta cliente'}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-white/90 px-4 py-3 shadow-sm ring-1 ring-white">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Correo auth
+                  </p>
+                  <p className="mt-2 break-words text-sm font-semibold text-slate-900">
+                    {usuario.correoAuth ?? 'Sin correo auth'}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-white/90 px-4 py-3 shadow-sm ring-1 ring-white">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Ultimo acceso app
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-900">
+                    {formatDateTime(usuario.ultimoAccesoEn)}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-white/90 px-4 py-3 shadow-sm ring-1 ring-white">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Sesiones activas
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-900">
+                    {usuario.sesionesActivas}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid min-w-[220px] gap-3 rounded-[24px] border border-white/80 bg-white/80 p-4 shadow-sm backdrop-blur sm:grid-cols-2 lg:w-[260px] lg:grid-cols-1">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Puesto actual
+                </p>
+                <p className="mt-2 text-base font-semibold text-slate-950">
+                  {formatPuesto(usuario.puesto)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Username
+                </p>
+                <p className="mt-2 break-words text-base font-semibold text-slate-950">
+                  {usuario.username ?? 'Sin username'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-4">
+          <DetailTabButton active={tab === 'resumen'} onClick={() => setTab('resumen')}>
+            Resumen
+          </DetailTabButton>
+          <DetailTabButton active={tab === 'acciones'} onClick={() => setTab('acciones')}>
+            Acciones
+          </DetailTabButton>
+          <DetailTabButton active={tab === 'seguridad'} onClick={() => setTab('seguridad')}>
+            Seguridad
+          </DetailTabButton>
+          <DetailTabButton active={tab === 'actividad'} onClick={() => setTab('actividad')}>
+            Actividad
+          </DetailTabButton>
+          <DetailTabButton active={tab === 'sesiones'} onClick={() => setTab('sesiones')}>
+            Sesiones
+          </DetailTabButton>
+        </div>
+
+        {tab === 'resumen' ? (
+          <div className="grid gap-4 xl:grid-cols-2">
+            <DetailCard
+              title="Resumen del acceso"
+              description="Ficha operativa resumida del empleado y su cuenta de acceso."
+            >
+              <div className="grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
+                <InfoRow label="Empleado" value={usuario.empleado} />
+                <InfoRow label="Puesto actual" value={formatPuesto(usuario.puesto)} />
+                <InfoRow label="Username" value={usuario.username ?? 'Sin username'} />
+                <InfoRow label="Correo negocio" value={usuario.correo ?? 'Sin correo'} />
+                <InfoRow label="Correo auth" value={usuario.correoAuth ?? 'Sin correo auth'} />
+                <InfoRow label="Cuenta cliente" value={usuario.cuentaCliente ?? 'Interno'} />
+                <InfoRow
+                  label="Identificador cuenta"
+                  value={usuario.cuentaClienteIdentificador ?? 'Sin cuenta cliente'}
+                />
+                <InfoRow label="Ultimo acceso app" value={formatDateTime(usuario.ultimoAccesoEn)} />
+              </div>
+            </DetailCard>
+
+            <DetailCard
+              title="Diagnostico de sesion"
+              description="Estado de claims, actividad reciente y trazabilidad auth."
+            >
+              <div className="grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
+                <InfoRow label="Estado sesion" value={getEstadoSesionLabel(usuario.estadoSesion)} />
+                <InfoRow label="Sesiones activas" value={String(usuario.sesionesActivas)} />
+                <InfoRow
+                  label="Ultimo sign-in auth"
+                  value={formatDateTime(usuario.ultimoSignInAuthEn)}
+                />
+                <InfoRow
+                  label="Contexto auth"
+                  value={formatDateTime(usuario.authContextUpdatedAt)}
+                />
+                <InfoRow label="Actualizado" value={formatDateTime(usuario.actualizadoEn)} />
+              </div>
+            </DetailCard>
+          </div>
+        ) : null}
+
+        {tab === 'acciones' ? (
+          <DetailCard
+            title="Acciones administrativas"
+            description="Operaciones directas sobre el empleado y su acceso."
+          >
+            <div className="grid gap-4 xl:grid-cols-2">
+              <DetailSubsection
+                title="Cambio organizacional"
+                description="Ajusta el puesto que gobierna permisos y rol del sistema."
+              >
+                <CambioPuestoForm
+                  currentPuesto={usuario.puesto}
+                  disabled={!canManage}
+                  empleado={usuario.empleado}
+                  puestos={puestos}
+                  usuarioId={usuario.id}
+                />
+              </DetailSubsection>
+
+              <DetailSubsection
+                title="Reset de acceso"
+                description="Envio manual de reset para cuentas activas con correo auth real."
+              >
+                <ResetPasswordForm
+                  disabled={!canManage || !usuario.puedeResetPassword}
+                  disabledReason={usuario.motivoNoReset}
+                  empleado={usuario.empleado}
+                  usuarioId={usuario.id}
+                />
+              </DetailSubsection>
+            </div>
+          </DetailCard>
+        ) : null}
+
+        {tab === 'seguridad' ? (
+          <div className="grid gap-4 xl:grid-cols-2">
+            <DetailCard
+              title="Estado de la cuenta"
+              description="Control de suspension o reactivacion del acceso administrativo."
+            >
+              <EstadoCuentaForm
+                currentState={usuario.estadoCuenta}
+                disabled={!canManage}
+                empleado={usuario.empleado}
+                usuarioId={usuario.id}
+              />
+            </DetailCard>
+
+            <DetailCard
+              title="Postura de seguridad"
+              description="Lectura rapida del estado de autenticacion y elegibilidad de reset."
+            >
+              <div className="grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
+                <InfoRow label="Auth vinculado" value={usuario.authVinculado ? 'Si' : 'No'} />
+                <InfoRow label="Email verificado" value={usuario.correoVerificado ? 'Si' : 'No'} />
+                <InfoRow
+                  label="Puede recibir reset"
+                  value={usuario.puedeResetPassword ? 'Si' : 'No'}
+                />
+                <InfoRow
+                  label="Motivo bloqueo reset"
+                  value={usuario.motivoNoReset ?? 'Sin bloqueo'}
+                />
+              </div>
+            </DetailCard>
+          </div>
+        ) : null}
+
+        {tab === 'actividad' ? (
+          <div className="grid gap-4 xl:grid-cols-2">
+            <DetailCard
+              title="Trazabilidad reciente"
+              description="Fechas clave para soporte operativo y diagnostico administrativo."
+            >
+              <div className="grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
+                <InfoRow label="Actualizado" value={formatDateTime(usuario.actualizadoEn)} />
+                <InfoRow label="Ultimo acceso app" value={formatDateTime(usuario.ultimoAccesoEn)} />
+                <InfoRow
+                  label="Ultimo sign-in auth"
+                  value={formatDateTime(usuario.ultimoSignInAuthEn)}
+                />
+                <InfoRow
+                  label="Contexto auth"
+                  value={formatDateTime(usuario.authContextUpdatedAt)}
+                />
+              </div>
+            </DetailCard>
+
+            <DetailCard
+              title="Lectura operativa"
+              description="Resumen ejecutivo para entender el estado del usuario sin entrar a acciones."
+            >
+              <div className="space-y-3 text-sm text-slate-600">
+                <SummaryLine
+                  label="Estado de cuenta"
+                  value={usuario.estadoCuenta}
+                />
+                <SummaryLine
+                  label="Estado de sesion"
+                  value={getEstadoSesionLabel(usuario.estadoSesion)}
+                />
+                <SummaryLine
+                  label="Cuenta cliente"
+                  value={usuario.cuentaCliente ?? 'Interno'}
+                />
+                <SummaryLine
+                  label="Correo negocio"
+                  value={usuario.correo ?? 'Sin correo'}
+                />
+              </div>
+            </DetailCard>
+          </div>
+        ) : null}
+
+        {tab === 'sesiones' ? (
+          <DetailCard
+            title="Sesiones activas"
+            description="Sesiones abiertas actualmente en auth para este usuario."
+          >
+            {usuario.sesiones.length > 0 ? (
+              <SessionDetails sessions={usuario.sesiones} />
+            ) : (
+              <p className="text-sm text-slate-500">No hay sesiones activas registradas.</p>
+            )}
+          </DetailCard>
+        ) : null}
+      </div>
+    </ModalPanel>
+  )
+}
+function DetailTabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex min-h-11 items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition ${
+        active
+          ? 'bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.18)]'
+          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
 function CrearUsuarioForm({
   empleados,
   cuentasCliente,
@@ -486,7 +750,7 @@ function CrearUsuarioForm({
             },
             ...empleados.map((empleado) => ({
               value: empleado.id,
-              label: `${empleado.nombreCompleto} / ${empleado.idNomina ?? 'sin nomina'} / ${formatPuesto(empleado.puesto)}`,
+              label: `${empleado.nombreCompleto} / ${formatPuesto(empleado.puesto)}${empleado.idNomina ? ` / nomina ${empleado.idNomina}` : ''}`,
             })),
           ]}
         />
@@ -717,39 +981,36 @@ function ResetPasswordForm({
 
 function SessionDetails({ sessions }: { sessions: UsuarioSessionItem[] }) {
   return (
-    <div className="space-y-3">
-      <p className="text-sm font-semibold text-slate-900">Sesiones activas en auth</p>
-      <div className="grid gap-3 xl:grid-cols-2">
-        {sessions.map((session) => (
-          <div
-            key={session.id}
-            className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="font-medium text-slate-900">
-                  {session.userAgent ?? 'Agente no identificado'}
-                </p>
-                <p className="mt-1 text-xs text-slate-400">{session.ip ?? 'IP no disponible'}</p>
-              </div>
-              <StatusPill
-                label={session.activa ? 'ACTIVA' : 'INACTIVA'}
-                className={
-                  session.activa ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'
-                }
-              />
+    <div className="grid gap-3 xl:grid-cols-2">
+      {sessions.map((session) => (
+        <div
+          key={session.id}
+          className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-medium text-slate-900">
+                {session.userAgent ?? 'Agente no identificado'}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">{session.ip ?? 'IP no disponible'}</p>
             </div>
-            <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
-              <span>creada: {formatDateTime(session.creadaEn)}</span>
-              <span>refrescada: {formatDateTime(session.refrescadaEn)}</span>
-              <span>actualizada: {formatDateTime(session.actualizadaEn)}</span>
-              <span>expira: {formatDateTime(session.expiraEn)}</span>
-              <span>aal: {session.aal ?? 'n/a'}</span>
-              <span>tag: {session.tag ?? 'n/a'}</span>
-            </div>
+            <StatusPill
+              label={session.activa ? 'ACTIVA' : 'INACTIVA'}
+              className={
+                session.activa ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'
+              }
+            />
           </div>
-        ))}
-      </div>
+          <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
+            <span>creada: {formatDateTime(session.creadaEn)}</span>
+            <span>refrescada: {formatDateTime(session.refrescadaEn)}</span>
+            <span>actualizada: {formatDateTime(session.actualizadaEn)}</span>
+            <span>expira: {formatDateTime(session.expiraEn)}</span>
+            <span>aal: {session.aal ?? 'n/a'}</span>
+            <span>tag: {session.tag ?? 'n/a'}</span>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -797,14 +1058,66 @@ function SubmitButton({
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
+  return <SharedMetricCard label={label} value={value} />
+}
+
+function DetailCard({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description: string
+  children: ReactNode
+}) {
   return (
-    <Card className="border-slate-200 bg-white">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
-    </Card>
+    <section className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
+      <div className="mb-4">
+        <h3 className="text-base font-semibold text-slate-950">{title}</h3>
+        <p className="mt-1 text-sm text-slate-500">{description}</p>
+      </div>
+      {children}
+    </section>
   )
 }
 
+function InfoRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+        {label}
+      </p>
+      <p className="mt-2 break-words text-sm font-medium text-slate-900">{value}</p>
+    </div>
+  )
+}
+
+function DetailSubsection({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description: string
+  children: ReactNode
+}) {
+  return (
+    <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
+      <h4 className="text-sm font-semibold text-slate-950">{title}</h4>
+      <p className="mt-1 text-sm text-slate-500">{description}</p>
+      <div className="mt-4">{children}</div>
+    </div>
+  )
+}
+
+function SummaryLine({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+      <span className="text-sm text-slate-500">{label}</span>
+      <span className="text-sm font-semibold text-slate-900">{value}</span>
+    </div>
+  )
+}
 function StatusPill({
   label,
   className,

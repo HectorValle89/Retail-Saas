@@ -268,11 +268,36 @@ export interface FormacionEventoItem {
   locationLatitude: number | null
   locationLongitude: number | null
   locationRadiusMeters: number | null
-  manualDocument: {
-    url: string | null
-    fileName: string | null
-    mimeType: string | null
-  } | null
+  supervisorPdvConfirmado: boolean
+  supervisorPdvConfirmadoEn: string | null
+  supervisorPdvContacto: string | null
+  supervisorPdvContactoPuesto: string | null
+  supervisorPdvNotas: string | null
+  supervisorPdvConfirmadosCount: number
+  supervisorPdvPendientesCount: number
+  pdvConfirmationProgressPct: number
+  pdvConfirmaciones: Array<{
+    pdvId: string
+    pdvNombre: string
+    claveBtl: string | null
+    ciudad: string | null
+    zona: string | null
+    estado: string | null
+    confirmado: boolean
+    confirmadoEn: string | null
+    confirmadoPorEmpleadoId: string | null
+    contacto: string | null
+    contactoPuesto: string | null
+    notas: string | null
+  }>
+  notificationRecipientIds: string[]
+  reminderSummary: Array<{
+    key: 'DAY_MINUS_3' | 'DAY_MINUS_2' | 'DAY_MINUS_1'
+    label: string
+    scheduledFor: string | null
+    sentAt: string | null
+    status: 'PENDIENTE' | 'ENVIADO' | 'OMITIDO' | 'NO_APLICA'
+  }>
   createdAt: string
   updatedAt: string
 }
@@ -280,12 +305,14 @@ export interface FormacionEventoItem {
 export interface FormacionResumen {
   totalEventos: number
   participantesConfirmados: number
-  gastosTotal: number
-  notificacionesPendientes: number
+  supervisorPdvConfirmados: number
+  recordatoriosPendientes: number
 }
 
 export interface FormacionesPanelData {
   puedeGestionar: boolean
+  actorPuesto: string
+  actorEmpleadoId: string | null
   resumen: FormacionResumen
   eventos: FormacionEventoItem[]
   empleadosDisponibles: Array<{ id: string; nombre: string; puesto: string | null; zona: string | null }>
@@ -299,11 +326,13 @@ export interface FormacionesPanelData {
 
 const EMPTY_DATA: FormacionesPanelData = {
   puedeGestionar: false,
+  actorPuesto: '',
+  actorEmpleadoId: null,
   resumen: {
     totalEventos: 0,
     participantesConfirmados: 0,
-    gastosTotal: 0,
-    notificacionesPendientes: 0,
+    supervisorPdvConfirmados: 0,
+    recordatoriosPendientes: 0,
   },
   eventos: [],
   empleadosDisponibles: [],
@@ -594,7 +623,29 @@ export async function obtenerPanelFormaciones(
       : []
     const targeting = normalizeFormacionTargetingMetadata(item.metadata)
     const asistencias = asistenciasPorEvento.get(item.id) ?? []
-    const manualUrl = await signStorageUrl(service, targeting.manualDocument?.url ?? null)
+    const pdvConfirmaciones = targeting.pdvIds.map((pdvId) => {
+      const pdv = pdvScope.find((entry) => entry.id === pdvId) ?? null
+      const confirmation = targeting.pdvSupervisorConfirmations.find((entry) => entry.pdvId === pdvId) ?? null
+
+      return {
+        pdvId,
+        pdvNombre: pdv?.nombre ?? confirmation?.pdvName ?? 'PDV sin nombre',
+        claveBtl: pdv?.claveBtl ?? null,
+        ciudad: pdv?.ciudad ?? null,
+        zona: pdv?.zona ?? null,
+        estado: pdv?.estado ?? null,
+        confirmado: confirmation?.confirmed ?? false,
+        confirmadoEn: confirmation?.confirmedAt ?? null,
+        confirmadoPorEmpleadoId: confirmation?.confirmedByEmployeeId ?? null,
+        contacto: confirmation?.contactName ?? null,
+        contactoPuesto: confirmation?.contactRole ?? null,
+        notas: confirmation?.notes ?? null,
+      }
+    })
+    const supervisorPdvConfirmadosCount = pdvConfirmaciones.filter((entry) => entry.confirmado).length
+    const supervisorPdvPendientesCount = Math.max(pdvConfirmaciones.length - supervisorPdvConfirmadosCount, 0)
+    const pdvConfirmationProgressPct =
+      pdvConfirmaciones.length > 0 ? Math.round((supervisorPdvConfirmadosCount / pdvConfirmaciones.length) * 100) : 0
 
     return {
       id: item.id,
@@ -633,13 +684,23 @@ export async function obtenerPanelFormaciones(
       locationLatitude: targeting.locationLatitude,
       locationLongitude: targeting.locationLongitude,
       locationRadiusMeters: targeting.locationRadiusMeters,
-      manualDocument: targeting.manualDocument
-        ? {
-            url: manualUrl,
-            fileName: targeting.manualDocument.fileName,
-            mimeType: targeting.manualDocument.mimeType,
-          }
-        : null,
+      supervisorPdvConfirmado: targeting.supervisorPdvConfirmation.confirmed,
+      supervisorPdvConfirmadoEn: targeting.supervisorPdvConfirmation.confirmedAt,
+      supervisorPdvContacto: targeting.supervisorPdvConfirmation.contactName,
+      supervisorPdvContactoPuesto: targeting.supervisorPdvConfirmation.contactRole,
+      supervisorPdvNotas: targeting.supervisorPdvConfirmation.notes,
+      supervisorPdvConfirmadosCount,
+      supervisorPdvPendientesCount,
+      pdvConfirmationProgressPct,
+      pdvConfirmaciones,
+      notificationRecipientIds: targeting.notificationPlan.recipientEmployeeIds,
+      reminderSummary: targeting.notificationPlan.reminders.map((reminder) => ({
+        key: reminder.key,
+        label: reminder.label,
+        scheduledFor: reminder.scheduledFor,
+        sentAt: reminder.sentAt,
+        status: reminder.status,
+      })),
       createdAt: item.created_at,
       updatedAt: item.updated_at,
     }
@@ -651,18 +712,20 @@ export async function obtenerPanelFormaciones(
       (acc, evento) => acc + evento.participantes.filter((participante) => participante.confirmado).length,
       0
     ),
-    gastosTotal: eventos.reduce(
-      (acc, evento) => acc + evento.gastosOperativos.reduce((sum, gasto) => sum + gasto.monto, 0),
+    supervisorPdvConfirmados: eventos.reduce(
+      (acc, evento) => acc + evento.supervisorPdvConfirmadosCount,
       0
     ),
-    notificacionesPendientes: eventos.reduce(
-      (acc, evento) => acc + evento.notificaciones.filter((item) => item.estado !== 'ENVIADO').length,
+    recordatoriosPendientes: eventos.reduce(
+      (acc, evento) => acc + evento.reminderSummary.filter((item) => item.status === 'PENDIENTE').length,
       0
     ),
   }
 
   return {
     puedeGestionar,
+    actorPuesto: actor.puesto,
+    actorEmpleadoId: actor.empleadoId,
     resumen,
     eventos,
     empleadosDisponibles: empleadosRaw.map((item) => ({

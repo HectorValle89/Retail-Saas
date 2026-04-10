@@ -7,11 +7,34 @@ export const metadata = {
   title: 'Ruta semanal | Field Force Platform',
 }
 
-const RUTA_SEMANAL_ROLES = ['SUPERVISOR', 'COORDINADOR', 'ADMINISTRADOR'] as const
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
-export default async function RutaSemanalPage() {
+const RUTA_SEMANAL_ROLES = ['SUPERVISOR', 'COORDINADOR', 'ADMINISTRADOR'] as const
+type SupervisorRouteTab = 'agenda' | 'planning' | 'history'
+type WarRoomTab = 'routes' | 'coverage' | 'quotas' | 'reach'
+
+interface RutaSemanalPageProps {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
+}
+
+function pickString(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+export default async function RutaSemanalPage({ searchParams }: RutaSemanalPageProps) {
   const actor = await requerirPuestosActivos([...RUTA_SEMANAL_ROLES])
   const supabase = await createClient()
+  const params = (await searchParams) ?? {}
+  const rawTab = pickString(params.tab)
+  const initialTab: SupervisorRouteTab | WarRoomTab =
+    actor.puesto === 'SUPERVISOR'
+      ? rawTab === 'agenda' || rawTab === 'planning' || rawTab === 'history'
+        ? rawTab
+        : 'agenda'
+      : rawTab === 'routes' || rawTab === 'coverage' || rawTab === 'quotas' || rawTab === 'reach'
+        ? rawTab
+        : 'quotas'
   const data = await obtenerPanelRutaSemanal(supabase, actor)
 
   return (
@@ -27,7 +50,7 @@ export default async function RutaSemanalPage() {
         </p>
       </header>
 
-      <RutaSemanalPanel data={data} actorPuesto={actor.puesto} />
+      <RutaSemanalPanel data={data} actorPuesto={actor.puesto} initialTab={initialTab} />
     </div>
   )
 }

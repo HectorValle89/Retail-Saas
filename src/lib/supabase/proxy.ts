@@ -26,10 +26,54 @@ type UsuarioSesionRow = {
     | null
 }
 
-const publicRoutes = ['/', '/offline', '/login', '/forgot-password', '/check-email', '/update-password', '/activacion']
+const publicRoutes = ['/', '/offline', '/login', '/logout', '/forgot-password', '/check-email', '/update-password', '/activacion']
 
 function esRutaProtegida(pathname: string) {
   return !publicRoutes.includes(pathname) && !pathname.startsWith('/_next')
+}
+
+function esOrigenDesarrollo(request: NextRequest) {
+  const host = request.headers.get('host')?.toLowerCase().split(':')[0] ?? ''
+
+  return (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '0.0.0.0' ||
+    host.startsWith('192.168.') ||
+    host.startsWith('10.') ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
+  )
+}
+
+function admiteClearSiteData(request: NextRequest) {
+  const protocol = request.nextUrl.protocol
+  const host = request.headers.get('host')?.toLowerCase().split(':')[0] ?? ''
+
+  return (
+    protocol === 'https:' ||
+    host === 'localhost' ||
+    host === '127.0.0.1'
+  )
+}
+
+function aplicarHeadersLocalNoStore(
+  request: NextRequest,
+  response: NextResponse,
+  pathname: string
+) {
+  if (!esOrigenDesarrollo(request)) {
+    return response
+  }
+
+  response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+  response.headers.set('Pragma', 'no-cache')
+  response.headers.set('Expires', '0')
+
+  if ((pathname === '/login' || pathname === '/logout') && admiteClearSiteData(request)) {
+    response.headers.set('Clear-Site-Data', '"cache", "storage"')
+  }
+
+  return response
 }
 
 function obtenerPuestoEmpleado(value: UsuarioSesionRow['empleado']) {
@@ -102,7 +146,7 @@ export async function updateSession(request: NextRequest) {
   // intercepta uploads. Para requests con archivos dejamos pasar la solicitud
   // intacta y delegamos autenticacion/autorizacion a la ruta destino.
   if (contentType.startsWith('multipart/form-data')) {
-    return NextResponse.next()
+    return aplicarHeadersLocalNoStore(request, NextResponse.next(), request.nextUrl.pathname)
   }
 
   const requestHeaders = new Headers(request.headers)
@@ -143,21 +187,33 @@ export async function updateSession(request: NextRequest) {
   const isAuthRoute = pathname === '/login'
 
   if (!user && isProtectedRoute) {
-    return NextResponse.redirect(new URL('/login', request.url))
+    return aplicarHeadersLocalNoStore(
+      request,
+      NextResponse.redirect(new URL('/login', request.url)),
+      request.nextUrl.pathname
+    )
   }
 
   if (!user) {
-    return supabaseResponse
+    return aplicarHeadersLocalNoStore(request, supabaseResponse, pathname)
   }
 
   const sessionState = await asegurarSesionActualizada(supabase, user)
   if (sessionState.invalidated) {
-    return NextResponse.redirect(new URL('/login', request.url))
+    return aplicarHeadersLocalNoStore(
+      request,
+      NextResponse.redirect(new URL('/login', request.url)),
+      pathname
+    )
   }
 
   const currentUser = sessionState.user
   if (!currentUser) {
-    return NextResponse.redirect(new URL('/login', request.url))
+    return aplicarHeadersLocalNoStore(
+      request,
+      NextResponse.redirect(new URL('/login', request.url)),
+      pathname
+    )
   }
 
   const { data: usuario } = await supabase
@@ -197,7 +253,11 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (estadoCuenta === 'ACTIVA' && primerAccesoPendiente && pathname !== '/primer-acceso') {
-    return NextResponse.redirect(new URL('/primer-acceso', request.url))
+    return aplicarHeadersLocalNoStore(
+      request,
+      NextResponse.redirect(new URL('/primer-acceso', request.url)),
+      pathname
+    )
   }
 
   if (
@@ -205,13 +265,21 @@ export async function updateSession(request: NextRequest) {
     !primerAccesoPendiente &&
     (isAuthRoute || pathname === '/activacion' || pathname === '/check-email' || pathname === '/primer-acceso')
   ) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+    return aplicarHeadersLocalNoStore(
+      request,
+      NextResponse.redirect(new URL('/dashboard', request.url)),
+      pathname
+    )
   }
 
   if ((estadoCuenta === 'SUSPENDIDA' || estadoCuenta === 'BAJA') && pathname !== '/login') {
     await supabase.auth.signOut()
-    return NextResponse.redirect(new URL('/login', request.url))
+    return aplicarHeadersLocalNoStore(
+      request,
+      NextResponse.redirect(new URL('/login', request.url)),
+      pathname
+    )
   }
 
-  return supabaseResponse
+  return aplicarHeadersLocalNoStore(request, supabaseResponse, pathname)
 }

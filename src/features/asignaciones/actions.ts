@@ -9,6 +9,7 @@ import {
   type BusinessRuleRow,
 } from '@/features/reglas/lib/businessRules'
 import { requerirAdministradorActivo } from '@/lib/auth/session'
+import { getSingleTenantAccountId } from '@/lib/tenant/singleTenant'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import type { Empleado, Pdv, UsuarioSistema } from '@/types/database'
 import {
@@ -25,9 +26,11 @@ import {
   normalizeDiaLaboralCode,
   serializeDiasLaborales,
 } from './lib/assignmentPlanning'
+import { buildAssignmentScopeOrFilter } from './lib/assignmentQuery'
 import { parseTurnosCatalogo, TURNOS_CONFIG_KEY } from '@/features/configuracion/configuracionCatalog'
 import { parseAssignmentCatalogWorkbook } from './lib/assignmentCatalogImport'
 import { parseAssignmentWeeklyScheduleWorkbook } from './lib/assignmentWeeklyScheduleImport'
+import { parsePdvRotationCatalogWorkbook } from './lib/pdvRotationCatalogImport'
 import {
   buildAssignmentTransitionPlan,
   type AssignmentEngineDraft,
@@ -39,6 +42,7 @@ import {
   enqueueAndProcessMaterializedAssignments,
   resolveMaterializationImpactRange,
 } from './services/asignacionMaterializationService'
+import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus'
 import {
   ESTADO_ASIGNACION_INICIAL,
   ESTADO_PUBLICACION_CATALOGO_ASIGNACIONES_INICIAL,
@@ -47,6 +51,10 @@ import {
   type ImportarCatalogoAsignacionesState,
   type PublicarCatalogoAsignacionesState,
 } from './state'
+import {
+  type ImportarRotacionMaestraState,
+  type PdvRotacionImportConflict,
+} from './rotationState'
 
 interface AsignacionEstadoRow {
   id: string
@@ -137,6 +145,7 @@ function buildState(
     ...ESTADO_ASIGNACION_INICIAL,
     ...partial,
     issues: partial.issues ?? [],
+    redirectTo: partial.redirectTo ?? ESTADO_ASIGNACION_INICIAL.redirectTo,
   }
 }
 
@@ -175,6 +184,23 @@ function buildPublishState(
   }
 }
 
+function buildRotationImportState(
+  partial: Partial<ImportarRotacionMaestraState>
+): ImportarRotacionMaestraState {
+  const baseState: ImportarRotacionMaestraState = {
+    ok: false,
+    message: null,
+    conflicts: [],
+    summary: null,
+  }
+
+  return {
+    ...baseState,
+    ...partial,
+    conflicts: partial.conflicts ?? baseState.conflicts,
+    summary: partial.summary ?? baseState.summary,
+  }
+}
 function getCurrentMxMonth() {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Mexico_City',
@@ -706,6 +732,24 @@ async function refreshMaterializedAssignmentRanges(
     createServiceClient() as TypedSupabaseClient
   )
 }
+async function safelyRefreshMaterializedAssignmentRanges(
+  inputs: Array<{
+    empleadoId: string
+    fechaInicio: string
+    fechaFin: string | null
+    motivo: string
+    payload?: Record<string, unknown>
+  }>
+) {
+  try {
+    await refreshMaterializedAssignmentRanges(inputs)
+    return null
+  } catch (error) {
+    return error instanceof Error
+      ? error.message
+      : 'No fue posible rematerializar el calendario operativo despues del cambio.'
+  }
+}
 export async function importarCatalogoMaestroAsignaciones(
   _prevState: ImportarCatalogoAsignacionesState,
   formData: FormData
@@ -749,15 +793,31 @@ export async function importarCatalogoMaestroAsignaciones(
     }))
 
     const pdvClaves = Array.from(new Set(parsed.rows.map((item) => item.claveBtl)))
+    const employeeIds = Array.from(
+      new Set(parsed.rows.map((item) => item.empleadoId).filter(Boolean) as string[])
+    )
     const nominaIds = Array.from(new Set(parsed.rows.map((item) => item.idNomina).filter(Boolean) as string[]))
     const usernames = Array.from(new Set(parsed.rows.map((item) => item.username).filter(Boolean) as string[]))
     const employeeNames = Array.from(new Set(parsed.rows.map((item) => item.nombreDc).filter(Boolean) as string[]))
 
-    const [pdvsResult, employeesByNominaResult, employeesByNameResult, usersResult, supervisorRuleResult] = await Promise.all([
+    const [
+      pdvsResult,
+      employeesByIdResult,
+      employeesByNominaResult,
+      employeesByNameResult,
+      usersResult,
+      supervisorRuleResult,
+    ] = await Promise.all([
       service
         .from('pdv')
         .select('id, clave_btl, estatus, cadena:cadena_id(codigo, factor_cuota_default)')
         .in('clave_btl', pdvClaves),
+      employeeIds.length > 0
+        ? service
+            .from('empleado')
+            .select('id, id_nomina, nombre_completo, puesto, estatus_laboral, supervisor_empleado_id, telefono, correo_electronico')
+            .in('id', employeeIds)
+        : Promise.resolve({ data: [], error: null }),
       nominaIds.length > 0
         ? service
             .from('empleado')
@@ -782,6 +842,7 @@ export async function importarCatalogoMaestroAsignaciones(
 
     const bulkInfraError =
       pdvsResult.error?.message ??
+      employeesByIdResult.error?.message ??
       employeesByNominaResult.error?.message ??
       employeesByNameResult.error?.message ??
       usersResult.error?.message ??
@@ -792,43 +853,115 @@ export async function importarCatalogoMaestroAsignaciones(
     }
 
     const pdvs = (pdvsResult.data ?? []) as PdvImportRow[]
-    const employees = [
-      ...((employeesByNominaResult.data ?? []) as EmpleadoImportRow[]),
-      ...((employeesByNameResult.data ?? []) as EmpleadoImportRow[]),
-    ]
     const users = (usersResult.data ?? []) as UsuarioImportRow[]
+    const preloadedEmployees = Array.from(
+      new Map(
+        [
+          ...((employeesByIdResult.data ?? []) as EmpleadoImportRow[]),
+          ...((employeesByNominaResult.data ?? []) as EmpleadoImportRow[]),
+          ...((employeesByNameResult.data ?? []) as EmpleadoImportRow[]),
+        ].map((item) => [item.id, item])
+      ).values()
+    )
+    const employeeIdByUsername = new Map(
+      users
+        .filter((item) => item.username && item.empleado_id)
+        .map((item) => [item.username as string, item.empleado_id])
+    )
+    const missingEmployeeIds = Array.from(new Set(employeeIdByUsername.values())).filter(
+      (employeeId) => !preloadedEmployees.some((item) => item.id === employeeId)
+    )
+    const employeesByUsernameResult =
+      missingEmployeeIds.length > 0
+        ? await service
+            .from('empleado')
+            .select('id, id_nomina, nombre_completo, puesto, estatus_laboral, supervisor_empleado_id, telefono, correo_electronico')
+            .in('id', missingEmployeeIds)
+        : { data: [], error: null }
+
+    if (employeesByUsernameResult.error?.message) {
+      return buildImportState({ message: employeesByUsernameResult.error.message, conflicts })
+    }
+
+    const employees = Array.from(
+      new Map(
+        [
+          ...preloadedEmployees,
+          ...((employeesByUsernameResult.data ?? []) as EmpleadoImportRow[]),
+        ].map((item) => [item.id, item])
+      ).values()
+    )
     const pdvByClave = new Map(pdvs.map((item) => [item.clave_btl, item]))
+    const employeeById = new Map(employees.map((item) => [item.id, item]))
     const employeeByNomina = new Map(
       employees
         .filter((item) => item.id_nomina)
         .map((item) => [item.id_nomina as string, item])
     )
-    const employeeByName = new Map(employees.map((item) => [item.nombre_completo, item]))
-    const employeeIdByUsername = new Map(
-      users.filter((item) => item.username).map((item) => [item.username as string, item.empleado_id])
-    )
-    const employeeById = new Map(employees.map((item) => [item.id, item]))
+    const employeesByName = employees.reduce<Map<string, EmpleadoImportRow[]>>((acc, item) => {
+      const current = acc.get(item.nombre_completo) ?? []
+      current.push(item)
+      acc.set(item.nombre_completo, current)
+      return acc
+    }, new Map())
     const supervisorRule = readSupervisorInheritanceRule(
       (supervisorRuleResult.data as BusinessRuleRow | null) ?? null
     )
+    const buildEmployeeReference = (row: (typeof parsed.rows)[number]) =>
+      row.empleadoId ?? row.username ?? row.nombreDc ?? row.idNomina ?? null
+    const resolveImportedEmployee = (row: (typeof parsed.rows)[number]) => {
+      if (row.empleadoId) {
+        return {
+          employee: employeeById.get(row.empleadoId) ?? null,
+          ambiguity: null as 'NOMBRE_DC' | null,
+        }
+      }
+
+      if (row.username) {
+        const employeeId = employeeIdByUsername.get(row.username) ?? null
+        return {
+          employee: employeeId ? employeeById.get(employeeId) ?? null : null,
+          ambiguity: null as 'NOMBRE_DC' | null,
+        }
+      }
+
+      if (row.nombreDc) {
+        const matches = employeesByName.get(row.nombreDc) ?? []
+        if (matches.length > 1) {
+          return { employee: null, ambiguity: 'NOMBRE_DC' as const }
+        }
+
+        return {
+          employee: matches[0] ?? null,
+          ambiguity: null as 'NOMBRE_DC' | null,
+        }
+      }
+
+      if (row.idNomina) {
+        return {
+          employee: employeeByNomina.get(row.idNomina) ?? null,
+          ambiguity: null as 'NOMBRE_DC' | null,
+        }
+      }
+
+      return { employee: null, ambiguity: null as 'NOMBRE_DC' | null }
+    }
 
     const resolvedEmployeeIds = Array.from(
       new Set(
         parsed.rows
-          .map((row) => {
-            const employee =
-              (row.idNomina ? employeeByNomina.get(row.idNomina) : null) ??
-              (row.username ? employeeById.get(employeeIdByUsername.get(row.username) ?? '') : null) ??
-              (row.nombreDc ? employeeByName.get(row.nombreDc) : null) ??
-              null
-            return employee?.id ?? null
-          })
+          .map((row) => resolveImportedEmployee(row).employee?.id ?? null)
           .filter(Boolean) as string[]
       )
     )
     const pdvIds = pdvs.map((item) => item.id)
 
-    const [supervisorsResult, cuentaPdvResult, geocercasResult, horariosResult, employeeAssignmentsResult, pdvAssignmentsResult] =
+    const relatedAssignmentsFilter = buildAssignmentScopeOrFilter({
+      empleadoIds: resolvedEmployeeIds,
+      pdvIds,
+    })
+
+    const [supervisorsResult, cuentaPdvResult, geocercasResult, horariosResult, relatedAssignmentsResult] =
       await Promise.all([
         pdvIds.length > 0
           ? service
@@ -851,27 +984,19 @@ export async function importarCatalogoMaestroAsignaciones(
         pdvIds.length > 0
           ? service.from('horario_pdv').select('id, pdv_id').in('pdv_id', pdvIds).eq('activo', true)
           : Promise.resolve({ data: [], error: null }),
-        resolvedEmployeeIds.length > 0
+        relatedAssignmentsFilter
           ? service
               .from('asignacion')
               .select('id, empleado_id, pdv_id, supervisor_empleado_id, tipo, factor_tiempo, fecha_inicio, fecha_fin, dias_laborales, dia_descanso, horario_referencia, cuenta_cliente_id, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion')
-              .in('empleado_id', resolvedEmployeeIds)
-          : Promise.resolve({ data: [], error: null }),
-        pdvIds.length > 0
-          ? service
-              .from('asignacion')
-              .select('id, empleado_id, pdv_id, supervisor_empleado_id, tipo, factor_tiempo, fecha_inicio, fecha_fin, dias_laborales, dia_descanso, horario_referencia, cuenta_cliente_id, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion')
-              .in('pdv_id', pdvIds)
+              .or(relatedAssignmentsFilter)
           : Promise.resolve({ data: [], error: null }),
       ])
-
     const relationInfraError =
       supervisorsResult.error?.message ??
       cuentaPdvResult.error?.message ??
       geocercasResult.error?.message ??
       horariosResult.error?.message ??
-      employeeAssignmentsResult.error?.message ??
-      pdvAssignmentsResult.error?.message
+      relatedAssignmentsResult.error?.message
 
     if (relationInfraError) {
       return buildImportState({ message: relationInfraError, conflicts })
@@ -881,8 +1006,9 @@ export async function importarCatalogoMaestroAsignaciones(
     const cuentaRelaciones = (cuentaPdvResult.data ?? []) as Array<CuentaClientePdvRow & { pdv_id: string }>
     const geocercas = (geocercasResult.data ?? []) as GeocercaAsignacionRow[]
     const horarios = (horariosResult.data ?? []) as Array<{ id: string; pdv_id: string }>
-    const employeeAssignments = (employeeAssignmentsResult.data ?? []) as AsignacionEstadoRow[]
-    const pdvAssignments = (pdvAssignmentsResult.data ?? []) as AsignacionEstadoRow[]
+    const relatedAssignments = (relatedAssignmentsResult.data ?? []) as AsignacionEstadoRow[]
+    const employeeAssignments = relatedAssignments.filter((item) => resolvedEmployeeIds.includes(item.empleado_id))
+    const pdvAssignments = relatedAssignments.filter((item) => pdvIds.includes(item.pdv_id))
 
     const supervisorByPdv = supervisors.reduce<Record<string, SupervisorResolucionRow[]>>((acc, item) => {
       const current = acc[item.pdv_id] ?? []
@@ -951,7 +1077,7 @@ export async function importarCatalogoMaestroAsignaciones(
 
     for (const row of parsed.rows) {
       const pdv = pdvByClave.get(row.claveBtl) ?? null
-      const referenciaDc = row.idNomina ?? row.username ?? row.nombreDc ?? null
+      const referenciaDc = buildEmployeeReference(row)
       if (!pdv) {
         unresolvedPdvs += 1
         conflicts.push({
@@ -968,11 +1094,24 @@ export async function importarCatalogoMaestroAsignaciones(
         continue
       }
 
-      const employee =
-        (row.idNomina ? employeeByNomina.get(row.idNomina) : null) ??
-        (row.username ? employeeById.get(employeeIdByUsername.get(row.username) ?? '') : null) ??
-        (row.nombreDc ? employeeByName.get(row.nombreDc) : null) ??
-        null
+      const employeeResolution = resolveImportedEmployee(row)
+      if (employeeResolution.ambiguity === 'NOMBRE_DC') {
+        unresolvedEmployees += 1
+        conflicts.push({
+          rowNumber: row.rowNumber,
+          claveBtl: row.claveBtl,
+          referenciaDc,
+          tipo: row.tipo,
+          severity: 'ERROR',
+          code: 'EMPLEADO_AMBIGUO',
+          label: 'Nombre ambiguo',
+          message: 'El nombre DC coincide con mas de una dermoconsejera activa. Usa EMPLEADO_ID o USUARIO para desambiguar.',
+          source: 'RESOLUCION',
+        })
+        continue
+      }
+
+      const employee = employeeResolution.employee
 
       if (!employee) {
         unresolvedEmployees += 1
@@ -984,7 +1123,7 @@ export async function importarCatalogoMaestroAsignaciones(
           severity: 'ERROR',
           code: 'EMPLEADO_NO_RESUELTO',
           label: 'DC no resuelta',
-          message: 'No fue posible resolver la dermoconsejera por IDNOM, USUARIO o NOMBRE DC.',
+          message: 'No fue posible resolver la dermoconsejera por EMPLEADO_ID, USUARIO, NOMBRE DC o IDNOM.',
           source: 'RESOLUCION',
         })
         continue
@@ -1116,7 +1255,12 @@ export async function importarCatalogoMaestroAsignaciones(
         conflicts.push({
           rowNumber: item.parsedRow.rowNumber,
           claveBtl: item.parsedRow.claveBtl,
-          referenciaDc: item.parsedRow.idNomina ?? item.parsedRow.username ?? item.parsedRow.nombreDc ?? null,
+          referenciaDc:
+            item.parsedRow.empleadoId ??
+            item.parsedRow.username ??
+            item.parsedRow.nombreDc ??
+            item.parsedRow.idNomina ??
+            null,
           tipo: item.parsedRow.tipo,
           severity: issue.severity,
           code: issue.code,
@@ -1429,7 +1573,7 @@ export async function publicarCatalogoMaestroAsignaciones(
         conflicts.push({
           rowNumber: null,
           claveBtl: null,
-          referenciaDc: employee.id_nomina ?? employee.nombre_completo,
+          referenciaDc: employee.nombre_completo ?? employee.id_nomina,
           tipo: row.tipo,
           severity: 'ERROR',
           code: 'PDV_NO_RESUELTO',
@@ -1494,7 +1638,7 @@ export async function publicarCatalogoMaestroAsignaciones(
         conflicts.push({
           rowNumber: null,
           claveBtl: pdv.clave_btl ?? null,
-          referenciaDc: employee.id_nomina ?? employee.nombre_completo,
+          referenciaDc: employee.nombre_completo ?? employee.id_nomina,
           tipo: row.tipo,
           severity: issue.severity,
           code: issue.code,
@@ -1747,6 +1891,330 @@ function chunkArray<T>(items: T[], size: number) {
   return chunks
 }
 
+export async function importarRotacionMaestraPdvs(
+  _prevState: ImportarRotacionMaestraState,
+  formData: FormData
+): Promise<ImportarRotacionMaestraState> {
+  const actor = await requerirAdministradorActivo()
+
+  try {
+    const uploadedFile = formData.get('rotacion_maestra_file')
+
+    if (!(uploadedFile instanceof File) || uploadedFile.size === 0) {
+      return buildRotationImportState({
+        message: 'Adjunta un archivo XLSX para importar la rotacion maestra.',
+      })
+    }
+
+    if (!uploadedFile.name.toLowerCase().endsWith('.xlsx')) {
+      return buildRotationImportState({
+        message: 'La rotacion maestra debe estar en formato XLSX.',
+      })
+    }
+
+    const buffer = Buffer.from(await uploadedFile.arrayBuffer())
+    const parsed = parsePdvRotationCatalogWorkbook(buffer)
+    const service = createServiceClient() as TypedSupabaseClient
+    const cuentaClienteId = actor.cuentaClienteId ?? getSingleTenantAccountId()
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Mexico_City',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date())
+
+    const conflicts: PdvRotacionImportConflict[] = parsed.issues.map((issue) => ({
+      rowNumber: issue.rowNumber,
+      claveBtl: null,
+      severity: issue.severity,
+      code: issue.code,
+      label:
+        issue.code === 'FILA_SIN_BTL'
+          ? 'Fila sin BTL CVE'
+          : issue.code === 'FILA_DUPLICADA'
+            ? 'Fila duplicada'
+            : issue.code === 'CLASIFICACION_INVALIDA'
+              ? 'Clasificacion invalida'
+              : issue.code === 'TAMANO_GRUPO_INVALIDO'
+                ? 'Tamano de grupo invalido'
+                : 'Posicion invalida',
+      message: issue.message,
+      source: 'PARSER',
+    }))
+
+    const { data: relationRows, error: relationError } = await service
+      .from('cuenta_cliente_pdv')
+      .select(`
+        pdv_id,
+        activo,
+        fecha_inicio,
+        fecha_fin,
+        pdv:pdv_id(id, clave_btl, nombre, estatus)
+      `)
+      .eq('cuenta_cliente_id', cuentaClienteId)
+      .eq('activo', true)
+
+    if (relationError) {
+      return buildRotationImportState({
+        message: relationError.message ?? 'No fue posible cargar los PDVs operables de la cuenta activa.',
+        conflicts,
+      })
+    }
+
+    const operableRows = ((relationRows ?? []) as Array<{
+      pdv_id: string
+      activo: boolean
+      fecha_inicio: string
+      fecha_fin: string | null
+      pdv:
+        | { id: string; clave_btl: string; nombre: string; estatus: string }
+        | Array<{ id: string; clave_btl: string; nombre: string; estatus: string }>
+        | null
+    }>)
+      .map((item) => ({
+        ...item,
+        pdv: Array.isArray(item.pdv) ? item.pdv[0] ?? null : item.pdv,
+      }))
+      .filter((item) => {
+        if (!item.pdv) {
+          return false
+        }
+
+        const withinRange = item.fecha_inicio <= today && (!item.fecha_fin || item.fecha_fin >= today)
+        return withinRange && isOperablePdvStatus(item.pdv.estatus)
+      })
+
+    const pdvByClave = new Map(
+      operableRows.filter((item) => item.pdv).map((item) => [item.pdv!.clave_btl, item.pdv!])
+    )
+    const operableClaves = new Set(Array.from(pdvByClave.keys()))
+    const seenOperableClaves = new Set<string>()
+    const validRows: Array<{
+      rowNumber: number
+      claveBtl: string
+      pdvId: string
+      clasificacionMaestra: 'FIJO' | 'ROTATIVO'
+      grupoRotacionCodigo: string | null
+      grupoTamano: 2 | 3 | null
+      slotRotacion: 'A' | 'B' | 'C' | null
+      observaciones: string | null
+      referenciaDcActual: string | null
+    }> = []
+
+    for (const row of parsed.rows) {
+      const pdv = pdvByClave.get(row.claveBtl)
+      if (!pdv) {
+        conflicts.push({
+          rowNumber: row.rowNumber,
+          claveBtl: row.claveBtl,
+          severity: 'ERROR',
+          code: 'PDV_NO_OPERABLE',
+          label: 'PDV fuera de la cuenta operable',
+          message: 'La clave BTL no pertenece a un PDV operable vigente de la cuenta activa.',
+          source: 'RESOLUCION',
+        })
+        continue
+      }
+
+      seenOperableClaves.add(row.claveBtl)
+
+      if (!row.clasificacionMaestra) {
+        conflicts.push({
+          rowNumber: row.rowNumber,
+          claveBtl: row.claveBtl,
+          severity: 'ERROR',
+          code: 'CLASIFICACION_REQUERIDA',
+          label: 'Clasificacion requerida',
+          message: 'Cada PDV operable debe venir clasificado como FIJO o ROTATIVO.',
+          source: 'VALIDACION',
+        })
+        continue
+      }
+
+      if (row.clasificacionMaestra === 'FIJO' && (row.grupoRotacionCodigo || row.grupoTamano || row.slotRotacion)) {
+        conflicts.push({
+          rowNumber: row.rowNumber,
+          claveBtl: row.claveBtl,
+          severity: 'ERROR',
+          code: 'FIJO_CON_GRUPO',
+          label: 'FIJO con grupo',
+          message: 'Un PDV FIJO no debe tener grupo, tamano ni posicion de rotacion.',
+          source: 'VALIDACION',
+        })
+        continue
+      }
+
+      if (row.clasificacionMaestra === 'ROTATIVO' && (!row.grupoRotacionCodigo || !row.grupoTamano || !row.slotRotacion)) {
+        conflicts.push({
+          rowNumber: row.rowNumber,
+          claveBtl: row.claveBtl,
+          severity: 'ERROR',
+          code: 'ROTATIVO_INCOMPLETO',
+          label: 'Rotativo incompleto',
+          message: 'Un PDV ROTATIVO debe incluir grupo, tamano y posicion.',
+          source: 'VALIDACION',
+        })
+        continue
+      }
+
+      validRows.push({
+        rowNumber: row.rowNumber,
+        claveBtl: row.claveBtl,
+        pdvId: pdv.id,
+        clasificacionMaestra: row.clasificacionMaestra,
+        grupoRotacionCodigo: row.clasificacionMaestra === 'ROTATIVO' ? row.grupoRotacionCodigo : null,
+        grupoTamano: row.clasificacionMaestra === 'ROTATIVO' ? row.grupoTamano : null,
+        slotRotacion: row.clasificacionMaestra === 'ROTATIVO' ? row.slotRotacion : null,
+        observaciones: row.observaciones,
+        referenciaDcActual: row.referenciaDcActual,
+      })
+    }
+
+    const missingOperableClaves = Array.from(operableClaves).filter((clave) => !seenOperableClaves.has(clave))
+    for (const clave of missingOperableClaves) {
+      conflicts.push({
+        rowNumber: null,
+        claveBtl: clave,
+        severity: 'ERROR',
+        code: 'PDV_OPERABLE_FALTANTE',
+        label: 'PDV operable faltante',
+        message: 'El archivo final debe incluir todos los PDVs operables de la cuenta activa.',
+        source: 'VALIDACION',
+      })
+    }
+
+    const groups = new Map<string, typeof validRows>()
+    for (const row of validRows.filter((item) => item.clasificacionMaestra === 'ROTATIVO' && item.grupoRotacionCodigo)) {
+      const current = groups.get(row.grupoRotacionCodigo!) ?? []
+      current.push(row)
+      groups.set(row.grupoRotacionCodigo!, current)
+    }
+
+    let incompleteGroups = 0
+    for (const [groupCode, rows] of groups.entries()) {
+      const expectedSize = rows[0]?.grupoTamano ?? null
+      const distinctSizes = new Set(rows.map((item) => item.grupoTamano))
+      const slots = rows.map((item) => item.slotRotacion).filter(Boolean) as Array<'A' | 'B' | 'C'>
+      const distinctSlots = new Set(slots)
+      const expectedSlots = expectedSize === 3 ? ['A', 'B', 'C'] : ['A', 'B']
+      const complete =
+        (expectedSize === 2 || expectedSize === 3) &&
+        distinctSizes.size === 1 &&
+        rows.length === expectedSize &&
+        distinctSlots.size === expectedSize &&
+        expectedSlots.every((slot) => distinctSlots.has(slot as 'A' | 'B' | 'C'))
+
+      if (!complete) {
+        incompleteGroups += 1
+        for (const row of rows) {
+          conflicts.push({
+            rowNumber: row.rowNumber,
+            claveBtl: row.claveBtl,
+            severity: 'ERROR',
+            code: 'GRUPO_INCOMPLETO',
+            label: 'Grupo incompleto',
+            message: `El grupo ${groupCode} no cierra con el tamano y las posiciones esperadas.`,
+            source: 'VALIDACION',
+          })
+        }
+      }
+    }
+
+    const hasBlockingConflicts = conflicts.some((item) => item.severity === 'ERROR')
+    const summary = {
+      parsedRows: parsed.rows.length,
+      skippedRows: parsed.skippedRows,
+      importedRows: validRows.length,
+      rotativos: validRows.filter((item) => item.clasificacionMaestra === 'ROTATIVO').length,
+      fijos: validRows.filter((item) => item.clasificacionMaestra === 'FIJO').length,
+      unresolvedPdvs: conflicts.filter((item) => item.code === 'PDV_NO_OPERABLE' || item.code === 'CLASIFICACION_REQUERIDA').length,
+      missingOperablePdvs: missingOperableClaves.length,
+      incompleteGroups,
+      conflictCount: conflicts.length,
+    }
+
+    if (hasBlockingConflicts) {
+      return buildRotationImportState({
+        message: 'La rotacion maestra tiene conflictos bloqueantes. Corrigelos antes de importar.',
+        conflicts,
+        summary,
+      })
+    }
+
+    const rowsToInsert = validRows.map((row) => ({
+      cuenta_cliente_id: cuentaClienteId,
+      pdv_id: row.pdvId,
+      clasificacion_maestra: row.clasificacionMaestra,
+      grupo_rotacion_codigo: row.grupoRotacionCodigo,
+      grupo_tamano: row.grupoTamano,
+      slot_rotacion: row.slotRotacion,
+      fuente: 'IMPORTADA',
+      vigente: true,
+      observaciones: row.observaciones,
+      metadata: {
+        referencia_dc_actual: row.referenciaDcActual,
+        row_number: row.rowNumber,
+        archivo: uploadedFile.name,
+      },
+    }))
+
+    const { error: deleteError } = await service
+      .from('pdv_rotacion_maestra')
+      .delete()
+      .eq('cuenta_cliente_id', cuentaClienteId)
+
+    if (deleteError) {
+      return buildRotationImportState({
+        message: deleteError.message ?? 'No fue posible reemplazar la rotacion maestra actual.',
+        conflicts,
+        summary,
+      })
+    }
+
+    if (rowsToInsert.length > 0) {
+      const { error: insertError } = await service.from('pdv_rotacion_maestra').insert(rowsToInsert)
+      if (insertError) {
+        return buildRotationImportState({
+          message: insertError.message ?? 'No fue posible importar la nueva rotacion maestra.',
+          conflicts,
+          summary,
+        })
+      }
+    }
+
+    await registrarEventoAudit(service, {
+      tabla: 'pdv_rotacion_maestra',
+      registroId: `rotacion-maestra-${Date.now()}`,
+      payload: {
+        evento: 'rotacion_maestra_importada',
+        archivo: uploadedFile.name,
+        filas_parseadas: summary.parsedRows,
+        filas_importadas: rowsToInsert.length,
+        conflictos: summary.conflictCount,
+      },
+      usuarioId: actor.usuarioId,
+      cuentaClienteId,
+    })
+
+    revalidatePath('/asignaciones')
+    revalidatePath('/pdvs')
+    revalidatePath('/dashboard')
+
+    return buildRotationImportState({
+      ok: true,
+      message: `Rotacion maestra importada con ${rowsToInsert.length} fila(s) vigentes.`,
+      conflicts,
+      summary,
+    })
+  } catch (error) {
+    return buildRotationImportState({
+      message:
+        error instanceof Error
+          ? error.message
+          : 'No fue posible importar la rotacion maestra.',
+    })
+  }
+}
 export async function importarHorariosSanPabloSemanales(
   _prevState: ImportarCatalogoAsignacionesState,
   formData: FormData
@@ -2141,3 +2609,200 @@ export async function actualizarEstadoPublicacionAsignacion(
     issues,
   })
 }
+
+export async function limpiarBorradorAsignacion(
+  _prevState: ActualizarEstadoAsignacionState,
+  formData: FormData
+): Promise<ActualizarEstadoAsignacionState> {
+  try {
+    const actor = await requerirAdministradorActivo()
+    const asignacionId = String(formData.get('asignacion_id') ?? '').trim()
+
+    if (!asignacionId) {
+      return buildState({ message: 'La asignacion es obligatoria.' })
+    }
+
+    const supabase = await createClient()
+    const service = createServiceClient() as TypedSupabaseClient
+    const { data: asignacion, error: asignacionError } = await supabase
+      .from('asignacion')
+      .select('id, cuenta_cliente_id, empleado_id, pdv_id, fecha_inicio, fecha_fin, estado_publicacion, naturaleza, tipo')
+      .eq('id', asignacionId)
+      .maybeSingle()
+
+    if (asignacionError || !asignacion) {
+      return buildState({
+        message: asignacionError?.message ?? 'No fue posible encontrar la asignacion solicitada.',
+      })
+    }
+
+    if (actor.cuentaClienteId && asignacion.cuenta_cliente_id && actor.cuentaClienteId !== asignacion.cuenta_cliente_id) {
+      return buildState({
+        message: 'La asignacion no pertenece a la cuenta cliente activa del administrador.',
+      })
+    }
+
+    if (asignacion.estado_publicacion !== 'BORRADOR') {
+      return buildState({
+        message: 'Solo se pueden limpiar asignaciones que sigan en borrador.',
+      })
+    }
+
+    const { data: deletedRows, error: deleteError } = await service
+      .from('asignacion')
+      .delete()
+      .eq('id', asignacionId)
+      .eq('estado_publicacion', 'BORRADOR')
+      .select('id')
+
+    if (deleteError) {
+      return buildState({
+        message: deleteError.message ?? 'No fue posible limpiar el borrador de asignacion.',
+      })
+    }
+
+    if (!deletedRows || deletedRows.length === 0) {
+      return buildState({
+        message: 'No se elimino el borrador. Revisa permisos o si la asignacion ya cambio de estado.',
+      })
+    }
+
+    let auditWarning: string | null = null
+    try {
+      await registrarEventoAudit(service, {
+        tabla: 'asignacion',
+        registroId: asignacionId,
+        payload: {
+          evento: 'asignacion_borrador_eliminada',
+          naturaleza: asignacion.naturaleza,
+          tipo: asignacion.tipo,
+          empleado_id: asignacion.empleado_id,
+          pdv_id: asignacion.pdv_id,
+        },
+        usuarioId: actor.usuarioId,
+        cuentaClienteId: asignacion.cuenta_cliente_id,
+      })
+    } catch (error) {
+      auditWarning = error instanceof Error ? error.message : 'La trazabilidad del borrado quedo pendiente.'
+    }
+
+    let remainingDrafts = 0
+    const scopeCuentaClienteId = actor.cuentaClienteId ?? asignacion.cuenta_cliente_id ?? getSingleTenantAccountId()
+    if (scopeCuentaClienteId) {
+      const { count: remainingCount } = await service
+        .from('asignacion')
+        .select('id', { count: 'exact', head: true })
+        .eq('cuenta_cliente_id', scopeCuentaClienteId)
+        .eq('estado_publicacion', 'BORRADOR')
+      remainingDrafts = remainingCount ?? 0
+    }
+
+    revalidatePath('/asignaciones')
+
+    return buildState({
+      ok: true,
+      redirectTo: remainingDrafts > 0 ? '/asignaciones?vista=asignaciones&estado=BORRADOR' : '/asignaciones?vista=asignaciones&estado=PUBLICADA',
+      message: auditWarning ? `Borrador limpiado. La trazabilidad quedo pendiente: ${auditWarning}` : 'Borrador limpiado.',
+    })
+  } catch (error) {
+    return buildState({
+      message:
+        error instanceof Error
+          ? error.message
+          : 'No fue posible limpiar el borrador de asignacion.',
+    })
+  }
+}
+
+export async function limpiarTodosLosBorradoresAsignaciones(
+  _prevState: ActualizarEstadoAsignacionState,
+  _formData: FormData
+): Promise<ActualizarEstadoAsignacionState> {
+  try {
+    const actor = await requerirAdministradorActivo()
+    const cuentaClienteId = actor.cuentaClienteId ?? getSingleTenantAccountId()
+    const service = createServiceClient() as TypedSupabaseClient
+
+    const { count, error: countError } = await service
+      .from('asignacion')
+      .select('id', { count: 'exact', head: true })
+      .eq('cuenta_cliente_id', cuentaClienteId)
+      .eq('estado_publicacion', 'BORRADOR')
+
+    if (countError) {
+      return buildState({
+        message: countError.message ?? 'No fue posible contar los borradores de asignacion.',
+      })
+    }
+
+    const total = count ?? 0
+    if (total === 0) {
+      return buildState({
+        ok: true,
+        redirectTo: '/asignaciones?vista=asignaciones&estado=PUBLICADA',
+        message: 'No hay borradores para limpiar en la cuenta activa.',
+      })
+    }
+
+    const { data: deletedRows, error: deleteError } = await service
+      .from('asignacion')
+      .delete()
+      .eq('cuenta_cliente_id', cuentaClienteId)
+      .eq('estado_publicacion', 'BORRADOR')
+      .select('id, cuenta_cliente_id')
+
+    if (deleteError) {
+      return buildState({
+        message: deleteError.message ?? 'No fue posible limpiar los borradores de asignacion.',
+      })
+    }
+
+    const deleted = (deletedRows ?? []) as Array<{
+      id: string
+      cuenta_cliente_id: string | null
+    }>
+
+    if (deleted.length === 0) {
+      return buildState({
+        message: 'No se eliminaron borradores. Falta permiso de borrado o ya no existen en la cuenta activa.',
+      })
+    }
+
+    let auditWarning: string | null = null
+    try {
+      await registrarEventoAudit(service, {
+        tabla: 'asignacion',
+        registroId: `bulk-borradores-${Date.now()}`,
+        payload: {
+          evento: 'asignacion_borradores_eliminados',
+          total_eliminado: deleted.length,
+          cuenta_cliente_id: cuentaClienteId,
+        },
+        usuarioId: actor.usuarioId,
+        cuentaClienteId,
+      })
+    } catch (error) {
+      auditWarning = error instanceof Error ? error.message : 'La trazabilidad del borrado quedo pendiente.'
+    }
+
+    revalidatePath('/asignaciones')
+
+    return buildState({
+      ok: true,
+      redirectTo: '/asignaciones?vista=asignaciones&estado=PUBLICADA',
+      message: auditWarning
+        ? `Se limpiaron ${deleted.length} borrador(es) de asignacion. La trazabilidad quedo pendiente: ${auditWarning}`
+        : `Se limpiaron ${deleted.length} borrador(es) de asignacion.`,
+    })
+  } catch (error) {
+    return buildState({
+      message:
+        error instanceof Error
+          ? error.message
+          : 'No fue posible limpiar los borradores de asignacion.',
+    })
+  }
+}
+
+
+

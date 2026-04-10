@@ -1581,6 +1581,170 @@ export type Database = {
           },
         ]
       }
+      pdv_cobertura_operativa: {
+        Row: {
+          acceso_pendiente_desde: string | null
+          apartado_por_usuario_id: string | null
+          created_at: string
+          cuenta_cliente_id: string
+          empleado_reservado_id: string | null
+          estado_operativo: string
+          id: string
+          metadata: Json
+          motivo_operativo: string | null
+          observaciones: string | null
+          pdv_id: string
+          pdv_paso_id: string | null
+          proximo_recordatorio_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          acceso_pendiente_desde?: string | null
+          apartado_por_usuario_id?: string | null
+          created_at?: string
+          cuenta_cliente_id: string
+          empleado_reservado_id?: string | null
+          estado_operativo?: string
+          id?: string
+          metadata?: Json
+          motivo_operativo?: string | null
+          observaciones?: string | null
+          pdv_id: string
+          pdv_paso_id?: string | null
+          proximo_recordatorio_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          acceso_pendiente_desde?: string | null
+          apartado_por_usuario_id?: string | null
+          created_at?: string
+          cuenta_cliente_id?: string
+          empleado_reservado_id?: string | null
+          estado_operativo?: string
+          id?: string
+          metadata?: Json
+          motivo_operativo?: string | null
+          observaciones?: string | null
+          pdv_id?: string
+          pdv_paso_id?: string | null
+          proximo_recordatorio_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pdv_cobertura_operativa_apartado_por_usuario_id_fkey"
+            columns: ["apartado_por_usuario_id"]
+            isOneToOne: false
+            referencedRelation: "usuario"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pdv_cobertura_operativa_cuenta_cliente_id_fkey"
+            columns: ["cuenta_cliente_id"]
+            isOneToOne: false
+            referencedRelation: "cuenta_cliente"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pdv_cobertura_operativa_cuenta_cliente_id_fkey"
+            columns: ["cuenta_cliente_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_kpis"
+            referencedColumns: ["cuenta_cliente_id"]
+          },
+          {
+            foreignKeyName: "pdv_cobertura_operativa_empleado_reservado_id_fkey"
+            columns: ["empleado_reservado_id"]
+            isOneToOne: false
+            referencedRelation: "empleado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pdv_cobertura_operativa_pdv_id_fkey"
+            columns: ["pdv_id"]
+            isOneToOne: false
+            referencedRelation: "pdv"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pdv_cobertura_operativa_pdv_paso_id_fkey"
+            columns: ["pdv_paso_id"]
+            isOneToOne: false
+            referencedRelation: "pdv"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pdv_rotacion_maestra: {
+        Row: {
+          clasificacion_maestra: string
+          created_at: string
+          cuenta_cliente_id: string
+          fuente: string
+          grupo_rotacion_codigo: string | null
+          grupo_tamano: number | null
+          id: string
+          metadata: Json
+          observaciones: string | null
+          pdv_id: string
+          slot_rotacion: string | null
+          updated_at: string
+          vigente: boolean
+        }
+        Insert: {
+          clasificacion_maestra: string
+          created_at?: string
+          cuenta_cliente_id: string
+          fuente?: string
+          grupo_rotacion_codigo?: string | null
+          grupo_tamano?: number | null
+          id?: string
+          metadata?: Json
+          observaciones?: string | null
+          pdv_id: string
+          slot_rotacion?: string | null
+          updated_at?: string
+          vigente?: boolean
+        }
+        Update: {
+          clasificacion_maestra?: string
+          created_at?: string
+          cuenta_cliente_id?: string
+          fuente?: string
+          grupo_rotacion_codigo?: string | null
+          grupo_tamano?: number | null
+          id?: string
+          metadata?: Json
+          observaciones?: string | null
+          pdv_id?: string
+          slot_rotacion?: string | null
+          updated_at?: string
+          vigente?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pdv_rotacion_maestra_cuenta_cliente_id_fkey"
+            columns: ["cuenta_cliente_id"]
+            isOneToOne: false
+            referencedRelation: "cuenta_cliente"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pdv_rotacion_maestra_cuenta_cliente_id_fkey"
+            columns: ["cuenta_cliente_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_kpis"
+            referencedColumns: ["cuenta_cliente_id"]
+          },
+          {
+            foreignKeyName: "pdv_rotacion_maestra_pdv_id_fkey"
+            columns: ["pdv_id"]
+            isOneToOne: false
+            referencedRelation: "pdv"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       producto: {
         Row: {
           activo: boolean
@@ -2278,4 +2442,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-

@@ -15,14 +15,16 @@ function createFakeEmpleadosSupabase(results: {
   usuario: QueryResult
   empleado_documento: QueryResult
   configuracion: QueryResult
+  pdv: QueryResult
+  asignacion: QueryResult
 }) {
   const signedCalls: string[] = []
 
   return {
-    from(table: 'empleado' | 'usuario' | 'empleado_documento' | 'configuracion') {
-      return {
+    from(table: 'empleado' | 'usuario' | 'empleado_documento' | 'configuracion' | 'pdv' | 'asignacion') {
+      const query = {
         select() {
-          return this
+          return query
         },
         order() {
           return Promise.resolve(results[table])
@@ -30,7 +32,18 @@ function createFakeEmpleadosSupabase(results: {
         in() {
           return Promise.resolve(results[table])
         },
+        eq() {
+          return query
+        },
+        lte() {
+          return query
+        },
+        or() {
+          return Promise.resolve(results[table])
+        },
       }
+
+      return query
     },
     storage: {
       from(bucket: string) {
@@ -203,6 +216,41 @@ test('consolida empleados, documentos y filtros auxiliares del panel', async () 
       ],
       error: null,
     },
+    pdv: {
+      data: [
+        {
+          id: 'pdv-1',
+          nombre: 'Farmacia Centro',
+          clave_btl: 'BTL-001',
+          zona: 'NORTE',
+          activo: true,
+          cadena: { nombre: 'San Pablo' },
+          ciudad: { nombre: 'CDMX' },
+        },
+        {
+          id: 'pdv-2',
+          nombre: 'Farmacia Sur',
+          clave_btl: 'BTL-002',
+          zona: 'SUR',
+          activo: true,
+          cadena: { nombre: 'Guadalajara' },
+          ciudad: { nombre: 'Guadalajara' },
+        },
+      ],
+      error: null,
+    },
+    asignacion: {
+      data: [
+        {
+          id: 'asg-1',
+          pdv_id: 'pdv-1',
+          fecha_inicio: '2026-03-01',
+          fecha_fin: null,
+          estado_publicacion: 'PUBLICADA',
+        },
+      ],
+      error: null,
+    },
   })
 
   const data = await obtenerPanelEmpleados(client as never)
@@ -215,6 +263,40 @@ test('consolida empleados, documentos y filtros auxiliares del panel', async () 
     expedienteValidado: 1,
     imssEnProceso: 1,
   })
+  expect(data.resumenReclutamiento).toMatchObject({
+    candidatosEnPipeline: 2,
+    pendientesCoordinacion: 0,
+    pendientesDocumentacion: 0,
+    pendientesNominaImss: 1,
+    listosAdministracion: 1,
+  })
+  expect(data.pdvsDisponibles).toEqual([
+    expect.objectContaining({
+      id: 'pdv-2',
+      nombre: 'Farmacia Sur',
+      disponibilidadMotivo: 'SIN_ASIGNACION_ACTIVA',
+    }),
+  ])
+  expect(data.recruitmentCoverageSummary).toMatchObject({
+    pdvsCubiertos: 1,
+    pdvsVacantes: 1,
+    vacantesUrgentes: 1,
+    pdvsBloqueados: 0,
+  })
+  expect(data.pdvCoberturaBoard).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        pdvId: 'pdv-1',
+        semaforo: 'VERDE',
+        actionNeed: 'COBERTURA_OK',
+      }),
+      expect.objectContaining({
+        pdvId: 'pdv-2',
+        semaforo: 'NARANJA',
+        actionNeed: 'VACANTE_URGENTE',
+      }),
+    ])
+  )
   expect(data.supervisors).toEqual([
     {
       id: 'emp-1',
@@ -284,6 +366,14 @@ test('degrada el panel si la tabla empleado no esta disponible', async () => {
       error: null,
     },
     configuracion: {
+      data: [],
+      error: null,
+    },
+    pdv: {
+      data: [],
+      error: null,
+    },
+    asignacion: {
       data: [],
       error: null,
     },
@@ -444,6 +534,14 @@ test('construye exportacion csv de empleados con datos operativos visibles', asy
       error: null,
     },
     configuracion: {
+      data: [],
+      error: null,
+    },
+    pdv: {
+      data: [],
+      error: null,
+    },
+    asignacion: {
       data: [],
       error: null,
     },

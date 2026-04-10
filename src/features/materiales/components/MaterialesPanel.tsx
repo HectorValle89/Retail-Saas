@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useFormStatus } from 'react-dom'
-import { Button, Card, EvidencePreview, Input, Select } from '@/components/ui'
+import { Button, Card, EvidencePreview, Input, MetricCard as SharedMetricCard, Select } from '@/components/ui'
 import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog'
 import {
   getSingleTenantAccountLabel,
@@ -22,6 +22,7 @@ import {
 import { ESTADO_MATERIAL_IMPORTACION_INICIAL, ESTADO_MATERIAL_INICIAL } from '../state'
 import type { MaterialDistributionItem, MaterialLotPreviewItem, MaterialesPanelData } from '../services/materialService'
 import { fileToDataUrl, stampMaterialEvidencePhoto } from '../lib/materialEvidenceCapture'
+import { injectDirectR2Upload } from '@/lib/storage/directR2Client'
 
 const ADMIN_ROLES = ['ADMINISTRADOR', 'COORDINADOR', 'LOGISTICA']
 
@@ -877,11 +878,87 @@ function DermoMercadeoSection({ data }: { data: MaterialesPanelData }) {
 function DermoDeliverySection({ data }: { data: MaterialesPanelData }) {
   const [state, action] = useActionState(registrarEntregaPromocional, ESTADO_MATERIAL_INICIAL)
   const [selectedDetailId, setSelectedDetailId] = useState(data.dermoDeliverableDetails[0]?.id ?? '')
+  const [isUploadingR2, setIsUploadingR2] = useState(false)
 
   const selectedDetail = useMemo(
     () => data.dermoDeliverableDetails.find((item) => item.id === selectedDetailId) ?? null,
     [data.dermoDeliverableDetails, selectedDetailId]
   )
+
+  const handleSubmit = async (formData: FormData) => {
+    const uploads: Array<Promise<unknown>> = []
+
+    const evidenciaMaterial = formData.get('evidencia_material')
+    if (evidenciaMaterial instanceof File && evidenciaMaterial.size > 0) {
+      uploads.push(
+        injectDirectR2Upload(formData, evidenciaMaterial, {
+          modulo: 'materiales',
+          removeFieldName: 'evidencia_material',
+          fieldNames: {
+            objectKey: 'evidencia_material_r2_object_key',
+            sha256: 'evidencia_material_r2_sha256',
+            fileName: 'evidencia_material_r2_file_name',
+            contentType: 'evidencia_material_r2_type',
+            size: 'evidencia_material_r2_size',
+          },
+        }).then(() => {
+          formData.delete('evidencia_material_data_url')
+        })
+      )
+    }
+
+    const evidenciaPdv = formData.get('evidencia_pdv')
+    if (evidenciaPdv instanceof File && evidenciaPdv.size > 0) {
+      uploads.push(
+        injectDirectR2Upload(formData, evidenciaPdv, {
+          modulo: 'materiales',
+          removeFieldName: 'evidencia_pdv',
+          fieldNames: {
+            objectKey: 'evidencia_pdv_r2_object_key',
+            sha256: 'evidencia_pdv_r2_sha256',
+            fileName: 'evidencia_pdv_r2_file_name',
+            contentType: 'evidencia_pdv_r2_type',
+            size: 'evidencia_pdv_r2_size',
+          },
+        }).then(() => {
+          formData.delete('evidencia_pdv_data_url')
+        })
+      )
+    }
+
+    const ticketCompra = formData.get('ticket_compra')
+    if (ticketCompra instanceof File && ticketCompra.size > 0) {
+      uploads.push(
+        injectDirectR2Upload(formData, ticketCompra, {
+          modulo: 'materiales',
+          removeFieldName: 'ticket_compra',
+          fieldNames: {
+            objectKey: 'ticket_compra_r2_object_key',
+            sha256: 'ticket_compra_r2_sha256',
+            fileName: 'ticket_compra_r2_file_name',
+            contentType: 'ticket_compra_r2_type',
+            size: 'ticket_compra_r2_size',
+          },
+        }).then(() => {
+          formData.delete('ticket_compra_data_url')
+        })
+      )
+    }
+
+    if (uploads.length > 0) {
+      setIsUploadingR2(true)
+      try {
+        await Promise.all(uploads)
+      } catch (error) {
+        console.error('No fue posible subir evidencias de materiales a R2.', error)
+      } finally {
+        setIsUploadingR2(false)
+      }
+    }
+
+    const submit = action as unknown as (payload: FormData) => void
+    submit(formData)
+  }
 
   return (
     <Card className="space-y-5">
@@ -893,7 +970,7 @@ function DermoDeliverySection({ data }: { data: MaterialesPanelData }) {
       {!data.dermoContext || data.dermoDeliverableDetails.length === 0 ? (
         <EmptyState message="Aun no tienes saldo disponible de promocionales para registrar en tu tienda." />
       ) : (
-        <form action={action} className="grid gap-4 xl:grid-cols-2">
+        <form action={handleSubmit} className="grid gap-4 xl:grid-cols-2">
           <input type="hidden" name="cuenta_cliente_id" value={data.dermoContext.cuentaClienteId ?? ''} />
           <input type="hidden" name="pdv_id" value={data.dermoContext.pdvId} />
           <input type="hidden" name="distribucion_id" value={selectedDetail?.distribucionId ?? ''} />
@@ -968,7 +1045,10 @@ function DermoDeliverySection({ data }: { data: MaterialesPanelData }) {
           </label>
 
           <div className="xl:col-span-2 flex flex-wrap items-center gap-3">
-            <SubmitButton label="Guardar entrega" pendingLabel="Guardando..." />
+            <SubmitButton
+              label={isUploadingR2 ? 'Subiendo evidencias...' : 'Guardar entrega'}
+              pendingLabel="Guardando..."
+            />
             <StateMessage ok={state.ok} message={state.message} />
           </div>
         </form>
@@ -1517,20 +1597,18 @@ function SignatureField({ name }: { name: string }) {
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card className="border-slate-200 bg-white">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
-    </Card>
-  )
+  return <SharedMetricCard label={label} value={value} />
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[14px] border border-slate-200 bg-slate-50 p-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
-    </div>
+    <SharedMetricCard
+      label={label}
+      value={value}
+      className="rounded-[14px] bg-slate-50 p-3 shadow-none"
+      labelClassName="text-[10px]"
+      valueClassName="text-lg"
+    />
   )
 }
 

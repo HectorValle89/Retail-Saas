@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { login } from '@/actions/auth'
 import { Button } from '@/components/ui/button'
@@ -24,10 +24,18 @@ function EyeOffIcon({ className }: { className?: string }) {
   )
 }
 
-export function LoginForm() {
-  const [error, setError] = useState<string | null>(null)
+type LoginFormProps = {
+  initialError?: string | null
+}
+
+export function LoginForm({ initialError = null }: LoginFormProps) {
+  const [error, setError] = useState<string | null>(initialError)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+
+  useEffect(() => {
+    setError(initialError)
+  }, [initialError])
 
   async function handleSubmit(formData: FormData) {
     setLoading(true)

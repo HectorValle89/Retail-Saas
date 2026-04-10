@@ -3,6 +3,9 @@ import { requerirActorActivo } from '@/lib/auth/session'
 import { AsignacionesPanel } from '@/features/asignaciones/components/AsignacionesPanel'
 import { obtenerPanelAsignaciones } from '@/features/asignaciones/services/asignacionService'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export const metadata = {
   title: 'Asignaciones | Field Force Platform',
 }
@@ -20,10 +23,21 @@ export default async function AsignacionesPage({ searchParams }: AsignacionesPag
   const supabase = await createClient()
   const params = (await searchParams) ?? {}
   const data = await obtenerPanelAsignaciones(supabase, actor, {
+    view: pickString(params.vista),
+    modal: pickString(params.modal),
+    page: pickString(params.page) ? Number(pickString(params.page)) : null,
+    assignmentState: pickString(params.estado),
     filters: {
       month: pickString(params.month),
       supervisorEmpleadoId: pickString(params.supervisor_empleado_id),
       estadoOperativo: pickString(params.estado_operativo),
+      pdvPanel: pickString(params.pdv_panel),
+      pdvState: pickString(params.pdv_estado),
+      cadena: pickString(params.cadena),
+      ciudad: pickString(params.ciudad),
+      zona: pickString(params.zona),
+      rotacionClasificacion: pickString(params.rotacion_clasificacion),
+      grupoRotacion: pickString(params.grupo_rotacion),
     },
   })
 

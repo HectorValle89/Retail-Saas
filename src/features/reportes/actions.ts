@@ -5,16 +5,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { requerirAdministradorActivo } from '@/lib/auth/session'
 import { isExportFormat, isExportSectionKey } from './services/reporteExport'
 import { computeNextScheduledRun, type ReporteProgramadoFrecuencia } from './services/reporteScheduleService'
-
-export interface ReporteProgramadoActionState {
-  ok: boolean
-  message: string | null
-}
-
-export const ESTADO_REPORTE_PROGRAMADO_INICIAL: ReporteProgramadoActionState = {
-  ok: false,
-  message: null,
-}
+import { ESTADO_REPORTE_PROGRAMADO_INICIAL, type ReporteProgramadoActionState } from './state'
 
 function buildState(partial: Partial<ReporteProgramadoActionState>): ReporteProgramadoActionState {
   return {

@@ -1,10 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CuentaCliente, Empleado, Puesto, Solicitud } from '@/types/database'
 import {
-  obtenerRegistrosExtemporaneosPanel,
-  type RegistroExtemporaneoListadoItem,
-  type RegistroExtemporaneoResumen,
-} from '../extemporaneoService'
+  getIncapacidadApprovalPath,
+  getIncapacidadNextActor,
+} from '../lib/incapacidadWorkflow'
 
 type MaybeMany<T> = T | T[] | null
 
@@ -131,9 +130,6 @@ export interface SolicitudesPanelData {
     totalPages: number
   }
   filtros: SolicitudesFilterState
-  calendario: SolicitudesCalendarData
-  resumenExtemporaneo: RegistroExtemporaneoResumen
-  registrosExtemporaneos: RegistroExtemporaneoListadoItem[]
   infraestructuraLista: boolean
   mensajeInfraestructura?: string
 }
@@ -194,7 +190,7 @@ function getApprovalPath(tipo: Solicitud['tipo'], metadata: unknown) {
   }
 
   if (tipo === 'INCAPACIDAD') {
-    return ['SUPERVISOR', 'NOMINA']
+    return getIncapacidadApprovalPath({ metadata })
   }
 
   if (tipo === 'AVISO_INASISTENCIA') {
@@ -203,6 +199,10 @@ function getApprovalPath(tipo: Solicitud['tipo'], metadata: unknown) {
 
   if (tipo === 'JUSTIFICACION_FALTA') {
     return ['SUPERVISOR']
+  }
+
+  if (tipo === 'VACACIONES') {
+    return ['COORDINADOR']
   }
 
   return ['SUPERVISOR', 'COORDINADOR']
@@ -220,9 +220,14 @@ function getResolutionState(estatus: Solicitud['estatus']): 'PENDIENTE' | 'APROB
   return 'PENDIENTE'
 }
 
-function getNextActor(tipo: Solicitud['tipo'], estatus: Solicitud['estatus']) {
-  if (tipo === 'INCAPACIDAD' && estatus === 'ENVIADA') {
-    return 'NOMINA'
+function getNextActor(tipo: Solicitud['tipo'], estatus: Solicitud['estatus'], metadata?: unknown) {
+  const approvalPath = getApprovalPath(tipo, metadata)
+
+  if (tipo === 'INCAPACIDAD') {
+    return getIncapacidadNextActor({
+      estatus,
+      metadata,
+    })
   }
 
   if (tipo === 'JUSTIFICACION_FALTA' && (estatus === 'ENVIADA' || estatus === 'CORRECCION_SOLICITADA')) {
@@ -230,11 +235,11 @@ function getNextActor(tipo: Solicitud['tipo'], estatus: Solicitud['estatus']) {
   }
 
   if (estatus === 'BORRADOR' || estatus === 'ENVIADA') {
-    return 'SUPERVISOR'
+    return approvalPath[0] ?? null
   }
 
   if (estatus === 'VALIDADA_SUP') {
-    return tipo === 'INCAPACIDAD' ? 'NOMINA' : 'COORDINADOR'
+    return approvalPath[1] ?? null
   }
 
   return null
@@ -401,7 +406,7 @@ function mapSolicitudRow(item: SolicitudQueryRow, actorPuesto: Puesto | null): S
   const siguienteActor =
     typeof metadata.siguiente_actor === 'string' && metadata.siguiente_actor.trim().length > 0
       ? metadata.siguiente_actor.trim()
-      : getNextActor(item.tipo, item.estatus)
+      : getNextActor(item.tipo, item.estatus, item.metadata)
 
   return {
     id: item.id,
@@ -487,9 +492,6 @@ export async function obtenerPanelSolicitudes(
     fechaFin: normalizeFilterToken(options?.filters?.fechaFin),
     month: normalizeMonth(options?.filters?.month),
   }
-  const canViewCalendar = ['SUPERVISOR', 'COORDINADOR', 'ADMINISTRADOR'].includes(actorPuesto ?? '')
-  const { start: calendarStart, end: calendarEnd } = getMonthRange(filters.month)
-
   const countQuery = client.from('solicitud').select('id', { count: 'exact', head: true })
   const { count, error: countError } = await applySolicitudFilters(countQuery, filters)
 
@@ -509,14 +511,6 @@ export async function obtenerPanelSolicitudes(
         totalPages: 1,
       },
       filtros: filters,
-      calendario: buildEmptyCalendar(filters.month, canViewCalendar),
-      resumenExtemporaneo: {
-        total: 0,
-        pendientes: 0,
-        aprobados: 0,
-        rechazados: 0,
-      },
-      registrosExtemporaneos: [],
       infraestructuraLista: false,
       mensajeInfraestructura:
         'La tabla `solicitud` aun no esta disponible en Supabase. Ejecuta la migracion de solicitudes.',
@@ -553,41 +547,8 @@ export async function obtenerPanelSolicitudes(
     filters
   )
 
-  const calendarFilters: SolicitudesFilterState = {
-    ...filters,
-    fechaInicio: '',
-    fechaFin: '',
-  }
-
-  const calendarQuery = applySolicitudFilters(
-    client
-      .from('solicitud')
-      .select(`
-        id,
-        cuenta_cliente_id,
-        empleado_id,
-        supervisor_empleado_id,
-        tipo,
-        fecha_inicio,
-        fecha_fin,
-        motivo,
-        justificante_url,
-        justificante_hash,
-        estatus,
-        comentarios,
-        metadata,
-        cuenta_cliente:cuenta_cliente_id(id, nombre),
-        empleado:empleado_id(id, nombre_completo, puesto),
-        supervisor:supervisor_empleado_id(id, nombre_completo, puesto)
-      `)
-      .lte('fecha_inicio', calendarEnd)
-      .gte('fecha_fin', calendarStart),
-    calendarFilters
-  )
-
-  const [solicitudesResult, calendarioResult, cuentasResult, empleadosResult, supervisoresResult] = await Promise.all([
+  const [solicitudesResult, cuentasResult, empleadosResult, supervisoresResult] = await Promise.all([
     solicitudesQuery.order('fecha_inicio', { ascending: false }).range(from, to),
-    calendarQuery.order('fecha_inicio', { ascending: false }).limit(200),
     client.from('cuenta_cliente').select('id, nombre').eq('activa', true).order('nombre'),
     client
       .from('empleado')
@@ -620,14 +581,6 @@ export async function obtenerPanelSolicitudes(
         totalPages,
       },
       filtros: filters,
-      calendario: buildEmptyCalendar(filters.month, canViewCalendar),
-      resumenExtemporaneo: {
-        total: 0,
-        pendientes: 0,
-        aprobados: 0,
-        rechazados: 0,
-      },
-      registrosExtemporaneos: [],
       infraestructuraLista: false,
       mensajeInfraestructura:
         `La tabla \`solicitud\` aun no esta disponible en Supabase. ${solicitudesResult.error.message}`,
@@ -636,11 +589,6 @@ export async function obtenerPanelSolicitudes(
 
   const solicitudes = ((solicitudesResult.data ?? []) as SolicitudQueryRow[]).map((item) => mapSolicitudRow(item, actorPuesto))
   const pendientesAccionables = solicitudes.filter((item) => item.requiereAccionActor)
-  const calendarioItems = ((calendarioResult.data ?? []) as SolicitudQueryRow[]).map((item) => mapSolicitudRow(item, actorPuesto))
-  const extemporaneosPanel = await obtenerRegistrosExtemporaneosPanel(client, {
-    actorPuesto,
-    actorEmpleadoId,
-  })
 
   return {
     resumen: {
@@ -674,10 +622,6 @@ export async function obtenerPanelSolicitudes(
       totalPages,
     },
     filtros: filters,
-    calendario: buildCalendar(filters.month, calendarioItems, canViewCalendar),
-    resumenExtemporaneo: extemporaneosPanel.resumen,
-    registrosExtemporaneos: extemporaneosPanel.registros,
-    infraestructuraLista: extemporaneosPanel.infraestructuraLista,
-    mensajeInfraestructura: extemporaneosPanel.infraestructuraLista ? undefined : extemporaneosPanel.mensajeInfraestructura,
+    infraestructuraLista: true,
   }
 }

@@ -1,4 +1,4 @@
-﻿import { requerirAdministradorActivo } from '@/lib/auth/session'
+import { requerirAdministradorActivo } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { ClientesPanel } from '@/features/clientes/components/ClientesPanel'
 import { obtenerPanelClientes } from '@/features/clientes/services/clienteService'

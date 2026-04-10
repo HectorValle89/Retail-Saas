@@ -25,10 +25,12 @@ function parsePositiveInt(value: string | undefined, fallback: number) {
 }
 
 export default async function VentasPage({ searchParams }: VentasPageProps) {
-  await requerirActorActivo()
+  const actor = await requerirActorActivo()
   const supabase = await createClient()
   const params = (await searchParams) ?? {}
   const data = await obtenerPanelVentas(supabase, {
+    actorPuesto: actor.puesto,
+    actorEmpleadoId: actor.empleadoId ?? null,
     page: parsePositiveInt(pickString(params.page), 1),
     pageSize: parsePositiveInt(pickString(params.pageSize), 50),
   })

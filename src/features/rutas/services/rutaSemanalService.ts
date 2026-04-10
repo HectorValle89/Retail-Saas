@@ -27,6 +27,7 @@ import {
   type RutaChangeRequestState,
 } from '../lib/routeWorkflow'
 import { normalizeAgendaImpactMode } from '../lib/routeAgenda'
+import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus'
 import {
   resolveAgendaOperativaSupervisorDia,
   type RutaAgendaBaseVisitInput,
@@ -40,6 +41,11 @@ type MaybeMany<T> = T | T[] | null
 type TypedSupabaseClient = SupabaseClient<any>
 
 type EmpleadoMiniRow = Pick<Empleado, 'id' | 'nombre_completo' | 'zona'>
+type CadenaMiniRow = {
+  id: string
+  codigo: string | null
+  nombre: string | null
+}
 type EmpleadoWarRoomRow = Pick<
   Empleado,
   'id' | 'nombre_completo' | 'puesto' | 'zona' | 'estatus_laboral' | 'supervisor_empleado_id'
@@ -47,7 +53,10 @@ type EmpleadoWarRoomRow = Pick<
 type PdvMiniRow = Pick<
   Pdv,
   'id' | 'clave_btl' | 'nombre' | 'zona' | 'direccion' | 'estatus' | 'formato'
->
+> & {
+  cadenaNombre?: string | null
+  cadenaCodigo?: string | null
+}
 type PdvSupervisorRelacionRow = {
   id: string
   activo: boolean
@@ -56,6 +65,7 @@ type PdvSupervisorRelacionRow = {
   empleado: MaybeMany<EmpleadoMiniRow>
 }
 type PdvWarRoomRow = PdvMiniRow & {
+  cadena: MaybeMany<CadenaMiniRow>
   supervisor_pdv: MaybeMany<PdvSupervisorRelacionRow>
 }
 type GeocercaMiniRow = Pick<GeocercaPdv, 'pdv_id' | 'latitud' | 'longitud' | 'radio_tolerancia_metros'>
@@ -163,6 +173,12 @@ type RutaPendienteReposicionQueryRow = Pick<
   | 'metadata'
 >
 
+type PdvRotacionMaestraRutaRow = {
+  pdv_id: string
+  clasificacion_maestra: 'FIJO' | 'ROTATIVO'
+  grupo_rotacion_codigo: string | null
+}
+
 export interface RutaSemanalResumen {
   totalRutas: number
   totalVisitas: number
@@ -189,8 +205,12 @@ export interface RutaQuotaProgressItem {
   pdvId: string
   claveBtl: string
   nombre: string
+  cadena: string | null
+  cadenaCodigo: string | null
   formato: string | null
   zona: string | null
+  clasificacionMaestra: 'FIJO' | 'ROTATIVO' | null
+  grupoRotacionCodigo: string | null
   prioridad: 'ALTA' | 'MEDIA' | 'BAJA'
   quotaMensual: number
   visitasRealizadas: number
@@ -259,6 +279,79 @@ export interface RutaSemanalWarRoomData {
   supervisors: RutaSupervisorWarRoomItem[]
   planningStatus: RutaPlanningStatusCount[]
   exceptions: RutaExceptionItem[]
+}
+
+export type VisitReachStoreTypeFilter = '' | 'FIJO' | 'ROTATIVO'
+
+export interface VisitReachDashboardFilters {
+  supervisorEmpleadoId: string
+  weekStart: string
+  cadenaCodigo: string
+  storeType: VisitReachStoreTypeFilter
+}
+
+export interface VisitReachDashboardFilterOptions {
+  supervisors: Array<{ id: string; nombre: string }>
+  cadenas: Array<{ value: string; label: string }>
+  storeTypes: Array<{ value: VisitReachStoreTypeFilter; label: string }>
+}
+
+export interface VisitReachPdvGapItem {
+  pdvId: string
+  claveBtl: string
+  nombre: string
+  cadena: string | null
+  cadenaCodigo: string | null
+  zona: string | null
+  clasificacionMaestra: 'FIJO' | 'ROTATIVO' | null
+  grupoRotacionCodigo: string | null
+  monthlyTarget: number
+  monthlyCompleted: number
+  monthlyPending: number
+  monthlyCompletionPct: number
+  weeklyPlanned: number
+  weeklyCompleted: number
+  weeklyPending: number
+  weeklyCompletionPct: number
+}
+
+export interface VisitReachSupervisorItem {
+  supervisorEmpleadoId: string
+  supervisor: string
+  zona: string | null
+  semaforo: 'OK' | 'RIESGO' | 'CRITICO'
+  visibleStores: number
+  monthlyTarget: number
+  monthlyCompleted: number
+  monthlyPending: number
+  monthlyCompletionPct: number
+  weeklyPlanned: number
+  weeklyCompleted: number
+  weeklyPending: number
+  weeklyCompletionPct: number
+  storesWithoutVisitMonth: number
+  storesWithoutVisitWeek: number
+  pdvGaps: VisitReachPdvGapItem[]
+}
+
+export interface VisitReachDashboardSummary {
+  weekStart: string
+  weekEnd: string
+  filters: VisitReachDashboardFilters
+  options: VisitReachDashboardFilterOptions
+  monthlyTarget: number
+  monthlyCompleted: number
+  monthlyPending: number
+  monthlyCompletionPct: number
+  weeklyPlanned: number
+  weeklyCompleted: number
+  weeklyPending: number
+  weeklyCompletionPct: number
+  storesWithoutVisitMonth: number
+  storesWithoutVisitWeek: number
+  visibleSupervisors: number
+  detailEnabled: boolean
+  supervisors: VisitReachSupervisorItem[]
 }
 
 export interface RutaSemanalVisitItem {
@@ -533,6 +626,492 @@ function isSupervisorPdvActiveForWeek(
   return true
 }
 
+function normalizeVisitReachStoreType(value: string | null | undefined): VisitReachStoreTypeFilter {
+  return value === 'FIJO' || value === 'ROTATIVO' ? value : ''
+}
+
+function normalizeVisitReachFilters(
+  value: {
+    supervisorEmpleadoId?: string | null
+    weekStart?: string | Date | null
+    cadenaCodigo?: string | null
+    storeType?: string | null
+  } = {}
+): VisitReachDashboardFilters {
+  return {
+    supervisorEmpleadoId: typeof value.supervisorEmpleadoId === 'string' ? value.supervisorEmpleadoId.trim() : '',
+    weekStart: getWeekStartIso(value.weekStart ?? undefined),
+    cadenaCodigo: typeof value.cadenaCodigo === 'string' ? value.cadenaCodigo.trim().toUpperCase() : '',
+    storeType: normalizeVisitReachStoreType(value.storeType),
+  }
+}
+
+function getVisitReachStoreTypeLabel(value: VisitReachStoreTypeFilter) {
+  if (value === 'FIJO') {
+    return 'Fijas'
+  }
+
+  if (value === 'ROTATIVO') {
+    return 'Rotativas'
+  }
+
+  return 'Todas'
+}
+
+export async function obtenerResumenAlcanceVisitas(
+  supabase: TypedSupabaseClient,
+  actor: ActorActual,
+  options?: {
+    supervisorEmpleadoId?: string | null
+    weekStart?: string | Date | null
+    cadenaCodigo?: string | null
+    storeType?: string | null
+  }
+): Promise<VisitReachDashboardSummary> {
+  const filters = normalizeVisitReachFilters(options)
+  const allowGlobalScope = actor.puesto === 'ADMINISTRADOR' && !actor.cuentaClienteId
+  const weekStart = filters.weekStart
+  const weekEnd = getWeekEndIso(weekStart)
+
+  const { result: rutasResult, metadataColumnAvailable } = await fetchRutasWithWorkflowSupport(supabase, {
+    actor,
+    puedeEditar: false,
+    allowGlobalScope,
+    limit: 120,
+    ensureWeekStart: weekStart,
+  })
+
+  const rutasRaw = ((rutasResult.data ?? []) as RutaQueryRow[]).filter((item) => {
+    if (allowGlobalScope) {
+      return true
+    }
+
+    if (actor.cuentaClienteId) {
+      return item.cuenta_cliente_id === actor.cuentaClienteId
+    }
+
+    return true
+  })
+
+  const rutaIds = Array.from(new Set(rutasRaw.map((item) => item.id)))
+  const visitasPromise =
+    rutaIds.length === 0
+      ? Promise.resolve({ data: [] as RutaVisitaQueryRow[], error: null })
+      : supabase
+          .from('ruta_semanal_visita')
+          .select(
+            'id, ruta_semanal_id, cuenta_cliente_id, supervisor_empleado_id, pdv_id, asignacion_id, dia_semana, orden, estatus, selfie_url, evidencia_url, checklist_calidad, comentarios, completada_en, metadata, created_at, updated_at'
+          )
+          .in('ruta_semanal_id', rutaIds)
+          .order('dia_semana', { ascending: true })
+          .limit(1600)
+
+  let rotationQuery = supabase
+    .from('pdv_rotacion_maestra')
+    .select('pdv_id, clasificacion_maestra, grupo_rotacion_codigo')
+    .eq('vigente', true)
+
+  if (actor.cuentaClienteId) {
+    rotationQuery = rotationQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+
+  const [visitasResult, pdvsResult, asignacionesResult, empleadosResult, rotationResult] = await Promise.all([
+    visitasPromise,
+    supabase
+      .from('pdv')
+      .select(
+        'id, clave_btl, nombre, zona, direccion, estatus, formato, cadena:cadena_id(id, codigo, nombre), supervisor_pdv(id, activo, fecha_inicio, fecha_fin, empleado:empleado_id(id, nombre_completo, zona))'
+      )
+      .order('nombre', { ascending: true })
+      .limit(500),
+    buildAsignacionesQuery(supabase, actor, false, allowGlobalScope),
+    supabase
+      .from('empleado')
+      .select('id, nombre_completo, puesto, zona, estatus_laboral, supervisor_empleado_id')
+      .eq('estatus_laboral', 'ACTIVO')
+      .order('nombre_completo', { ascending: true })
+      .limit(400),
+    rotationQuery.limit(700),
+  ])
+
+  const errorMessage =
+    rutasResult.error?.message ??
+    visitasResult.error?.message ??
+    pdvsResult.error?.message ??
+    (asignacionesResult as { error?: { message?: string } | null }).error?.message ??
+    empleadosResult.error?.message ??
+    (rotationResult as { error?: { message?: string } | null }).error?.message ??
+    null
+
+  if (errorMessage) {
+    throw new Error(errorMessage)
+  }
+
+  const pdvsRaw = (pdvsResult.data ?? []) as PdvWarRoomRow[]
+  const asignacionesRaw = ((asignacionesResult as { data?: unknown[] | null }).data ?? []) as AsignacionRutaRow[]
+  const empleadosRaw = (empleadosResult.data ?? []) as EmpleadoWarRoomRow[]
+  const rotacionRaw = ((rotationResult as { data?: unknown[] | null }).data ?? []) as PdvRotacionMaestraRutaRow[]
+  const visitasRaw = (visitasResult.data ?? []) as RutaVisitaQueryRow[]
+
+  const pdvMap = new Map(
+    pdvsRaw.map((item) => [
+      item.id,
+      {
+        id: item.id,
+        clave_btl: item.clave_btl,
+        nombre: item.nombre,
+        zona: item.zona,
+        direccion: item.direccion,
+        estatus: item.estatus,
+        formato: item.formato,
+        cadenaNombre: obtenerPrimero(item.cadena)?.nombre ?? null,
+        cadenaCodigo: obtenerPrimero(item.cadena)?.codigo ?? null,
+      } satisfies PdvMiniRow,
+    ])
+  )
+  const rotacionMap = new Map(rotacionRaw.map((item) => [item.pdv_id, item]))
+  const visitasPorRuta = new Map<string, RutaSemanalVisitItem[]>()
+
+  for (const visita of visitasRaw) {
+    const pdv = pdvMap.get(visita.pdv_id)
+    const current = visitasPorRuta.get(visita.ruta_semanal_id) ?? []
+    const visitWorkflow = parseRutaVisitaWorkflowMetadata(visita.metadata)
+    const checklistCalidad = (visita.checklist_calidad ?? {}) as Record<string, boolean>
+    const checklistKeys = Object.keys(checklistCalidad)
+    const checklistCompletion =
+      checklistKeys.length === 0
+        ? 0
+        : Math.round(
+            (checklistKeys.filter((key) => checklistCalidad[key]).length / checklistKeys.length) * 100
+          )
+
+    current.push({
+      id: visita.id,
+      rutaId: visita.ruta_semanal_id,
+      cuentaClienteId: visita.cuenta_cliente_id,
+      supervisorEmpleadoId: visita.supervisor_empleado_id,
+      pdvId: visita.pdv_id,
+      asignacionId: visita.asignacion_id,
+      diaSemana: visita.dia_semana,
+      diaLabel: getWeekDayLabel(visita.dia_semana),
+      diaShortLabel: getWeekDayShortLabel(visita.dia_semana),
+      orden: visita.orden,
+      estatus: visita.estatus,
+      pdv: pdv?.nombre ?? null,
+      pdvClaveBtl: pdv?.clave_btl ?? null,
+      zona: pdv?.zona ?? null,
+      direccion: pdv?.direccion ?? null,
+      latitud: null,
+      longitud: null,
+      geocercaRadioMetros: null,
+      selfieUrl: visita.selfie_url,
+      evidenciaUrl: visita.evidencia_url,
+      checklistCalidad,
+      checklistComments: visitWorkflow.checklistComments,
+      checklistCompletion,
+      loveIsdinRecordsCount: visitWorkflow.loveIsdinRecordsCount,
+      comentarios: visita.comentarios,
+      completadaEn: visita.completada_en,
+      checkInAt: visitWorkflow.checkIn.at,
+      checkOutAt: visitWorkflow.checkOut.at,
+      checkInGpsState: visitWorkflow.checkIn.gpsState,
+      checkOutGpsState: visitWorkflow.checkOut.gpsState,
+      checkInSelfieUrl: visitWorkflow.checkIn.selfieUrl,
+      checkOutSelfieUrl: visitWorkflow.checkOut.selfieUrl,
+      checkOutEvidenceUrl: visitWorkflow.checkOut.evidenciaUrl,
+    })
+
+    visitasPorRuta.set(visita.ruta_semanal_id, current)
+  }
+
+  const rutas = rutasRaw.map((ruta) => {
+    const supervisor = obtenerPrimero(ruta.supervisor)
+    const visitas = sortWeeklyVisits(visitasPorRuta.get(ruta.id) ?? [])
+    const workflow = parseRutaSemanalWorkflowMetadata(ruta.metadata)
+    const monthPrefix = ruta.semana_inicio.slice(0, 7)
+    const monthlyVisitsCompleted = visitasRaw.filter(
+      (item) =>
+        item.supervisor_empleado_id === ruta.supervisor_empleado_id &&
+        item.cuenta_cliente_id === ruta.cuenta_cliente_id &&
+        item.estatus === 'COMPLETADA' &&
+        (item.completada_en ?? item.updated_at).slice(0, 7) === monthPrefix
+    ).length
+
+    return {
+      id: ruta.id,
+      cuentaClienteId: ruta.cuenta_cliente_id,
+      supervisorEmpleadoId: ruta.supervisor_empleado_id,
+      supervisor: supervisor?.nombre_completo ?? null,
+      supervisorZona: supervisor?.zona ?? null,
+      semanaInicio: ruta.semana_inicio,
+      semanaFin: getWeekEndIso(ruta.semana_inicio),
+      estatus: ruta.estatus,
+      notas: ruta.notas,
+      approvalState: workflow.approval.state,
+      approvalNote: workflow.approval.note,
+      approvalReviewedAt: workflow.approval.reviewedAt,
+      minimumVisitsPerPdv: workflow.minimumVisitsPerPdv,
+      expectedMonthlyVisits: workflow.expectedMonthlyVisits,
+      pdvMonthlyQuotas: workflow.pdvMonthlyQuotas,
+      monthlyVisitsCompleted,
+      changeRequestState: workflow.changeRequest.status,
+      changeRequestNote: workflow.changeRequest.note,
+      changeRequestResolutionNote: workflow.changeRequest.resolutionNote,
+      changeRequestType: workflow.changeRequest.requestType,
+      changeRequestTargetScope: workflow.changeRequest.targetScope,
+      changeRequestTargetVisitId: workflow.changeRequest.targetVisitId,
+      changeRequestTargetPdvId: workflow.changeRequest.targetPdvId,
+      changeRequestTargetDayNumber: workflow.changeRequest.targetDayNumber,
+      changeRequestTargetDayLabel: workflow.changeRequest.targetDayLabel,
+      changeRequestProposedVisits: workflow.changeRequest.proposedVisits.map((proposal) => {
+        const proposalPdv = pdvMap.get(proposal.pdvId)
+
+        return {
+          pdvId: proposal.pdvId,
+          order: proposal.order,
+          pdv: proposalPdv?.nombre ?? null,
+          zona: proposalPdv?.zona ?? null,
+        } satisfies RutaChangeRequestProposedVisitItem
+      }),
+      changeRequestedAt: workflow.changeRequest.requestedAt,
+      createdAt: ruta.created_at,
+      updatedAt: ruta.updated_at,
+      totalVisitas: visitas.length,
+      visitasCompletadas: visitas.filter((item) => item.estatus === 'COMPLETADA').length,
+      visitas,
+      agendaEventosCount: 0,
+      pendientesReposicionCount: 0,
+    } satisfies RutaSemanalItem
+  })
+
+  const activeAssignments = asignacionesRaw.filter((item) => isAssignmentActiveForWeek(item, weekStart, weekEnd))
+  const warRoom = buildWarRoomData({
+    actor,
+    metadataColumnAvailable,
+    rutas,
+    agendaEventsByRoute: new Map(),
+    pendingRepositionsByRoute: new Map(),
+    pdvMap,
+    pdvsWithSupervisors: pdvsRaw,
+    geocercaMap: new Map(),
+    rotacionMap,
+    activeAssignments,
+    employees: empleadosRaw,
+    weekStart,
+  })
+
+  const chainOptions = Array.from(
+    warRoom.supervisors
+      .flatMap((item) => item.quotaProgress)
+      .reduce((map, item) => {
+        const key = (item.cadenaCodigo ?? '').trim().toUpperCase()
+        const label = (item.cadena ?? '').trim()
+
+        if (key && label && !map.has(key)) {
+          map.set(key, label)
+        }
+
+        return map
+      }, new Map<string, string>())
+      .entries()
+  )
+    .map(([value, label]) => ({ value, label }))
+    .sort((left, right) => left.label.localeCompare(right.label))
+
+  const supervisors = warRoom.supervisors
+    .map((item) => {
+      const quotaProgress = item.quotaProgress.filter((pdvItem) => {
+        const matchesChain =
+          !filters.cadenaCodigo ||
+          (pdvItem.cadenaCodigo ?? '').trim().toUpperCase() === filters.cadenaCodigo
+        const matchesStoreType = !filters.storeType || pdvItem.clasificacionMaestra === filters.storeType
+        return matchesChain && matchesStoreType
+      })
+
+      if (filters.supervisorEmpleadoId && item.supervisorEmpleadoId !== filters.supervisorEmpleadoId) {
+        return null
+      }
+
+      const visiblePdvIds = new Set(quotaProgress.map((pdvItem) => pdvItem.pdvId))
+      const monthPrefix = weekStart.slice(0, 7)
+      const monthlyVisits = rutas
+        .filter(
+          (route) =>
+            route.supervisorEmpleadoId === item.supervisorEmpleadoId &&
+            route.semanaInicio.slice(0, 7) === monthPrefix
+        )
+        .flatMap((route) =>
+          route.visitas.filter((visit) => visiblePdvIds.size === 0 || visiblePdvIds.has(visit.pdvId))
+        )
+      const weeklyRoutes = rutas.filter(
+        (route) => route.supervisorEmpleadoId === item.supervisorEmpleadoId && route.semanaInicio === weekStart
+      )
+      const weeklyVisits = weeklyRoutes.flatMap((route) =>
+        route.visitas.filter((visit) => visiblePdvIds.size === 0 || visiblePdvIds.has(visit.pdvId))
+      )
+      const monthlyCompletedByPdv = monthlyVisits.reduce((map, visit) => {
+        if (visit.estatus !== 'COMPLETADA') {
+          return map
+        }
+
+        map.set(visit.pdvId, (map.get(visit.pdvId) ?? 0) + 1)
+        return map
+      }, new Map<string, number>())
+      const weeklyPlanned = weeklyVisits.length
+      const weeklyCompleted = weeklyVisits.filter((visit) => visit.estatus === 'COMPLETADA').length
+      const weeklyPending = Math.max(weeklyPlanned - weeklyCompleted, 0)
+      const weeklyCompletionPct =
+        weeklyPlanned > 0 ? Math.max(0, Math.min(100, Math.round((weeklyCompleted / weeklyPlanned) * 100))) : 0
+      const monthlyTarget = quotaProgress.reduce((acc, pdvItem) => acc + pdvItem.quotaMensual, 0)
+      const monthlyCompleted = quotaProgress.reduce(
+        (acc, pdvItem) => acc + (monthlyCompletedByPdv.get(pdvItem.pdvId) ?? 0),
+        0
+      )
+      const monthlyPending = quotaProgress.reduce(
+        (acc, pdvItem) => acc + Math.max(pdvItem.quotaMensual - (monthlyCompletedByPdv.get(pdvItem.pdvId) ?? 0), 0),
+        0
+      )
+      const monthlyCompletionPct =
+        monthlyTarget > 0 ? Math.max(0, Math.min(100, Math.round((monthlyCompleted / monthlyTarget) * 100))) : 0
+      const weeklyCompletedByPdv = weeklyVisits.reduce((map, visit) => {
+        if (visit.estatus !== 'COMPLETADA') {
+          return map
+        }
+
+        map.set(visit.pdvId, (map.get(visit.pdvId) ?? 0) + 1)
+        return map
+      }, new Map<string, number>())
+      const storesWithoutVisitMonth = quotaProgress.filter(
+        (pdvItem) => pdvItem.quotaMensual > 0 && (monthlyCompletedByPdv.get(pdvItem.pdvId) ?? 0) === 0
+      ).length
+      const storesWithoutVisitWeek = quotaProgress.filter(
+        (pdvItem) => pdvItem.quotaMensual > 0 && (weeklyCompletedByPdv.get(pdvItem.pdvId) ?? 0) === 0
+      ).length
+
+      return {
+        supervisorEmpleadoId: item.supervisorEmpleadoId,
+        supervisor: item.supervisor,
+        zona: item.zona,
+        semaforo: monthlyCompletionPct >= 85 ? 'OK' : monthlyCompletionPct >= 60 ? 'RIESGO' : 'CRITICO',
+        visibleStores: quotaProgress.length,
+        monthlyTarget,
+        monthlyCompleted,
+        monthlyPending,
+        monthlyCompletionPct,
+        weeklyPlanned,
+        weeklyCompleted,
+        weeklyPending,
+        weeklyCompletionPct,
+        storesWithoutVisitMonth,
+        storesWithoutVisitWeek,
+        pdvGaps:
+          filters.supervisorEmpleadoId && item.supervisorEmpleadoId === filters.supervisorEmpleadoId
+            ? quotaProgress.map((pdvItem) => {
+                const visitsForPdv = weeklyVisits.filter((visit) => visit.pdvId === pdvItem.pdvId)
+                const pdvWeeklyPlanned = visitsForPdv.length
+                const pdvWeeklyCompleted = visitsForPdv.filter((visit) => visit.estatus === 'COMPLETADA').length
+                const pdvWeeklyPending = Math.max(pdvWeeklyPlanned - pdvWeeklyCompleted, 0)
+                const pdvWeeklyCompletionPct =
+                  pdvWeeklyPlanned > 0
+                    ? Math.max(0, Math.min(100, Math.round((pdvWeeklyCompleted / pdvWeeklyPlanned) * 100)))
+                    : 0
+
+                return {
+                  pdvId: pdvItem.pdvId,
+                  claveBtl: pdvItem.claveBtl,
+                  nombre: pdvItem.nombre,
+                  cadena: pdvItem.cadena,
+                  cadenaCodigo: pdvItem.cadenaCodigo,
+                  zona: pdvItem.zona,
+                  clasificacionMaestra: pdvItem.clasificacionMaestra,
+                  grupoRotacionCodigo: pdvItem.grupoRotacionCodigo,
+                  monthlyTarget: pdvItem.quotaMensual,
+                  monthlyCompleted: monthlyCompletedByPdv.get(pdvItem.pdvId) ?? 0,
+                  monthlyPending: Math.max(
+                    pdvItem.quotaMensual - (monthlyCompletedByPdv.get(pdvItem.pdvId) ?? 0),
+                    0
+                  ),
+                  monthlyCompletionPct:
+                    pdvItem.quotaMensual > 0
+                      ? Math.max(
+                          0,
+                          Math.min(
+                            100,
+                            Math.round(((monthlyCompletedByPdv.get(pdvItem.pdvId) ?? 0) / pdvItem.quotaMensual) * 100)
+                          )
+                        )
+                      : 0,
+                  weeklyPlanned: pdvWeeklyPlanned,
+                  weeklyCompleted: pdvWeeklyCompleted,
+                  weeklyPending: pdvWeeklyPending,
+                  weeklyCompletionPct: pdvWeeklyCompletionPct,
+                } satisfies VisitReachPdvGapItem
+              })
+            : [],
+      } satisfies VisitReachSupervisorItem
+    })
+    .filter((item): item is VisitReachSupervisorItem => Boolean(item))
+    .sort((left, right) => right.monthlyCompletionPct - left.monthlyCompletionPct || left.supervisor.localeCompare(right.supervisor))
+
+  const summary = supervisors.reduce(
+    (acc, supervisor) => {
+      acc.monthlyTarget += supervisor.monthlyTarget
+      acc.monthlyCompleted += supervisor.monthlyCompleted
+      acc.monthlyPending += supervisor.monthlyPending
+      acc.weeklyPlanned += supervisor.weeklyPlanned
+      acc.weeklyCompleted += supervisor.weeklyCompleted
+      acc.weeklyPending += supervisor.weeklyPending
+      acc.storesWithoutVisitMonth += supervisor.storesWithoutVisitMonth
+      acc.storesWithoutVisitWeek += supervisor.storesWithoutVisitWeek
+      return acc
+    },
+    {
+      monthlyTarget: 0,
+      monthlyCompleted: 0,
+      monthlyPending: 0,
+      weeklyPlanned: 0,
+      weeklyCompleted: 0,
+      weeklyPending: 0,
+      storesWithoutVisitMonth: 0,
+      storesWithoutVisitWeek: 0,
+    }
+  )
+
+  return {
+    weekStart,
+    weekEnd,
+    filters,
+    options: {
+      supervisors: warRoom.supervisors.map((item) => ({ id: item.supervisorEmpleadoId, nombre: item.supervisor })),
+      cadenas: chainOptions,
+      storeTypes: [
+        { value: '', label: getVisitReachStoreTypeLabel('') },
+        { value: 'FIJO', label: getVisitReachStoreTypeLabel('FIJO') },
+        { value: 'ROTATIVO', label: getVisitReachStoreTypeLabel('ROTATIVO') },
+      ],
+    },
+    monthlyTarget: summary.monthlyTarget,
+    monthlyCompleted: summary.monthlyCompleted,
+    monthlyPending: summary.monthlyPending,
+    monthlyCompletionPct:
+      summary.monthlyTarget > 0
+        ? Math.max(0, Math.min(100, Math.round((summary.monthlyCompleted / summary.monthlyTarget) * 100)))
+        : 0,
+    weeklyPlanned: summary.weeklyPlanned,
+    weeklyCompleted: summary.weeklyCompleted,
+    weeklyPending: summary.weeklyPending,
+    weeklyCompletionPct:
+      summary.weeklyPlanned > 0
+        ? Math.max(0, Math.min(100, Math.round((summary.weeklyCompleted / summary.weeklyPlanned) * 100)))
+        : 0,
+    storesWithoutVisitMonth: summary.storesWithoutVisitMonth,
+    storesWithoutVisitWeek: summary.storesWithoutVisitWeek,
+    visibleSupervisors: supervisors.length,
+    detailEnabled: Boolean(filters.supervisorEmpleadoId),
+    supervisors,
+  }
+}
+
 export async function obtenerPanelRutaSemanal(
   supabase: TypedSupabaseClient,
   actor: ActorActual,
@@ -552,14 +1131,26 @@ export async function obtenerPanelRutaSemanal(
     actor,
     puedeEditar,
     allowGlobalScope,
+    ensureWeekStart: semanaActualInicio,
   })
+
+  let rotationQuery = supabase
+    .from('pdv_rotacion_maestra')
+    .select('pdv_id, clasificacion_maestra, grupo_rotacion_codigo')
+    .eq('vigente', true)
+
+  if (actor.cuentaClienteId) {
+    rotationQuery = rotationQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+
+  rotationQuery = rotationQuery.limit(600)
 
   const [
     visitasResult,
     pdvsResult,
     geocercasResult,
     asignacionesResult,
-    solicitudesResult,
+    rotationResult,
     empleadosResult,
     agendaEventosResult,
     pendientesReposicionResult,
@@ -598,6 +1189,7 @@ export async function obtenerPanelRutaSemanal(
           direccion,
           estatus,
           formato,
+          cadena:cadena_id(id, codigo, nombre),
           supervisor_pdv(id, activo, fecha_inicio, fecha_fin, empleado:empleado_id(id, nombre_completo, zona))
         `)
         .order('nombre', { ascending: true })
@@ -607,13 +1199,7 @@ export async function obtenerPanelRutaSemanal(
         .select('pdv_id, latitud, longitud, radio_tolerancia_metros')
         .limit(500),
       buildAsignacionesQuery(supabase, actor, puedeEditar, allowGlobalScope),
-      actor.puesto === 'COORDINADOR' || actor.puesto === 'ADMINISTRADOR'
-        ? supabase
-            .from('solicitud')
-            .select('id, empleado_id, supervisor_empleado_id, tipo, estatus, fecha_inicio, fecha_fin, motivo, comentarios')
-            .order('fecha_inicio', { ascending: false })
-            .limit(240)
-        : Promise.resolve({ data: [], error: null }),
+      rotationQuery,
       supabase
         .from('empleado')
         .select('id, nombre_completo, puesto, zona, estatus_laboral, supervisor_empleado_id')
@@ -650,7 +1236,6 @@ export async function obtenerPanelRutaSemanal(
     pdvsResult.error?.message ??
     geocercasResult.error?.message ??
     (asignacionesResult as { error?: { message?: string } | null }).error?.message ??
-    (solicitudesResult as { error?: { message?: string } | null }).error?.message ??
     empleadosResult.error?.message ??
     (agendaInfrastructureMissing ? null : agendaEventosResult.error?.message) ??
     (agendaInfrastructureMissing ? null : pendientesReposicionResult.error?.message) ??
@@ -679,7 +1264,7 @@ export async function obtenerPanelRutaSemanal(
   const pdvsRaw = (pdvsResult.data ?? []) as PdvWarRoomRow[]
   const geocercasRaw = (geocercasResult.data ?? []) as GeocercaMiniRow[]
   const asignacionesRaw = ((asignacionesResult as { data?: unknown[] | null }).data ?? []) as AsignacionRutaRow[]
-  const solicitudesRaw = ((solicitudesResult as { data?: unknown[] | null }).data ?? []) as SolicitudRutaRow[]
+  const rotacionRaw = ((rotationResult as { data?: unknown[] | null }).data ?? []) as PdvRotacionMaestraRutaRow[]
   const empleadosRaw = (empleadosResult.data ?? []) as EmpleadoWarRoomRow[]
   const agendaEventosRaw = ((agendaInfrastructureMissing ? [] : agendaEventosResult.data ?? []) as RutaAgendaEventoQueryRow[]).filter((item) =>
     rutaIds.has(item.ruta_semanal_id)
@@ -699,10 +1284,13 @@ export async function obtenerPanelRutaSemanal(
         direccion: item.direccion,
         estatus: item.estatus,
         formato: item.formato,
+        cadenaNombre: obtenerPrimero(item.cadena)?.nombre ?? null,
+        cadenaCodigo: obtenerPrimero(item.cadena)?.codigo ?? null,
       } satisfies PdvMiniRow,
     ])
   )
   const geocercaMap = new Map(geocercasRaw.map((item) => [item.pdv_id, item]))
+  const rotacionMap = new Map(rotacionRaw.map((item) => [item.pdv_id, item]))
   const visitasPorRuta = new Map<string, RutaSemanalVisitItem[]>()
 
   for (const visita of visitasRaw) {
@@ -883,7 +1471,7 @@ export async function obtenerPanelRutaSemanal(
     const pdv = pdvMap.get(item.pdv_id)
     const geocerca = geocercaMap.get(item.pdv_id)
 
-    if (!pdv || pdv.estatus !== 'ACTIVO') {
+    if (!pdv || !isOperablePdvStatus(pdv.estatus)) {
       continue
     }
 
@@ -904,7 +1492,7 @@ export async function obtenerPanelRutaSemanal(
 
   if (puedeEditar) {
     for (const pdv of pdvsRaw) {
-      if (pdv.estatus !== 'ACTIVO') {
+      if (!isOperablePdvStatus(pdv.estatus)) {
         continue
       }
 
@@ -952,9 +1540,9 @@ export async function obtenerPanelRutaSemanal(
     pdvMap,
     pdvsWithSupervisors: pdvsRaw,
     geocercaMap,
+    rotacionMap,
     activeAssignments,
     employees: empleadosRaw,
-    solicitudes: solicitudesRaw,
     weekStart: semanaActualInicio,
   })
 
@@ -1102,13 +1690,46 @@ async function fetchRutasWithWorkflowSupport(
     actor,
     puedeEditar,
     allowGlobalScope,
+    limit,
+    ensureWeekStart,
   }: {
     actor: ActorActual
     puedeEditar: boolean
     allowGlobalScope: boolean
+    limit?: number
+    ensureWeekStart?: string | null
   }
 ) {
-  const run = (includeMetadata: boolean) => {
+  const queryLimit = limit ?? (puedeEditar ? 12 : 24)
+  const asRutaRows = (value: unknown): RutaQueryRow[] => {
+    if (!Array.isArray(value)) {
+      return []
+    }
+
+    return value as unknown as RutaQueryRow[]
+  }
+  const mergeRows = (rows: RutaQueryRow[]) =>
+    Array.from(new Map(rows.map((item) => [item.id, item])).values())
+      .filter((item) => {
+        if (allowGlobalScope) {
+          return true
+        }
+
+        if (actor.cuentaClienteId) {
+          return item.cuenta_cliente_id === actor.cuentaClienteId
+        }
+
+        return true
+      })
+      .sort((left, right) => {
+        if (left.semana_inicio !== right.semana_inicio) {
+          return right.semana_inicio.localeCompare(left.semana_inicio)
+        }
+
+        return right.updated_at.localeCompare(left.updated_at)
+      })
+
+  const run = (includeMetadata: boolean, weekStartFilter?: string | null) => {
     const baseSelect = `
       id,
       cuenta_cliente_id,
@@ -1122,18 +1743,21 @@ async function fetchRutasWithWorkflowSupport(
       supervisor:supervisor_empleado_id(id, nombre_completo, zona)
     `
 
-    const query = puedeEditar
+    let query = puedeEditar
       ? supabase
           .from('ruta_semanal')
           .select(baseSelect)
           .eq('supervisor_empleado_id', actor.empleadoId)
-          .order('semana_inicio', { ascending: false })
-          .limit(12)
-      : supabase
-          .from('ruta_semanal')
-          .select(baseSelect)
-          .order('semana_inicio', { ascending: false })
-          .limit(24)
+      : supabase.from('ruta_semanal').select(baseSelect)
+
+    if (weekStartFilter) {
+      query = query
+        .eq('semana_inicio', weekStartFilter)
+        .order('updated_at', { ascending: false })
+        .limit(Math.max(queryLimit, 160))
+    } else {
+      query = query.order('semana_inicio', { ascending: false }).limit(queryLimit)
+    }
 
     return query
   }
@@ -1145,27 +1769,28 @@ async function fetchRutasWithWorkflowSupport(
     (message.includes('column') && message.includes('metadata'))
 
   if (!metadataMissing) {
+    const ensuredResult =
+      ensureWeekStart && !puedeEditar ? await run(true, ensureWeekStart) : null
+
     return {
-      result,
+      result: {
+        data: mergeRows([
+          ...asRutaRows(result.data),
+          ...asRutaRows(ensuredResult?.data),
+        ]),
+        error: result.error ?? ensuredResult?.error ?? null,
+      },
       metadataColumnAvailable: true,
     }
   }
 
   const fallback = await run(false)
-  const filtered =
-    (fallback.data ?? []).filter((item) => {
-      const row = item as unknown as RutaQueryRow
-
-      if (allowGlobalScope) {
-        return true
-      }
-
-      if (actor.cuentaClienteId) {
-        return row.cuenta_cliente_id === actor.cuentaClienteId
-      }
-
-      return true
-    }) ?? []
+  const ensuredFallback =
+    ensureWeekStart && !puedeEditar ? await run(false, ensureWeekStart) : null
+  const filtered = mergeRows([
+    ...asRutaRows(fallback.data),
+    ...asRutaRows(ensuredFallback?.data),
+  ])
 
   return {
     result: {
@@ -1188,9 +1813,9 @@ function buildWarRoomData({
   pdvMap,
   pdvsWithSupervisors,
   geocercaMap,
+  rotacionMap,
   activeAssignments,
   employees,
-  solicitudes,
   weekStart,
 }: {
   actor: ActorActual
@@ -1201,13 +1826,11 @@ function buildWarRoomData({
   pdvMap: Map<string, PdvMiniRow>
   pdvsWithSupervisors: PdvWarRoomRow[]
   geocercaMap: Map<string, GeocercaMiniRow>
+  rotacionMap: Map<string, PdvRotacionMaestraRutaRow>
   activeAssignments: AsignacionRutaRow[]
   employees: EmpleadoWarRoomRow[]
-  solicitudes: SolicitudRutaRow[]
   weekStart: string
 }): RutaSemanalWarRoomData {
-  const monthPrefix = weekStart.slice(0, 7)
-  const actorZone = employees.find((item) => item.id === actor.empleadoId)?.zona ?? null
   const rutasVisibles =
     actor.puesto === 'SUPERVISOR' ? rutas.filter((item) => item.supervisorEmpleadoId === actor.empleadoId) : rutas
   const assignmentMap = new Map<string, AsignacionRutaRow[]>()
@@ -1224,7 +1847,7 @@ function buildWarRoomData({
   }
 
   for (const pdv of pdvsWithSupervisors) {
-    if (pdv.estatus !== 'ACTIVO') {
+    if (!isOperablePdvStatus(pdv.estatus)) {
       continue
     }
 
@@ -1240,6 +1863,7 @@ function buildWarRoomData({
     if (!empleado?.id) {
       continue
     }
+    const cadena = obtenerPrimero(pdv.cadena)
 
     const current = pdvBaseMap.get(empleado.id) ?? []
     current.push({
@@ -1250,6 +1874,8 @@ function buildWarRoomData({
       direccion: pdv.direccion,
       estatus: pdv.estatus,
       formato: pdv.formato,
+      cadenaNombre: cadena?.nombre ?? null,
+      cadenaCodigo: cadena?.codigo ?? null,
     })
     pdvBaseMap.set(empleado.id, current)
   }
@@ -1268,6 +1894,24 @@ function buildWarRoomData({
       return true
     })
 
+  const routeHasMonthlyQuotaMetadata = (route: RutaSemanalItem) =>
+    route.expectedMonthlyVisits !== null ||
+    route.minimumVisitsPerPdv !== null ||
+    Object.keys(route.pdvMonthlyQuotas).length > 0
+
+  const pickSupervisorQuotaRoute = (supervisorEmpleadoId: string) => {
+    const supervisorRoutes = rutasVisibles.filter((item) => item.supervisorEmpleadoId === supervisorEmpleadoId)
+    const sameWeekRoutes = supervisorRoutes.filter((item) => item.semanaInicio === weekStart)
+
+    return (
+      sameWeekRoutes.find((item) => routeHasMonthlyQuotaMetadata(item)) ??
+      sameWeekRoutes[0] ??
+      supervisorRoutes.find((item) => routeHasMonthlyQuotaMetadata(item)) ??
+      supervisorRoutes[0] ??
+      null
+    )
+  }
+
   const supervisors = Array.from(
     new Set([
       ...supervisorCatalog.map((item) => item.id),
@@ -1278,24 +1922,9 @@ function buildWarRoomData({
   )
     .map((supervisorEmpleadoId) => {
       const supervisorProfile = supervisorCatalog.find((item) => item.id === supervisorEmpleadoId) ?? null
-      const currentRoute =
-        rutasVisibles.find((item) => item.supervisorEmpleadoId === supervisorEmpleadoId && item.semanaInicio === weekStart) ??
-        rutasVisibles.find((item) => item.supervisorEmpleadoId === supervisorEmpleadoId) ??
-        null
+      const currentRoute = pickSupervisorQuotaRoute(supervisorEmpleadoId)
       const assignments = assignmentMap.get(supervisorEmpleadoId) ?? []
       const pdvsBase = pdvBaseMap.get(supervisorEmpleadoId) ?? []
-      const blockedDays = solicitudes
-        .filter((item) => item.empleado_id === supervisorEmpleadoId)
-        .filter((item) => item.estatus !== 'RECHAZADA')
-        .filter((item) => item.fecha_fin.slice(0, 7) === monthPrefix || item.fecha_inicio.slice(0, 7) === monthPrefix)
-        .map((item) => ({
-          solicitudId: item.id,
-          tipo: item.tipo,
-          fechaInicio: item.fecha_inicio,
-          fechaFin: item.fecha_fin,
-          estatus: item.estatus,
-          label: `${item.tipo === 'PERMISO' ? 'Cumpleanos' : item.tipo} ${item.fecha_inicio} - ${item.fecha_fin}`,
-        }))
 
       const pdvCandidates = new Map<
         string,
@@ -1314,7 +1943,7 @@ function buildWarRoomData({
 
       for (const assignment of assignments) {
         const pdv = pdvMap.get(assignment.pdv_id)
-        if (!pdv || pdv.estatus !== 'ACTIVO') {
+        if (!pdv || !isOperablePdvStatus(pdv.estatus)) {
           continue
         }
 
@@ -1327,14 +1956,12 @@ function buildWarRoomData({
       const quotaProgress = Array.from(pdvCandidates.values())
         .map(({ pdv }) => {
           const geocerca = geocercaMap.get(pdv.id)
+          const rotacion = rotacionMap.get(pdv.id)
           const visitsForPdv = rutas
             .flatMap((item) => item.visitas)
             .filter((visit) => visit.supervisorEmpleadoId === supervisorEmpleadoId && visit.pdvId === pdv.id)
           const visitasRealizadas = visitsForPdv.filter((visit) => visit.estatus === 'COMPLETADA').length
-          const quotaMensual =
-            currentRoute?.minimumVisitsPerPdv ??
-            currentRoute?.pdvMonthlyQuotas[pdv.id] ??
-            0
+          const quotaMensual = currentRoute?.pdvMonthlyQuotas[pdv.id] ?? currentRoute?.minimumVisitsPerPdv ?? 0
           const visitasPendientes = Math.max(quotaMensual - visitasRealizadas, 0)
           const cumplimientoPorcentaje = Math.min(
             100,
@@ -1345,8 +1972,12 @@ function buildWarRoomData({
             pdvId: pdv.id,
             claveBtl: pdv.clave_btl,
             nombre: pdv.nombre,
+            cadena: pdv.cadenaNombre ?? null,
+            cadenaCodigo: pdv.cadenaCodigo ?? null,
             formato: pdv.formato,
             zona: pdv.zona,
+            clasificacionMaestra: rotacion?.clasificacion_maestra ?? null,
+            grupoRotacionCodigo: rotacion?.grupo_rotacion_codigo ?? null,
             prioridad:
               visitasPendientes >= 2 ? 'ALTA' : visitasPendientes === 1 ? 'MEDIA' : 'BAJA',
             quotaMensual,
@@ -1377,18 +2008,6 @@ function buildWarRoomData({
         expectedMonthlyVisits > 0
           ? Math.min(100, Math.round((monthlyVisitsCompleted / expectedMonthlyVisits) * 100))
           : 0
-
-      const reassignmentAlerts = (currentRoute?.visitas ?? [])
-        .filter((visit) => {
-          const visitDate = addDaysToWeek(weekStart, visit.diaSemana)
-          return blockedDays.some((blocked) => visitDate >= blocked.fechaInicio && visitDate <= blocked.fechaFin)
-        })
-        .map((visit) => ({
-          visitId: visit.id,
-          diaLabel: visit.diaLabel,
-          pdv: visit.pdv,
-          motivo: 'La persona tiene un dia bloqueado por solicitud aprobada o en curso.',
-        }))
 
       return {
         supervisorEmpleadoId,
@@ -1432,8 +2051,8 @@ function buildWarRoomData({
               item.estado !== 'DESCARTADA' &&
               item.estado !== 'EJECUTADA'
           ).length,
-        blockedDays,
-        reassignmentAlerts,
+        blockedDays: [],
+        reassignmentAlerts: [],
         quotaProgress,
       } satisfies RutaSupervisorWarRoomItem
     })

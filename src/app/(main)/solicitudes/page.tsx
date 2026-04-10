@@ -25,7 +25,14 @@ function parsePositiveInt(value: string | undefined, fallback: number) {
 }
 
 export default async function SolicitudesPage({ searchParams }: SolicitudesPageProps) {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'DERMOCONSEJERO', 'SUPERVISOR', 'COORDINADOR', 'NOMINA', 'RECLUTAMIENTO'])
+  const actor = await requerirPuestosActivos([
+    'ADMINISTRADOR',
+    'DERMOCONSEJERO',
+    'SUPERVISOR',
+    'COORDINADOR',
+    'RECLUTAMIENTO',
+    'NOMINA',
+  ])
   const supabase = await createClient()
   const params = (await searchParams) ?? {}
   const data = await obtenerPanelSolicitudes(supabase, {

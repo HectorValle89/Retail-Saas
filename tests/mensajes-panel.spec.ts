@@ -72,7 +72,6 @@ test('consolida mensajes, adjuntos y estados enviados/recibidos', async () => {
           supervisor_empleado_id: null,
           opciones_respuesta: [],
           metadata: {},
-          creador: { id: 'emp-9', nombre_completo: 'Laura', puesto: 'SUPERVISOR' },
           created_at: '2026-03-16T18:00:00.000Z',
           updated_at: '2026-03-16T18:00:00.000Z',
         },
@@ -88,7 +87,6 @@ test('consolida mensajes, adjuntos y estados enviados/recibidos', async () => {
           supervisor_empleado_id: null,
           opciones_respuesta: [{ id: 'opt-1', label: 'Alta' }, { id: 'opt-2', label: 'Media' }],
           metadata: {},
-          creador: { id: 'emp-1', nombre_completo: 'Ana', puesto: 'DERMOCONSEJERO' },
           created_at: '2026-03-16T17:00:00.000Z',
           updated_at: '2026-03-16T17:00:00.000Z',
         },
@@ -145,6 +143,13 @@ test('consolida mensajes, adjuntos y estados enviados/recibidos', async () => {
       ],
       error: null,
     },
+    usuario: {
+      data: [
+        { id: 'user-9', empleado_id: 'sup-1' },
+        { id: 'user-1', empleado_id: 'emp-1' },
+      ],
+      error: null,
+    },
     empleado: {
       data: [
         { id: 'emp-1', nombre_completo: 'Ana', puesto: 'DERMOCONSEJERO', zona: 'Centro', supervisor_empleado_id: 'sup-1' },
@@ -165,6 +170,7 @@ test('consolida mensajes, adjuntos y estados enviados/recibidos', async () => {
   expect(data.unreadCount).toBe(1)
   expect(data.mensajes[0]?.adjuntos).toHaveLength(1)
   expect(data.mensajes[0]?.adjuntos[0]?.archivoHash).toBe('hash-1')
+  expect(data.mensajes[0]?.creadoPor).toBe('Laura')
   expect(data.mensajes[1]?.enviadoPorMi).toBe(true)
   expect(data.mensajes[1]?.recibidoPorMi).toBe(true)
   expect(data.mensajes[1]?.opcionesRespuesta).toHaveLength(2)
@@ -184,7 +190,6 @@ test('filtra historial de mensajes recibidos del actor autenticado', async () =>
           zona: null,
           supervisor_empleado_id: null,
           opciones_respuesta: [],
-          creador: { id: 'emp-9', nombre_completo: 'Laura', puesto: 'SUPERVISOR' },
           created_at: '2026-03-16T18:00:00.000Z',
           updated_at: '2026-03-16T18:00:00.000Z',
         },
@@ -205,8 +210,15 @@ test('filtra historial de mensajes recibidos del actor autenticado', async () =>
       ],
       error: null,
     },
+    usuario: {
+      data: [{ id: 'user-9', empleado_id: 'sup-1' }],
+      error: null,
+    },
     mensaje_adjunto: { data: [], error: null },
-    empleado: { data: [], error: null },
+    empleado: {
+      data: [{ id: 'sup-1', nombre_completo: 'Laura', puesto: 'SUPERVISOR', zona: 'Centro', supervisor_empleado_id: null }],
+      error: null,
+    },
   })
 
   const data = await obtenerPanelMensajes(actor, {
@@ -218,6 +230,67 @@ test('filtra historial de mensajes recibidos del actor autenticado', async () =>
   expect(data.mensajes).toHaveLength(1)
   expect(data.mensajes[0]?.enviadoPorMi).toBe(false)
   expect(data.mensajes[0]?.recibidoPorMi).toBe(true)
+})
+
+test('resuelve audience label para mensajes dirigidos por rol operativo', async () => {
+  const fakeClient = createFakeMensajesClient({
+    mensaje_interno: {
+      data: [
+        {
+          id: 'msg-rol-1',
+          creado_por_usuario_id: 'user-9',
+          titulo: 'Pendiente de alta IMSS',
+          cuerpo: 'Revisar expediente antes de las 14:00.',
+          tipo: 'MENSAJE',
+          grupo_destino: 'PUESTO',
+          zona: null,
+          supervisor_empleado_id: null,
+          opciones_respuesta: [],
+          metadata: { puesto_destino: 'RECLUTAMIENTO' },
+          created_at: '2026-03-16T19:00:00.000Z',
+          updated_at: '2026-03-16T19:00:00.000Z',
+        },
+      ],
+      error: null,
+    },
+    mensaje_receptor: {
+      data: [
+        {
+          id: 'rec-rol-1',
+          mensaje_id: 'msg-rol-1',
+          empleado_id: 'emp-1',
+          leido_en: null,
+          respondido_en: null,
+          respuesta: null,
+          estado: 'PENDIENTE',
+        },
+      ],
+      error: null,
+    },
+    usuario: {
+      data: [{ id: 'user-9', empleado_id: 'sup-1' }],
+      error: null,
+    },
+    mensaje_adjunto: { data: [], error: null },
+    empleado: {
+      data: [
+        { id: 'emp-1', nombre_completo: 'Ana', puesto: 'RECLUTAMIENTO', zona: 'Centro', supervisor_empleado_id: null },
+        { id: 'sup-1', nombre_completo: 'Laura', puesto: 'SUPERVISOR', zona: 'Centro', supervisor_empleado_id: null },
+      ],
+      error: null,
+    },
+  })
+
+  const recruitmentActor: ActorActual = {
+    ...actor,
+    puesto: 'RECLUTAMIENTO',
+  }
+
+  const data = await obtenerPanelMensajes(recruitmentActor, { serviceClient: fakeClient as never })
+
+  expect(data.mensajes).toHaveLength(1)
+  expect(data.mensajes[0]?.audienceLabel).toBe('Rol RECLUTAMIENTO')
+  expect(data.mensajes[0]?.creadoPor).toBe('Laura')
 })
 
 test('degrada con mensaje de infraestructura cuando falla consulta', async () => {

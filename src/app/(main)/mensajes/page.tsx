@@ -45,11 +45,13 @@ export default async function MensajesPage({ searchParams }: MensajesPageProps) 
   const page = parsePositiveInt(pickString(params.page), 1)
   const pageSize = parsePositiveInt(pickString(params.pageSize), 20)
   const direction = pickString(params.direction)
+  const tab = pickString(params.tab)
   const data = await obtenerPanelMensajes(actor, {
     scopeAccountId: accountScope.accountId,
     page,
     pageSize,
     direction,
+    tab,
   })
 
   return (
@@ -75,7 +77,7 @@ export default async function MensajesPage({ searchParams }: MensajesPageProps) 
       <MensajesRealtimeBridge
         cuentaClienteId={accountScope.accountId}
         empleadoId={actor.empleadoId}
-        allowManagerScope={['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR'].includes(actor.puesto)}
+        allowManagerScope={['ADMINISTRADOR', 'COORDINADOR'].includes(actor.puesto)}
       />
       <MensajesPanel data={data} />
     </div>

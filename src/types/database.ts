@@ -153,7 +153,47 @@ export interface Pdv {
   formato: string | null
   horario_entrada: string | null
   horario_salida: string | null
-  estatus: 'ACTIVO' | 'INACTIVO'
+  estatus: 'ACTIVO' | 'TEMPORAL' | 'INACTIVO'
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface PdvCoberturaOperativa {
+  id: string
+  cuenta_cliente_id: string
+  pdv_id: string
+  estado_operativo: 'CUBIERTO' | 'RESERVADO_PENDIENTE_ACCESO' | 'VACANTE'
+  motivo_operativo:
+    | 'SIN_DC'
+    | 'EN_PROCESO_FIRMA'
+    | 'PENDIENTE_ACCESO'
+    | 'PDV_DE_PASO'
+    | 'TIENDA_ESCUELA'
+    | 'MOVIMIENTO_TEMPORAL'
+    | null
+  empleado_reservado_id: string | null
+  pdv_paso_id: string | null
+  acceso_pendiente_desde: string | null
+  proximo_recordatorio_at: string | null
+  apartado_por_usuario_id: string | null
+  observaciones: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface PdvRotacionMaestra {
+  id: string
+  cuenta_cliente_id: string
+  pdv_id: string
+  clasificacion_maestra: 'FIJO' | 'ROTATIVO'
+  grupo_rotacion_codigo: string | null
+  grupo_tamano: 2 | 3 | null
+  slot_rotacion: 'A' | 'B' | 'C' | null
+  fuente: 'SUGERIDA' | 'IMPORTADA'
+  vigente: boolean
+  observaciones: string | null
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -978,10 +1018,25 @@ export interface MensajeInterno {
   titulo: string
   cuerpo: string
   tipo: 'MENSAJE' | 'ENCUESTA'
-  grupo_destino: 'TODOS_DCS' | 'ZONA' | 'SUPERVISOR'
+  grupo_destino: 'TODOS_DCS' | 'ZONA' | 'SUPERVISOR' | 'PUESTO'
   zona: string | null
   supervisor_empleado_id: string | null
   opciones_respuesta: Record<string, unknown>[]
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface MensajeEncuestaPregunta {
+  id: string
+  mensaje_id: string
+  cuenta_cliente_id: string
+  orden: number
+  titulo: string
+  descripcion: string | null
+  tipo_pregunta: 'OPCION_MULTIPLE' | 'RESPUESTA_LIBRE'
+  opciones: Record<string, unknown>[]
+  obligatoria: boolean
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -996,6 +1051,21 @@ export interface MensajeReceptor {
   respondido_en: string | null
   respuesta: string | null
   estado: 'PENDIENTE' | 'LEIDO' | 'RESPONDIDO'
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface MensajeEncuestaRespuesta {
+  id: string
+  mensaje_id: string
+  mensaje_receptor_id: string
+  pregunta_id: string
+  cuenta_cliente_id: string
+  empleado_id: string
+  opcion_id: string | null
+  opcion_label: string | null
+  respuesta_texto: string | null
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string

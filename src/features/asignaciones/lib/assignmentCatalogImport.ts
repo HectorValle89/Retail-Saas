@@ -8,6 +8,7 @@ import {
 export interface AssignmentCatalogImportRow {
   rowNumber: number
   claveBtl: string
+  empleadoId: string | null
   idNomina: string | null
   username: string | null
   nombreDc: string | null
@@ -192,6 +193,9 @@ export function parseAssignmentCatalogWorkbook(
     const claveBtl = normalizeText(
       lookupValue(normalizedRow, ['btl_cve', 'clave_btl', 'pdv_clave_btl'])
     )
+    const empleadoId = normalizeText(
+      lookupValue(normalizedRow, ['empleado_id', 'employee_id', 'dc_id'])
+    )
     const idNomina = normalizeText(
       lookupValue(normalizedRow, ['idnom', 'id_nomina', 'id_nom'])
     )
@@ -229,12 +233,12 @@ export function parseAssignmentCatalogWorkbook(
       return
     }
 
-    if (!idNomina && !username && !nombreDc) {
+    if (!empleadoId && !username && !nombreDc && !idNomina) {
       issues.push({
         rowNumber,
         code: 'FILA_SIN_REFERENCIA_DC',
         severity: 'ERROR',
-        message: 'La fila no tiene IDNOM, USUARIO ni NOMBRE DC para resolver a la dermoconsejera.',
+        message: 'La fila no tiene EMPLEADO_ID, USUARIO, NOMBRE DC ni IDNOM para resolver a la dermoconsejera.',
       })
       skippedRows += 1
       return
@@ -265,6 +269,7 @@ export function parseAssignmentCatalogWorkbook(
     const row: AssignmentCatalogImportRow = {
       rowNumber,
       claveBtl,
+      empleadoId,
       idNomina,
       username,
       nombreDc,
@@ -277,7 +282,7 @@ export function parseAssignmentCatalogWorkbook(
       observaciones,
     }
 
-    const employeeKey = idNomina ?? username ?? nombreDc ?? `row-${row.rowNumber}`
+    const employeeKey = empleadoId ?? username ?? nombreDc ?? idNomina ?? `row-${row.rowNumber}`
     const dedupeKey = `${employeeKey}::${claveBtl}::${tipo}`
     if (rows.has(dedupeKey)) {
       issues.push({

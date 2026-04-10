@@ -131,6 +131,10 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 4. WHEN un Gestor registra una Cobertura para un Promotor en un PDV distinto al habitual, THE Sistema SHALL requerir aprobación del Administrador antes de que la Cobertura elimine la Falta potencial.
 5. IF un Promotor registra Check-in en un PDV diferente al asignado sin una Cobertura aprobada, THEN THE Sistema SHALL registrar la visita pero marcar el día como Falta en el PDV asignado y notificar al Gestor.
 6. THE Sistema SHALL generar un reporte de asistencia por Promotor, por PDV y por Periodo, exportable en formato CSV.
+7. THE Sistema SHALL exponer para ADMINISTRADOR, COORDINADOR y NÓMINA una vista administrativa mensual tipo calendario con columnas fijas de ID de nómina, nombre, supervisor y cadena principal del mes, seguida por una columna por cada día del mes visible.
+8. WHEN el calendario administrativo mensual se renderiza, THEN cada celda diaria SHALL resolver exactamente uno de los códigos A, AR, FR, F, JUS, V, IP, I, ISP, IS, D, FE, B o VC, usando `asignacion_diaria_resuelta` como base y aplicando encima asistencias válidas, retardos, solicitudes aprobadas, feriados y bajas.
+9. WHEN un usuario autorizado abre el detalle de una celda del calendario administrativo, THEN THE Sistema SHALL mostrar en modo solo consulta el PDV efectivo, la cadena, la sucursal, el horario esperado, la hora real de check-in/check-out, el estado GPS, la biometría, el supervisor y las evidencias disponibles del día.
+10. THE Sistema SHALL permitir a ADMINISTRADOR, COORDINADOR y NÓMINA descargar el calendario administrativo mensual visible usando la misma nomenclatura diaria mostrada en la interfaz.
 
 ---
 
@@ -298,13 +302,14 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 
 **Flujo de Incapacidades**
 
-16. WHEN un DERMOCONSEJERO crea una solicitud de incapacidad desde la App_Movil, THE App_Movil SHALL requerir obligatoriamente la selección de fechas de inicio y fin, y la captura de una fotografía del documento médico tomada en el momento (sin galería); al enviar, THE Sistema SHALL registrar la solicitud en estado ENVIADA y notificar al SUPERVISOR.
-17. WHEN el SUPERVISOR recibe una solicitud de incapacidad en estado ENVIADA, THE Dashboard SHALL permitir al SUPERVISOR aprobarla (cambiando el estado a VALIDADA_SUP) o rechazarla con motivo en un plazo máximo de 24 horas; IF el SUPERVISOR rechaza la solicitud, THEN THE Sistema SHALL notificar al DERMOCONSEJERO para que corrija y reenvíe.
-18. WHEN una incapacidad alcanza el estado VALIDADA_SUP, THE Sistema SHALL notificar al rol NÓMINA para que verifique el formato oficial del documento y formalice la incapacidad cambiando el estado a REGISTRADA_RH en un plazo máximo de 48 horas.
-19. WHEN una incapacidad alcanza el estado REGISTRADA_RH, THE Motor_Nomina SHALL anular automáticamente todas las Faltas injustificadas y Retardos registrados para el DERMOCONSEJERO en las fechas cubiertas por la incapacidad.
-20. WHEN el Motor_Nomina calcula el pago de una incapacidad, THE Motor_Nomina SHALL aplicar la siguiente lógica por bloque continuo de ausencia: los días 1 al 3 consecutivos del bloque se marcan como pagados al 100% del sueldo base (IP o ISP); el día 4 en adelante del mismo bloque continuo se marcan como justificados sin pago por parte de la empresa (I o IS).
-21. IF un DERMOCONSEJERO presenta un nuevo folio de incapacidad sin haber registrado al menos una Asistencia Normal entre el folio anterior y el nuevo, y el folio anterior ya agotó los 3 días subsidiados, THEN THE Motor_Nomina SHALL marcar todos los días del nuevo folio directamente como IS (sin pago).
-22. WHEN un DERMOCONSEJERO registra una Asistencia Normal después de un bloque de incapacidad, THE Motor_Nomina SHALL reiniciar el contador de días pagados, de modo que una incapacidad futura inicie un nuevo bloque con derecho a 3 días pagados.
+16. WHEN un DERMOCONSEJERO crea una solicitud de incapacidad desde la App_Movil, THE App_Movil SHALL requerir obligatoriamente la selección de fechas de inicio y fin, y la captura de una fotografía del documento médico tomada en el momento (sin galería); al enviar, THE Sistema SHALL registrar la solicitud en estado ENVIADA, notificar al SUPERVISOR como primer filtro operativo y enviar aviso informativo a RECLUTAMIENTO.
+17. WHEN el SUPERVISOR recibe una solicitud de incapacidad en estado ENVIADA, THE Dashboard SHALL permitir al SUPERVISOR aprobarla (manteniendo el flujo en estado VALIDADA_SUP) o rechazarla con motivo en un plazo máximo de 24 horas; IF el SUPERVISOR rechaza la solicitud, THEN THE Sistema SHALL notificar al DERMOCONSEJERO para que corrija y reenvíe.
+18. WHEN una incapacidad queda validada por SUPERVISOR, THE Sistema SHALL notificar a RECLUTAMIENTO para revisar el documento, validar que el soporte sea correcto y, si procede, marcar la revisión documental como aprobada; IF RECLUTAMIENTO no la aprueba, THEN THE Sistema SHALL regresarla al originador con CORRECCION_SOLICITADA.
+19. WHEN RECLUTAMIENTO valida documentalmente una incapacidad, THE Sistema SHALL notificar al rol NÓMINA para que verifique el folio oficial en el sistema y formalice la incapacidad cambiando el estado a REGISTRADA_RH en un plazo máximo de 48 horas.
+20. WHEN una incapacidad alcanza el estado REGISTRADA_RH, THE Motor_Nomina SHALL anular automáticamente todas las Faltas injustificadas y Retardos registrados para el DERMOCONSEJERO en las fechas cubiertas por la incapacidad.
+21. WHEN el Motor_Nomina calcula el pago de una incapacidad, THE Motor_Nomina SHALL aplicar la siguiente lógica por bloque continuo de ausencia: los días 1 al 3 consecutivos del bloque se marcan como pagados al 100% del sueldo base (IP o ISP); el día 4 en adelante del mismo bloque continuo se marcan como justificados sin pago por parte de la empresa (I o IS).
+22. IF un DERMOCONSEJERO presenta un nuevo folio de incapacidad sin haber registrado al menos una Asistencia Normal entre el folio anterior y el nuevo, y el folio anterior ya agotó los 3 días subsidiados, THEN THE Motor_Nomina SHALL marcar todos los días del nuevo folio directamente como IS (sin pago).
+23. WHEN un DERMOCONSEJERO registra una Asistencia Normal después de un bloque de incapacidad, THE Motor_Nomina SHALL reiniciar el contador de días pagados, de modo que una incapacidad futura inicie un nuevo bloque con derecho a 3 días pagados.
 
 **Horarios y Jerarquía de Resolución**
 
@@ -427,27 +432,37 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 
 14. WHEN el Sistema publica una asignación de tipo ROTATIVA, IF el DC tiene más de 3 PDVs asignados en la misma semana, THEN THE Sistema SHALL publicar la asignación y generar una alerta `ROTATIVA_SOBRECARGADA` al ADMINISTRADOR y al SUPERVISOR responsable.
 
-15. WHEN el Sistema publica un conjunto de asignaciones para un DC, IF los días laborales configurados resultan en 7 días consecutivos sin descanso, THEN THE Sistema SHALL publicar las asignaciones y generar una alerta `SIN_DESCANSO_SEMANAL` al ADMINISTRADOR y al SUPERVISOR responsable.
+15. WHEN el Sistema administra el plan maestro de asignaciones, THE Sistema SHALL mantener una fuente de verdad separada llamada `rotacion_maestra_pdv` que clasifique cada PDV operable como `FIJO` o `ROTATIVO`, independiente de las asignaciones diarias o mensuales.
 
-16. WHEN el Sistema publica una asignación, IF el DC tiene una incapacidad activa aprobada que se solapa con el rango de fechas de la asignación, THEN THE Sistema SHALL publicar la asignación y generar una alerta `DC_CON_INCAPACIDAD_ACTIVA` al ADMINISTRADOR y al SUPERVISOR responsable.
+16. WHEN un PDV queda clasificado como `ROTATIVO` en la capa maestra, THEN THE Sistema SHALL exigir un `grupo_rotacion_codigo`, un `grupo_tamano` válido de `2` o `3` y una `posicion` única dentro del grupo (`A`, `B` o `C`); los grupos incompletos o inconsistentes SHALL bloquear la importación final.
 
-17. WHEN el Sistema publica una asignación, IF el DC tiene vacaciones aprobadas en algún día del mes de la asignación, THEN THE Sistema SHALL publicar la asignación y generar una alerta `DC_CON_VACACIONES_APROBADAS` al ADMINISTRADOR y al SUPERVISOR responsable.
+17. WHEN el ADMINISTRADOR importa la rotación maestra definitiva de una cuenta, THE Sistema SHALL procesarla como reemplazo total de la topología activa de esa cuenta y SHALL rechazar cualquier archivo que omita PDVs operables, repita PDVs entre grupos o incluya PDVs `INACTIVOS` dentro de grupos rotativos.
 
-18. WHEN el Sistema publica una asignación para un PDV de la cadena San Pablo, IF el PDV no tiene horarios semanales cargados para el periodo de la asignación, THEN THE Sistema SHALL publicar la asignación y generar una alerta `PDV_SIN_HORARIOS_SAN_PABLO` al SUPERVISOR responsable.
+18. WHEN el ADMINISTRADOR carga un archivo legacy operativo de PDVs fijos y rotativos (ej. `PDV ROTATIVOS Y FIJOS.xlsx`), THE Sistema SHALL ofrecer una conversión previa a XLSX oficial de rotación maestra, aplicar parejas manuales aprobadas para PDVs vacantes `POR CUBRIR`, validar el resultado contra el contrato oficial y solo entonces permitir su importación final como reemplazo total.
+
+18A. WHEN el ADMINISTRADOR o VENTAS publica una campana que toca PDVs clasificados como `ROTATIVO`, THE Sistema SHALL ejecutar una previsualizacion de impacto antes de activar la campana, identificar los PDVs hermanos que quedarian sin cobertura, proponer coberturas temporales desde asignaciones vigentes o permitir reservar el PDV durante la ventana de la campana, bloquear la publicacion hasta que cada PDV impactado tenga una decision explicita, y expandir la cascada si la cobertura elegida rompe otra rotacion adicional.
+
+18. WHEN el Sistema publica un conjunto de asignaciones para un DC, IF los días laborales configurados resultan en 7 días consecutivos sin descanso, THEN THE Sistema SHALL publicar las asignaciones y generar una alerta `SIN_DESCANSO_SEMANAL` al ADMINISTRADOR y al SUPERVISOR responsable.
+
+19. WHEN el Sistema publica una asignación, IF el DC tiene una incapacidad activa aprobada que se solapa con el rango de fechas de la asignación, THEN THE Sistema SHALL publicar la asignación y generar una alerta `DC_CON_INCAPACIDAD_ACTIVA` al ADMINISTRADOR y al SUPERVISOR responsable.
+
+20. WHEN el Sistema publica una asignación, IF el DC tiene vacaciones aprobadas en algún día del mes de la asignación, THEN THE Sistema SHALL publicar la asignación y generar una alerta `DC_CON_VACACIONES_APROBADAS` al ADMINISTRADOR y al SUPERVISOR responsable.
+
+21. WHEN el Sistema publica una asignación para un PDV de la cadena San Pablo, IF el PDV no tiene horarios semanales cargados para el periodo de la asignación, THEN THE Sistema SHALL publicar la asignación y generar una alerta `PDV_SIN_HORARIOS_SAN_PABLO` al SUPERVISOR responsable.
 
 **Avisos de cobertura (eficiencia operativa)**
 
-19. WHEN el Sistema cierra el proceso de publicación de asignaciones de un mes, THE Sistema SHALL identificar todos los PDVs activos que no tienen ningún DC asignado en ese mes y generar un aviso `PDV_SIN_COBERTURA` al ADMINISTRADOR con la lista de PDVs afectados.
+22. WHEN el Sistema cierra el proceso de publicación de asignaciones de un mes, THE Sistema SHALL identificar todos los PDVs activos que no tienen ningún DC asignado en ese mes y generar un aviso `PDV_SIN_COBERTURA` al ADMINISTRADOR con la lista de PDVs afectados.
 
-20. WHEN el Sistema cierra el proceso de publicación de asignaciones de un mes, THE Sistema SHALL identificar todos los DCs activos que no tienen ninguna asignación en ese mes y generar un aviso `DC_SIN_ASIGNACION` al ADMINISTRADOR con la lista de DCs afectados.
+23. WHEN el Sistema cierra el proceso de publicación de asignaciones de un mes, THE Sistema SHALL identificar todos los DCs activos que no tienen ninguna asignación en ese mes y generar un aviso `DC_SIN_ASIGNACION` al ADMINISTRADOR con la lista de DCs afectados.
 
 **Alertas de operación en vivo (post-publicación)**
 
-21. WHEN un DC tiene una asignación activa en un PDV y no registra check-in después de transcurrido el tiempo de tolerancia configurado desde la hora de entrada esperada, THE Sistema SHALL generar una alerta `DC_SIN_CHECKIN` al SUPERVISOR responsable.
+24. WHEN un DC tiene una asignación activa en un PDV y no registra check-in después de transcurrido el tiempo de tolerancia configurado desde la hora de entrada esperada, THE Sistema SHALL generar una alerta `DC_SIN_CHECKIN` al SUPERVISOR responsable.
 
-22. WHEN el Sistema detecta que un DC ha registrado check-in fuera de la geocerca del PDV asignado en 3 días consecutivos en el mismo PDV, THE Sistema SHALL generar una alerta `FUERA_DE_GEOCERCA_MASIVO` al SUPERVISOR y al ADMINISTRADOR.
+25. WHEN el Sistema detecta que un DC ha registrado check-in fuera de la geocerca del PDV asignado en 3 días consecutivos en el mismo PDV, THE Sistema SHALL generar una alerta `FUERA_DE_GEOCERCA_MASIVO` al SUPERVISOR y al ADMINISTRADOR.
 
-23. WHEN el Sistema detecta que un PDV acumula retardos de check-in en más del 50% de los días del mes en curso, THE Sistema SHALL generar una alerta `RETARDOS_MASIVOS_PDV` al SUPERVISOR responsable indicando que el horario del PDV puede estar mal configurado.
+26. WHEN el Sistema detecta que un PDV acumula retardos de check-in en más del 50% de los días del mes en curso, THE Sistema SHALL generar una alerta `RETARDOS_MASIVOS_PDV` al SUPERVISOR responsable indicando que el horario del PDV puede estar mal configurado.
 
 24. WHEN la cola de sincronización offline de un DC tiene registros pendientes de sincronización por más de 48 horas y el DC tiene asignación activa en un PDV obligatorio, THE Sistema SHALL generar una alerta `COLA_OFFLINE_ATORADA` al SUPERVISOR y al ADMINISTRADOR.
 
@@ -507,7 +522,7 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 - WHEN una solicitud de tipo `VENTA` o `AMBAS` es aprobada, THEN THE consolidación SHALL reemplazar la venta del mismo producto ya existente para la misma fecha operativa, evitando duplicados ciegos.
 - WHEN una solicitud de tipo `LOVE_ISDIN` o `AMBAS` es aprobada, THEN THE consolidación SHALL mostrar lo ya capturado para la fecha operativa y SHALL evitar duplicación ciega de afiliaciones.
 - THE consolidación aprobada SHALL marcar `metodo_ingreso = EXTEMPORANEO`, `fuera_de_ventana = true`, almacenar `fecha_operativa`, `fecha_registro` y derivar el `gap` de retraso para auditoría.
-- THE Dashboard de Solicitudes SHALL mostrar una bandeja específica de registros extemporáneos con totales, pendientes, aprobados, rechazados y recurrencia mensual por DERMOCONSEJERO.
+- THE Sistema SHALL exponer la bandeja de registros extemporáneos dentro de `Ventas` y `LOVE ISDIN`, filtrada por tipo de registro, con totales, pendientes, aprobados, rechazados y recurrencia mensual por DERMOCONSEJERO.`n- THE modulo `Solicitudes` SHALL quedar reservado a informacion, seguimiento y aprobacion de incapacidades, vacaciones, permisos, avisos y justificaciones; el alta manual SHALL estar disponible solo para DERMOCONSEJERO y SUPERVISOR, y el calendario de ausencias SHALL vivir en `Asistencias`.
 
 ### Addendum - Dashboard de Reclutamiento
 - THE Sistema SHALL exponer en Empleados/Reclutamiento un dashboard operativo y no solo una bandeja documental.

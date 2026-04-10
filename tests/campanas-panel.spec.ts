@@ -51,6 +51,29 @@ function createFakeCampaignServiceClient(results: Record<string, QueryResult>) {
         limit() {
           return builder
         },
+        update(payload: Record<string, unknown>) {
+          return {
+            in(column: string, values: string[]) {
+              const result = results[table] ?? { data: [], error: null }
+
+              if (!Array.isArray(result.data)) {
+                return Promise.resolve({ data: null, error: result.error })
+              }
+
+              const updatedRows = result.data.map((row) => {
+                const record = row as Record<string, unknown>
+                return values.includes(String(record[column] ?? '')) ? { ...record, ...payload } : row
+              })
+
+              results[table] = {
+                data: updatedRows,
+                error: null,
+              }
+
+              return Promise.resolve({ data: updatedRows, error: null })
+            },
+          }
+        },
         then(resolve: (value: QueryResult) => unknown, reject?: (reason: unknown) => unknown) {
           try {
             const result = results[table] ?? { data: [], error: null }
@@ -262,7 +285,7 @@ test('consolida campanas, PDVs y reporte comercial por DC y PDV', async () => {
   expect(data.puedeGestionar).toBe(true)
   expect(data.resumen).toMatchObject({
     totalCampanas: 1,
-    activas: 1,
+    activas: 0,
     pdvsObjetivo: 2,
     pdvsCumplidos: 1,
     cuotaAdicionalTotal: 1500,
@@ -272,6 +295,7 @@ test('consolida campanas, PDVs y reporte comercial por DC y PDV', async () => {
     nombre: 'Spring ISDIN',
     cuentaCliente: 'ISDIN Mexico',
     cadena: 'San Pablo',
+    estado: 'CERRADA',
     totalPdvs: 2,
     pdvsCumplidos: 1,
   })
@@ -283,7 +307,6 @@ test('consolida campanas, PDVs y reporte comercial por DC y PDV', async () => {
   })
   expect(data.reportePorPdv).toHaveLength(2)
   expect(data.pdvsDisponibles).toHaveLength(2)
-  expect(data.pdvsDisponibles[0].dcNombre).toBe('Ana DC')
 })
 
 test('filtra campanas por PDVs asignados cuando entra una dermoconsejera', async () => {

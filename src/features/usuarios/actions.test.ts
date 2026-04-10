@@ -282,6 +282,21 @@ describe('usuarios actions', () => {
     expect(revalidatePathMock).toHaveBeenCalledWith('/admin/users')
   })
 
+  it('genera username provisional desde nombre y uuid aunque exista id_nomina', async () => {
+    const adminDouble = createServiceDouble()
+    obtenerClienteAdminMock.mockReturnValue({ service: adminDouble.service, error: null })
+
+    const formData = new FormData()
+    formData.set('empleado_id', 'emp-1')
+    formData.set('username', '')
+
+    const result = await crearUsuarioAdministrativo(ESTADO_USUARIO_ADMIN_INICIAL, formData)
+
+    expect(result.ok).toBe(true)
+    expect(result.generatedUsername).toBe('ana_torres_emp1')
+    expect(result.generatedUsername).not.toBe('EMP-001')
+  })
+
   it('no revierte el alta si el email de credenciales falla', async () => {
     const adminDouble = createServiceDouble()
     obtenerClienteAdminMock.mockReturnValue({ service: adminDouble.service, error: null })

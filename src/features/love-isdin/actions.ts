@@ -6,6 +6,7 @@ import { EXPEDIENTE_RAW_UPLOAD_MAX_BYTES } from '@/lib/files/documentOptimizatio
 import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
 import { computeSHA256 } from '@/lib/files/sha256'
 import { createServiceClient } from '@/lib/supabase/server'
+import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Puesto } from '@/types/database'
 import { ESTADO_LOVE_ISDIN_INICIAL, type LoveIsdinActionState } from './state'
@@ -225,7 +226,73 @@ export async function registrarAfiliacionLoveIsdin(
     const afiliadoContacto = normalizeOptionalText(formData.get('afiliado_contacto'))
     const ticketFolio = normalizeOptionalText(formData.get('ticket_folio'))
     const fechaUtc = normalizeOptionalText(formData.get('fecha_utc')) ?? new Date().toISOString()
+
+    // Phase 2: Intercepcion limpia R2 (Subida Directa)
+    const r2Reference = readDirectR2Reference(formData)
     const evidencia = asUploadedFile(formData.get('evidencia'))
+
+    // Cortafuegos: Si el archivo subio directo a R2, no metemos presion a Vercel ni a Supabase Storage
+    if (hasDirectR2Reference(r2Reference)) {
+      const registered = await registerDirectR2Evidence(service, {
+        actorUsuarioId: actor.usuarioId,
+        modulo: 'love_isdin',
+        referenciaEntidadId: empleadoId,
+        reference: r2Reference,
+      })
+
+      // 3. Registrar evidencia LOVE ISDIN con R2
+      const result = await registerLoveAffiliationWithService(service, {
+        cuentaClienteId,
+        empleadoId,
+        pdvId,
+        asistenciaId,
+        afiliadoNombre,
+        afiliadoContacto,
+        ticketFolio,
+        fechaUtc,
+        origen: 'ONLINE',
+        evidenciaUrl: registered.url,
+        evidenciaHash: registered.hash,
+        evidenciaThumbnailUrl: null,
+        evidenciaThumbnailHash: null,
+        evidenciaOptimization: { kind: 'r2_direct', originalBytes: registered.size, finalBytes: registered.size, targetMet: true, notes: ['Subida directa via R2'], officialAssetKind: 'original' },
+        metadata: {
+          capturado_desde: 'panel_love_isdin',
+          actor_puesto: actor.puesto,
+          evidencia: true,
+          periodo_operativo: fechaUtc.slice(0, 7),
+          uploaded_from: 'r2_direct',
+        },
+      })
+
+      await registrarLoveAuditEvent(service, {
+        cuentaClienteId: result.context.cuentaClienteId,
+        actorUsuarioId: actor.usuarioId,
+        registroId: result.id,
+        payload: {
+          evento: 'love_isdin_registrado_r2_direct',
+          afiliado_nombre: afiliadoNombre,
+          empleado_id: result.context.empleadoId,
+          pdv_id: result.context.pdvId,
+          qr_personal: result.context.qr.codigo,
+          qr_codigo_id: result.context.qr.codigoId,
+          qr_asignacion_id: result.context.qr.asignacionId,
+          asistencia_id: result.context.attendanceId,
+          evidencia: true,
+        },
+      })
+
+      revalidatePath('/love-isdin')
+      revalidatePath('/dashboard')
+      revalidatePath('/reportes')
+
+      return buildState({
+        ok: true,
+        message: result.inserted
+          ? 'Afiliacion LOVE ISDIN registrada con evidencia en R2 (Cero Egress).'
+          : 'Ya existia una captura LOVE ISDIN para este cliente en la fecha operativa. Se mantuvo el registro previo.',
+      })
+    }
 
     const evidenciaUpload = evidencia
       ? await uploadLoveEvidence(service, {

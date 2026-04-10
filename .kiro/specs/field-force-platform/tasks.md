@@ -126,6 +126,7 @@
   - [x] 3.1.4 Publicación de asignaciones (estado `BORRADOR → PUBLICADA`)
   - [x] 3.1.5 Historial de cambios de asignación en `audit_log`
   - [x] 3.1.6 Vista de asignaciones del día para SUPERVISOR y COORDINADOR
+  - [x] 3.1.7 Capa maestra de rotación de PDVs con propuesta XLSX, conversión desde archivo legacy, importación como reemplazo total y revisión ligera dentro de `Asignaciones > PDVs`
 
 - [x] Módulo 10 — Ruta Semanal
   - [x] 3.2.1 Crear ruta semanal para SUPERVISOR: lista ordenada de PDVs por día
@@ -179,6 +180,8 @@
   - [x] Check-out: captura coordenadas de salida y mantiene abierta la jornada digital del mismo día para ventas y LOVE ISDIN
   - [x] 4.3.10 Registro de faltas, retardos y ausencias justificadas
   - [x] 4.3.11 Dashboard de asistencias para SUPERVISOR: mapa en tiempo real (latencia ≤120s)
+  - [x] 4.3.12 Calendario administrativo mensual de asistencias para ADMINISTRADOR, COORDINADOR y NÓMINA
+  - [x] 4.3.13 Detalle consultivo lazy por celda y exportación mensual alineada a la misma nomenclatura
 
 - [x] Módulo 21 — Ventas
   - [x] 4.4.1 Formulario de venta: producto, cantidad, precio, PDV, fecha

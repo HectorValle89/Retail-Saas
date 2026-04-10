@@ -102,11 +102,25 @@ async function ensureDemoAccountId(supabase) {
   return data.id
 }
 
-async function findEmpleadoByIdNomina(supabase, idNomina) {
+async function findEmpleadoExistente(supabase, spec) {
+  const { data: byEmail, error: byEmailError } = await supabase
+    .from('empleado')
+    .select('id, id_nomina, nombre_completo, puesto, supervisor_empleado_id')
+    .eq('correo_electronico', spec.email)
+    .maybeSingle()
+
+  if (byEmailError) {
+    throw byEmailError
+  }
+
+  if (byEmail) {
+    return byEmail
+  }
+
   const { data, error } = await supabase
     .from('empleado')
     .select('id, id_nomina, nombre_completo, puesto, supervisor_empleado_id')
-    .eq('id_nomina', idNomina)
+    .eq('id_nomina', spec.idNomina)
     .maybeSingle()
 
   if (error) {
@@ -117,7 +131,7 @@ async function findEmpleadoByIdNomina(supabase, idNomina) {
 }
 
 async function upsertEmpleado(supabase, spec) {
-  const existing = await findEmpleadoByIdNomina(supabase, spec.idNomina)
+  const existing = await findEmpleadoExistente(supabase, spec)
   const nowIso = toIso(new Date())
 
   if (existing) {

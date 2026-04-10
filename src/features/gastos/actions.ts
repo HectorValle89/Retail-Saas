@@ -7,10 +7,13 @@ import {
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES,
   exceedsOperationalDocumentUploadLimit,
 } from '@/lib/files/documentOptimization'
+import { computeSHA256 } from '@/lib/files/sha256'
 import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
 import { createServiceClient } from '@/lib/supabase/server'
+import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CuentaCliente, Gasto, Puesto } from '@/types/database'
+import { ESTADO_GASTO_INICIAL, type GastoActionState } from './state'
 
 const GASTO_WRITE_ROLES = [
   'ADMINISTRADOR',
@@ -54,16 +57,6 @@ type GastoApprovalRow = Pick<
   Gasto,
   'id' | 'cuenta_cliente_id' | 'empleado_id' | 'supervisor_empleado_id' | 'monto' | 'moneda' | 'estatus' | 'metadata'
 >
-
-export interface GastoActionState {
-  ok: boolean
-  message: string | null
-}
-
-export const ESTADO_GASTO_INICIAL: GastoActionState = {
-  ok: false,
-  message: null,
-}
 
 function buildState(partial: Partial<GastoActionState>): GastoActionState {
   return {
@@ -285,9 +278,74 @@ export async function registrarGastoOperativo(
     const monto = normalizeNumber(formData.get('monto'), 'Monto')
     const fechaGasto = normalizeRequiredText(formData.get('fecha_gasto'), 'Fecha de gasto')
     const notas = normalizeOptionalText(formData.get('notas'))
+
+    // Phase 2: Intercepcion limpia R2 (Subida Directa)
+    const r2Reference = readDirectR2Reference(formData)
     const comprobante = asUploadedFile(formData.get('comprobante'))
 
     await validarCuentaCliente(service, cuentaClienteId)
+
+    // Cortafuegos: Si el archivo subio directo a R2, no metemos presion a Vercel ni a Supabase Storage
+    if (hasDirectR2Reference(r2Reference)) {
+      const registered = await registerDirectR2Evidence(service, {
+        actorUsuarioId: actor.usuarioId,
+        modulo: 'gastos',
+        referenciaEntidadId: '',
+        reference: r2Reference,
+      })
+
+      // 3. Registrar gasto con comprobante R2
+      const { data: created, error } = await service
+        .from('gasto')
+        .insert({
+          cuenta_cliente_id: cuentaClienteId,
+          empleado_id: empleadoId,
+          supervisor_empleado_id: supervisorEmpleadoId,
+          pdv_id: pdvId,
+          formacion_evento_id: formacionEventoId,
+          tipo,
+          monto,
+          fecha_gasto: fechaGasto,
+          comprobante_url: registered.url,
+          comprobante_hash: registered.hash,
+          estatus: 'PENDIENTE',
+          notas,
+          metadata: {
+            capturado_desde: 'panel_gastos',
+            actor_puesto: actor.puesto,
+            tiene_comprobante: true,
+            approval_stage: 'PENDIENTE_SUPERVISOR',
+            comprobante_optimization: { kind: 'r2_direct', originalBytes: registered.size, finalBytes: registered.size, targetMet: true, notes: ['Subida directa via R2'], officialAssetKind: 'original' },
+          },
+        })
+        .select('id')
+        .maybeSingle()
+
+      if (error || !created?.id) {
+        throw new Error(error?.message ?? 'No fue posible registrar el gasto.')
+      }
+
+      await service.from('audit_log').insert({
+        tabla: 'gasto',
+        registro_id: created.id,
+        accion: 'EVENTO',
+        payload: {
+          evento: 'gasto_registrado_r2_direct',
+          tipo,
+          monto,
+          empleado_id: empleadoId,
+          comprobante: true,
+        },
+        usuario_id: actor.usuarioId,
+        cuenta_cliente_id: cuentaClienteId,
+      })
+
+      revalidatePath('/gastos')
+      revalidatePath('/reportes')
+      revalidatePath('/nomina')
+
+      return buildState({ ok: true, message: 'Comprobante inyectado a la Bodega R2 (Cero Egress).' })
+    }
 
     const comprobanteUpload = comprobante
       ? await uploadComprobanteGasto(service, {
@@ -514,4 +572,3 @@ export async function actualizarEstatusGasto(formData: FormData): Promise<void> 
   revalidatePath('/reportes')
   revalidatePath('/nomina')
 }
-

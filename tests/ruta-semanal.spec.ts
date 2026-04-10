@@ -501,7 +501,7 @@ test('degrada con mensaje de infraestructura si faltan tablas de ruta', async ()
   expect(data.puedeEditar).toBe(true)
 })
 
-test('war room usa una cuota general por PDV y recalcula el total mensual del supervisor', async () => {
+test('war room respeta cuotas mensuales por PDV cuando existen en metadata', async () => {
   const client = createFakeRutaSemanalSupabase({
     ruta_semanal: {
       data: [
@@ -652,15 +652,15 @@ test('war room usa una cuota general por PDV y recalcula el total mensual del su
     expect.arrayContaining([
       expect.objectContaining({
         pdvId: 'pdv-1',
-        quotaMensual: 4,
+        quotaMensual: 6,
         visitasRealizadas: 1,
-        visitasPendientes: 3,
+        visitasPendientes: 5,
       }),
       expect.objectContaining({
         pdvId: 'pdv-2',
-        quotaMensual: 4,
+        quotaMensual: 2,
         visitasRealizadas: 0,
-        visitasPendientes: 4,
+        visitasPendientes: 2,
       }),
     ])
   )

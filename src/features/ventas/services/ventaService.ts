@@ -1,5 +1,17 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Asistencia, CuentaCliente, CuotaEmpleadoPeriodo, Producto, Venta } from '@/types/database'
+import type {
+  Asistencia,
+  CuentaCliente,
+  CuotaEmpleadoPeriodo,
+  Producto,
+  Puesto,
+  Venta,
+} from '@/types/database'
+import {
+  obtenerRegistrosExtemporaneosPanel,
+  type RegistroExtemporaneoListadoItem,
+  type RegistroExtemporaneoResumen,
+} from '@/features/solicitudes/extemporaneoService'
 
 type MaybeMany<T> = T | T[] | null
 
@@ -137,6 +149,8 @@ export interface VentasPanelData {
   ventas: VentaListadoItem[]
   jornadasContexto: VentaJornadaContexto[]
   catalogoProductos: VentaCatalogoProductoItem[]
+  resumenExtemporaneo: RegistroExtemporaneoResumen
+  registrosExtemporaneos: RegistroExtemporaneoListadoItem[]
   paginacion: {
     page: number
     pageSize: number
@@ -150,6 +164,8 @@ export interface VentasPanelData {
 interface ObtenerVentasOptions {
   page?: number
   pageSize?: number
+  actorPuesto?: Puesto | null
+  actorEmpleadoId?: string | null
 }
 
 const obtenerPrimero = <T>(value: MaybeMany<T>): T | null => {
@@ -230,6 +246,13 @@ export async function obtenerPanelVentas(
       ventas: [],
       jornadasContexto: [],
       catalogoProductos: [],
+      resumenExtemporaneo: {
+        total: 0,
+        pendientes: 0,
+        aprobados: 0,
+        rechazados: 0,
+      },
+      registrosExtemporaneos: [],
       paginacion: {
         page,
         pageSize,
@@ -283,6 +306,13 @@ export async function obtenerPanelVentas(
       ventas: [],
       jornadasContexto: [],
       catalogoProductos: [],
+      resumenExtemporaneo: {
+        total: 0,
+        pendientes: 0,
+        aprobados: 0,
+        rechazados: 0,
+      },
+      registrosExtemporaneos: [],
       paginacion: {
         page: safePage,
         pageSize,
@@ -447,6 +477,12 @@ export async function obtenerPanelVentas(
     }
   })
 
+  const extemporaneosPanel = await obtenerRegistrosExtemporaneosPanel(supabase, {
+    actorPuesto: options?.actorPuesto ?? null,
+    actorEmpleadoId: options?.actorEmpleadoId ?? null,
+    tiposRegistro: ['VENTA', 'AMBAS'],
+  })
+
   return {
     resumen: {
       total: totalItems,
@@ -458,6 +494,8 @@ export async function obtenerPanelVentas(
     ventas,
     jornadasContexto,
     catalogoProductos,
+    resumenExtemporaneo: extemporaneosPanel.resumen,
+    registrosExtemporaneos: extemporaneosPanel.registros,
     paginacion: {
       page: safePage,
       pageSize,

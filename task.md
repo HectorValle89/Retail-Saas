@@ -14,9 +14,15 @@ Documento derivado para seguimiento ejecutivo. La fuente de verdad del producto 
 
 ## Estado general
 
-- Estado del backlog canonico: `286 / 289` checkboxes cerrados (`99.0%`) al contar todos los checkboxes de `.kiro/specs/field-force-platform/tasks.md`.
+- Estado del backlog canonico: `288 / 291` checkboxes cerrados (`99.0%`) al contar todos los checkboxes de `.kiro/specs/field-force-platform/tasks.md`.
 - Estado de esta bitacora: derivada y secundaria.
 - Regla: si hay conflicto con .kiro/specs/field-force-platform/{design,requirements,tasks}.md, prevalece .kiro.
+
+## Cierre actual (2026-04-01)
+
+- Asistencias ya tiene calendario administrativo mensual para ADMINISTRADOR, COORDINADOR y NOMINA, con detalle lazy por celda y exportación mensual.
+- La vista operativa legacy de /asistencias se mantiene solo como compatibilidad temporal para SUPERVISOR y DERMOCONSEJERO mientras ese flujo termina de migrarse al dashboard.
+- Validaciones recientes: cmd /c npx tsc --noEmit OK y cmd /c npm run build OK.
 
 ## Cierre actual (2026-03-20)
 
@@ -257,3 +263,4 @@ pm run build; queda pendiente eportes, auditoria ampliada e invalidacion de ses
 - Se implementa el flujo de registro extemporáneo para Ventas y LOVE ISDIN con buffer `registro_extemporaneo`, captura desde `Incidencias`, revisión por SUPERVISOR/ADMINISTRADOR en `Solicitudes` y consolidación final auditada.
 - Ventas reemplaza el registro del mismo producto y fecha operativa cuando la incidencia aprobada consolida; LOVE ISDIN evita duplicación ciega y conserva trazabilidad `EXTEMPORANEO`.
 - Estado: en progreso validado con `cmd /c npx tsc --noEmit` y `cmd /c npm run build`; pruebas de UI/unit siguen bloqueadas localmente por `spawn EPERM` del entorno.
+

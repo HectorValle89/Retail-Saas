@@ -64,13 +64,12 @@ test('consolida resumen, reglas operativas y flujos de aprobacion', async () => 
         id: 'rule-vac',
         codigo: 'SOLICITUD_APROBACION_VACACIONES',
         modulo: 'solicitudes',
-        descripcion: 'Vacaciones con 2 pasos',
+        descripcion: 'Vacaciones con aprobacion directa de coordinacion',
         severidad: 'ERROR',
         prioridad: 210,
         condicion: { tipo_solicitud: 'VACACIONES', min_notice_days: 30 },
         accion: {
           steps: [
-            { actor: 'SUPERVISOR', target_status: 'VALIDADA_SUP', sla_hours: 24 },
             { actor: 'COORDINADOR', target_status: 'REGISTRADA', sla_hours: 48 },
           ],
         },

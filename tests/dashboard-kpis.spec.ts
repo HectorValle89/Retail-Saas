@@ -129,6 +129,254 @@ const actorBase: ActorActual = {
   puesto: 'ADMINISTRADOR',
 }
 
+test('construye dashboard ejecutivo de cobertura para reclutamiento', async () => {
+  const today = new Date().toISOString().slice(0, 10)
+  const overdue = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const recruitmentClient = {
+    from(table: string) {
+      const query = {
+        select() {
+          return query
+        },
+        eq() {
+          if (table === 'pdv_cobertura_operativa') {
+            return Promise.resolve({
+              data: [
+                {
+                  id: 'cov-1',
+                  cuenta_cliente_id: 'c1',
+                  pdv_id: 'pdv-2',
+                  estado_operativo: 'RESERVADO_PENDIENTE_ACCESO',
+                  motivo_operativo: 'PENDIENTE_ACCESO',
+                  empleado_reservado_id: 'dc-2',
+                  pdv_paso_id: 'pdv-1',
+                  acceso_pendiente_desde: '2026-03-28T10:00:00.000Z',
+                  proximo_recordatorio_at: overdue,
+                  apartado_por_usuario_id: 'user-1',
+                  observaciones: 'Acceso pendiente por cadena',
+                  metadata: {},
+                },
+              ],
+              error: null,
+            })
+          }
+
+          if (table === 'usuario') {
+            return Promise.resolve({
+              data: [
+                { empleado_id: 'dc-1', cuenta_cliente_id: 'c1' },
+                { empleado_id: 'dc-2', cuenta_cliente_id: 'c1' },
+                { empleado_id: 'cand-1', cuenta_cliente_id: 'c1' },
+                { empleado_id: 'cand-2', cuenta_cliente_id: 'c1' },
+              ],
+              error: null,
+            })
+          }
+
+          return query
+        },
+        in() {
+          return Promise.resolve({
+            data: [{ clave: 'reclutamiento.cobertura.meta_plantilla', valor: 250 }],
+            error: null,
+          })
+        },
+        lte() {
+          return query
+        },
+        or() {
+          return Promise.resolve({
+            data: [
+              {
+                id: 'asg-1',
+                cuenta_cliente_id: 'c1',
+                empleado_id: 'dc-1',
+                supervisor_empleado_id: 'sup-1',
+                pdv_id: 'pdv-1',
+                fecha_inicio: '2026-03-01',
+                fecha_fin: null,
+                estado_publicacion: 'PUBLICADA',
+              },
+            ],
+            error: null,
+          })
+        },
+        order() {
+          if (table === 'cuenta_cliente_pdv') {
+            return Promise.resolve({
+              data: [
+                {
+                  id: 'rel-1',
+                  cuenta_cliente_id: 'c1',
+                  pdv_id: 'pdv-1',
+                  activo: true,
+                  fecha_inicio: '2026-03-01',
+                  fecha_fin: null,
+                  pdv: {
+                    id: 'pdv-1',
+                    nombre: 'Sucursal Norte',
+                    clave_btl: 'BTL-001',
+                    zona: 'NORTE',
+                    estatus: 'ACTIVO',
+                    cadena: { nombre: 'San Pablo' },
+                    ciudad: { nombre: 'CDMX' },
+                  },
+                },
+                {
+                  id: 'rel-2',
+                  cuenta_cliente_id: 'c1',
+                  pdv_id: 'pdv-2',
+                  activo: true,
+                  fecha_inicio: '2026-03-01',
+                  fecha_fin: null,
+                  pdv: {
+                    id: 'pdv-2',
+                    nombre: 'Sucursal Centro',
+                    clave_btl: 'BTL-002',
+                    zona: 'CENTRO',
+                    estatus: 'ACTIVO',
+                    cadena: { nombre: 'Liverpool' },
+                    ciudad: { nombre: 'CDMX' },
+                  },
+                },
+                {
+                  id: 'rel-3',
+                  cuenta_cliente_id: 'c1',
+                  pdv_id: 'pdv-3',
+                  activo: true,
+                  fecha_inicio: '2026-03-01',
+                  fecha_fin: null,
+                  pdv: {
+                    id: 'pdv-3',
+                    nombre: 'Sucursal Escuela',
+                    clave_btl: 'BTL-003',
+                    zona: 'SUR',
+                    estatus: 'TEMPORAL',
+                    cadena: { nombre: 'San Pablo' },
+                    ciudad: { nombre: 'Puebla' },
+                  },
+                },
+                {
+                  id: 'rel-4',
+                  cuenta_cliente_id: 'c1',
+                  pdv_id: 'pdv-4',
+                  activo: true,
+                  fecha_inicio: '2026-03-01',
+                  fecha_fin: null,
+                  pdv: {
+                    id: 'pdv-4',
+                    nombre: 'Sucursal Cerrada',
+                    clave_btl: 'BTL-004',
+                    zona: 'OCCIDENTE',
+                    estatus: 'INACTIVO',
+                    cadena: { nombre: 'Farmacias del Ahorro' },
+                    ciudad: { nombre: 'Guadalajara' },
+                  },
+                },
+              ],
+              error: null,
+            })
+          }
+
+          if (table === 'empleado') {
+            return Promise.resolve({
+              data: [
+                {
+                  id: 'sup-1',
+                  nombre_completo: 'Supervisor Uno',
+                  puesto: 'SUPERVISOR',
+                  estatus_laboral: 'ACTIVO',
+                  supervisor_empleado_id: null,
+                  metadata: {},
+                },
+                {
+                  id: 'dc-1',
+                  nombre_completo: 'DC Activa Uno',
+                  puesto: 'DERMOCONSEJERO',
+                  estatus_laboral: 'ACTIVO',
+                  supervisor_empleado_id: 'sup-1',
+                  metadata: {},
+                },
+                {
+                  id: 'dc-2',
+                  nombre_completo: 'DC En Espera',
+                  puesto: 'DERMOCONSEJERO',
+                  estatus_laboral: 'ACTIVO',
+                  supervisor_empleado_id: 'sup-1',
+                  metadata: {},
+                },
+                {
+                  id: 'cand-1',
+                  nombre_completo: 'Candidata Firma',
+                  puesto: 'DERMOCONSEJERO',
+                  estatus_laboral: 'SUSPENDIDO',
+                  supervisor_empleado_id: 'sup-1',
+                  metadata: {
+                    workflow_stage: 'SELECCION_APROBADA',
+                    onboarding_operativo: {
+                      pdv_objetivo_id: 'pdv-3',
+                    },
+                  },
+                },
+                {
+                  id: 'cand-2',
+                  nombre_completo: 'Candidata Admin',
+                  puesto: 'DERMOCONSEJERO',
+                  estatus_laboral: 'SUSPENDIDO',
+                  supervisor_empleado_id: 'sup-1',
+                  metadata: {
+                    workflow_stage: 'PENDIENTE_ACCESO_ADMIN',
+                    admin_access_pending: true,
+                    onboarding_operativo: {
+                      fecha_isdinizacion: today,
+                    },
+                  },
+                },
+              ],
+              error: null,
+            })
+          }
+
+          return Promise.resolve({ data: [], error: null })
+        },
+        limit() {
+          return Promise.resolve({ data: [], error: null })
+        },
+      }
+
+      return query
+    },
+  }
+
+  const data = await obtenerPanelDashboard(
+    {
+      ...actorBase,
+      puesto: 'RECLUTAMIENTO',
+      username: 'reclutamiento',
+      nombreCompleto: 'Reclutamiento Uno',
+    },
+    {},
+    recruitmentClient as never
+  )
+
+  expect(data.infraestructuraLista).toBe(true)
+  expect(data.scopeLabel).toBe('Cobertura de reclutamiento')
+  expect(data.recruitmentCoverage).toMatchObject({
+    target: 250,
+    plantillaActiva: 1,
+    plantillaEsperaTransito: 1,
+    totalContratadas: 2,
+    pdvsCubiertos: 1,
+    pdvsReservados: 1,
+    pdvsVacantes: 1,
+    pdvsBloqueados: 1,
+    pendientesAccesoVencidos: 1,
+    vacantesEnProcesoFirma: 1,
+    listosAdministracion: 1,
+    proximasIsdinizaciones: 1,
+  })
+  expect(data.widgets).toEqual(resolveDashboardWidgets('RECLUTAMIENTO'))
+})
 test('consolida dashboard desde dashboard_kpis y filtra por cuenta operativa', async () => {
   const freshDate = new Date().toISOString()
   const client = createFakeDashboardSupabase({
@@ -727,6 +975,7 @@ test('construye dashboard operativo mobile-first para dermoconsejero', async () 
 })
 test('combina alertas live de geocerca, retardo y cuota baja', async () => {
   const todayIso = new Date().toISOString().slice(0, 10)
+  const todayCode = ['D', 'L', 'M', 'X', 'J', 'V', 'S'][new Date().getUTCDay()]
   const freshDate = `${todayIso}T17:40:00.000Z`
   const client = createFakeDashboardSupabase({
     initial: {
@@ -819,8 +1068,8 @@ test('combina alertas live de geocerca, retardo y cuota baja', async () => {
           fecha_inicio: todayIso,
           fecha_fin: null,
           tipo: 'FIJA',
-          dias_laborales: 'L,M,X,J,V',
-          dia_descanso: 'D',
+          dias_laborales: todayCode,
+          dia_descanso: null,
           horario_referencia: '10:00',
         },
         {
@@ -831,8 +1080,8 @@ test('combina alertas live de geocerca, retardo y cuota baja', async () => {
           fecha_inicio: todayIso,
           fecha_fin: null,
           tipo: 'FIJA',
-          dias_laborales: 'L,M,X,J,V',
-          dia_descanso: 'D',
+          dias_laborales: todayCode,
+          dia_descanso: null,
           horario_referencia: '10:00',
         },
       ],

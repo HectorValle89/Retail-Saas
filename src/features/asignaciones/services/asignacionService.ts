@@ -1,6 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ActorActual } from '@/lib/auth/session'
+import { getSingleTenantAccountId } from '@/lib/tenant/singleTenant'
+import { buildRecruitmentCoverageBoard, type PdvCoberturaBoardItem, type RecruitmentCoverageSummary } from '@/features/empleados/services/pdvCoberturaService'
+import {
+  buildPdvRotationMasterBoard,
+  type PdvRotacionBoardData,
+  type PdvRotacionFilter,
+} from './pdvRotationMasterService'
 import { parseTurnosCatalogo } from '@/features/configuracion/configuracionCatalog'
+import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus'
 import type { Asignacion, CuentaCliente, Empleado, Pdv } from '@/types/database'
 import {
   evaluarReglasAsignacion,
@@ -13,11 +21,11 @@ import {
   type SupervisorAsignacionRow,
 } from '../lib/assignmentValidation'
 import {
-  buildAssignmentEngineAlerts,
-  type AssignmentEngineNature,
-  type AssignmentEngineRow,
-} from '../lib/assignmentEngine'
-import { rangesOverlap } from '../lib/assignmentPlanning'
+  evaluateRotationMasterImpact,
+  loadAssignmentRotationValidationData,
+} from '../lib/assignmentRotationValidation'
+import { buildAssignmentScopeOrFilter } from '../lib/assignmentQuery'
+import type { AssignmentEngineNature } from '../lib/assignmentEngine'
 import {
   getMaterializedMonthlyCalendar,
   type MaterializedMonthlyCalendar,
@@ -25,6 +33,14 @@ import {
 } from './asignacionMaterializationService'
 
 type MaybeMany<T> = T | T[] | null
+type TypedSupabaseClient = SupabaseClient<any>
+
+export type AssignmentWorkspaceView = 'asignaciones' | 'pdvs' | 'calendario'
+export type AssignmentWorkspaceModal = 'catalogo' | 'horarios' | 'manual' | null
+export type AssignmentListState = 'BORRADOR' | 'PUBLICADA' | 'ACTIVAS'
+export type AssignmentPdvBoardState = 'ALL' | 'ASIGNADOS' | 'RESERVADOS' | 'SIN_ASIGNACION' | 'INACTIVOS'
+export type AssignmentPdvRotationState = PdvRotacionFilter
+export type AssignmentPdvPanel = 'COBERTURA' | 'ROTACION'
 
 type CuentaClienteRelacion = Pick<CuentaCliente, 'id' | 'nombre'>
 
@@ -58,7 +74,7 @@ interface PdvRow
   geocerca_pdv: MaybeMany<GeocercaRelacion>
 }
 
-interface AsignacionQueryRow
+interface AsignacionListadoQueryRow
   extends Pick<
     Asignacion,
     | 'id'
@@ -85,7 +101,22 @@ interface AsignacionQueryRow
     | 'created_at'
   > {
   cuenta_cliente: MaybeMany<CuentaClienteRelacion>
+  empleado: MaybeMany<EmpleadoRow>
+  pdv: MaybeMany<PdvRow>
 }
+
+interface AsignacionComparableRow
+  extends Pick<
+    Asignacion,
+    | 'id'
+    | 'empleado_id'
+    | 'pdv_id'
+    | 'supervisor_empleado_id'
+    | 'tipo'
+    | 'fecha_inicio'
+    | 'fecha_fin'
+    | 'dias_laborales'
+  > {}
 
 interface CuentaClientePdvRow {
   pdv_id: string
@@ -102,11 +133,7 @@ export interface AsignacionResumen {
   total: number
   borrador: number
   publicada: number
-  coberturas: number
-  conBloqueo: number
-  conAlerta: number
-  conAviso: number
-  publicadasInvalidas: number
+  activas: number
 }
 
 export interface AsignacionListadoItem {
@@ -156,26 +183,6 @@ export interface AsignacionTurnoOption {
   label: string
 }
 
-export interface AsignacionNoticeItem {
-  code: string
-  severity: AssignmentIssueSeverity
-  label: string
-  message: string
-}
-
-export interface AsignacionVistaDiaItem {
-  id: string
-  empleado: string | null
-  pdv: string | null
-  pdvClaveBtl: string | null
-  supervisor: string | null
-  horario: string | null
-  fechaInicio: string
-  fechaFin: string | null
-  estadoPublicacion: string
-  zona: string | null
-}
-
 export interface AsignacionCalendarioFilters {
   month: string
   supervisorEmpleadoId: string | null
@@ -187,52 +194,124 @@ export interface AsignacionSupervisorCalendarioOption {
   nombre: string
 }
 
-export interface AsignacionesPanelData {
-  resumen: AsignacionResumen
-  asignaciones: AsignacionListadoItem[]
+export interface AsignacionesShellSummary {
+  total: number
+  borrador: number
+  publicada: number
+  activas: number
+}
+
+export interface AsignacionesAssignmentsTabData {
+  estado: AssignmentListState
+  page: number
+  pageSize: number
+  total: number
+  items: AsignacionListadoItem[]
+}
+
+export interface AsignacionesModalCatalogData {
+  draftBaseCount: number
+  approvedBaseCount: number
+}
+
+export interface AsignacionesManualModalData {
   empleadosDisponibles: AsignacionEmpleadoOption[]
   pdvsDisponibles: AsignacionPdvOption[]
   turnosDisponibles: AsignacionTurnoOption[]
-  avisosGlobales: AsignacionNoticeItem[]
-  vistaDia: AsignacionVistaDiaItem[]
+}
+
+export interface AsignacionesPdvsBoardData {
+  summary: RecruitmentCoverageSummary | null
+  items: PdvCoberturaBoardItem[]
+  estado: AssignmentPdvBoardState
+  cadena: string
+  ciudad: string
+  zona: string
+  cadenasDisponibles: string[]
+  ciudadesDisponibles: string[]
+  zonasDisponibles: string[]
+  rotacion: PdvRotacionBoardData | null
+  rotacionClasificacion: AssignmentPdvRotationState
+  grupoRotacion: string
+  panel: AssignmentPdvPanel
+}
+
+export interface AsignacionesCalendarData {
   calendarioMensual: MaterializedMonthlyCalendar | null
-  filtrosCalendario: AsignacionCalendarioFilters
-  supervisoresCalendario: AsignacionSupervisorCalendarioOption[]
-  supervisorCalendarioBloqueado: boolean
+  filtros: AsignacionCalendarioFilters
+  supervisores: AsignacionSupervisorCalendarioOption[]
+  supervisorBloqueado: boolean
+  mensaje?: string
+}
+
+export interface AsignacionesPanelData {
+  activeView: AssignmentWorkspaceView
+  activeModal: AssignmentWorkspaceModal
+  shell: AsignacionesShellSummary
+  resumen: AsignacionResumen
+  puedeGestionar: boolean
+  assignmentsView: AsignacionesAssignmentsTabData | null
+  pdvsView: AsignacionesPdvsBoardData | null
+  calendarView: AsignacionesCalendarData | null
+  catalogModal: AsignacionesModalCatalogData | null
+  manualModal: AsignacionesManualModalData | null
   infraestructuraLista: boolean
   mensajeInfraestructura?: string
-  mensajeCalendario?: string
 }
 
 const EMPTY_DATA: AsignacionesPanelData = {
+  activeView: 'asignaciones',
+  activeModal: null,
+  shell: {
+    total: 0,
+    borrador: 0,
+    publicada: 0,
+    activas: 0,
+  },
   resumen: {
     total: 0,
     borrador: 0,
     publicada: 0,
-    coberturas: 0,
-    conBloqueo: 0,
-    conAlerta: 0,
-    conAviso: 0,
-    publicadasInvalidas: 0,
+    activas: 0,
   },
-  asignaciones: [],
-  empleadosDisponibles: [],
-  pdvsDisponibles: [],
-  turnosDisponibles: [],
-  avisosGlobales: [],
-  vistaDia: [],
-  calendarioMensual: null,
-  filtrosCalendario: {
-    month: '',
-    supervisorEmpleadoId: null,
-    estadoOperativo: null,
-  },
-  supervisoresCalendario: [],
-  supervisorCalendarioBloqueado: false,
+  puedeGestionar: false,
+  assignmentsView: null,
+  pdvsView: null,
+  calendarView: null,
+  catalogModal: null,
+  manualModal: null,
   infraestructuraLista: false,
 }
 
-const obtenerPrimero = <T>(value: MaybeMany<T>): T | null => {
+const CALENDARIO_ESTADOS_OPERATIVOS = [
+  'ASIGNADA_PDV',
+  'FORMACION',
+  'VACACIONES',
+  'INCAPACIDAD',
+  'FALTA_JUSTIFICADA',
+  'SIN_ASIGNACION',
+] as const satisfies ReadonlyArray<NonNullable<MaterializedMonthlyFilters['estadoOperativo']>>
+
+interface ObtenerPanelAsignacionesOptions {
+  view?: string | null
+  modal?: string | null
+  page?: number | null
+  assignmentState?: string | null
+  filters?: {
+    month?: string | null
+    supervisorEmpleadoId?: string | null
+    estadoOperativo?: string | null
+    pdvPanel?: string | null
+    pdvState?: string | null
+    cadena?: string | null
+    ciudad?: string | null
+    zona?: string | null
+    rotacionClasificacion?: string | null
+    grupoRotacion?: string | null
+  }
+}
+
+function first<T>(value: MaybeMany<T>): T | null {
   if (!value) {
     return null
   }
@@ -240,7 +319,7 @@ const obtenerPrimero = <T>(value: MaybeMany<T>): T | null => {
   return Array.isArray(value) ? value[0] ?? null : value
 }
 
-function buildComparableRow(row: AsignacionQueryRow): AssignmentComparableRow {
+function buildComparableRow(row: AsignacionComparableRow): AssignmentComparableRow {
   return {
     id: row.id,
     empleado_id: row.empleado_id,
@@ -269,21 +348,68 @@ function buildTurnoLabel(item: ReturnType<typeof parseTurnosCatalogo>[number]) {
   return parts.join(' - ')
 }
 
-const CALENDARIO_ESTADOS_OPERATIVOS = [
-  'ASIGNADA_PDV',
-  'FORMACION',
-  'VACACIONES',
-  'INCAPACIDAD',
-  'FALTA_JUSTIFICADA',
-  'SIN_ASIGNACION',
-] as const satisfies ReadonlyArray<NonNullable<MaterializedMonthlyFilters['estadoOperativo']>>
-
 function getCurrentMonthValue() {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Mexico_City',
     year: 'numeric',
     month: '2-digit',
   }).format(new Date())
+}
+
+function getCurrentDayValue() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
+function normalizeView(value: string | null | undefined): AssignmentWorkspaceView {
+  return value === 'pdvs' || value === 'calendario' ? value : 'asignaciones'
+}
+
+function normalizeModal(value: string | null | undefined): AssignmentWorkspaceModal {
+  return value === 'catalogo' || value === 'horarios' || value === 'manual' ? value : null
+}
+
+function normalizeAssignmentState(value: string | null | undefined): AssignmentListState {
+  return value === 'PUBLICADA' || value === 'ACTIVAS' ? value : 'BORRADOR'
+}
+
+function normalizePdvBoardState(value: string | null | undefined): AssignmentPdvBoardState {
+  if (
+    value === 'ASIGNADOS' ||
+    value === 'RESERVADOS' ||
+    value === 'SIN_ASIGNACION' ||
+    value === 'INACTIVOS'
+  ) {
+    return value
+  }
+
+  return 'ALL'
+}
+
+function normalizeRotationFilter(value: string | null | undefined): AssignmentPdvRotationState {
+  if (value === 'FIJO' || value === 'ROTATIVO' || value === 'PENDIENTE' || value === 'INCOMPLETO') {
+    return value
+  }
+
+  return 'ALL'
+}
+
+function normalizePdvPanel(value: string | null | undefined): AssignmentPdvPanel {
+  return value === 'ROTACION' ? 'ROTACION' : 'COBERTURA'
+}
+
+
+function normalizeTextFilter(value: string | null | undefined) {
+  return String(value ?? '').trim()
+}
+
+function normalizePositiveInt(value: number | string | null | undefined, fallback: number) {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback
 }
 
 function normalizeCalendarMonth(value: string | null | undefined) {
@@ -305,34 +431,18 @@ function normalizeCalendarEstadoOperativo(
     : null
 }
 
-interface ObtenerPanelAsignacionesOptions {
-  filters?: {
-    month?: string | null
-    supervisorEmpleadoId?: string | null
-    estadoOperativo?: string | null
-  }
-}
-
-function buildVisiblePdvIds(
-  actor: ActorActual,
-  relations: CuentaClientePdvRow[]
+function applyAccountScope<TQuery extends { eq: (...args: any[]) => TQuery }>(
+  query: TQuery,
+  actor: ActorActual
 ) {
   if (!actor.cuentaClienteId) {
-    return null
+    return query
   }
 
-  const cuentaClienteId = actor.cuentaClienteId
-  const today = new Date().toISOString().slice(0, 10)
-
-  return new Set(
-    relations
-      .filter(
-        (item) => item.activo && (!item.fecha_fin || item.fecha_fin >= today) && item.cuenta_cliente_id === cuentaClienteId
-      )
-      .map((item) => item.pdv_id)
-  )
+  return query.eq('cuenta_cliente_id', actor.cuentaClienteId)
 }
-function buildValidationEmployee(employee: EmpleadoRow | undefined): AssignmentValidationEmployee | null {
+
+function buildValidationEmployee(employee: EmpleadoRow | null): AssignmentValidationEmployee | null {
   if (!employee) {
     return null
   }
@@ -346,13 +456,13 @@ function buildValidationEmployee(employee: EmpleadoRow | undefined): AssignmentV
   }
 }
 
-function buildValidationPdv(pdv: PdvRow | undefined): AssignmentValidationPdv | null {
+function buildValidationPdv(pdv: PdvRow | null): AssignmentValidationPdv | null {
   if (!pdv) {
     return null
   }
 
-  const cadena = obtenerPrimero(pdv.cadena)
-  const geocerca = obtenerPrimero(pdv.geocerca_pdv)
+  const cadena = first(pdv.cadena)
+  const geocerca = first(pdv.geocerca_pdv)
 
   return {
     id: pdv.id,
@@ -363,114 +473,181 @@ function buildValidationPdv(pdv: PdvRow | undefined): AssignmentValidationPdv | 
   }
 }
 
-function buildGlobalNotices(
-  actor: ActorActual,
-  assignments: AsignacionQueryRow[],
-  employees: EmpleadoRow[],
-  pdvs: PdvRow[]
-): AsignacionNoticeItem[] {
-  const notices: AsignacionNoticeItem[] = []
-  const monthStart = `${new Date().toISOString().slice(0, 7)}-01`
-  const monthEnd = `${new Date().toISOString().slice(0, 7)}-31`
-  const activeAssignments = assignments.filter((item) =>
-    rangesOverlap(item.fecha_inicio, item.fecha_fin, monthStart, monthEnd)
-  )
-
-  const activePdvs = pdvs.filter((item) => item.estatus === 'ACTIVO')
-  const activeDcs = employees.filter(
-    (item) => item.puesto === 'DERMOCONSEJERO' && item.estatus_laboral === 'ACTIVO'
-  )
-
-  const uncoveredPdvs = activePdvs.filter(
-    (pdv) => !activeAssignments.some((assignment) => assignment.pdv_id === pdv.id)
-  )
-  if (uncoveredPdvs.length > 0 && actor.puesto === 'ADMINISTRADOR') {
-    notices.push({
-      code: 'PDV_SIN_COBERTURA',
-      severity: 'AVISO',
-      label: 'PDVs sin cobertura',
-      message: `${uncoveredPdvs.length} PDVs activos no tienen ninguna asignacion en el mes actual.`,
-    })
+function buildVisiblePdvIds(actor: ActorActual, relations: CuentaClientePdvRow[]) {
+  if (!actor.cuentaClienteId) {
+    return null
   }
 
-  const employeesWithoutAssignments = activeDcs.filter(
-    (employee) => !activeAssignments.some((assignment) => assignment.empleado_id === employee.id)
+  const today = getCurrentDayValue()
+  return new Set(
+    relations
+      .filter(
+        (item) =>
+          item.activo &&
+          item.cuenta_cliente_id === actor.cuentaClienteId &&
+          (!item.fecha_fin || item.fecha_fin >= today)
+      )
+      .map((item) => item.pdv_id)
   )
-  if (employeesWithoutAssignments.length > 0 && actor.puesto === 'ADMINISTRADOR') {
-    notices.push({
-      code: 'DC_SIN_ASIGNACION',
-      severity: 'AVISO',
-      label: 'DCs sin asignacion',
-      message: `${employeesWithoutAssignments.length} dermoconsejeros activos no tienen asignacion en el mes actual.`,
-    })
-  }
-
-  return notices
 }
 
-function buildVistaDia(
+async function countAssignments(
+  supabase: TypedSupabaseClient,
   actor: ActorActual,
-  assignments: AsignacionListadoItem[],
-  employeeMap: Map<string, EmpleadoRow>,
-  pdvMap: Map<string, PdvRow>
+  mutate?: (query: any) => any
 ) {
-  const today = new Date().toISOString().slice(0, 10)
-  const actorZone = employeeMap.get(actor.empleadoId)?.zona ?? null
+  let query: any = supabase.from('asignacion').select('id', {
+    count: 'exact',
+    head: true,
+  })
 
-  return assignments
-    .filter((item) => rangesOverlap(item.fechaInicio, item.fechaFin, today, today))
-    .filter((item) => {
-      if (actor.puesto === 'SUPERVISOR') {
-        const assignment = employeeMap.get(item.empleadoId)
-        return assignment?.supervisor_empleado_id === actor.empleadoId
-      }
+  if (actor.cuentaClienteId) {
+    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
 
-      if (actor.puesto === 'COORDINADOR' && actorZone) {
-        return item.zona === actorZone || employeeMap.get(item.empleadoId)?.zona === actorZone
-      }
+  if (mutate) {
+    query = mutate(query)
+  }
 
-      return true
-    })
-    .slice(0, 24)
-    .map((item) => ({
-      id: item.id,
-      empleado: item.empleado,
-      pdv: item.pdv,
-      pdvClaveBtl: item.pdvClaveBtl,
-      supervisor: employeeMap.get(item.empleadoId)?.supervisor_empleado_id
-        ? employeeMap.get(employeeMap.get(item.empleadoId)?.supervisor_empleado_id ?? '')?.nombre_completo ?? null
-        : null,
-      horario: item.horario ?? pdvMap.get(item.pdvId)?.horario_entrada ?? null,
-      fechaInicio: item.fechaInicio,
-      fechaFin: item.fechaFin,
-      estadoPublicacion: item.estadoPublicacion,
-      zona: item.zona,
-    }))
+  const result = await query
+  return result.error ? 0 : result.count ?? 0
 }
 
-export async function obtenerPanelAsignaciones(
-  supabase: SupabaseClient,
-  actor: ActorActual,
-  options: ObtenerPanelAsignacionesOptions = {}
-): Promise<AsignacionesPanelData> {
-  const month = normalizeCalendarMonth(options.filters?.month)
-  const supervisorEmpleadoId =
-    actor.puesto === 'SUPERVISOR'
-      ? actor.empleadoId
-      : options.filters?.supervisorEmpleadoId?.trim() || null
-  const estadoOperativo = normalizeCalendarEstadoOperativo(options.filters?.estadoOperativo)
-  const [
-    asignacionesResult,
-    empleadosResult,
-    pdvsResult,
-    supervisoresResult,
-    cuentaPdvResult,
-    turnCatalogResult,
-    horariosResult,
-  ] = await Promise.all([
+async function loadShellSummary(supabase: TypedSupabaseClient, actor: ActorActual): Promise<AsignacionesShellSummary> {
+  const today = getCurrentDayValue()
+  const [total, publicada, activas] = await Promise.all([
+    countAssignments(supabase, actor),
+    countAssignments(supabase, actor, (query) => query.eq('estado_publicacion', 'PUBLICADA')),
+    countAssignments(
+      supabase,
+      actor,
+      (query) =>
+        query
+          .eq('estado_publicacion', 'PUBLICADA')
+          .lte('fecha_inicio', today)
+          .or(`fecha_fin.is.null,fecha_fin.gte.${today}`)
+    ),
+  ])
+
+  return {
+    total,
+    publicada,
+    activas,
+    borrador: Math.max(total - publicada, 0),
+  }
+}
+
+async function loadCatalogModalData(supabase: TypedSupabaseClient, actor: ActorActual): Promise<AsignacionesModalCatalogData> {
+  const [draftBaseCount, approvedBaseCount] = await Promise.all([
+    countAssignments(
+      supabase,
+      actor,
+      (query) => query.eq('naturaleza', 'BASE').eq('estado_publicacion', 'BORRADOR')
+    ),
+    countAssignments(
+      supabase,
+      actor,
+      (query) => query.eq('naturaleza', 'BASE').eq('estado_publicacion', 'PUBLICADA')
+    ),
+  ])
+
+  return {
+    draftBaseCount,
+    approvedBaseCount,
+  }
+}
+
+async function loadManualModalData(
+  supabase: TypedSupabaseClient,
+  actor: ActorActual
+): Promise<AsignacionesManualModalData> {
+  const today = getCurrentDayValue()
+  const scopedCuentaPdvQuery = actor.cuentaClienteId
+    ? supabase
+        .from('cuenta_cliente_pdv')
+        .select('pdv_id, cuenta_cliente_id, activo, fecha_fin')
+        .eq('cuenta_cliente_id', actor.cuentaClienteId)
+        .eq('activo', true)
+        .or(`fecha_fin.is.null,fecha_fin.gte.${today}`)
+    : Promise.resolve({ data: null, error: null })
+
+  const [empleadosResult, cuentaPdvResult, turnCatalogResult] = await Promise.all([
     supabase
-      .from('asignacion')
-      .select(`
+      .from('empleado')
+      .select('id, nombre_completo, puesto, estatus_laboral, zona')
+      .eq('puesto', 'DERMOCONSEJERO')
+      .eq('estatus_laboral', 'ACTIVO')
+      .order('nombre_completo', { ascending: true }),
+    scopedCuentaPdvQuery,
+    supabase
+      .from('configuracion')
+      .select('valor')
+      .eq('clave', 'asistencias.san_pablo.catalogo_turnos')
+      .maybeSingle(),
+  ])
+
+  const employees = (empleadosResult.data ?? []) as Array<Pick<Empleado, 'id' | 'nombre_completo' | 'puesto' | 'estatus_laboral' | 'zona'>>
+  const accountRelations = (cuentaPdvResult.data ?? []) as CuentaClientePdvRow[]
+  const visiblePdvIds = buildVisiblePdvIds(actor, accountRelations)
+
+  const pdvsQuery = supabase
+    .from('pdv')
+    .select('id, clave_btl, nombre, zona, estatus, cadena:cadena_id(codigo, nombre, factor_cuota_default)')
+    .order('nombre', { ascending: true })
+
+  const pdvsResult = visiblePdvIds
+    ? visiblePdvIds.size > 0
+      ? await pdvsQuery.in('id', Array.from(visiblePdvIds))
+      : { data: [], error: null }
+    : await pdvsQuery
+
+  if (pdvsResult.error) {
+    throw new Error(pdvsResult.error.message)
+  }
+
+  const pdvs = (pdvsResult.data ?? []) as Array<
+    Pick<Pdv, 'id' | 'clave_btl' | 'nombre' | 'zona' | 'estatus'> & { cadena: MaybeMany<CadenaRelacion> }
+  >
+
+  return {
+    empleadosDisponibles: employees.map((item) => ({
+      id: item.id,
+      nombre: item.nombre_completo,
+      zona: item.zona,
+    })),
+    pdvsDisponibles: pdvs
+      .filter((item) => isOperablePdvStatus(item.estatus))
+      .map((item) => ({
+        id: item.id,
+        nombre: item.nombre,
+        claveBtl: item.clave_btl,
+        cadena: first(item.cadena)?.nombre ?? null,
+        zona: item.zona,
+      })),
+    turnosDisponibles: parseTurnosCatalogo((turnCatalogResult.data as { valor: unknown } | null)?.valor).map(
+      (item) => ({
+        value: item.nomenclatura,
+        label: buildTurnoLabel(item),
+      })
+    ),
+  }
+}
+
+async function loadAssignmentsView(
+  supabase: TypedSupabaseClient,
+  actor: ActorActual,
+  assignmentState: AssignmentListState,
+  page: number
+): Promise<AsignacionesAssignmentsTabData> {
+  const pageSize = 24
+  const from = (page - 1) * pageSize
+  const to = from + pageSize - 1
+  const today = getCurrentDayValue()
+
+  let query: any = supabase
+    .from('asignacion')
+    .select(
+      `
         id,
         cuenta_cliente_id,
         empleado_id,
@@ -493,70 +670,106 @@ export async function obtenerPanelAsignaciones(
         observaciones,
         estado_publicacion,
         created_at,
-        cuenta_cliente:cuenta_cliente_id(id, nombre)
-      `)
-      .order('created_at', { ascending: false })
-      .limit(160),
-    supabase
-      .from('empleado')
-      .select('id, nombre_completo, puesto, estatus_laboral, telefono, correo_electronico, supervisor_empleado_id, zona')
-      .order('nombre_completo', { ascending: true }),
-    supabase
-      .from('pdv')
-      .select(`
-        id,
-        clave_btl,
-        nombre,
-        zona,
-        estatus,
-        horario_entrada,
-        horario_salida,
-        cadena:cadena_id(codigo, nombre, factor_cuota_default),
-        geocerca_pdv(latitud, longitud, radio_tolerancia_metros)
-      `)
-      .order('nombre', { ascending: true }),
-    supabase
-      .from('supervisor_pdv')
-      .select('pdv_id, activo, fecha_fin, empleado_id'),
-    supabase
-      .from('cuenta_cliente_pdv')
-      .select('pdv_id, cuenta_cliente_id, activo, fecha_fin')
-      .order('fecha_inicio', { ascending: false }),
-    supabase
-      .from('configuracion')
-      .select('valor')
-      .eq('clave', 'asistencias.san_pablo.catalogo_turnos')
-      .maybeSingle(),
-    supabase.from('horario_pdv').select('pdv_id').eq('activo', true),
-  ])
+        cuenta_cliente:cuenta_cliente_id(id, nombre),
+        empleado:empleado_id(id, nombre_completo, puesto, estatus_laboral, telefono, correo_electronico, supervisor_empleado_id, zona),
+        pdv:pdv_id(id, clave_btl, nombre, zona, estatus, horario_entrada, horario_salida, cadena:cadena_id(codigo, nombre, factor_cuota_default), geocerca_pdv(latitud, longitud, radio_tolerancia_metros))
+      `,
+      { count: 'exact' }
+    )
 
-  const infraError = [
-    asignacionesResult.error,
-    empleadosResult.error,
-    pdvsResult.error,
-    supervisoresResult.error,
-    cuentaPdvResult.error,
-    turnCatalogResult.error,
-    horariosResult.error,
-  ]
-    .filter(Boolean)
-    .map((item) => item?.message)
-    .join(' ')
-
-  if (asignacionesResult.error || empleadosResult.error || pdvsResult.error) {
-    return {
-      ...EMPTY_DATA,
-      mensajeInfraestructura:
-        infraError ||
-        'La base de asignaciones aun no esta completa para operar formulario y validaciones.',
-    }
+  if (actor.cuentaClienteId) {
+    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+  if (assignmentState === 'BORRADOR') {
+    query = query.eq('estado_publicacion', 'BORRADOR')
+  } else if (assignmentState === 'PUBLICADA') {
+    query = query.eq('estado_publicacion', 'PUBLICADA')
+  } else {
+    query = query
+      .eq('estado_publicacion', 'PUBLICADA')
+      .lte('fecha_inicio', today)
+      .or(`fecha_fin.is.null,fecha_fin.gte.${today}`)
   }
 
-  const employees = (empleadosResult.data ?? []) as EmpleadoRow[]
-  const pdvs = (pdvsResult.data ?? []) as PdvRow[]
-  const assignments = (asignacionesResult.data ?? []) as unknown as AsignacionQueryRow[]
-  const supervisors = (supervisoresResult.data ?? []) as SupervisorAsignacionRow[]
-  const accountRelations = (cuentaPdvResult.data ?? []) as CuentaClientePdvRow[]
+  const listResult = await query.order('created_at', { ascending: false }).range(from, to)
+
+  if (listResult.error) {
+    throw new Error(listResult.error.message)
+  }
+
+  const rows = (listResult.data ?? []) as unknown as AsignacionListadoQueryRow[]
+  const employeeIds = Array.from(new Set(rows.map((item) => item.empleado_id)))
+  const pdvIds = Array.from(new Set(rows.map((item) => item.pdv_id)))
+  const rowIds = new Set(rows.map((item) => item.id))
+
+  const relatedAssignmentsFilter = buildAssignmentScopeOrFilter({
+    empleadoIds: employeeIds,
+    pdvIds,
+  })
+  const visibleFechaInicio = rows.reduce(
+    (current, item) => (item.fecha_inicio < current ? item.fecha_inicio : current),
+    rows[0]?.fecha_inicio ?? today
+  )
+  const visibleFechaFin = rows.some((item) => !item.fecha_fin)
+    ? null
+    : rows.reduce<string | null>((current, item) => {
+        if (!item.fecha_fin) {
+          return current
+        }
+
+        if (!current || item.fecha_fin > current) {
+          return item.fecha_fin
+        }
+
+        return current
+      }, null)
+
+  const [relatedAssignmentsResult, supervisorsResult, horariosResult] = await Promise.all([
+    !relatedAssignmentsFilter
+      ? Promise.resolve({ data: [], error: null })
+      : (applyAccountScope(
+          supabase
+            .from('asignacion')
+            .select('id, empleado_id, pdv_id, supervisor_empleado_id, tipo, fecha_inicio, fecha_fin, dias_laborales') as any,
+          actor
+        ) as any)
+          .or(relatedAssignmentsFilter)
+          .order('fecha_inicio', { ascending: false }),
+    pdvIds.length === 0
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from('supervisor_pdv').select('pdv_id, activo, fecha_fin, empleado_id').in('pdv_id', pdvIds),
+    pdvIds.length === 0
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from('horario_pdv').select('pdv_id').in('pdv_id', pdvIds).eq('activo', true),
+  ])
+
+  if (relatedAssignmentsResult.error || supervisorsResult.error || horariosResult.error) {
+    throw new Error(
+      relatedAssignmentsResult.error?.message ??
+        supervisorsResult.error?.message ??
+        horariosResult.error?.message ??
+        'No fue posible completar el contexto de validacion de asignaciones.'
+    )
+  }
+
+  const relatedAssignments = ((relatedAssignmentsResult.data ?? []) as AsignacionComparableRow[]).map(buildComparableRow)
+  const comparableRowsByEmployee = relatedAssignments.reduce<Record<string, AssignmentComparableRow[]>>((acc, item) => {
+    if (rowIds.has(item.id)) {
+      return acc
+    }
+
+    const current = acc[item.empleado_id] ?? []
+    current.push(item)
+    acc[item.empleado_id] = current
+    return acc
+  }, {})
+  const historicalRowsByPdv = relatedAssignments.reduce<Record<string, AssignmentComparableRow[]>>((acc, item) => {
+    const current = acc[item.pdv_id] ?? []
+    current.push(item)
+    acc[item.pdv_id] = current
+    return acc
+  }, {})
+  const supervisors = (supervisorsResult.data ?? []) as SupervisorAsignacionRow[]
   const horarioCounts = ((horariosResult.data ?? []) as HorarioPdvRow[]).reduce<Record<string, number>>(
     (acc, item) => {
       acc[item.pdv_id] = (acc[item.pdv_id] ?? 0) + 1
@@ -564,99 +777,70 @@ export async function obtenerPanelAsignaciones(
     },
     {}
   )
-
-  const employeeMap = new Map(employees.map((item) => [item.id, item]))
-  const pdvMap = new Map(pdvs.map((item) => [item.id, item]))
-  const pdvsConGeocerca = new Set(
-    pdvs
-      .filter((item) => {
-        const geocerca = obtenerPrimero(item.geocerca_pdv)
-        return Boolean(
-          geocerca &&
-            geocerca.latitud !== null &&
-            geocerca.longitud !== null &&
-            geocerca.radio_tolerancia_metros !== null
-        )
-      })
-      .map((item) => item.id)
-  )
   const supervisorsByPdv = supervisors.reduce<Record<string, SupervisorAsignacionRow[]>>((acc, item) => {
     const current = acc[item.pdv_id] ?? []
     current.push(item)
     acc[item.pdv_id] = current
     return acc
   }, {})
-  const comparableRows = assignments.map(buildComparableRow)
-  const turnosDisponibles = parseTurnosCatalogo((turnCatalogResult.data as { valor: unknown } | null)?.valor)
-    .map((item) => ({
-      value: item.nomenclatura,
-      label: buildTurnoLabel(item),
-    }))
-  const visiblePdvIds = buildVisiblePdvIds(actor, accountRelations)
+  const rotationAccountId = actor?.cuentaClienteId ?? rows[0]?.cuenta_cliente_id ?? getSingleTenantAccountId()
+  const rotationValidationData = rows.length > 0
+    ? await loadAssignmentRotationValidationData(supabase, {
+        accountId: rotationAccountId,
+        pdvIds,
+        fechaInicio: visibleFechaInicio,
+        fechaFin: visibleFechaFin,
+      })
+    : null
 
-  const pdvsDisponibles = pdvs
-    .filter((item) => item.estatus === 'ACTIVO')
-    .filter((item) => (visiblePdvIds ? visiblePdvIds.has(item.id) : true))
-    .map((item) => ({
-      id: item.id,
-      nombre: item.nombre,
-      claveBtl: item.clave_btl,
-      cadena: obtenerPrimero(item.cadena)?.nombre ?? null,
-      zona: item.zona,
-    }))
+  const items = rows.map((row) => {
+    const employee = first(row.empleado)
+    const pdv = first(row.pdv)
+    const chain = first(pdv?.cadena ?? null)
 
-  const empleadosDisponibles = employees
-    .filter((item) => item.puesto === 'DERMOCONSEJERO' && item.estatus_laboral === 'ACTIVO')
-    .map((item) => ({
-      id: item.id,
-      nombre: item.nombre_completo,
-      zona: item.zona,
-    }))
-
-  const asignaciones = assignments.map((row) => {
-    const employee = employeeMap.get(row.empleado_id)
-    const pdv = pdvMap.get(row.pdv_id)
-    const chain = obtenerPrimero(pdv?.cadena ?? null)
-    const issues = evaluarReglasAsignacion(
-      {
-        id: row.id,
-        cuenta_cliente_id: row.cuenta_cliente_id,
-        empleado_id: row.empleado_id,
-        pdv_id: row.pdv_id,
-        supervisor_empleado_id: row.supervisor_empleado_id,
-        tipo: row.tipo,
-        fecha_inicio: row.fecha_inicio,
-        fecha_fin: row.fecha_fin,
-        dias_laborales: row.dias_laborales,
-        dia_descanso: row.dia_descanso,
-        horario_referencia: row.horario_referencia,
-      },
-      {
-        employee: buildValidationEmployee(employee),
-        pdv: buildValidationPdv(pdv),
-        pdvsConGeocerca,
-        supervisoresPorPdv: supervisorsByPdv,
-        comparableAssignments: comparableRows,
-        historicalAssignmentsForPdv: comparableRows
-          .filter((item) => item.pdv_id === row.pdv_id)
-          .sort((left, right) => right.fecha_inicio.localeCompare(left.fecha_inicio)),
-        horariosPorPdv: horarioCounts,
-      }
-    )
-
+    const rowValidation = {
+      id: row.id,
+      cuenta_cliente_id: row.cuenta_cliente_id,
+      empleado_id: row.empleado_id,
+      pdv_id: row.pdv_id,
+      supervisor_empleado_id: row.supervisor_empleado_id,
+      tipo: row.tipo,
+      fecha_inicio: row.fecha_inicio,
+      fecha_fin: row.fecha_fin,
+      dias_laborales: row.dias_laborales,
+      dia_descanso: row.dia_descanso,
+      horario_referencia: row.horario_referencia,
+    }
+    const issues = [
+      ...evaluarReglasAsignacion(
+        rowValidation,
+        {
+          employee: buildValidationEmployee(employee),
+          pdv: buildValidationPdv(pdv),
+          pdvsConGeocerca: pdv && first(pdv.geocerca_pdv) ? new Set<string>([pdv.id]) : new Set<string>(),
+          supervisoresPorPdv: pdv ? { [pdv.id]: supervisorsByPdv[pdv.id] ?? [] } : {},
+          comparableAssignments: comparableRowsByEmployee[row.empleado_id] ?? [],
+          historicalAssignmentsForPdv: (historicalRowsByPdv[row.pdv_id] ?? []).filter((item) => item.id !== row.id),
+          horariosPorPdv: pdv ? { [pdv.id]: horarioCounts[pdv.id] ?? 0 } : {},
+        }
+      ),
+      ...evaluateRotationMasterImpact(rowValidation, {
+        rotationData: rotationValidationData,
+      }),
+    ]
     const resumenIssues = resumirIssuesAsignacion(issues)
 
     return {
       id: row.id,
       cuentaClienteId: row.cuenta_cliente_id,
-      cuentaCliente: obtenerPrimero(row.cuenta_cliente)?.nombre ?? null,
+      cuentaCliente: first(row.cuenta_cliente)?.nombre ?? null,
       empleadoId: row.empleado_id,
       empleado: employee?.nombre_completo ?? null,
       pdvId: row.pdv_id,
       pdv: pdv?.nombre ?? null,
       pdvClaveBtl: pdv?.clave_btl ?? null,
       tipo: row.tipo,
-      horario: row.horario_referencia ?? null,
+      horario: row.horario_referencia ?? pdv?.horario_entrada ?? null,
       diasLaborales: row.dias_laborales,
       diaDescanso: row.dia_descanso,
       fechaInicio: row.fecha_inicio,
@@ -672,27 +856,179 @@ export async function obtenerPanelAsignaciones(
       bloqueada: issues.some((issue) => issue.severity === 'ERROR'),
       alertasCount: resumenIssues.alertas.length,
       requiereConfirmacionAlertas: resumenIssues.alertas.length > 0,
-    }
+    } satisfies AsignacionListadoItem
   })
 
-  const engineAlerts = buildAssignmentEngineAlerts(
-    assignments as AssignmentEngineRow[],
-    new Date().toISOString().slice(0, 10)
-  ).map<AsignacionNoticeItem>((alert) => ({
-    code: `${alert.code}-${alert.assignmentId ?? alert.empleadoId ?? alert.pdvId ?? 'global'}`,
-    severity: alert.severity,
-    label:
-      alert.code === 'TEMPORAL_POR_VENCER'
-        ? 'Movimiento por vencer'
-        : alert.code === 'DC_SIN_PDV_PROXIMO'
-          ? 'Dermoconsejera sin PDV'
-          : 'PDV quedara libre',
-    message: alert.message,
-  }))
+  return {
+    estado: assignmentState,
+    page,
+    pageSize,
+    total: listResult.count ?? items.length,
+    items,
+  }
+}
 
-  const actorZone = employeeMap.get(actor.empleadoId)?.zona ?? null
-  const supervisoresCalendario = employees
-    .filter((item) => item.puesto === 'SUPERVISOR' && item.estatus_laboral === 'ACTIVO')
+function mapPdvState(item: PdvCoberturaBoardItem): AssignmentPdvBoardState {
+  switch (item.semaforo) {
+    case 'VERDE':
+      return 'ASIGNADOS'
+    case 'AMARILLO':
+      return 'RESERVADOS'
+    case 'ROJO':
+      return 'INACTIVOS'
+    default:
+      return 'SIN_ASIGNACION'
+  }
+}
+
+async function loadPdvView(
+  supabase: TypedSupabaseClient,
+  actor: ActorActual,
+  filters: {
+    pdvState?: string | null
+    cadena?: string | null
+    ciudad?: string | null
+    zona?: string | null
+    rotacionClasificacion?: string | null
+    grupoRotacion?: string | null
+    pdvPanel?: string | null
+  }
+): Promise<AsignacionesPdvsBoardData> {
+  const panel = normalizePdvPanel(filters.pdvPanel)
+  const coverageBoard = panel === 'COBERTURA' ? await buildRecruitmentCoverageBoard(supabase, { actor }) : null
+  const rotationBoard = panel === 'ROTACION' ? await buildPdvRotationMasterBoard(supabase, { actor }) : null
+  const estado = normalizePdvBoardState(filters.pdvState)
+  const cadena = normalizeTextFilter(filters.cadena)
+  const ciudad = normalizeTextFilter(filters.ciudad)
+  const zona = normalizeTextFilter(filters.zona)
+  const rotacionClasificacion = normalizeRotationFilter(filters.rotacionClasificacion)
+  const grupoRotacion = normalizeTextFilter(filters.grupoRotacion)
+
+  const sourceItems = coverageBoard?.items ?? rotationBoard?.items ?? []
+
+  const matchesLocation = (item: { cadena: string | null; ciudad: string | null; zona: string | null }) => {
+    if (cadena && item.cadena !== cadena) {
+      return false
+    }
+
+    if (ciudad && item.ciudad !== ciudad) {
+      return false
+    }
+
+    if (zona && item.zona !== zona) {
+      return false
+    }
+
+    return true
+  }
+
+  const items = (coverageBoard?.items ?? []).filter((item) => {
+    if (estado !== 'ALL' && mapPdvState(item) !== estado) {
+      return false
+    }
+
+    return matchesLocation(item)
+  })
+
+  const rotationItems = (rotationBoard?.items ?? []).filter((item) => {
+    if (!matchesLocation(item)) {
+      return false
+    }
+
+    if (rotacionClasificacion === 'FIJO' && item.clasificacionMaestra !== 'FIJO') {
+      return false
+    }
+
+    if (rotacionClasificacion === 'ROTATIVO' && item.clasificacionMaestra !== 'ROTATIVO') {
+      return false
+    }
+
+    if (rotacionClasificacion === 'PENDIENTE' && !item.pendienteRevision) {
+      return false
+    }
+
+    if (rotacionClasificacion === 'INCOMPLETO' && !item.grupoIncompleto) {
+      return false
+    }
+
+    if (grupoRotacion && item.grupoRotacionCodigo !== grupoRotacion) {
+      return false
+    }
+
+    return true
+  })
+
+  const allowedPdvIds = new Set(rotationItems.map((item) => item.pdvId))
+  const rotationGroups = (rotationBoard?.groups ?? [])
+    .map((group) => ({
+      ...group,
+      miembros: group.miembros.filter((member) => allowedPdvIds.has(member.pdvId)),
+    }))
+    .filter((group) => group.miembros.length > 0)
+
+  return {
+    summary: coverageBoard?.summary ?? null,
+    items,
+    estado,
+    cadena,
+    ciudad,
+    zona,
+    cadenasDisponibles: Array.from(new Set(sourceItems.map((item) => item.cadena).filter(Boolean))).sort(
+      (left, right) => String(left).localeCompare(String(right), 'es-MX')
+    ) as string[],
+    ciudadesDisponibles: Array.from(new Set(sourceItems.map((item) => item.ciudad).filter(Boolean))).sort(
+      (left, right) => String(left).localeCompare(String(right), 'es-MX')
+    ) as string[],
+    zonasDisponibles: Array.from(new Set(sourceItems.map((item) => item.zona).filter(Boolean))).sort(
+      (left, right) => String(left).localeCompare(String(right), 'es-MX')
+    ) as string[],
+    rotacion: rotationBoard
+      ? {
+          summary: {
+            operables: rotationItems.length,
+            fijos: rotationItems.filter((item) => item.clasificacionMaestra === 'FIJO').length,
+            rotativos: rotationItems.filter((item) => item.clasificacionMaestra === 'ROTATIVO').length,
+            pendientes: rotationItems.filter((item) => item.pendienteRevision).length,
+            gruposIncompletos: rotationGroups.filter((group) => !group.completo).length,
+          },
+          items: rotationItems,
+          groups: rotationGroups,
+        }
+      : null,
+    rotacionClasificacion,
+    grupoRotacion,
+    panel,
+  }
+}
+
+async function loadCalendarView(
+  supabase: TypedSupabaseClient,
+  actor: ActorActual,
+  filters: {
+    month?: string | null
+    supervisorEmpleadoId?: string | null
+    estadoOperativo?: string | null
+  }
+): Promise<AsignacionesCalendarData> {
+  const month = normalizeCalendarMonth(filters.month)
+  const supervisorEmpleadoId =
+    actor.puesto === 'SUPERVISOR' ? actor.empleadoId : normalizeTextFilter(filters.supervisorEmpleadoId) || null
+  const estadoOperativo = normalizeCalendarEstadoOperativo(filters.estadoOperativo)
+
+  const [actorEmployeeResult, supervisorsResult] = await Promise.all([
+    supabase.from('empleado').select('zona').eq('id', actor.empleadoId).maybeSingle(),
+    supabase
+      .from('empleado')
+      .select('id, nombre_completo, puesto, estatus_laboral, zona')
+      .eq('puesto', 'SUPERVISOR')
+      .eq('estatus_laboral', 'ACTIVO')
+      .order('nombre_completo', { ascending: true }),
+  ])
+
+  const actorZone = (actorEmployeeResult.data as { zona: string | null } | null)?.zona ?? null
+  const supervisors = ((supervisorsResult.data ?? []) as Array<
+    Pick<Empleado, 'id' | 'nombre_completo' | 'puesto' | 'estatus_laboral' | 'zona'>
+  >)
     .filter((item) => {
       if (actor.puesto === 'SUPERVISOR') {
         return item.id === actor.empleadoId
@@ -705,61 +1041,109 @@ export async function obtenerPanelAsignaciones(
       return true
     })
     .map((item) => ({ id: item.id, nombre: item.nombre_completo }))
-    .sort((left, right) => left.nombre.localeCompare(right.nombre, 'es-MX'))
 
   let calendarioMensual: MaterializedMonthlyCalendar | null = null
-  let mensajeCalendario: string | undefined
+  let mensaje: string | undefined
 
   try {
-    calendarioMensual = await getMaterializedMonthlyCalendar(
-      {
-        month,
-        supervisorEmpleadoId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : supervisorEmpleadoId ?? undefined,
-        coordinadorEmpleadoId: actor.puesto === 'COORDINADOR' ? actor.empleadoId : undefined,
-        cuentaClienteId: actor.cuentaClienteId ?? undefined,
-        zona: actor.puesto === 'COORDINADOR' ? actorZone ?? undefined : undefined,
-        estadoOperativo: estadoOperativo ?? undefined,
-      },
-      supabase as SupabaseClient<any>
-    )
+    calendarioMensual = await getMaterializedMonthlyCalendar({
+      month,
+      supervisorEmpleadoId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : supervisorEmpleadoId ?? undefined,
+      coordinadorEmpleadoId: actor.puesto === 'COORDINADOR' ? actor.empleadoId : undefined,
+      cuentaClienteId: actor.cuentaClienteId ?? undefined,
+      zona: actor.puesto === 'COORDINADOR' ? actorZone ?? undefined : undefined,
+      estadoOperativo: estadoOperativo ?? undefined,
+    })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'No fue posible cargar el calendario mensual.'
-    mensajeCalendario =
-      message.includes('asignacion_diaria_resuelta') || message.includes('schema cache')
+    const detail = error instanceof Error ? error.message : 'No fue posible cargar el calendario mensual.'
+    mensaje =
+      detail.includes('asignacion_diaria_resuelta') || detail.includes('schema cache')
         ? 'La vista mensual operativa estara disponible cuando la base termine de materializar asignacion_diaria_resuelta.'
-        : message
+        : detail
   }
 
   return {
-    resumen: {
-      total: asignaciones.length,
-      borrador: asignaciones.filter((item) => item.estadoPublicacion === 'BORRADOR').length,
-      publicada: asignaciones.filter((item) => item.estadoPublicacion === 'PUBLICADA').length,
-      coberturas: asignaciones.filter((item) => item.tipo === 'COBERTURA').length,
-      conBloqueo: asignaciones.filter((item) => item.bloqueada).length,
-      conAlerta: asignaciones.filter((item) => item.alertasCount > 0).length,
-      conAviso: asignaciones.filter((item) => resumirIssuesAsignacion(item.issues).avisos.length > 0).length,
-      publicadasInvalidas: asignaciones.filter(
-        (item) => item.bloqueada && item.estadoPublicacion === 'PUBLICADA'
-      ).length,
-    },
-    asignaciones,
-    empleadosDisponibles,
-    pdvsDisponibles,
-    turnosDisponibles,
-    avisosGlobales: [...buildGlobalNotices(actor, assignments, employees, pdvs), ...engineAlerts],
-    vistaDia: buildVistaDia(actor, asignaciones, employeeMap, pdvMap),
     calendarioMensual,
-    filtrosCalendario: {
+    filtros: {
       month,
       supervisorEmpleadoId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : supervisorEmpleadoId,
       estadoOperativo,
     },
-    supervisoresCalendario,
-    supervisorCalendarioBloqueado: actor.puesto === 'SUPERVISOR',
-    infraestructuraLista: true,
-    mensajeCalendario,
+    supervisores: supervisors,
+    supervisorBloqueado: actor.puesto === 'SUPERVISOR',
+    mensaje,
   }
 }
+
+export async function obtenerPanelAsignaciones(
+  supabase: SupabaseClient,
+  actor: ActorActual,
+  options: ObtenerPanelAsignacionesOptions = {}
+): Promise<AsignacionesPanelData> {
+  const typedSupabase = supabase as TypedSupabaseClient
+  const activeView = normalizeView(options.view)
+  const activeModal = normalizeModal(options.modal)
+  const page = normalizePositiveInt(options.page, 1)
+  const assignmentState = normalizeAssignmentState(options.assignmentState)
+
+  const shell = await loadShellSummary(typedSupabase, actor)
+  const response: AsignacionesPanelData = {
+    ...EMPTY_DATA,
+    activeView,
+    activeModal,
+    shell,
+    resumen: shell,
+    puedeGestionar: actor.puesto === 'ADMINISTRADOR',
+    infraestructuraLista: true,
+  }
+
+  try {
+    if (activeView === 'asignaciones') {
+      response.assignmentsView = await loadAssignmentsView(typedSupabase, actor, assignmentState, page)
+    }
+
+    if (activeView === 'pdvs') {
+      response.pdvsView = await loadPdvView(typedSupabase, actor, {
+        pdvPanel: options.filters?.pdvPanel,
+        pdvState: options.filters?.pdvState,
+        cadena: options.filters?.cadena,
+        ciudad: options.filters?.ciudad,
+        zona: options.filters?.zona,
+        rotacionClasificacion: options.filters?.rotacionClasificacion,
+        grupoRotacion: options.filters?.grupoRotacion,
+      })
+    }
+
+    if (activeView === 'calendario') {
+      response.calendarView = await loadCalendarView(typedSupabase, actor, {
+        month: options.filters?.month,
+        supervisorEmpleadoId: options.filters?.supervisorEmpleadoId,
+        estadoOperativo: options.filters?.estadoOperativo,
+      })
+    }
+
+    if (activeModal === 'catalogo') {
+      response.catalogModal = await loadCatalogModalData(typedSupabase, actor)
+    }
+
+    if (activeModal === 'manual') {
+      response.manualModal = await loadManualModalData(typedSupabase, actor)
+    }
+  } catch (error) {
+    return {
+      ...response,
+      infraestructuraLista: false,
+      mensajeInfraestructura:
+        error instanceof Error
+          ? error.message
+          : 'La base de asignaciones aun no esta completa para operar esta vista.',
+    }
+  }
+
+  return response
+}
+
+
+
 
 

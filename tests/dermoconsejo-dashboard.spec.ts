@@ -18,6 +18,7 @@ test('dermoconsejero ve dashboard operativo mobile-first con acciones rapidas', 
   await expect(page.getByText(/Acciones rapidas/i)).toBeVisible()
   await expect(page.getByRole('button', { name: /Ventas/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /Love ISDIN/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Registro extemporaneo/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /Calendario/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /Perfil/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /Comunicacion/i })).toBeVisible()
@@ -59,7 +60,7 @@ test('dermoconsejero usa aviso previo y justificacion de faltas con receta IMSS'
   await expect(justificacionDialog.getByText(/solo se puede justificar una falta que ya haya sido avisada previamente/i)).toBeVisible()
 })
 
-test('love isdin usa flujo rapido con QR fijo y datos minimos', async ({ page }) => {
+test('love isdin usa flujo tipo carrito con QR fijo y guardado acumulado', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
 
   await login(page, 'test_dermoconsejero_01@fieldforce.test', 'RtlTest!Der01')
@@ -71,11 +72,35 @@ test('love isdin usa flujo rapido con QR fijo y datos minimos', async ({ page })
   await expect(page.locator('[role="dialog"][aria-label="Love ISDIN"]')).toBeVisible()
   await expect(page.getByAltText(/QR personal LOVE ISDIN/i)).toBeVisible()
   await expect(page.getByLabel(/Nombre del cliente/i)).toBeVisible()
-  await expect(page.getByLabel(/Correo electronico/i)).toBeVisible()
-  await expect(page.getByText(/Abrir camara/i)).toBeVisible()
-  await expect(page.getByLabel(/QR personal/i)).toHaveCount(0)
-  await expect(page.getByLabel(/Ticket \/ folio/i)).toHaveCount(0)
-  await expect(page.getByLabel(/Fecha y hora/i)).toHaveCount(0)
+  await expect(page.getByLabel(/Correo o contacto/i)).toBeVisible()
+  await expect(page.getByLabel(/Ticket o folio opcional/i)).toBeVisible()
+  await expect(page.getByRole('button', { name: /Agregar al carrito/i })).toBeVisible()
+  await expect(page.getByText(/Carrito LOVE ISDIN/i)).toBeVisible()
+  await expect(page.getByRole('button', { name: /Guardar afiliaciones/i })).toBeVisible()
+  await expect(page.getByText(/Abrir camara/i)).toHaveCount(0)
+})
+
+test('registro extemporaneo vive en acciones rapidas con pestanas separadas para ventas y love isdin', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+
+  await login(page, 'test_dermoconsejero_01@fieldforce.test', 'RtlTest!Der01')
+  await page.goto('http://127.0.0.1:3000/dashboard', { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(1500)
+
+  await page.getByRole('button', { name: /Registro extemporaneo/i }).click()
+
+  const dialog = page.locator('[role="dialog"][aria-label="Registro extemporaneo"]')
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /^Ventas$/i })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /LOVE ISDIN/i })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /Agregar venta/i })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /Guardar ventas extemporaneas/i })).toBeVisible()
+
+  await dialog.getByRole('button', { name: /LOVE ISDIN/i }).click()
+  await expect(dialog.getByRole('button', { name: /Agregar afiliacion/i })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /Guardar LOVE ISDIN extemporaneo/i })).toBeVisible()
 })
 
 test('incidencias unifica retardo, no llegare y desabasto en una sola hoja operativa', async ({ page }) => {
@@ -92,6 +117,7 @@ test('incidencias unifica retardo, no llegare y desabasto en una sola hoja opera
   await expect(page.getByRole('button', { name: /No llegare/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /Desabasto/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /Avisar inasistencia/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Registro extemporaneo/i })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Faltantes/i })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Enviar incidencia/i })).toBeVisible()
 })
@@ -154,7 +180,7 @@ test('calendario muestra asignaciones semanales y mensuales desde acciones rapid
   await expect(dialog.getByText('Tiendas asignadas', { exact: true })).toBeVisible()
 })
 
-test('incapacidad usa flujo directo a nomina con tipo y carga rapida', async ({ page }) => {
+test('incapacidad usa flujo escalonado con supervision, reclutamiento y nomina', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
 
   await login(page, 'test_dermoconsejero_01@fieldforce.test', 'RtlTest!Der01')
@@ -183,7 +209,7 @@ test('incapacidad usa flujo directo a nomina con tipo y carga rapida', async ({ 
   await expect(dialog.getByText(/quieres agregar un documento de tu galeria/i)).toBeVisible()
   await expect(dialog.getByText(/^Galeria$/i)).toBeVisible()
   await expect(dialog.getByText(/^Camara$/i)).toBeVisible()
-  await expect(dialog.getByText(/Se enviara directo a nomina/i)).toBeVisible()
+  await expect(dialog.getByText(/Primero la valida supervision, despues la revisa reclutamiento y finalmente la formaliza nomina/i)).toBeVisible()
 
   await dialog.getByRole('button', { name: /Ver estatus/i }).click()
   await expect(dialog.getByText(/Todavia no has enviado solicitudes de este tipo/i)).toBeVisible()

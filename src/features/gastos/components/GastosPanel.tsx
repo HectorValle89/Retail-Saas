@@ -1,10 +1,13 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useRef, useState } from 'react'
 import { useFormStatus } from 'react-dom'
-import { Button, Card, EvidencePreview } from '@/components/ui'
+import { Button, Card, EvidencePreview, MetricCard as SharedMetricCard } from '@/components/ui'
+import { ClientImageFileInput } from '@/components/ui/client-image-file-input'
 import { getSingleTenantAccountLabel, isSingleTenantUiEnabled, resolveSingleTenantAccountOption } from '@/lib/tenant/singleTenant'
-import { ESTADO_GASTO_INICIAL, actualizarEstatusGasto, registrarGastoOperativo } from '../actions'
+import { actualizarEstatusGasto, registrarGastoOperativo } from '../actions'
+import { injectDirectR2Upload } from '@/lib/storage/directR2Client'
+import { ESTADO_GASTO_INICIAL } from '../state'
 import type { GastosPanelData } from '../services/gastoService'
 
 function formatCurrency(value: number, currency = 'MXN') {
@@ -25,8 +28,31 @@ function formatApprovalStage(value: string) {
 
 export function GastosPanel({ data }: { data: GastosPanelData }) {
   const [state, formAction] = useActionState(registrarGastoOperativo, ESTADO_GASTO_INICIAL)
+  const [isUploadingR2, setIsUploadingR2] = useState(false)
+  const formRef = useRef<HTMLFormElement>(null)
   const fixedAccount = resolveSingleTenantAccountOption(data.cuentas)
   const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount)
+
+  const handleInterceptedSubmit = async (formData: FormData) => {
+    const comprobante = formData.get('comprobante') as File | null
+    if (comprobante && comprobante.size > 0) {
+      setIsUploadingR2(true)
+      try {
+        await injectDirectR2Upload(formData, comprobante, {
+          modulo: 'gastos',
+          removeFieldName: 'comprobante',
+        })
+      } catch (err) {
+        console.error('Error en subida R2:', err)
+      } finally {
+        setIsUploadingR2(false)
+      }
+    }
+
+    // Submit form con datos R2 o fallback tradicional
+    const action = formAction as unknown as (formData: FormData) => void
+    action(formData)
+  }
 
   return (
     <div className="space-y-6">
@@ -55,7 +81,11 @@ export function GastosPanel({ data }: { data: GastosPanelData }) {
           </p>
         </div>
 
-        <form action={formAction} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <form
+          ref={formRef}
+          action={handleInterceptedSubmit}
+          className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
+        >
           {useSingleTenantUi ? (
             <>
               <input type="hidden" name="cuenta_cliente_id" value={fixedAccount?.id ?? ''} />
@@ -162,12 +192,14 @@ export function GastosPanel({ data }: { data: GastosPanelData }) {
 
           <label className="block text-sm text-slate-600 xl:col-span-4">
             Comprobante
-            <input
+            <ClientImageFileInput
               name="comprobante"
-              type="file"
               accept="image/jpeg,image/png,image/webp,application/pdf"
-              className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium"
+              disabled={isUploadingR2}
             />
+            {isUploadingR2 && (
+              <p className="mt-2 text-sm text-sky-600">Subiendo comprobante a la nube...</p>
+            )}
           </label>
 
           <label className="block text-sm text-slate-600 xl:col-span-4">
@@ -325,12 +357,7 @@ export function GastosPanel({ data }: { data: GastosPanelData }) {
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card className="border-slate-200 bg-white">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
-    </Card>
-  )
+  return <SharedMetricCard label={label} value={value} />
 }
 
 function StatusPill({ active, label }: { active: boolean; label: string }) {

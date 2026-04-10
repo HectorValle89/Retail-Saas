@@ -158,9 +158,11 @@ export async function obtenerRegistrosExtemporaneosPanel(
   {
     actorPuesto,
     actorEmpleadoId,
+    tiposRegistro,
   }: {
     actorPuesto?: Puesto | null
     actorEmpleadoId?: string | null
+    tiposRegistro?: RegistroExtemporaneo['tipo_registro'][]
   }
 ): Promise<{
   infraestructuraLista: boolean
@@ -168,7 +170,7 @@ export async function obtenerRegistrosExtemporaneosPanel(
   resumen: RegistroExtemporaneoResumen
   registros: RegistroExtemporaneoListadoItem[]
 }> {
-  const result = await client
+  let query = client
     .from('registro_extemporaneo')
     .select(`
       id,
@@ -198,6 +200,12 @@ export async function obtenerRegistrosExtemporaneosPanel(
     `)
     .order('fecha_operativa', { ascending: false })
     .limit(100)
+
+  if (tiposRegistro && tiposRegistro.length > 0) {
+    query = query.in('tipo_registro', tiposRegistro)
+  }
+
+  const result = await query
 
   if (result.error) {
     return {

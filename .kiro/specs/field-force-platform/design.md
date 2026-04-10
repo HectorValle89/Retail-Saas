@@ -502,9 +502,13 @@ Define qué dermoconsejera trabaja en qué PDV, en qué fechas y bajo qué condi
 
 Lo operan coordinación, administración operativa y supervisión en ciertos ajustes. Tiene varias capas de configuración: plan maestro base, plan mensual, ajustes mensuales, ajustes estructurales, parches especiales (ej. San Pablo), horarios especiales por PDV.
 
+Además del plan mensual, el módulo mantiene una capa maestra separada de topología de PDVs para distinguir `FIJO` y `ROTATIVO`. Esa capa vive independiente de `asignacion`, se revisa con una propuesta XLSX generada desde bases publicadas o con una conversión previa desde archivos legacy operativos, y se importa como reemplazo total por cuenta para evitar inferencias costosas en cada request.
+
 Se actualiza cada mes, por coberturas, cambios temporales o permanentes, y excepciones de horario.
 
 **Campos clave:** dermoconsejera, PDV, supervisor heredado, días laborales, descansos, horario base, rango de vigencia, tipo (temporal/permanente), reglas especiales.
+
+**Campos clave de rotación maestra:** PDV, clasificación maestra (`FIJO` / `ROTATIVO`), grupo de rotación, tamaño de grupo, posición (`A`, `B`, `C`), fuente (`SUGERIDA` / `IMPORTADA`) y vigencia.
 
 **Se relaciona con:** PDVs, Empleados, Ruta Semanal, Asistencias, Ventas, LOVE ISDIN, Campañas, Entrega de Material.
 
@@ -680,17 +684,22 @@ Registro formal de presencia operativa del día. El dato nace de la asignación 
 
 **Impacta a:** dermoconsejera, supervisor, RH, Nómina, reportes.
 
+**Superficies activas:**
+- ADMINISTRADOR, COORDINADOR y NÓMINA consumen un calendario administrativo mensual tipo matriz por colaboradora y por día, con detalle consultivo lazy por celda y exportación mensual alineada a la misma nomenclatura.
+- DERMOCONSEJERO y SUPERVISOR conservan su flujo operativo de captura/validación en sus superficies de jornada; no usan el calendario administrativo como superficie de ejecución.
+- La matriz administrativa usa `asignacion_diaria_resuelta` como base de lectura y superpone asistencias válidas, retardos, vacaciones, incapacidades formalizadas, faltas justificadas, feriados, bajas y vacantes no contables.
+
 | Rol | Acceso | Capacidades principales |
 |---|---|---|
-| DERMOCONSEJERO | Lectura y escritura | Ejecuta check-in y check-out con GPS y selfie; ve su historial de asistencia, retardos y faltas |
-| SUPERVISOR | Aprobación | Valida o rechaza excepciones de asistencia; aprueba check-ins en PENDIENTE_VALIDACION; consulta asistencia de su equipo |
-| COORDINADOR | Solo lectura | Consulta asistencia consolidada de su área; aprueba anulación de faltas administrativas |
+| DERMOCONSEJERO | Lectura y escritura | Ejecuta check-in y check-out con GPS y selfie desde sus superficies operativas; ve su historial personal de asistencia, retardos y faltas |
+| SUPERVISOR | Aprobación | Valida o rechaza excepciones de asistencia; aprueba check-ins en PENDIENTE_VALIDACION; consulta asistencia de su equipo desde dashboard y bandejas operativas |
+| COORDINADOR | Solo lectura | Consulta el calendario administrativo mensual consolidado de su área; aprueba anulación de faltas administrativas |
 | RECLUTAMIENTO | Sin acceso | — |
-| NÓMINA | Solo lectura | Consulta registros de asistencia para cálculo de nómina; recibe alertas de faltas administrativas |
+| NÓMINA | Solo lectura | Consulta el calendario administrativo mensual para cálculo de nómina; recibe alertas de faltas administrativas |
 | LOGISTICA | Sin acceso | — |
 | LOVE_IS | Sin acceso | — |
 | VENTAS | Sin acceso | — |
-| ADMINISTRADOR | Gestión completa | Configura calendarios laborales, horarios, días feriados y reglas de retardo; acceso total a registros |
+| ADMINISTRADOR | Gestión completa | Configura calendarios laborales, horarios, días feriados y reglas de retardo; administra el calendario mensual consolidado y su exportación |
 | CLIENTE | Solo lectura | Consulta reportes de asistencia y coberturas de sus PDVs |
 
 ---
@@ -712,8 +721,8 @@ Motor de flujos de aprobación y formalización de solicitudes laborales y opera
 | DERMOCONSEJERO | Lectura y escritura | Crea solicitudes de vacaciones, incapacidades, permisos y cumpleaños; adjunta documentos médicos (sin galería); consulta estado de sus solicitudes |
 | SUPERVISOR | Aprobación | Aprueba o rechaza solicitudes de primer nivel de sus DCs en ≤24h; recibe notificaciones de nuevas solicitudes |
 | COORDINADOR | Aprobación | Aprueba definitivamente vacaciones, cambios de tienda e incidencias graves no resueltas por Supervisor |
-| RECLUTAMIENTO | Lectura y escritura | Formaliza en el sistema incidencias autorizadas por operación; gestiona bajas con checklist |
-| NÓMINA | Aprobación | Formaliza incapacidades en estado VALIDADA_SUP cambiando a REGISTRADA_RH en ≤48h |
+| RECLUTAMIENTO | Lectura y escritura | Revisa documentalmente incapacidades validadas por supervision antes de enviarlas a NÓMINA; gestiona bajas con checklist |
+| NÓMINA | Aprobación | Formaliza incapacidades validadas por Reclutamiento cambiando a REGISTRADA_RH en ≤48h |
 | LOGISTICA | Sin acceso | — |
 | LOVE_IS | Sin acceso | — |
 | VENTAS | Sin acceso | — |
@@ -761,6 +770,15 @@ Comunicación interna: comunicados a grupos, anuncios operativos, encuestas inte
 | VENTAS | Lectura y escritura | Envía comunicados de campañas, cuotas y resultados comerciales |
 | ADMINISTRADOR | Gestión completa | Envía comunicados a cualquier grupo; administra canales y encuestas |
 | CLIENTE | Sin acceso | — |
+
+**Reglas operativas del motor de mensajería**
+- La publicación de comunicados generales y encuestas operativas queda centralizada en `ADMINISTRADOR` y `COORDINADOR`.
+- Los mensajes pueden dirigirse por rol operativo, zona, supervisor o universo de DCs, incluyendo al mismo rol emisor cuando aplique.
+- Toda publicación genera bandeja en `Mensajes`, fanout push y badge/notificación de mensaje nuevo en `Dashboard` para los receptores.
+- Las encuestas soportan preguntas de opción múltiple y de respuesta libre.
+- Las encuestas pueden cargarse manualmente o por archivo Excel para generar múltiples preguntas dentro del mismo envío.
+- Cada encuesta define si las respuestas son `ANÓNIMAS` o `IDENTIFICADAS`; la identidad solo se expone en la vista analítica cuando la encuesta no es anónima.
+- `Mensajes` mantiene dos superficies separadas: `Bandeja` y `Analítica`, para no mezclar lectura operativa con análisis de alcance y respuestas.
 
 ---
 
@@ -1054,6 +1072,9 @@ stateDiagram-v2
   BORRADOR --> ENVIADA: DC envía con foto doc médico (sin galería)
   ENVIADA --> VALIDADA_SUP: SUPERVISOR aprueba (≤24h)
   ENVIADA --> BORRADOR: SUPERVISOR rechaza con motivo
+  VALIDADA_SUP --> VALIDADA_SUP: RECLUTAMIENTO valida documento
+  VALIDADA_SUP --> CORRECCION_SOLICITADA: RECLUTAMIENTO regresa para corrección
+  CORRECCION_SOLICITADA --> ENVIADA: DC o SUP corrigen y reenvían
   VALIDADA_SUP --> REGISTRADA_RH: NÓMINA formaliza (≤48h)
   REGISTRADA_RH --> [*]: Motor_Nomina anula faltas/retardos en fechas cubiertas
 ```
@@ -3324,6 +3345,6 @@ Los registros extemporáneos de `VENTA` y `LOVE ISDIN` no entran directo a produ
 
 **Dependencias**
 - `DashboardPanel` para captura de la DC.
-- `SolicitudesPanel` para revisión de supervisor y administrador.
+- `VentasPanel` para revision de registros extemporaneos tipo `VENTA` o `AMBAS`.`n- `LoveIsdinPanel` para revision de registros extemporaneos tipo `LOVE_ISDIN` o `AMBAS`.
 - `ventaRegistration` y `loveRegistration` como consolidadores definitivos.
 - `asignacion_diaria_resuelta` y `asistencia` como precondiciones técnicas del día.

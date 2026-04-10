@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ActorActual } from '@/lib/auth/session'
 import { createServiceClient } from '@/lib/supabase/server'
+import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus'
 import type {
   Asignacion,
   Campana,
@@ -117,6 +118,29 @@ type AsistenciaRow = {
   check_in_utc: string | null
 }
 type EmpleadoRow = Pick<Empleado, 'id' | 'nombre_completo' | 'puesto'>
+type CampanaInicioRow = Pick<
+  Campana,
+  | 'id'
+  | 'cuenta_cliente_id'
+  | 'nombre'
+  | 'fecha_inicio'
+  | 'fecha_fin'
+  | 'estado'
+  | 'cuota_adicional'
+  | 'created_at'
+>
+type CampanaPdvInicioRow = Pick<
+  CampanaPdv,
+  | 'id'
+  | 'campana_id'
+  | 'cuenta_cliente_id'
+  | 'pdv_id'
+  | 'dc_empleado_id'
+  | 'tareas_requeridas'
+  | 'tareas_cumplidas'
+  | 'estatus_cumplimiento'
+  | 'avance_porcentaje'
+>
 
 export interface CampanaResumen {
   totalCampanas: number
@@ -263,6 +287,31 @@ export interface CampanasPanelData {
   mensajeInfraestructura?: string
 }
 
+export interface CampanaOverviewItem {
+  id: string
+  cuentaClienteId: string
+  cuentaCliente: string | null
+  nombre: string
+  fechaInicio: string
+  fechaFin: string
+  estado: Campana['estado']
+  ventanaActiva: boolean
+  totalPdvs: number
+  pdvsCumplidos: number
+  avancePromedio: number
+  tareasPendientes: number
+  cuotaAdicional: number
+}
+
+export interface CampanasOverviewData {
+  puedeGestionar: boolean
+  resumen: CampanaResumen
+  campanas: CampanaOverviewItem[]
+  cuentaSeleccionadaId: string | null
+  infraestructuraLista: boolean
+  mensajeInfraestructura?: string
+}
+
 const EMPTY_DATA: CampanasPanelData = {
   puedeGestionar: false,
   puedeVerDc: false,
@@ -286,6 +335,22 @@ const EMPTY_DATA: CampanasPanelData = {
   infraestructuraLista: false,
 }
 
+const EMPTY_OVERVIEW_DATA: CampanasOverviewData = {
+  puedeGestionar: false,
+  resumen: {
+    totalCampanas: 0,
+    activas: 0,
+    pdvsObjetivo: 0,
+    pdvsCumplidos: 0,
+    avancePromedio: 0,
+    tareasPendientes: 0,
+    cuotaAdicionalTotal: 0,
+  },
+  campanas: [],
+  cuentaSeleccionadaId: null,
+  infraestructuraLista: false,
+}
+
 interface ObtenerPanelCampanasOptions {
   scopeAccountId?: string | null
   serviceClient?: TypedSupabaseClient
@@ -300,6 +365,20 @@ function buildInfrastructureError(
     ...EMPTY_DATA,
     puedeGestionar,
     puedeVerDc: true,
+    cuentaSeleccionadaId,
+    infraestructuraLista: false,
+    mensajeInfraestructura: message,
+  }
+}
+
+function buildOverviewInfrastructureError(
+  message: string,
+  puedeGestionar: boolean,
+  cuentaSeleccionadaId: string | null
+): CampanasOverviewData {
+  return {
+    ...EMPTY_OVERVIEW_DATA,
+    puedeGestionar,
     cuentaSeleccionadaId,
     infraestructuraLista: false,
     mensajeInfraestructura: message,
@@ -400,6 +479,216 @@ async function signStorageUrl(service: TypedSupabaseClient | null, rawUrl: strin
   }
 }
 
+export async function obtenerInicioCampanas(
+  actor: ActorActual,
+  options?: ObtenerPanelCampanasOptions
+): Promise<CampanasOverviewData> {
+  const puedeGestionar = actor.puesto === 'ADMINISTRADOR' || actor.puesto === 'VENTAS'
+  const cuentaSeleccionadaId = buildScopedAccountId(actor, options?.scopeAccountId)
+  const service = getSupportClient(options)
+
+  if (!service) {
+    return buildOverviewInfrastructureError(
+      'SUPABASE_SERVICE_ROLE_KEY no esta disponible para consolidar campanas.',
+      puedeGestionar,
+      cuentaSeleccionadaId
+    )
+  }
+
+  let campanasQuery = service
+    .from('campana')
+    .select('id, cuenta_cliente_id, nombre, fecha_inicio, fecha_fin, estado, cuota_adicional, created_at')
+    .order('fecha_inicio', { ascending: false })
+    .limit(120)
+
+  let campanaPdvQuery = service
+    .from('campana_pdv')
+    .select('id, campana_id, cuenta_cliente_id, pdv_id, dc_empleado_id, tareas_requeridas, tareas_cumplidas, estatus_cumplimiento, avance_porcentaje')
+    .order('created_at', { ascending: false })
+    .limit(1000)
+
+  let cuentasQuery = service
+    .from('cuenta_cliente')
+    .select('id, identificador, nombre, activa')
+    .eq('activa', true)
+    .order('nombre', { ascending: true })
+    .limit(200)
+
+  if (cuentaSeleccionadaId) {
+    campanasQuery = campanasQuery.eq('cuenta_cliente_id', cuentaSeleccionadaId)
+    campanaPdvQuery = campanaPdvQuery.eq('cuenta_cliente_id', cuentaSeleccionadaId)
+    cuentasQuery = cuentasQuery.eq('id', cuentaSeleccionadaId)
+  }
+
+  const [campanasResult, campanaPdvResult, cuentasResult] = await Promise.all([
+    campanasQuery,
+    campanaPdvQuery,
+    cuentasQuery,
+  ])
+
+  const infraestructuraError =
+    campanasResult.error?.message ??
+    campanaPdvResult.error?.message ??
+    cuentasResult.error?.message ??
+    null
+
+  if (infraestructuraError) {
+    return buildOverviewInfrastructureError(infraestructuraError, puedeGestionar, cuentaSeleccionadaId)
+  }
+
+  let campanasRaw = (campanasResult.data ?? []) as CampanaInicioRow[]
+  const campanaPdvRaw = (campanaPdvResult.data ?? []) as CampanaPdvInicioRow[]
+  const cuentasRaw = (cuentasResult.data ?? []) as CuentaRow[]
+  const pdvIds = dedupeStringArray(campanaPdvRaw.map((item) => item.pdv_id))
+
+  const asignacionesResult =
+    (actor.puesto === 'DERMOCONSEJERO' || actor.puesto === 'SUPERVISOR') && pdvIds.length > 0
+      ? await service
+          .from('asignacion')
+          .select('id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, pdv_id, fecha_inicio, fecha_fin, estado_publicacion, created_at')
+          .in('pdv_id', pdvIds)
+          .limit(1600)
+      : { data: [], error: null }
+
+  if (asignacionesResult.error) {
+    return buildOverviewInfrastructureError(
+      asignacionesResult.error.message,
+      puedeGestionar,
+      cuentaSeleccionadaId
+    )
+  }
+
+  const asignacionesRaw = (asignacionesResult.data ?? []) as AsignacionRow[]
+  const assignmentByPdv = new Map<string, AsignacionRow[]>()
+
+  for (const assignment of asignacionesRaw) {
+    const current = assignmentByPdv.get(assignment.pdv_id) ?? []
+    current.push(assignment)
+    assignmentByPdv.set(assignment.pdv_id, current)
+  }
+
+  for (const [pdvId, items] of assignmentByPdv.entries()) {
+    assignmentByPdv.set(
+      pdvId,
+      [...items].sort((left, right) => right.created_at.localeCompare(left.created_at))
+    )
+  }
+
+  const campaignMap = new Map(campanasRaw.map((item) => [item.id, item]))
+  const allowedCampaignPdvRows = campanaPdvRaw.filter((row) => {
+    const campaign = campaignMap.get(row.campana_id)
+
+    if (!campaign) {
+      return false
+    }
+
+    if (cuentaSeleccionadaId && row.cuenta_cliente_id !== cuentaSeleccionadaId) {
+      return false
+    }
+
+    return shouldIncludeCampaignPdv(actor, campaign as CampanaRow, row as CampanaPdvRow, assignmentByPdv)
+  })
+
+  const allowedCampaignIds = new Set(allowedCampaignPdvRows.map((item) => item.campana_id))
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const staleCampaignIds = campanasRaw
+    .filter((item) => item.estado === 'ACTIVA' && item.fecha_fin < todayIso)
+    .map((item) => item.id)
+
+  if (staleCampaignIds.length > 0) {
+    const campaignTable = service.from('campana') as unknown as {
+      update?: (payload: { estado: 'CERRADA'; updated_at: string }) => {
+        in?: (column: string, values: string[]) => unknown
+      }
+    }
+
+    const updateBuilder = campaignTable.update?.({
+      estado: 'CERRADA',
+      updated_at: new Date().toISOString(),
+    })
+
+    if (typeof updateBuilder?.in === 'function') {
+      await Promise.resolve(updateBuilder.in('id', staleCampaignIds))
+    }
+
+    const staleSet = new Set(staleCampaignIds)
+    campanasRaw = campanasRaw.map((item) =>
+      staleSet.has(item.id) ? { ...item, estado: 'CERRADA' } : item
+    )
+  }
+
+  const visibleCampaigns = campanasRaw.filter((campaign) => {
+    if (actor.puesto === 'DERMOCONSEJERO' || actor.puesto === 'SUPERVISOR') {
+      return allowedCampaignIds.has(campaign.id)
+    }
+
+    return !cuentaSeleccionadaId || campaign.cuenta_cliente_id === cuentaSeleccionadaId
+  })
+
+  const visibleCampaignIdSet = new Set(visibleCampaigns.map((item) => item.id))
+  const visibleCampaignPdv = allowedCampaignPdvRows.filter((item) => visibleCampaignIdSet.has(item.campana_id))
+  const cuentaMap = new Map(cuentasRaw.map((item) => [item.id, item]))
+  const campanas = visibleCampaigns.map((campaign) => {
+    const pdvRows = visibleCampaignPdv.filter((item) => item.campana_id === campaign.id)
+    const totalPdvs = pdvRows.length
+    const pdvsCumplidos = pdvRows.filter((item) => item.estatus_cumplimiento === 'CUMPLIDA').length
+    const avancePromedio =
+      totalPdvs === 0
+        ? 0
+        : Number(
+            (
+              pdvRows.reduce((current, item) => current + Number(item.avance_porcentaje ?? 0), 0) / totalPdvs
+            ).toFixed(2)
+          )
+    const tareasPendientes = pdvRows.reduce(
+      (current, item) =>
+        current +
+        Math.max(0, (item.tareas_requeridas?.length ?? 0) - (item.tareas_cumplidas?.length ?? 0)),
+      0
+    )
+
+    return {
+      id: campaign.id,
+      cuentaClienteId: campaign.cuenta_cliente_id,
+      cuentaCliente: cuentaMap.get(campaign.cuenta_cliente_id)?.nombre ?? null,
+      nombre: campaign.nombre,
+      fechaInicio: campaign.fecha_inicio,
+      fechaFin: campaign.fecha_fin,
+      estado: campaign.estado,
+      ventanaActiva:
+        campaign.estado !== 'CANCELADA' &&
+        isCampaignWindowActive(campaign.fecha_inicio, campaign.fecha_fin, todayIso),
+      totalPdvs,
+      pdvsCumplidos,
+      avancePromedio,
+      tareasPendientes,
+      cuotaAdicional: campaign.cuota_adicional,
+    } satisfies CampanaOverviewItem
+  })
+
+  const totalPdvRows = campanas.reduce((current, item) => current + item.totalPdvs, 0)
+  const totalProgress = campanas.reduce(
+    (current, item) => current + item.avancePromedio * item.totalPdvs,
+    0
+  )
+
+  return {
+    puedeGestionar,
+    resumen: {
+      totalCampanas: campanas.length,
+      activas: campanas.filter((item) => item.estado === 'ACTIVA').length,
+      pdvsObjetivo: totalPdvRows,
+      pdvsCumplidos: campanas.reduce((current, item) => current + item.pdvsCumplidos, 0),
+      avancePromedio: totalPdvRows === 0 ? 0 : Number((totalProgress / totalPdvRows).toFixed(2)),
+      tareasPendientes: campanas.reduce((current, item) => current + item.tareasPendientes, 0),
+      cuotaAdicionalTotal: campanas.reduce((current, item) => current + item.cuotaAdicional, 0),
+    },
+    campanas,
+    cuentaSeleccionadaId,
+    infraestructuraLista: true,
+  }
+}
+
 export async function obtenerPanelCampanas(
   actor: ActorActual,
   options?: ObtenerPanelCampanasOptions
@@ -467,7 +756,7 @@ export async function obtenerPanelCampanas(
     return buildInfrastructureError(infraestructuraError, puedeGestionar, cuentaSeleccionadaId)
   }
 
-  const campanasRaw = (campanasResult.data ?? []) as CampanaRow[]
+  let campanasRaw = (campanasResult.data ?? []) as CampanaRow[]
   const campanaPdvRaw = (campanaPdvResult.data ?? []) as CampanaPdvRow[]
   const relacionesRaw = (relacionesResult.data ?? []) as CuentaClientePdvRow[]
   const cuentasRaw = (cuentasResult.data ?? []) as CuentaRow[]
@@ -621,6 +910,33 @@ export async function obtenerPanelCampanas(
   })
 
   const allowedCampaignIds = new Set(allowedCampaignPdvRows.map((item) => item.campana_id))
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const staleCampaignIds = campanasRaw
+    .filter((item) => item.estado === 'ACTIVA' && item.fecha_fin < todayIso)
+    .map((item) => item.id)
+
+  if (staleCampaignIds.length > 0) {
+    const campaignTable = service.from('campana') as unknown as {
+      update?: (payload: { estado: 'CERRADA'; updated_at: string }) => {
+        in?: (column: string, values: string[]) => unknown
+      }
+    }
+
+    const updateBuilder = campaignTable.update?.({
+      estado: 'CERRADA',
+      updated_at: new Date().toISOString(),
+    })
+
+    if (typeof updateBuilder?.in === 'function') {
+      await Promise.resolve(updateBuilder.in('id', staleCampaignIds))
+    }
+
+    const staleSet = new Set(staleCampaignIds)
+    campanasRaw = campanasRaw.map((item) =>
+      staleSet.has(item.id) ? { ...item, estado: 'CERRADA' } : item
+    )
+  }
+
   const visibleCampaigns = campanasRaw.filter((campaign) => {
     if (actor.puesto === 'DERMOCONSEJERO' || actor.puesto === 'SUPERVISOR') {
       return allowedCampaignIds.has(campaign.id)
@@ -631,7 +947,6 @@ export async function obtenerPanelCampanas(
 
   const visibleCampaignIdSet = new Set(visibleCampaigns.map((item) => item.id))
   const visibleCampaignPdv = allowedCampaignPdvRows.filter((item) => visibleCampaignIdSet.has(item.campana_id))
-  const todayIso = new Date().toISOString().slice(0, 10)
 
   const campanas = await Promise.all(
     visibleCampaigns.map(async (campaign) => {
@@ -817,7 +1132,7 @@ export async function obtenerPanelCampanas(
     .filter((item) => item.activo && (!cuentaSeleccionadaId || item.cuenta_cliente_id === cuentaSeleccionadaId))
     .map((item) => {
       const pdv = pdvMap.get(item.pdv_id)
-      if (!pdv || pdv.estatus !== 'ACTIVO') {
+      if (!pdv || !isOperablePdvStatus(pdv.estatus)) {
         return null
       }
 

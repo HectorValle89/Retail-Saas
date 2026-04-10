@@ -1,6 +1,5 @@
 import { Suspense } from 'react'
 import { requerirActorActivo } from '@/lib/auth/session'
-import { createClient } from '@/lib/supabase/server'
 import {
   DashboardInsightsPanel,
   DashboardInsightsSkeleton,
@@ -11,7 +10,6 @@ import {
   obtenerInsightsDashboard,
   obtenerPanelDashboard,
 } from '@/features/dashboard/services/dashboardService'
-import { obtenerPanelRutaSemanal } from '@/features/rutas/services/rutaSemanalService'
 
 export const metadata = {
   title: 'Dashboard | Beteele One',
@@ -51,23 +49,31 @@ async function DashboardInsightsSection({
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const actor = await requerirActorActivo()
   const usesRoleDashboard =
-    actor.puesto === 'DERMOCONSEJERO' || actor.puesto === 'SUPERVISOR'
+    actor.puesto === 'DERMOCONSEJERO' ||
+    actor.puesto === 'SUPERVISOR' ||
+    actor.puesto === 'RECLUTAMIENTO' ||
+    actor.puesto === 'NOMINA'
   const params = (await searchParams) ?? {}
   const periodo = pickString(params.periodo)
   const estado = pickString(params.estado)
   const zona = pickString(params.zona)
   const supervisorId = pickString(params.supervisorId)
+  const reachSupervisorId = pickString(params.reachSupervisorId)
+  const reachWeekStart = pickString(params.reachWeekStart)
+  const reachChain = pickString(params.reachChain)
+  const reachStoreType = pickString(params.reachStoreType)
   const data = await obtenerPanelDashboard(actor, {
     period: periodo,
     estado,
     zona,
     supervisorId,
+    reachSupervisorId,
+    reachWeekStart,
+    reachChain,
+    reachStoreType,
+    includeDermoSecondaryData: actor.puesto !== 'DERMOCONSEJERO',
+    includeSupervisorSecondaryData: false,
   })
-  const supervisorRouteData =
-    actor.puesto === 'SUPERVISOR'
-      ? await obtenerPanelRutaSemanal(await createClient(), actor)
-      : null
-
   return (
     <div
       className={
@@ -79,8 +85,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       <DashboardRealtimeBridge
         cuentaClienteId={actor.cuentaClienteId}
         allowGlobalScope={actor.puesto === 'ADMINISTRADOR' && !actor.cuentaClienteId}
+        puesto={actor.puesto}
       />
-      <DashboardPanel actor={actor} data={data} supervisorRouteData={supervisorRouteData} />
+      <DashboardPanel actor={actor} data={data} />
       {!usesRoleDashboard && (
         <div className="mt-6">
           <Suspense fallback={<DashboardInsightsSkeleton />}>

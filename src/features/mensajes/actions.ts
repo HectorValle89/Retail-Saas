@@ -13,8 +13,14 @@ import { createClient } from '@/lib/supabase/server'
 import { sendOperationalPushNotification } from '@/lib/push/pushFanout'
 import { createServiceClient } from '@/lib/supabase/server'
 import { normalizeRequestedAccountId, readRequestAccountScope } from '@/lib/tenant/accountScope'
+import { readDirectR2Manifest, registerDirectR2EvidenceList } from '@/lib/storage/directR2Server'
 import type { ArchivoHash, CuentaCliente, Empleado, MensajeInterno, MensajeReceptor, Puesto } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  parseMessageSurveyWorkbook,
+  type ImportedSurveyQuestion,
+  type SurveyQuestionType,
+} from './lib/messageSurveyImport'
 import { ESTADO_MENSAJE_INICIAL, type MensajeActionState } from './state'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -23,11 +29,15 @@ type TypedSupabaseClient = SupabaseClient<any>
 type EmpleadoRow = Pick<Empleado, 'id' | 'nombre_completo' | 'puesto' | 'zona' | 'supervisor_empleado_id'>
 type ArchivoHashRow = Pick<ArchivoHash, 'id' | 'sha256'>
 
-const WRITE_ROLES = ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR'] as const satisfies Puesto[]
+const GENERAL_WRITE_ROLES = ['ADMINISTRADOR', 'COORDINADOR'] as const satisfies Puesto[]
 const INCIDENT_WRITE_ROLES = ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'DERMOCONSEJERO'] as const satisfies Puesto[]
 const SUPPORT_WRITE_ROLES = ['DERMOCONSEJERO'] as const satisfies Puesto[]
 const MENSAJES_BUCKET = 'operacion-evidencias'
 const MENSAJE_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+const MENSAJE_ALLOWED_SURVEY_MIME_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+]
 const READ_ROLES = [
   'ADMINISTRADOR',
   'SUPERVISOR',
@@ -65,12 +75,78 @@ function normalizeOptionalText(value: FormDataEntryValue | null) {
   return normalized || null
 }
 
+function normalizeTargetPuesto(value: FormDataEntryValue | null) {
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase()
+
+  if (!normalized) {
+    return null
+  }
+
+  const allowedRoles = [
+    'RECLUTAMIENTO',
+    'NOMINA',
+    'LOGISTICA',
+    'LOVE_IS',
+    'VENTAS',
+    'SUPERVISOR',
+    'COORDINADOR',
+    'ADMINISTRADOR',
+  ] as const
+
+  if (!allowedRoles.includes(normalized as (typeof allowedRoles)[number])) {
+    throw new Error('El rol destino no es valido para mensajeria interna.')
+  }
+
+  return normalized as (typeof allowedRoles)[number]
+}
+
 function normalizeOptionLines(value: string) {
   return value
     .split(/\r?\n/)
     .map((item) => item.trim())
     .filter(Boolean)
     .map((label, index) => ({ id: `opt-${index + 1}`, label }))
+}
+
+function normalizeSurveyMode(value: FormDataEntryValue | null): SurveyQuestionType {
+  const normalized = String(value ?? '').trim().toUpperCase()
+  if (normalized === 'RESPUESTA_LIBRE') {
+    return 'RESPUESTA_LIBRE'
+  }
+
+  return 'OPCION_MULTIPLE'
+}
+
+function normalizeSurveyVisibility(value: FormDataEntryValue | null) {
+  const normalized = String(value ?? '').trim().toUpperCase()
+  return normalized === 'IDENTIFICADA' ? 'IDENTIFICADA' : 'ANONIMA'
+}
+
+function buildManualSurveyQuestions(formData: FormData): ImportedSurveyQuestion[] {
+  const titulo = normalizeRequiredText(formData.get('pregunta_titulo'), 'Pregunta')
+  const descripcion = normalizeOptionalText(formData.get('pregunta_descripcion'))
+  const tipoPregunta = normalizeSurveyMode(formData.get('pregunta_tipo'))
+  const opciones =
+    tipoPregunta === 'OPCION_MULTIPLE'
+      ? normalizeOptionLines(String(formData.get('opciones_respuesta') ?? ''))
+      : []
+
+  if (tipoPregunta === 'OPCION_MULTIPLE' && opciones.length < 2) {
+    throw new Error('La encuesta requiere al menos dos opciones de respuesta.')
+  }
+
+  return [
+    {
+      orden: 1,
+      titulo,
+      descripcion,
+      tipoPregunta,
+      obligatoria: true,
+      opciones,
+    },
+  ]
 }
 
 function getUploadedFiles(formData: FormData, key: string) {
@@ -88,7 +164,7 @@ async function requireReadableActor() {
 
 async function requireManagerActor() {
   const actor = await requerirActorActivo()
-  if (!hasRole(WRITE_ROLES, actor.puesto)) {
+  if (!hasRole(GENERAL_WRITE_ROLES, actor.puesto)) {
     throw new Error('No tienes permisos para publicar mensajes.')
   }
 
@@ -179,7 +255,8 @@ async function resolveRecipients(
   actorSupervisorId: string,
   grupoDestino: MensajeInterno['grupo_destino'],
   zona: string | null,
-  supervisorEmpleadoId: string | null
+  supervisorEmpleadoId: string | null,
+  puestoDestino: Puesto | null
 ) {
   const query = service
     .from('empleado')
@@ -200,6 +277,14 @@ async function resolveRecipients(
 
   if (grupoDestino === 'SUPERVISOR') {
     query.eq('supervisor_empleado_id', supervisorEmpleadoId ?? actorSupervisorId)
+  }
+
+  if (grupoDestino === 'PUESTO') {
+    if (!puestoDestino) {
+      throw new Error('El rol destino es obligatorio para el grupo seleccionado.')
+    }
+
+    query.eq('puesto', puestoDestino)
   }
 
   const { data, error } = await query.order('nombre_completo', { ascending: true })
@@ -268,14 +353,16 @@ async function uploadMensajeAdjuntos(
     cuentaClienteId,
     mensajeId,
     files,
+    directReferences = [],
   }: {
     actorUsuarioId: string
     cuentaClienteId: string
     mensajeId: string
     files: File[]
+    directReferences?: ReturnType<typeof readDirectR2Manifest>
   }
 ) {
-  if (files.length === 0) {
+  if (files.length === 0 && directReferences.length === 0) {
     return []
   }
 
@@ -325,12 +412,112 @@ async function uploadMensajeAdjuntos(
     })
   }
 
+  if (directReferences.length > 0) {
+    const registered = await registerDirectR2EvidenceList(service, {
+      actorUsuarioId,
+      modulo: 'mensajes',
+      referenciaEntidadId: mensajeId,
+      references: directReferences,
+    })
+
+    for (const item of registered) {
+      rows.push({
+        mensaje_id: mensajeId,
+        cuenta_cliente_id: cuentaClienteId,
+        archivo_hash_id: item.archivoHashId,
+        nombre_archivo_original: item.fileName,
+        mime_type: item.contentType,
+        tamano_bytes: item.size,
+        metadata: {
+          archivo_url: item.url,
+          archivo_hash: item.hash,
+          miniatura_url: null,
+          miniatura_hash: null,
+          optimization: {
+            kind: 'r2_direct',
+            originalBytes: item.size,
+            finalBytes: item.size,
+            targetMet: true,
+            notes: ['Subida directa via R2'],
+            officialAssetKind: 'original',
+          },
+        },
+      })
+    }
+  }
+
   const { error } = await service.from('mensaje_adjunto').insert(rows)
   if (error) {
     throw new Error(error.message)
   }
 
   return rows
+}
+
+async function parseSurveyQuestionsFromForm(formData: FormData) {
+  const uploaded = formData.get('encuesta_excel')
+  if (uploaded instanceof File && uploaded.size > 0) {
+    if (!MENSAJE_ALLOWED_SURVEY_MIME_TYPES.includes(uploaded.type) && !uploaded.name.toLowerCase().endsWith('.xlsx')) {
+      throw new Error('La encuesta debe cargarse como archivo XLSX valido.')
+    }
+
+    const buffer = Buffer.from(await uploaded.arrayBuffer())
+    return parseMessageSurveyWorkbook(buffer, uploaded.name)
+  }
+
+  return buildManualSurveyQuestions(formData)
+}
+
+async function insertSurveyQuestions(
+  service: TypedSupabaseClient,
+  {
+    mensajeId,
+    cuentaClienteId,
+    questions,
+    surveyVisibility,
+    actorUsuarioId,
+  }: {
+    mensajeId: string
+    cuentaClienteId: string
+    questions: ImportedSurveyQuestion[]
+    surveyVisibility: 'ANONIMA' | 'IDENTIFICADA'
+    actorUsuarioId: string
+  }
+) {
+  if (questions.length === 0) {
+    return
+  }
+
+  const rows = questions.map((question) => ({
+    mensaje_id: mensajeId,
+    cuenta_cliente_id: cuentaClienteId,
+    orden: question.orden,
+    titulo: question.titulo,
+    descripcion: question.descripcion,
+    tipo_pregunta: question.tipoPregunta,
+    opciones: question.opciones,
+    obligatoria: question.obligatoria,
+    metadata: {
+      survey_visibility: surveyVisibility,
+    },
+  }))
+
+  const { error } = await service.from('mensaje_encuesta_pregunta').insert(rows)
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  await registrarEventoAudit(service, {
+    tabla: 'mensaje_interno',
+    registroId: mensajeId,
+    cuentaClienteId,
+    actorUsuarioId,
+    payload: {
+      accion: 'registrar_preguntas_encuesta',
+      total_preguntas: questions.length,
+      survey_visibility: surveyVisibility,
+    },
+  })
 }
 
 export async function publicarMensajeInterno(
@@ -347,13 +534,15 @@ export async function publicarMensajeInterno(
     const grupoDestino = normalizeRequiredText(formData.get('grupo_destino'), 'Grupo destino') as MensajeInterno['grupo_destino']
     const zona = normalizeOptionalText(formData.get('zona'))
     const supervisorEmpleadoId = normalizeOptionalText(formData.get('supervisor_empleado_id'))
+    const puestoDestino = normalizeTargetPuesto(formData.get('puesto_destino'))
     const attachmentFiles = getUploadedFiles(formData, 'adjunto')
+    const attachmentR2Manifest = readDirectR2Manifest(formData, 'adjunto_r2_manifest')
+    const surveyVisibility = normalizeSurveyVisibility(formData.get('survey_visibility'))
+    const surveyQuestions = tipo === 'ENCUESTA' ? await parseSurveyQuestionsFromForm(formData) : []
     const opciones =
-      tipo === 'ENCUESTA' ? normalizeOptionLines(String(formData.get('opciones_respuesta') ?? '')) : []
-
-    if (tipo === 'ENCUESTA' && opciones.length < 2) {
-      throw new Error('La encuesta requiere al menos dos opciones de respuesta.')
-    }
+      tipo === 'ENCUESTA' && surveyQuestions.length === 1 && surveyQuestions[0]?.tipoPregunta === 'OPCION_MULTIPLE'
+        ? surveyQuestions[0].opciones
+        : []
 
     const recipientDrafts = await resolveRecipients(
       service,
@@ -361,7 +550,8 @@ export async function publicarMensajeInterno(
       actor.empleadoId,
       grupoDestino,
       zona,
-      supervisorEmpleadoId
+      supervisorEmpleadoId,
+      puestoDestino
     )
 
     const { data: createdRaw, error: createError } = await service
@@ -377,7 +567,13 @@ export async function publicarMensajeInterno(
         supervisor_empleado_id: supervisorEmpleadoId,
         opciones_respuesta: opciones,
         metadata: {
+          audience_label: grupoDestino === 'PUESTO' && puestoDestino ? `Rol ${puestoDestino}` : undefined,
+          puesto_destino: grupoDestino === 'PUESTO' ? puestoDestino : null,
           total_receptores: recipientDrafts.length,
+          survey_visibility: tipo === 'ENCUESTA' ? surveyVisibility : null,
+          survey_question_count: tipo === 'ENCUESTA' ? surveyQuestions.length : 0,
+          survey_source:
+            tipo === 'ENCUESTA' && formData.get('encuesta_excel') instanceof File ? 'XLSX' : tipo === 'ENCUESTA' ? 'MANUAL' : null,
         },
       })
       .select('id')
@@ -397,11 +593,22 @@ export async function publicarMensajeInterno(
       throw new Error(recipientError.message)
     }
 
+    if (tipo === 'ENCUESTA') {
+      await insertSurveyQuestions(service, {
+        mensajeId: createdRaw.id,
+        cuentaClienteId: cuenta.id,
+        questions: surveyQuestions,
+        surveyVisibility,
+        actorUsuarioId: actor.usuarioId,
+      })
+    }
+
     const adjuntos = await uploadMensajeAdjuntos(service, {
       actorUsuarioId: actor.usuarioId,
       cuentaClienteId: cuenta.id,
       mensajeId: createdRaw.id,
       files: attachmentFiles,
+      directReferences: attachmentR2Manifest,
     })
 
     let pushFanoutState: 'ENVIADO' | 'PENDIENTE' = 'ENVIADO'
@@ -451,6 +658,7 @@ export async function publicarMensajeInterno(
         grupo_destino: grupoDestino,
         total_receptores: recipientRows.length,
         total_adjuntos: adjuntos.length,
+        total_preguntas_encuesta: surveyQuestions.length,
         push_fanout: pushFanoutState,
       },
     })
@@ -950,10 +1158,11 @@ export async function solicitarCorreccionPerfilDermoconsejo(
     const nextValue = normalizeRequiredText(formData.get('valor_nuevo'), 'Nuevo valor')
     const detail = normalizeOptionalText(formData.get('detalle'))
     const evidenceFiles = getUploadedFiles(formData, 'evidencia')
+    const evidenceR2Manifest = readDirectR2Manifest(formData, 'evidencia_r2_manifest')
 
     await ensureCuentaClienteValida(service, cuentaClienteId)
 
-    if (field !== 'CORREO_ELECTRONICO' && evidenceFiles.length === 0) {
+    if (field !== 'CORREO_ELECTRONICO' && evidenceFiles.length === 0 && evidenceR2Manifest.length === 0) {
       throw new Error('Adjunta una evidencia para solicitar esta correccion.')
     }
 
@@ -1021,6 +1230,7 @@ export async function solicitarCorreccionPerfilDermoconsejo(
       cuentaClienteId,
       mensajeId: createdRaw.id,
       files: evidenceFiles,
+      directReferences: evidenceR2Manifest,
     })
 
     let pushFanoutState: 'ENVIADO' | 'PENDIENTE' = 'ENVIADO'
@@ -1107,7 +1317,7 @@ export async function marcarMensajeLeido(
       throw new Error(error?.message ?? 'No se encontro el mensaje seleccionado.')
     }
 
-    if (receptor.empleado_id !== actor.empleadoId && !hasRole(WRITE_ROLES, actor.puesto)) {
+    if (receptor.empleado_id !== actor.empleadoId && !hasRole(GENERAL_WRITE_ROLES, actor.puesto)) {
       throw new Error('No puedes modificar el estado de otro receptor.')
     }
 
@@ -1137,8 +1347,6 @@ export async function responderEncuesta(
     const actor = await requireReadableActor()
     const service = createServiceClient() as TypedSupabaseClient
     const receptorId = normalizeRequiredText(formData.get('receptor_id'), 'Receptor')
-    const respuesta = normalizeRequiredText(formData.get('respuesta'), 'Respuesta')
-
     const { data: receptorRaw, error } = await service
       .from('mensaje_receptor')
       .select('id, mensaje_id, cuenta_cliente_id, empleado_id')
@@ -1150,36 +1358,136 @@ export async function responderEncuesta(
       throw new Error(error?.message ?? 'No se encontro la encuesta seleccionada.')
     }
 
-    if (receptor.empleado_id !== actor.empleadoId && !hasRole(WRITE_ROLES, actor.puesto)) {
+    if (receptor.empleado_id !== actor.empleadoId && !hasRole(GENERAL_WRITE_ROLES, actor.puesto)) {
       throw new Error('No puedes responder una encuesta de otro receptor.')
     }
 
     const nowIso = new Date().toISOString()
-    const { error: updateError } = await service
-      .from('mensaje_receptor')
-      .update({
-        estado: 'RESPONDIDO',
-        respuesta,
-        leido_en: nowIso,
-        respondido_en: nowIso,
-      })
-      .eq('id', receptor.id)
+    const { data: surveyQuestionsRaw, error: surveyQuestionsError } = await service
+      .from('mensaje_encuesta_pregunta')
+      .select('id, titulo, tipo_pregunta, opciones, obligatoria')
+      .eq('mensaje_id', receptor.mensaje_id)
+      .order('orden', { ascending: true })
 
-    if (updateError) {
-      throw new Error(updateError.message)
+    if (surveyQuestionsError) {
+      throw new Error(surveyQuestionsError.message)
     }
 
-    await registrarEventoAudit(service, {
-      tabla: 'mensaje_receptor',
-      registroId: receptor.id,
-      cuentaClienteId: receptor.cuenta_cliente_id,
-      actorUsuarioId: actor.usuarioId,
-      payload: {
-        accion: 'responder_encuesta_operativa',
-        respuesta,
-        mensaje_id: receptor.mensaje_id,
-      },
-    })
+    const surveyQuestions = (surveyQuestionsRaw ?? []) as Array<{
+      id: string
+      titulo: string
+      tipo_pregunta: SurveyQuestionType
+      opciones: Array<Record<string, unknown>>
+      obligatoria: boolean
+    }>
+
+    if (surveyQuestions.length === 0) {
+      const respuesta = normalizeRequiredText(formData.get('respuesta'), 'Respuesta')
+      const { error: updateError } = await service
+        .from('mensaje_receptor')
+        .update({
+          estado: 'RESPONDIDO',
+          respuesta,
+          leido_en: nowIso,
+          respondido_en: nowIso,
+        })
+        .eq('id', receptor.id)
+
+      if (updateError) {
+        throw new Error(updateError.message)
+      }
+
+      await registrarEventoAudit(service, {
+        tabla: 'mensaje_receptor',
+        registroId: receptor.id,
+        cuentaClienteId: receptor.cuenta_cliente_id,
+        actorUsuarioId: actor.usuarioId,
+        payload: {
+          accion: 'responder_encuesta_operativa',
+          respuesta,
+          mensaje_id: receptor.mensaje_id,
+        },
+      })
+    } else {
+      const rows: Array<{
+        mensaje_id: string
+        mensaje_receptor_id: string
+        pregunta_id: string
+        cuenta_cliente_id: string
+        empleado_id: string
+        opcion_id: string | null
+        opcion_label: string | null
+        respuesta_texto: string | null
+        metadata: { answer_kind: string }
+      }> = []
+
+      for (const question of surveyQuestions) {
+          const rawValue = String(formData.get(`pregunta_${question.id}`) ?? '').trim()
+          if (!rawValue && question.obligatoria) {
+            throw new Error(`${question.titulo} es obligatoria.`)
+          }
+
+          if (!rawValue) {
+            continue
+          }
+
+          const metadata =
+            question.tipo_pregunta === 'RESPUESTA_LIBRE'
+              ? { answer_kind: 'free_text' }
+              : { answer_kind: 'multiple_choice' }
+
+          rows.push({
+            mensaje_id: receptor.mensaje_id,
+            mensaje_receptor_id: receptor.id,
+            pregunta_id: question.id,
+            cuenta_cliente_id: receptor.cuenta_cliente_id,
+            empleado_id: actor.empleadoId,
+            opcion_id: question.tipo_pregunta === 'OPCION_MULTIPLE' ? rawValue : null,
+            opcion_label: question.tipo_pregunta === 'OPCION_MULTIPLE' ? rawValue : null,
+            respuesta_texto: question.tipo_pregunta === 'RESPUESTA_LIBRE' ? rawValue : null,
+            metadata,
+          })
+      }
+
+      const { error: insertError } = await service
+        .from('mensaje_encuesta_respuesta')
+        .upsert(rows, { onConflict: 'mensaje_receptor_id,pregunta_id' })
+
+      if (insertError) {
+        throw new Error(insertError.message)
+      }
+
+      const summaryText = rows
+        .map((item) => item.respuesta_texto ?? item.opcion_label ?? '')
+        .filter(Boolean)
+        .join(' | ')
+
+      const { error: updateError } = await service
+        .from('mensaje_receptor')
+        .update({
+          estado: 'RESPONDIDO',
+          respuesta: summaryText || 'Encuesta respondida',
+          leido_en: nowIso,
+          respondido_en: nowIso,
+        })
+        .eq('id', receptor.id)
+
+      if (updateError) {
+        throw new Error(updateError.message)
+      }
+
+      await registrarEventoAudit(service, {
+        tabla: 'mensaje_receptor',
+        registroId: receptor.id,
+        cuentaClienteId: receptor.cuenta_cliente_id,
+        actorUsuarioId: actor.usuarioId,
+        payload: {
+          accion: 'responder_encuesta_operativa',
+          mensaje_id: receptor.mensaje_id,
+          total_preguntas: rows.length,
+        },
+      })
+    }
 
     revalidateMensajesPaths()
     return buildState({ ok: true, message: 'Respuesta registrada.' })

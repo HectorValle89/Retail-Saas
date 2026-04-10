@@ -247,6 +247,7 @@ set
   updated_at = now();
 
 insert into public.empleado (
+  id,
   id_nomina,
   nombre_completo,
   curp,
@@ -263,6 +264,7 @@ insert into public.empleado (
 )
 values
   (
+    'e0000000-0000-4000-a000-000000000001',
     'ADM-001',
     'CARLA MENDOZA ORTIZ',
     'MEOC850101MDFRRL01',
@@ -278,6 +280,7 @@ values
     '{"origen":"seed","perfil":"administracion"}'::jsonb
   ),
   (
+    'e0000000-0000-4000-a000-000000000002',
     'COO-001',
     'DIEGO RAMIREZ LOPEZ',
     'RALD860215HDFMRG02',
@@ -293,6 +296,7 @@ values
     '{"origen":"seed","perfil":"coordinacion"}'::jsonb
   ),
   (
+    'e0000000-0000-4000-a000-000000000003',
     'SUP-001',
     'MARIO ORTEGA CRUZ',
     'OECM880320HDFRZR09',
@@ -304,10 +308,11 @@ values
     'mario.ortega@beteele.demo',
     'ACTIVO',
     '2026-01-10',
-    (select id from public.empleado where id_nomina = 'COO-001'),
+    'e0000000-0000-4000-a000-000000000002',
     '{"origen":"seed","perfil":"supervision"}'::jsonb
   ),
   (
+    'e0000000-0000-4000-a000-000000000004',
     'SUP-002',
     'PATRICIA SALGADO VEGA',
     'SAVP890406MNLLGT04',
@@ -319,10 +324,11 @@ values
     'patricia.salgado@beteele.demo',
     'ACTIVO',
     '2026-01-10',
-    (select id from public.empleado where id_nomina = 'COO-001'),
+    'e0000000-0000-4000-a000-000000000002',
     '{"origen":"seed","perfil":"supervision"}'::jsonb
   ),
   (
+    'e0000000-0000-4000-a000-000000000005',
     'DC-001',
     'ANA TORRES SOLIS',
     'TOSA930711MDFRNN08',
@@ -334,10 +340,11 @@ values
     'ana.torres@beteele.demo',
     'ACTIVO',
     '2026-02-01',
-    (select id from public.empleado where id_nomina = 'SUP-001'),
+    'e0000000-0000-4000-a000-000000000003',
     '{"origen":"seed","perfil":"campo"}'::jsonb
   ),
   (
+    'e0000000-0000-4000-a000-000000000006',
     'DC-002',
     'LUCIA REYES MARTINEZ',
     'REML950908MNLYRC05',
@@ -349,10 +356,11 @@ values
     'lucia.reyes@beteele.demo',
     'ACTIVO',
     '2026-02-03',
-    (select id from public.empleado where id_nomina = 'SUP-002'),
+    'e0000000-0000-4000-a000-000000000004',
     '{"origen":"seed","perfil":"campo"}'::jsonb
   ),
   (
+    'e0000000-0000-4000-a000-000000000007',
     'DC-003',
     'SOFIA VIDAL HERRERA',
     'VIHS960224MJCDRF03',
@@ -364,10 +372,11 @@ values
     'sofia.vidal@beteele.demo',
     'ACTIVO',
     '2026-02-05',
-    (select id from public.empleado where id_nomina = 'SUP-001'),
+    'e0000000-0000-4000-a000-000000000003',
     '{"origen":"seed","perfil":"campo"}'::jsonb
   ),
   (
+    'e0000000-0000-4000-a000-000000000008',
     'CLI-001',
     'MONICA IBARRA RUIZ',
     'IARM900101MDFBRN07',
@@ -383,6 +392,7 @@ values
     '{"origen":"seed","perfil":"cliente"}'::jsonb
   ),
   (
+    'e0000000-0000-4000-a000-000000000009',
     'CLI-002',
     'RODRIGO SOLIS VEGA',
     'SOVR910515HPLLGD02',
@@ -397,7 +407,7 @@ values
     null,
     '{"origen":"seed","perfil":"cliente"}'::jsonb
   )
-on conflict (id_nomina) do update
+on conflict (id) do update
 set
   nombre_completo = excluded.nombre_completo,
   curp = excluded.curp,
@@ -425,7 +435,7 @@ insert into public.usuario (
 )
 values
   (
-    (select id from public.empleado where id_nomina = 'ADM-001'),
+    'e0000000-0000-4000-a000-000000000001',
     null,
     'admin.carla',
     'ACTIVA',
@@ -435,7 +445,7 @@ values
     null
   ),
   (
-    (select id from public.empleado where id_nomina = 'COO-001'),
+    'e0000000-0000-4000-a000-000000000002',
     null,
     'coord.diego',
     'ACTIVA',
@@ -445,7 +455,7 @@ values
     null
   ),
   (
-    (select id from public.empleado where id_nomina = 'SUP-001'),
+    'e0000000-0000-4000-a000-000000000003',
     null,
     'sup.mario',
     'ACTIVA',
@@ -455,7 +465,7 @@ values
     null
   ),
   (
-    (select id from public.empleado where id_nomina = 'SUP-002'),
+    'e0000000-0000-4000-a000-000000000004',
     null,
     'sup.patricia',
     'ACTIVA',
@@ -465,7 +475,7 @@ values
     null
   ),
   (
-    (select id from public.empleado where id_nomina = 'DC-001'),
+    'e0000000-0000-4000-a000-000000000005',
     null,
     'dc.ana',
     'ACTIVA',
@@ -475,7 +485,7 @@ values
     null
   ),
   (
-    (select id from public.empleado where id_nomina = 'DC-002'),
+    'e0000000-0000-4000-a000-000000000006',
     null,
     'dc.lucia',
     'PENDIENTE_VERIFICACION_EMAIL',
@@ -485,7 +495,7 @@ values
     now() + interval '72 hours'
   ),
   (
-    (select id from public.empleado where id_nomina = 'DC-003'),
+    'e0000000-0000-4000-a000-000000000007',
     null,
     'dc.sofia',
     'PROVISIONAL',
@@ -495,7 +505,7 @@ values
     now() + interval '72 hours'
   ),
   (
-    (select id from public.empleado where id_nomina = 'CLI-001'),
+    'e0000000-0000-4000-a000-000000000008',
     (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
     'cliente.demo',
     'ACTIVA',
@@ -505,7 +515,7 @@ values
     null
   ),
   (
-    (select id from public.empleado where id_nomina = 'CLI-002'),
+    'e0000000-0000-4000-a000-000000000009',
     (select id from public.cuenta_cliente where identificador = 'isdin_mexico'),
     'cliente.isdin',
     'ACTIVA',
@@ -881,28 +891,28 @@ insert into public.supervisor_pdv (pdv_id, empleado_id, activo, fecha_inicio, fe
 values
   (
     (select id from public.pdv where clave_btl = 'BTL-SAN-1001'),
-    (select id from public.empleado where id_nomina = 'SUP-001'),
+    'e0000000-0000-4000-a000-000000000003',
     true,
     '2026-03-01',
     null
   ),
   (
     (select id from public.pdv where clave_btl = 'BTL-BEN-2001'),
-    (select id from public.empleado where id_nomina = 'SUP-002'),
+    'e0000000-0000-4000-a000-000000000004',
     true,
     '2026-03-01',
     null
   ),
   (
     (select id from public.pdv where clave_btl = 'BTL-LIV-3001'),
-    (select id from public.empleado where id_nomina = 'SUP-001'),
+    'e0000000-0000-4000-a000-000000000003',
     true,
     '2026-03-01',
     null
   ),
   (
     (select id from public.pdv where clave_btl = 'BTL-SEP-4001'),
-    (select id from public.empleado where id_nomina = 'SUP-002'),
+    'e0000000-0000-4000-a000-000000000004',
     true,
     '2026-03-01',
     null
@@ -1081,9 +1091,9 @@ values
   (
     'c0000000-0000-4000-8000-000000000001',
     (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
-    (select id from public.empleado where id_nomina = 'DC-001'),
+    'e0000000-0000-4000-a000-000000000005',
     (select id from public.pdv where clave_btl = 'BTL-SAN-1001'),
-    (select id from public.empleado where id_nomina = 'SUP-001'),
+    'e0000000-0000-4000-a000-000000000003',
     'BTL-SAN-1001',
     'FIJA',
     1.000,
@@ -1097,9 +1107,9 @@ values
   (
     'c0000000-0000-4000-8000-000000000002',
     (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
-    (select id from public.empleado where id_nomina = 'DC-002'),
+    'e0000000-0000-4000-a000-000000000006',
     (select id from public.pdv where clave_btl = 'BTL-BEN-2001'),
-    (select id from public.empleado where id_nomina = 'SUP-002'),
+    'e0000000-0000-4000-a000-000000000004',
     'BTL-BEN-2001',
     'ROTATIVA',
     1.000,
@@ -1113,9 +1123,9 @@ values
   (
     'c0000000-0000-4000-8000-000000000003',
     (select id from public.cuenta_cliente where identificador = 'isdin_mexico'),
-    (select id from public.empleado where id_nomina = 'DC-003'),
+    'e0000000-0000-4000-a000-000000000007',
     (select id from public.pdv where clave_btl = 'BTL-LIV-3001'),
-    (select id from public.empleado where id_nomina = 'SUP-001'),
+    'e0000000-0000-4000-a000-000000000003',
     'BTL-LIV-3001',
     'FIJA',
     1.000,
@@ -1184,8 +1194,8 @@ values
     'd0000000-0000-4000-8000-000000000001',
     (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
     'c0000000-0000-4000-8000-000000000001',
-    (select id from public.empleado where id_nomina = 'DC-001'),
-    (select id from public.empleado where id_nomina = 'SUP-001'),
+    'e0000000-0000-4000-a000-000000000005',
+    'e0000000-0000-4000-a000-000000000003',
     (select id from public.pdv where clave_btl = 'BTL-SAN-1001'),
     '2026-03-14',
     'ANA TORRES SOLIS',
@@ -1226,8 +1236,8 @@ values
     'd0000000-0000-4000-8000-000000000002',
     (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
     'c0000000-0000-4000-8000-000000000002',
-    (select id from public.empleado where id_nomina = 'DC-002'),
-    (select id from public.empleado where id_nomina = 'SUP-002'),
+    'e0000000-0000-4000-a000-000000000006',
+    'e0000000-0000-4000-a000-000000000004',
     (select id from public.pdv where clave_btl = 'BTL-BEN-2001'),
     '2026-03-14',
     'LUCIA REYES MARTINEZ',
@@ -1268,8 +1278,8 @@ values
     'd0000000-0000-4000-8000-000000000003',
     (select id from public.cuenta_cliente where identificador = 'isdin_mexico'),
     'c0000000-0000-4000-8000-000000000003',
-    (select id from public.empleado where id_nomina = 'DC-003'),
-    (select id from public.empleado where id_nomina = 'SUP-001'),
+    'e0000000-0000-4000-a000-000000000007',
+    'e0000000-0000-4000-a000-000000000003',
     (select id from public.pdv where clave_btl = 'BTL-LIV-3001'),
     '2026-03-14',
     'SOFIA VIDAL HERRERA',
@@ -1310,8 +1320,8 @@ values
     'd0000000-0000-4000-8000-000000000004',
     (select id from public.cuenta_cliente where identificador = 'isdin_mexico'),
     'c0000000-0000-4000-8000-000000000003',
-    (select id from public.empleado where id_nomina = 'DC-003'),
-    (select id from public.empleado where id_nomina = 'SUP-001'),
+    'e0000000-0000-4000-a000-000000000007',
+    'e0000000-0000-4000-a000-000000000003',
     (select id from public.pdv where clave_btl = 'BTL-LIV-3001'),
     '2026-03-13',
     'SOFIA VIDAL HERRERA',
@@ -1410,7 +1420,7 @@ values
     'e0000000-0000-4000-8000-000000000001',
     (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
     'd0000000-0000-4000-8000-000000000001',
-    (select id from public.empleado where id_nomina = 'DC-001'),
+    'e0000000-0000-4000-a000-000000000005',
     (select id from public.pdv where clave_btl = 'BTL-SAN-1001'),
     (select id from public.producto where sku = '8429420107502'),
     '8429420107502',
@@ -1420,7 +1430,7 @@ values
     6,
     1794.00,
     true,
-    (select id from public.empleado where id_nomina = 'SUP-001'),
+    'e0000000-0000-4000-a000-000000000003',
     '2026-03-14T23:05:00Z',
     'Venta confirmada al cierre de la visita demo.',
     'ONLINE',
@@ -1430,7 +1440,7 @@ values
     'e0000000-0000-4000-8000-000000000002',
     (select id from public.cuenta_cliente where identificador = 'isdin_mexico'),
     'd0000000-0000-4000-8000-000000000003',
-    (select id from public.empleado where id_nomina = 'DC-003'),
+    'e0000000-0000-4000-a000-000000000007',
     (select id from public.pdv where clave_btl = 'BTL-LIV-3001'),
     (select id from public.producto where sku = '8429420226265'),
     '8429420226265',
@@ -1450,7 +1460,7 @@ values
     'e0000000-0000-4000-8000-000000000003',
     (select id from public.cuenta_cliente where identificador = 'isdin_mexico'),
     'd0000000-0000-4000-8000-000000000003',
-    (select id from public.empleado where id_nomina = 'DC-003'),
+    'e0000000-0000-4000-a000-000000000007',
     (select id from public.pdv where clave_btl = 'BTL-LIV-3001'),
     (select id from public.producto where sku = '8429420201361'),
     '8429420201361',
@@ -1460,7 +1470,7 @@ values
     2,
     598.00,
     true,
-    (select id from public.empleado where id_nomina = 'SUP-001'),
+    'e0000000-0000-4000-a000-000000000003',
     '2026-03-14T22:00:00Z',
     'Venta validada durante seguimiento de jornada activa.',
     'ONLINE',
@@ -1551,7 +1561,7 @@ values
     'f1000000-0000-4000-8000-000000000001',
     'f0000000-0000-4000-8000-000000000001',
     (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
-    (select id from public.empleado where id_nomina = 'DC-001'),
+    'e0000000-0000-4000-a000-000000000005',
     (select id from public.cadena where nombre = 'SAN PABLO'),
     1500.00,
     5,
@@ -1567,7 +1577,7 @@ values
     'f1000000-0000-4000-8000-000000000002',
     'f0000000-0000-4000-8000-000000000001',
     (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
-    (select id from public.empleado where id_nomina = 'DC-002'),
+    'e0000000-0000-4000-a000-000000000006',
     (select id from public.cadena where nombre = 'BENAVIDES'),
     1200.00,
     4,
@@ -1583,7 +1593,7 @@ values
     'f1000000-0000-4000-8000-000000000003',
     'f0000000-0000-4000-8000-000000000001',
     (select id from public.cuenta_cliente where identificador = 'isdin_mexico'),
-    (select id from public.empleado where id_nomina = 'DC-003'),
+    'e0000000-0000-4000-a000-000000000007',
     (select id from public.cadena where nombre = 'LIVERPOOL'),
     1800.00,
     5,
@@ -1631,7 +1641,7 @@ values
     'f2000000-0000-4000-8000-000000000001',
     'f0000000-0000-4000-8000-000000000001',
     (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
-    (select id from public.empleado where id_nomina = 'DC-001'),
+    'e0000000-0000-4000-a000-000000000005',
     'PERCEPCION',
     'ASISTENCIA_BASE',
     'asistencia',
@@ -1645,7 +1655,7 @@ values
     'f2000000-0000-4000-8000-000000000002',
     'f0000000-0000-4000-8000-000000000001',
     (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo'),
-    (select id from public.empleado where id_nomina = 'DC-002'),
+    'e0000000-0000-4000-a000-000000000006',
     'DEDUCCION',
     'RETENCION_VALIDACION',
     'asistencia',
@@ -1659,7 +1669,7 @@ values
     'f2000000-0000-4000-8000-000000000003',
     'f0000000-0000-4000-8000-000000000001',
     (select id from public.cuenta_cliente where identificador = 'isdin_mexico'),
-    (select id from public.empleado where id_nomina = 'DC-003'),
+    'e0000000-0000-4000-a000-000000000007',
     'PERCEPCION',
     'ASISTENCIA_BASE',
     'asistencia',
@@ -1673,7 +1683,7 @@ values
     'f2000000-0000-4000-8000-000000000004',
     'f0000000-0000-4000-8000-000000000001',
     (select id from public.cuenta_cliente where identificador = 'isdin_mexico'),
-    (select id from public.empleado where id_nomina = 'DC-003'),
+    'e0000000-0000-4000-a000-000000000007',
     'AJUSTE',
     'APOYO_TRANSPORTE',
     'asistencia',
@@ -1712,7 +1722,7 @@ select
   'd0000000-0000-4000-8000-000000000001',
   'EVENTO',
   '{"evento":"seed_asistencia_validada","resumen":"Se consolida jornada valida para control operativo y pre-nomina."}'::jsonb,
-  (select id from public.usuario where empleado_id = (select id from public.empleado where id_nomina = 'ADM-001')),
+  (select id from public.usuario where empleado_id = 'e0000000-0000-4000-a000-000000000001'),
   (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo')
 where not exists (
   select 1
@@ -1736,7 +1746,7 @@ select
   'e0000000-0000-4000-8000-000000000001',
   'EVENTO',
   '{"evento":"seed_venta_confirmada","resumen":"Venta confirmada incorporada al consolidado comercial del dia."}'::jsonb,
-  (select id from public.usuario where empleado_id = (select id from public.empleado where id_nomina = 'ADM-001')),
+  (select id from public.usuario where empleado_id = 'e0000000-0000-4000-a000-000000000001'),
   (select id from public.cuenta_cliente where identificador = 'be_te_ele_demo')
 where not exists (
   select 1
@@ -1760,7 +1770,7 @@ select
   'f0000000-0000-4000-8000-000000000001',
   'EVENTO',
   '{"evento":"seed_periodo_nomina_abierto","resumen":"Periodo de nomina abierto para consolidar cuotas, ledger y pre-nomina."}'::jsonb,
-  (select id from public.usuario where empleado_id = (select id from public.empleado where id_nomina = 'ADM-001')),
+  (select id from public.usuario where empleado_id = 'e0000000-0000-4000-a000-000000000001'),
   null
 where not exists (
   select 1

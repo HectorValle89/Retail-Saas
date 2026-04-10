@@ -26,6 +26,7 @@ test('parsea el catalogo maestro inicial de asignaciones y deduplica filas repet
     },
     {
       CLAVE_BTL: 'BTL-002',
+      EMPLEADO_ID: 'emp-002',
       USUARIO: 'dc_noreste_01',
       TIPO: 'Cobertura',
       DIAS_LABORALES: 'LUN VIE',
@@ -48,6 +49,7 @@ test('parsea el catalogo maestro inicial de asignaciones y deduplica filas repet
     {
       rowNumber: 3,
       claveBtl: 'BTL-001',
+      empleadoId: null,
       idNomina: '439',
       username: null,
       nombreDc: null,
@@ -62,6 +64,7 @@ test('parsea el catalogo maestro inicial de asignaciones y deduplica filas repet
     {
       rowNumber: 4,
       claveBtl: 'BTL-002',
+      empleadoId: 'emp-002',
       idNomina: null,
       username: 'dc_noreste_01',
       nombreDc: null,
@@ -81,6 +84,39 @@ test('acepta la nomenclatura compacta y rangos envolventes para dias laborales',
   expect(parseDiasLaborales('JUE-MAR').dias).toEqual(['LUN', 'MAR', 'JUE', 'VIE', 'SAB', 'DOM'])
   expect(parseDiasLaborales('LUN-MIER-VIER').dias).toEqual(['LUN', 'MIE', 'VIE'])
   expect(parseDiasLaborales('M-J-S').dias).toEqual(['MAR', 'JUE', 'SAB'])
+})
+
+test('prioriza empleado_id para deduplicar filas aunque existan aliases legacy', () => {
+  const workbook = XLSX.utils.book_new()
+  const worksheet = XLSX.utils.json_to_sheet([
+    {
+      CLAVE_BTL: 'BTL-777',
+      EMPLEADO_ID: 'emp-777',
+      USUARIO: 'dc_alias_uno',
+      IDNOM: 'LEG-1',
+    },
+    {
+      CLAVE_BTL: 'BTL-777',
+      EMPLEADO_ID: 'emp-777',
+      USUARIO: 'dc_alias_dos',
+      IDNOM: 'LEG-2',
+      OBSERVACIONES: 'Ultima captura',
+    },
+  ])
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Asignaciones')
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
+  const result = parseAssignmentCatalogWorkbook(buffer)
+
+  expect(result.skippedRows).toBe(1)
+  expect(result.issues.map((item) => item.code)).toEqual(['FILA_DUPLICADA'])
+  expect(result.rows[0]).toMatchObject({
+    claveBtl: 'BTL-777',
+    empleadoId: 'emp-777',
+    username: 'dc_alias_dos',
+    idNomina: 'LEG-2',
+    observaciones: 'Ultima captura',
+  })
 })
 
 test('reporta dias y descansos invalidos del catalogo maestro', () => {

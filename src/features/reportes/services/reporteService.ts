@@ -190,6 +190,7 @@ export interface ClienteReporteItem {
 
 export interface AsistenciaReporteItem {
   periodo: string
+  empleadoId: string | null
   empleado: string
   idNomina: string | null
   puesto: string | null
@@ -206,6 +207,7 @@ export interface AsistenciaReporteItem {
 
 export interface VentaReporteItem {
   periodo: string
+  empleadoId: string | null
   dc: string
   idNomina: string | null
   puesto: string | null
@@ -218,6 +220,7 @@ export interface VentaReporteItem {
 }
 
 export interface RankingVentasItem {
+  empleadoId: string | null
   empleado: string
   idNomina: string | null
   puesto: string | null
@@ -228,6 +231,7 @@ export interface RankingVentasItem {
 }
 
 export interface RankingCuotaItem {
+  empleadoId: string | null
   empleado: string
   idNomina: string | null
   puesto: string | null
@@ -282,6 +286,7 @@ export interface LoveReporteItem {
 
 export interface NominaReporteItem {
   periodo: string
+  empleadoId: string | null
   empleado: string
   idNomina: string | null
   puesto: string | null
@@ -310,6 +315,8 @@ export interface CampanaReporteItem {
 
 export interface ReportesPanelData {
   filtros: ReportesFiltros
+  cargaDiferida: boolean
+  mensajeCargaDiferida?: string
   paginacion: ReportesPaginacion
   resumen: ReportesResumen
   clientes: ClienteReporteItem[]
@@ -339,6 +346,7 @@ interface ClienteAcumulado {
 
 interface AsistenciaAcumulado {
   periodo: string
+  empleadoId: string | null
   empleado: string
   idNomina: string | null
   puesto: string | null
@@ -355,6 +363,7 @@ interface AsistenciaAcumulado {
 
 interface VentaAcumulado {
   periodo: string
+  empleadoId: string | null
   dc: string
   idNomina: string | null
   puesto: string | null
@@ -367,6 +376,7 @@ interface VentaAcumulado {
 }
 
 interface RankingVentasAcumulado {
+  empleadoId: string | null
   empleado: string
   idNomina: string | null
   puesto: string | null
@@ -377,6 +387,7 @@ interface RankingVentasAcumulado {
 }
 
 interface CuotaAcumulado {
+  empleadoId: string | null
   empleado: string
   idNomina: string | null
   puesto: string | null
@@ -592,6 +603,7 @@ function formatWeekPeriodLabel(weekStartIso: string) {
 function buildEmptyResponse(message: string, filtros: ReportesFiltros): ReportesPanelData {
   return {
     filtros,
+    cargaDiferida: false,
     paginacion: {
       page: filtros.page,
       pageSize: filtros.pageSize,
@@ -628,6 +640,61 @@ function buildEmptyResponse(message: string, filtros: ReportesFiltros): Reportes
     bitacora: [],
     infraestructuraLista: false,
     mensajeInfraestructura: message,
+  }
+}
+
+export function obtenerPanelReportesShell(
+  periodo: string,
+  page = 1,
+  pageSize = 25
+): ReportesPanelData {
+  const normalizedPage = normalizePage(page)
+  const normalizedPageSize = normalizePageSize(pageSize)
+
+  return {
+    filtros: {
+      periodo,
+      page: normalizedPage,
+      pageSize: normalizedPageSize,
+    },
+    cargaDiferida: true,
+    mensajeCargaDiferida:
+      'Selecciona un periodo y aplica filtros para cargar los reportes. Asi evitamos consultas pesadas por defecto.',
+    paginacion: {
+      page: normalizedPage,
+      pageSize: normalizedPageSize,
+      totalPages: 1,
+      totalClientes: 0,
+      totalAsistencias: 0,
+      totalVentas: 0,
+      totalRankingVentas: 0,
+      totalRankingCuotas: 0,
+      totalGastos: 0,
+      totalLove: 0,
+      totalNomina: 0,
+      totalCampanas: 0,
+      totalBitacora: 0,
+    },
+    resumen: {
+      jornadasValidas: 0,
+      jornadasPendientes: 0,
+      ventasConfirmadas: 0,
+      montoConfirmado: 0,
+      cuotasCumplidas: 0,
+      netoNominaEstimado: 0,
+      gastosReembolsados: 0,
+    },
+    clientes: [],
+    asistencias: [],
+    ventas: [],
+    rankingVentas: [],
+    rankingCuotas: [],
+    gastos: [],
+    love: [],
+    nomina: [],
+    campanas: [],
+    bitacora: [],
+    infraestructuraLista: true,
   }
 }
 
@@ -995,9 +1062,10 @@ export async function obtenerPanelReportes(
       const employee = employeeDescriptorById.get(record.empleadoId)
       const pdvLabel = pdvLabelByAssignmentId.get(record.assignmentId) ?? 'Sin PDV'
       const periodo = formatPeriodoLocal(record.fecha)
-      const attendanceKey = `${periodo}::${employee?.id_nomina ?? record.empleadoId}::${pdvLabel}::${descriptor?.nombre ?? 'sin-cuenta'}`
+      const attendanceKey = `${periodo}::${record.empleadoId}::${pdvLabel}::${descriptor?.nombre ?? 'sin-cuenta'}`
       const attendanceCount = disciplineAttendanceCounts.get(attendanceKey) ?? {
         periodo,
+        empleadoId: record.empleadoId,
         empleado: employee?.nombre_completo ?? 'Sin empleado',
         idNomina: employee?.id_nomina ?? null,
         puesto: employee?.puesto ?? null,
@@ -1112,15 +1180,17 @@ export async function obtenerPanelReportes(
 
   const ensureAsistencia = (
     periodo: string,
+    empleadoId: string | null,
     empleado: string,
     idNomina: string | null,
     puesto: string | null,
     cuentaCliente: string | null,
     pdv: string
   ) => {
-    const key = `${periodo}::${idNomina ?? empleado}::${pdv}::${cuentaCliente ?? 'sin-cuenta'}`
+    const key = `${periodo}::${empleadoId ?? empleado}::${pdv}::${cuentaCliente ?? 'sin-cuenta'}`
     const actual = asistenciasReportadas.get(key) ?? {
       periodo,
+      empleadoId,
       empleado,
       idNomina,
       puesto,
@@ -1141,6 +1211,7 @@ export async function obtenerPanelReportes(
 
   const ensureVenta = (
     periodo: string,
+    empleadoId: string | null,
     dc: string,
     idNomina: string | null,
     puesto: string | null,
@@ -1148,9 +1219,10 @@ export async function obtenerPanelReportes(
     pdv: string,
     producto: string
   ) => {
-    const key = `${periodo}::${idNomina ?? dc}::${pdv}::${producto}::${cuentaCliente ?? 'sin-cuenta'}`
+    const key = `${periodo}::${empleadoId ?? dc}::${pdv}::${producto}::${cuentaCliente ?? 'sin-cuenta'}`
     const actual = ventasReportadas.get(key) ?? {
       periodo,
+      empleadoId,
       dc,
       idNomina,
       puesto,
@@ -1234,7 +1306,7 @@ export async function obtenerPanelReportes(
     cuentaClienteId: string | null,
     cuentaCliente: string | null
   ) => {
-    const key = `${periodo}::${idNomina ?? empleado}::${cuentaCliente ?? 'sin-cuenta'}`
+    const key = `${periodo}::${empleadoId ?? empleado}::${cuentaClienteId ?? 'sin-cuenta'}`
     const actual = nominaReportada.get(key) ?? {
       periodo,
       empleadoId,
@@ -1268,6 +1340,7 @@ export async function obtenerPanelReportes(
     const pdvLabel = pdv?.clave_btl ?? pdv?.nombre ?? 'Sin PDV'
     const agregado = ensureAsistencia(
       periodo,
+      asistencia.empleado_id,
       empleado?.nombre_completo ?? 'Sin empleado',
       empleado?.id_nomina ?? null,
       empleado?.puesto ?? null,
@@ -1301,6 +1374,7 @@ export async function obtenerPanelReportes(
     const producto = venta.producto_nombre?.trim() || 'Sin producto'
     const agregado = ensureVenta(
       periodo,
+      venta.empleado_id,
       empleado?.nombre_completo ?? 'Sin empleado',
       empleado?.id_nomina ?? null,
       empleado?.puesto ?? null,
@@ -1309,6 +1383,7 @@ export async function obtenerPanelReportes(
       producto
     )
     const actual = rankingVentas.get(rankingKey) ?? {
+      empleadoId: venta.empleado_id,
       empleado: empleado?.nombre_completo ?? 'Sin empleado',
       idNomina: empleado?.id_nomina ?? null,
       puesto: empleado?.puesto ?? null,
@@ -1338,6 +1413,7 @@ export async function obtenerPanelReportes(
     const cliente = ensureCliente(cuenta)
     const rankingKey = `${cuota.empleado_id}::${cuota.cuenta_cliente_id}`
     const actual = rankingCuotas.get(rankingKey) ?? {
+      empleadoId: cuota.empleado_id,
       empleado: empleado?.nombre_completo ?? 'Sin empleado',
       idNomina: empleado?.id_nomina ?? null,
       puesto: empleado?.puesto ?? null,
@@ -1585,6 +1661,7 @@ export async function obtenerPanelReportes(
       ...filtros,
       page: safePage,
     },
+    cargaDiferida: false,
     paginacion: {
       page: safePage,
       pageSize: filtros.pageSize,

@@ -63,6 +63,38 @@ function createRegistroService() {
   const updates: Array<Record<string, unknown>> = []
   const audits: Array<Record<string, unknown>> = []
   let duplicateCheckCount = 0
+  const registroRow: Record<string, unknown> = {
+    id: 'reg-1',
+    cuenta_cliente_id: 'cuenta-1',
+    empleado_id: 'emp-1',
+    supervisor_empleado_id: 'sup-1',
+    pdv_id: 'pdv-1',
+    asistencia_id: 'att-1',
+    fecha_operativa: '2026-03-30',
+    fecha_registro_utc: '2026-03-31T10:00:00.000Z',
+    tipo_registro: 'VENTA',
+    estatus: 'PENDIENTE_APROBACION',
+    motivo: 'Sin señal en el cierre',
+    motivo_rechazo: null,
+    evidencia_url: null,
+    evidencia_hash: null,
+    evidencia_thumbnail_url: null,
+    evidencia_thumbnail_hash: null,
+    venta_payload: {
+      producto_id: 'prod-1',
+      producto_sku: 'SKU-1',
+      producto_nombre: 'Producto Uno',
+      producto_nombre_corto: 'Prod Uno',
+      total_unidades: 3,
+      total_monto: 0,
+    },
+    love_payload: {},
+    venta_registro_id: null,
+    love_registro_id: null,
+    metadata: {
+      gap_dias_retraso: 1,
+    },
+  }
 
   const service = {
     storage: {
@@ -189,38 +221,7 @@ function createRegistroService() {
           maybeSingle() {
             duplicateCheckCount += 1
             return Promise.resolve({
-              data: duplicateCheckCount === 1 ? null : {
-                id: 'reg-1',
-                cuenta_cliente_id: 'cuenta-1',
-                empleado_id: 'emp-1',
-                supervisor_empleado_id: 'sup-1',
-                pdv_id: 'pdv-1',
-                asistencia_id: 'att-1',
-                fecha_operativa: '2026-03-30',
-                fecha_registro_utc: '2026-03-31T10:00:00.000Z',
-                tipo_registro: 'VENTA',
-                estatus: 'PENDIENTE_APROBACION',
-                motivo: 'Sin señal en el cierre',
-                motivo_rechazo: null,
-                evidencia_url: null,
-                evidencia_hash: null,
-                evidencia_thumbnail_url: null,
-                evidencia_thumbnail_hash: null,
-                venta_payload: {
-                  producto_id: 'prod-1',
-                  producto_sku: 'SKU-1',
-                  producto_nombre: 'Producto Uno',
-                  producto_nombre_corto: 'Prod Uno',
-                  total_unidades: 3,
-                  total_monto: 0,
-                },
-                love_payload: {},
-                venta_registro_id: null,
-                love_registro_id: null,
-                metadata: {
-                  gap_dias_retraso: 1,
-                },
-              },
+              data: duplicateCheckCount === 1 ? null : registroRow,
               error: null,
             })
           },
@@ -269,7 +270,7 @@ function createRegistroService() {
     },
   }
 
-  return { service, inserts, updates, audits }
+  return { service, inserts, updates, audits, registroRow }
 }
 
 describe('extemporaneo actions', () => {
@@ -310,6 +311,10 @@ describe('extemporaneo actions', () => {
       supervisor_empleado_id: 'sup-1',
       tipo_registro: 'VENTA',
       estatus: 'PENDIENTE_APROBACION',
+    })
+    expect(inserts[0].venta_payload).toMatchObject({
+      producto_id: 'prod-1',
+      total_unidades: 3,
     })
     expect(audits).toHaveLength(1)
     expect(sendOperationalPushNotificationMock).toHaveBeenCalledWith(
@@ -367,5 +372,92 @@ describe('extemporaneo actions', () => {
       venta_registro_id: 'venta-1',
     })
     expect(audits).toHaveLength(1)
+  })
+
+  it('registra carrito extemporaneo de ventas y consolida multiples registros al aprobar', async () => {
+    requerirPuestosActivosMock.mockResolvedValue({
+      usuarioId: 'user-1',
+      puesto: 'DERMOCONSEJERO',
+      empleadoId: 'emp-1',
+    })
+
+    const registro = createRegistroService()
+    createServiceClientMock.mockReturnValue(registro.service)
+
+    const formData = new FormData()
+    formData.set('empleado_id', 'emp-1')
+    formData.set('tipo_registro', 'VENTA')
+    formData.set('fecha_operativa', '2026-03-30')
+    formData.set('motivo', 'Captura acumulada por falta de señal')
+    formData.set(
+      'venta_items_json',
+      JSON.stringify([
+        { productoId: 'prod-1', unidades: 2 },
+        { productoId: 'prod-1', unidades: 5 },
+      ])
+    )
+
+    const createResult = await registrarRegistroExtemporaneo(ESTADO_SOLICITUD_INICIAL, formData)
+
+    expect(createResult).toMatchObject({
+      ok: true,
+      message: 'Registro extemporaneo enviado a aprobacion.',
+    })
+    expect(registro.inserts[0].venta_payload).toMatchObject({
+      items: [
+        expect.objectContaining({ producto_id: 'prod-1', total_unidades: 2 }),
+        expect.objectContaining({ producto_id: 'prod-1', total_unidades: 5 }),
+      ],
+    })
+
+    registro.registroRow.tipo_registro = 'VENTA'
+    registro.registroRow.venta_payload = registro.inserts[0].venta_payload
+
+    requerirPuestosActivosMock.mockResolvedValue({
+      usuarioId: 'user-2',
+      puesto: 'SUPERVISOR',
+      empleadoId: 'sup-1',
+    })
+
+    registerVentaWithServiceMock
+      .mockResolvedValueOnce({
+        id: 'venta-1',
+        inserted: true,
+        replacedExisting: false,
+        context: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'venta-2',
+        inserted: true,
+        replacedExisting: false,
+        context: {},
+      })
+
+    const approveFormData = new FormData()
+    approveFormData.set('registro_extemporaneo_id', 'reg-1')
+    approveFormData.set('decision', 'APROBAR')
+
+    const approveResult = await resolverRegistroExtemporaneo(
+      ESTADO_SOLICITUD_INICIAL,
+      approveFormData
+    )
+
+    expect(approveResult).toMatchObject({
+      ok: true,
+      message: 'Registro extemporaneo aprobado y consolidado.',
+    })
+    expect(registerVentaWithServiceMock).toHaveBeenCalledTimes(2)
+    expect(registro.updates.at(-1)).toMatchObject({
+      estatus: 'APROBADO',
+      venta_registro_id: 'venta-1',
+      metadata: expect.objectContaining({
+        venta_registro_ids: ['venta-1', 'venta-2'],
+      }),
+    })
+    expect(registro.audits.at(-1)).toMatchObject({
+      payload: expect.objectContaining({
+        venta_registro_ids: ['venta-1', 'venta-2'],
+      }),
+    })
   })
 })

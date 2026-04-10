@@ -113,8 +113,12 @@ test('resuelve horario por jerarquia y cae a fallback global si no hay PDV o cad
 
 test('resuelve flujos de aprobacion por tipo de solicitud con overrides', () => {
   const incapacidad = resolveApprovalFlow('INCAPACIDAD', [])
-  expect(incapacidad.steps).toHaveLength(2)
+  expect(incapacidad.steps).toHaveLength(3)
   expect(incapacidad.steps[1]).toMatchObject({
+    actor: 'RECLUTAMIENTO',
+    targetStatus: 'VALIDADA_SUP',
+  })
+  expect(incapacidad.steps[2]).toMatchObject({
     actor: 'NOMINA',
     targetStatus: 'REGISTRADA_RH',
   })
@@ -123,25 +127,25 @@ test('resuelve flujos de aprobacion por tipo de solicitud con overrides', () => 
     id: 'rule-vacaciones',
     codigo: 'SOLICITUD_APROBACION_VACACIONES',
     modulo: 'solicitudes',
-    descripcion: 'Vacaciones con confirmacion final administrativa',
+    descripcion: 'Vacaciones con aprobacion directa de coordinacion',
     severidad: 'ERROR',
     prioridad: 300,
     condicion: {
       tipo_solicitud: 'VACACIONES',
-      min_notice_days: 45,
+      min_notice_days: 30,
     },
     accion: {
       steps: [
-        { actor: 'SUPERVISOR', target_status: 'VALIDADA_SUP', sla_hours: 24 },
-        { actor: 'ADMINISTRADOR', target_status: 'REGISTRADA', sla_hours: 24 },
+        { actor: 'COORDINADOR', target_status: 'REGISTRADA', sla_hours: 48 },
       ],
     },
     activa: true,
   })
 
-  expect(vacaciones.minNoticeDays).toBe(45)
-  expect(vacaciones.steps[1]).toMatchObject({
-    actor: 'ADMINISTRADOR',
+  expect(vacaciones.minNoticeDays).toBe(30)
+  expect(vacaciones.steps).toHaveLength(1)
+  expect(vacaciones.steps[0]).toMatchObject({
+    actor: 'COORDINADOR',
     targetStatus: 'REGISTRADA',
   })
 })

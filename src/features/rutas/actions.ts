@@ -35,6 +35,7 @@ import {
 import { SUPERVISOR_CHECKLIST_ITEMS } from './lib/supervisorVisitChecklist'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ESTADO_RUTA_INICIAL, type RutaActionState } from './state'
+import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TypedSupabaseClient = SupabaseClient<any>
@@ -92,14 +93,46 @@ async function uploadRutaEvidence(
     supervisorEmpleadoId,
     file,
     evidenceKind,
+    directReference,
   }: {
     actorUsuarioId: string
     cuentaClienteId: string
     supervisorEmpleadoId: string
-    file: File
+    file: File | null
     evidenceKind: 'selfie' | 'evidencia'
+    directReference?: ReturnType<typeof readDirectR2Reference>
   }
 ) {
+  if (directReference && hasDirectR2Reference(directReference)) {
+    const registered = await registerDirectR2Evidence(service, {
+      actorUsuarioId,
+      modulo: `ruta_semanal_${evidenceKind}`,
+      referenciaEntidadId: supervisorEmpleadoId,
+      reference: directReference,
+    })
+
+    return {
+      archivo: {
+        url: registered.url,
+        hash: registered.hash,
+      },
+      miniatura: null,
+      deduplicated: false,
+      optimization: {
+        optimizationKind: 'r2_direct',
+        originalBytes: registered.size,
+        optimizedBytes: registered.size,
+        targetMet: true,
+        notes: ['Subida directa via R2'],
+        officialAssetKind: 'original',
+      },
+    }
+  }
+
+  if (!file) {
+    throw new Error('La evidencia requerida no fue adjuntada.')
+  }
+
   if (exceedsOperationalDocumentUploadLimit(file)) {
     throw new Error(buildOperationalDocumentUploadLimitMessage('evidencia', file))
   }
@@ -1126,7 +1159,6 @@ export async function guardarPlaneacionRutaSemanalCanvas(
     })
 
     revalidatePath('/ruta-semanal')
-    revalidatePath('/dashboard')
 
     return buildState({
       ok: true,
@@ -1149,6 +1181,7 @@ export async function completarVisitaRutaSemanal(
     const service = createServiceClient() as TypedSupabaseClient
     const visitaId = String(formData.get('visita_id') ?? '').trim()
     const selfieFile = asUploadedFile(formData.get('selfie_file'))
+    const selfieR2 = readDirectR2Reference(formData, 'selfie')
     const evidenciaFile = asUploadedFile(formData.get('evidencia_file'))
     const comentarios = normalizeText(formData.get('comentarios'))
     const checklist = buildChecklist(formData)
@@ -1291,6 +1324,27 @@ export async function actualizarControlRutaSemanal(
     const supervisorEmpleadoId = String(formData.get('supervisor_empleado_id') ?? '').trim()
     const semanaInicio = String(formData.get('semana_inicio') ?? '').trim()
     const minimumVisitsPerPdvRaw = String(formData.get('minimum_visits_per_pdv') ?? '').trim()
+    const quotaEntries = Array.from(formData.entries())
+      .filter(([key]) => key.startsWith('pdv_quota_'))
+      .map(([key, value]) => {
+        const pdvId = key.slice('pdv_quota_'.length).trim()
+        const rawValue = String(value ?? '').trim()
+
+        if (!pdvId) {
+          throw new Error('Se encontro una cuota de PDV sin identificador.')
+        }
+
+        if (rawValue === '') {
+          return [pdvId, 0] as const
+        }
+
+        const parsed = Number(rawValue)
+        if (!Number.isInteger(parsed) || parsed < 0) {
+          throw new Error('Cada cuota por PDV debe ser un entero igual o mayor a cero.')
+        }
+
+        return [pdvId, parsed] as const
+      })
     const approvalState = String(formData.get('approval_state') ?? '').trim()
     const approvalNote = normalizeText(formData.get('approval_note'))
 
@@ -1300,7 +1354,7 @@ export async function actualizarControlRutaSemanal(
       })
     }
 
-    const minimumVisitsPerPdv =
+    const requestedMinimumVisitsPerPdv =
       minimumVisitsPerPdvRaw === ''
         ? null
         : normalizeInt(minimumVisitsPerPdvRaw, 'Visitas minimas por PDV')
@@ -1372,6 +1426,8 @@ export async function actualizarControlRutaSemanal(
       }
     }
 
+    const resolvedRutaId = ruta?.id ?? rutaId
+
     const targetSupervisorEmpleadoId = ruta?.supervisor_empleado_id ?? supervisorEmpleadoId
     const targetWeekStart = ruta?.semana_inicio ?? semanaInicio
     const targetWeekEnd = getWeekEndIso(targetWeekStart)
@@ -1425,11 +1481,27 @@ export async function actualizarControlRutaSemanal(
       }
     }
 
+    // El formulario ya representa el subconjunto filtrado visible por Coordinacion.
+    // Si el universo estructural cambia o se reduce por lectura parcial, preservamos
+    // las cuotas enviadas por el usuario para no perder el guardado.
+    for (const [pdvId] of quotaEntries) {
+      pdvIds.add(pdvId)
+    }
+
+    const hasSpecificPdvQuotas = quotaEntries.length > 0
+    const pdvQuotaMap = new Map(quotaEntries)
     const pdvMonthlyQuotas = Object.fromEntries(
-      Array.from(pdvIds).map((pdvId) => [pdvId, minimumVisitsPerPdv ?? 0])
+      Array.from(pdvIds).map((pdvId) => [
+        pdvId,
+        hasSpecificPdvQuotas ? pdvQuotaMap.get(pdvId) ?? 0 : requestedMinimumVisitsPerPdv ?? 0,
+      ])
     )
-    const expectedMonthlyVisits =
-      minimumVisitsPerPdv === null ? null : minimumVisitsPerPdv * pdvIds.size
+    const expectedMonthlyVisits = hasSpecificPdvQuotas
+      ? Object.values(pdvMonthlyQuotas).reduce((acc, value) => acc + value, 0)
+      : requestedMinimumVisitsPerPdv === null
+        ? null
+        : requestedMinimumVisitsPerPdv * pdvIds.size
+    const minimumVisitsPerPdv = hasSpecificPdvQuotas ? null : requestedMinimumVisitsPerPdv
     const cuentaClienteId =
       ruta?.cuenta_cliente_id ??
       assignmentRows.find((item) => item.cuenta_cliente_id)?.cuenta_cliente_id ??
@@ -1520,11 +1592,12 @@ export async function actualizarControlRutaSemanal(
       })
 
       revalidatePath('/ruta-semanal')
-      revalidatePath('/dashboard')
 
       return buildState({
         ok: true,
         message: 'Cuota general del supervisor guardada. Se creo una ruta base para el supervisor.',
+        savedRouteId: finalRutaCreada.id,
+        savedPdvMonthlyQuotas: pdvMonthlyQuotas,
       })
     }
 
@@ -1572,7 +1645,7 @@ export async function actualizarControlRutaSemanal(
         updated_by_usuario_id: actor.usuarioId,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', rutaId)
+      .eq('id', resolvedRutaId)
 
     const finalUpdateError =
       updateError?.message?.toLowerCase().includes('row-level security') ||
@@ -1591,7 +1664,7 @@ export async function actualizarControlRutaSemanal(
                 updated_by_usuario_id: actor.usuarioId,
                 updated_at: new Date().toISOString(),
               })
-              .eq('id', rutaId)
+              .eq('id', resolvedRutaId)
           ).error
         : updateError
 
@@ -1601,7 +1674,7 @@ export async function actualizarControlRutaSemanal(
 
     await registrarEventoAudit(service, {
       tabla: 'ruta_semanal',
-      registroId: rutaId,
+      registroId: resolvedRutaId,
       cuentaClienteId: ruta.cuenta_cliente_id,
       usuarioId: actor.usuarioId,
       payload: {
@@ -1615,11 +1688,12 @@ export async function actualizarControlRutaSemanal(
     })
 
     revalidatePath('/ruta-semanal')
-    revalidatePath('/dashboard')
 
     return buildState({
       ok: true,
       message: 'Control de ruta actualizado.',
+      savedRouteId: resolvedRutaId,
+      savedPdvMonthlyQuotas: metadata.pdvMonthlyQuotas,
     })
   } catch (error) {
     return buildState({
@@ -1810,7 +1884,6 @@ export async function solicitarCambioRutaSemanal(
     })
 
     revalidatePath('/ruta-semanal')
-    revalidatePath('/dashboard')
 
     return buildState({
       ok: true,
@@ -1935,7 +2008,6 @@ export async function resolverSolicitudCambioRutaSemanal(
     })
 
     revalidatePath('/ruta-semanal')
-    revalidatePath('/dashboard')
 
     return buildState({
       ok: true,
@@ -2089,7 +2161,6 @@ export async function registrarEventoAgendaRutaSemanal(
     })
 
     revalidatePath('/ruta-semanal')
-    revalidatePath('/dashboard')
 
     return buildState({
       ok: true,
@@ -2195,7 +2266,6 @@ export async function resolverEventoAgendaRutaSemanal(
     })
 
     revalidatePath('/ruta-semanal')
-    revalidatePath('/dashboard')
 
     return buildState({
       ok: true,
@@ -2222,6 +2292,7 @@ export async function registrarInicioVisitaRutaSemanal(
     const service = createServiceClient() as TypedSupabaseClient
     const visitaId = String(formData.get('visita_id') ?? '').trim()
     const selfieFile = asUploadedFile(formData.get('selfie_file'))
+    const selfieR2 = readDirectR2Reference(formData, 'selfie')
     const comments = normalizeText(formData.get('comments'))
     const latitud = normalizeFloat(formData.get('latitud'))
     const longitud = normalizeFloat(formData.get('longitud'))
@@ -2232,7 +2303,7 @@ export async function registrarInicioVisitaRutaSemanal(
       return buildState({ message: 'La visita es obligatoria.' })
     }
 
-    if (!selfieFile) {
+    if (!selfieFile && !hasDirectR2Reference(selfieR2)) {
       return buildState({ message: 'La selfie de llegada es obligatoria.' })
     }
 
@@ -2256,6 +2327,7 @@ export async function registrarInicioVisitaRutaSemanal(
       supervisorEmpleadoId: actor.empleadoId,
       file: selfieFile,
       evidenceKind: 'selfie',
+      directReference: selfieR2,
     })
 
     const metadata = parseRutaVisitaWorkflowMetadata(visita.metadata)
@@ -2309,7 +2381,6 @@ export async function registrarInicioVisitaRutaSemanal(
     })
 
     revalidatePath('/ruta-semanal')
-    revalidatePath('/dashboard')
 
     return buildState({
       ok: true,
@@ -2333,6 +2404,8 @@ export async function registrarSalidaVisitaRutaSemanal(
     const visitaId = String(formData.get('visita_id') ?? '').trim()
     const selfieFile = asUploadedFile(formData.get('selfie_file'))
     const evidenciaFile = asUploadedFile(formData.get('evidencia_file'))
+    const selfieR2 = readDirectR2Reference(formData, 'selfie')
+    const evidenciaR2 = readDirectR2Reference(formData, 'evidencia')
     const comments = normalizeText(formData.get('comments'))
     const checklist = buildChecklist(formData)
     const loveIsdinRecordsCount = normalizeOptionalNonNegativeInt(formData.get('love_isdin_records_count'))
@@ -2345,7 +2418,7 @@ export async function registrarSalidaVisitaRutaSemanal(
       return buildState({ message: 'La visita es obligatoria.' })
     }
 
-    if (!selfieFile) {
+    if (!selfieFile && !hasDirectR2Reference(selfieR2)) {
       return buildState({ message: 'La selfie de salida es obligatoria.' })
     }
 
@@ -2384,15 +2457,17 @@ export async function registrarSalidaVisitaRutaSemanal(
       supervisorEmpleadoId: actor.empleadoId,
       file: selfieFile,
       evidenceKind: 'selfie',
+      directReference: selfieR2,
     })
 
-    const evidenciaUpload = evidenciaFile
+    const evidenciaUpload = evidenciaFile || hasDirectR2Reference(evidenciaR2)
       ? await uploadRutaEvidence(service, {
           actorUsuarioId: actor.usuarioId,
           cuentaClienteId: visita.cuenta_cliente_id,
           supervisorEmpleadoId: actor.empleadoId,
           file: evidenciaFile,
           evidenceKind: 'evidencia',
+          directReference: evidenciaR2,
         })
       : null
 
@@ -2468,7 +2543,6 @@ export async function registrarSalidaVisitaRutaSemanal(
     })
 
     revalidatePath('/ruta-semanal')
-    revalidatePath('/dashboard')
 
     return buildState({
       ok: true,
@@ -2565,7 +2639,6 @@ export async function registrarInicioEventoAgendaRutaSemanal(
     }
 
     revalidatePath('/ruta-semanal')
-    revalidatePath('/dashboard')
 
     return buildState({
       ok: true,
@@ -2683,7 +2756,6 @@ export async function registrarSalidaEventoAgendaRutaSemanal(
     }
 
     revalidatePath('/ruta-semanal')
-    revalidatePath('/dashboard')
 
     return buildState({
       ok: true,

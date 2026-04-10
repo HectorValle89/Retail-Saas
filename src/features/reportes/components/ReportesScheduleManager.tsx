@@ -3,7 +3,8 @@
 import { useActionState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { ESTADO_REPORTE_PROGRAMADO_INICIAL, desactivarReporteProgramado, programarReporteAutomatico } from '../actions'
+import { desactivarReporteProgramado, programarReporteAutomatico } from '../actions'
+import { ESTADO_REPORTE_PROGRAMADO_INICIAL } from '../state'
 import type { ProgramacionReportesData } from '../services/reporteScheduleService'
 
 const SECTION_OPTIONS = [

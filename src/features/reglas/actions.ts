@@ -15,16 +15,7 @@ import {
   type ApprovalStep,
   type SolicitudTipo,
 } from './lib/businessRules'
-
-export interface ReglaAdminActionState {
-  ok: boolean
-  message: string | null
-}
-
-export const ESTADO_REGLA_ADMIN_INICIAL: ReglaAdminActionState = {
-  ok: false,
-  message: null,
-}
+import { ESTADO_REGLA_ADMIN_INICIAL, type ReglaAdminActionState } from './state'
 
 function buildState(partial: Partial<ReglaAdminActionState>): ReglaAdminActionState {
   return {

@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { readRequestAccountScope } from '@/lib/tenant/accountScope'
 import { isSingleTenantBackendEnabled } from '@/lib/tenant/singleTenant'
@@ -19,7 +20,46 @@ export interface ActorActual {
   primerAccesoPendiente?: boolean
 }
 
-export async function obtenerActorActual(): Promise<ActorActual | null> {
+type UsuarioActorRow = {
+  id: string
+  empleado_id: string
+  cuenta_cliente_id: string | null
+  username: string | null
+  correo_electronico: string | null
+  correo_verificado: boolean
+  estado_cuenta: EstadoCuenta
+  empleado:
+    | {
+        id: string
+        nombre_completo: string
+        puesto: Puesto
+        metadata: Record<string, unknown> | null
+      }
+    | Array<{
+        id: string
+        nombre_completo: string
+        puesto: Puesto
+        metadata: Record<string, unknown> | null
+      }>
+    | null
+}
+
+function normalizeEmpleado(
+  value: UsuarioActorRow['empleado']
+): {
+  id: string
+  nombre_completo: string
+  puesto: Puesto
+  metadata: Record<string, unknown> | null
+} | null {
+  if (!value) {
+    return null
+  }
+
+  return Array.isArray(value) ? (value[0] ?? null) : value
+}
+
+const obtenerActorActualCached = cache(async (): Promise<ActorActual | null> => {
   const supabase = await createClient({ bypassTenantScope: true })
   const {
     data: { user },
@@ -31,45 +71,47 @@ export async function obtenerActorActual(): Promise<ActorActual | null> {
 
   const { data: usuario } = await supabase
     .from('usuario')
-    .select('id, empleado_id, cuenta_cliente_id, username, correo_electronico, correo_verificado, estado_cuenta')
+    .select(
+      'id, empleado_id, cuenta_cliente_id, username, correo_electronico, correo_verificado, estado_cuenta, empleado:empleado_id(id, nombre_completo, puesto, metadata)'
+    )
     .eq('auth_user_id', user.id)
     .maybeSingle()
 
-  if (!usuario) {
+  const usuarioActual = (usuario ?? null) as UsuarioActorRow | null
+  if (!usuarioActual) {
     return null
   }
 
-  const { data: empleado } = await supabase
-    .from('empleado')
-    .select('id, nombre_completo, puesto, metadata')
-    .eq('id', usuario.empleado_id)
-    .maybeSingle()
-
-  if (!empleado) {
+  const empleadoActual = normalizeEmpleado(usuarioActual.empleado)
+  if (!empleadoActual) {
     return null
   }
 
   const requestScope = await readRequestAccountScope()
   const cuentaClienteId =
     isSingleTenantBackendEnabled()
-      ? requestScope.accountId ?? usuario.cuenta_cliente_id
-      : empleado.puesto === 'ADMINISTRADOR'
+      ? requestScope.accountId ?? usuarioActual.cuenta_cliente_id
+      : empleadoActual.puesto === 'ADMINISTRADOR'
         ? requestScope.accountId
-        : usuario.cuenta_cliente_id
+        : usuarioActual.cuenta_cliente_id
 
   return {
     authUserId: user.id,
-    usuarioId: usuario.id,
-    empleadoId: usuario.empleado_id,
+    usuarioId: usuarioActual.id,
+    empleadoId: usuarioActual.empleado_id,
     cuentaClienteId,
-    username: usuario.username,
-    correoElectronico: usuario.correo_electronico,
-    correoVerificado: usuario.correo_verificado,
-    estadoCuenta: usuario.estado_cuenta as EstadoCuenta,
-    nombreCompleto: empleado.nombre_completo,
-    puesto: empleado.puesto as Puesto,
-    primerAccesoPendiente: isPrimerAccesoPendiente(empleado.metadata),
+    username: usuarioActual.username,
+    correoElectronico: usuarioActual.correo_electronico,
+    correoVerificado: usuarioActual.correo_verificado,
+    estadoCuenta: usuarioActual.estado_cuenta,
+    nombreCompleto: empleadoActual.nombre_completo,
+    puesto: empleadoActual.puesto,
+    primerAccesoPendiente: isPrimerAccesoPendiente(empleadoActual.metadata),
   }
+})
+
+export async function obtenerActorActual(): Promise<ActorActual | null> {
+  return obtenerActorActualCached()
 }
 
 export async function requerirActorAutenticado() {

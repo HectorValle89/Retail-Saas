@@ -2,7 +2,7 @@ import { requerirAdministradorActivo } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { ReportesPanel } from '@/features/reportes/components/ReportesPanel'
 import { ReportesScheduleManager } from '@/features/reportes/components/ReportesScheduleManager'
-import { obtenerPanelReportes } from '@/features/reportes/services/reporteService'
+import { obtenerPanelReportes, obtenerPanelReportesShell } from '@/features/reportes/services/reporteService'
 import { obtenerProgramacionReportes } from '@/features/reportes/services/reporteScheduleService'
 
 export const metadata = {
@@ -26,22 +26,29 @@ function parsePositiveInt(value: string | undefined, fallback: number) {
   return Math.floor(parsed)
 }
 
+function resolveCurrentMonth() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+  }).format(new Date())
+}
+
 export default async function ReportesPage({ searchParams }: ReportesPageProps) {
   const actor = await requerirAdministradorActivo()
-  const supabase = await createClient()
   const params = (await searchParams) ?? {}
   const periodo = pickString(params.periodo)
   const page = parsePositiveInt(pickString(params.page), 1)
   const pageSize = parsePositiveInt(pickString(params.pageSize), 25)
-  const [data, schedules] = await Promise.all([
-    obtenerPanelReportes(supabase, {
-      actor,
-      period: periodo,
-      page,
-      pageSize,
-    }),
-    obtenerProgramacionReportes(actor),
-  ])
+  const schedules = await obtenerProgramacionReportes(actor)
+  const data = periodo
+    ? await obtenerPanelReportes(await createClient(), {
+        actor,
+        period: periodo,
+        page,
+        pageSize,
+      })
+    : obtenerPanelReportesShell(resolveCurrentMonth(), page, pageSize)
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">

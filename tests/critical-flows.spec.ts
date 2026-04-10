@@ -17,6 +17,27 @@ function createFakeClient(results: Record<string, QueryResult>) {
     from(table: string) {
       const entry = results[table] ?? { data: [], error: null }
 
+      let headRequested = false
+      let countRequested = false
+
+      const buildPayload = () => {
+        const count = Array.isArray(entry.data) ? entry.data.length : 0
+        if (headRequested) {
+          return {
+            data: null,
+            error: entry.error,
+            count,
+          }
+        }
+
+        return countRequested
+          ? {
+              ...entry,
+              count,
+            }
+          : entry
+      }
+
       const chain = {
         select(
           _columns?: string,
@@ -25,14 +46,8 @@ function createFakeClient(results: Record<string, QueryResult>) {
             head?: boolean
           }
         ) {
-          if (options?.head) {
-            return Promise.resolve({
-              data: null,
-              error: entry.error,
-              count: Array.isArray(entry.data) ? entry.data.length : 0,
-            })
-          }
-
+          headRequested = options?.head === true
+          countRequested = Boolean(options?.count)
           return chain
         },
         eq() {
@@ -63,16 +78,16 @@ function createFakeClient(results: Record<string, QueryResult>) {
           return chain
         },
         range() {
-          return Promise.resolve(entry)
+          return Promise.resolve(buildPayload())
         },
         limit() {
-          return Promise.resolve(entry)
+          return Promise.resolve(buildPayload())
         },
         maybeSingle() {
-          return Promise.resolve(entry)
+          return Promise.resolve(buildPayload())
         },
-        then(resolve: (value: QueryResult) => void) {
-          return Promise.resolve(entry).then(resolve)
+        then(resolve: (value: QueryResult & { count?: number | null } | { data: null; error: { message: string } | null; count: number }) => void) {
+          return Promise.resolve(buildPayload()).then(resolve)
         },
       }
 
@@ -327,9 +342,35 @@ test('cubre el flujo de Assignment Validation Service con errores y alertas en a
           fecha_inicio: '2026-03-16',
           fecha_fin: '2026-03-31',
           observaciones: 'Asignacion publicada con validaciones pendientes',
+          naturaleza: 'BASE',
+          retorna_a_base: false,
+          prioridad: 1,
+          motivo_movimiento: null,
+          generado_automaticamente: false,
           estado_publicacion: 'PUBLICADA',
           created_at: '2026-03-15T10:00:00.000Z',
           cuenta_cliente: null,
+          empleado: {
+            id: 'emp-1',
+            nombre_completo: 'Ana Uno',
+            puesto: 'DERMOCONSEJERO',
+            estatus_laboral: 'ACTIVO',
+            telefono: null,
+            correo_electronico: null,
+            supervisor_empleado_id: 'sup-2',
+            zona: 'Norte',
+          },
+          pdv: {
+            id: 'pdv-1',
+            clave_btl: 'LIV-001',
+            nombre: 'Liverpool Norte',
+            zona: 'Norte',
+            estatus: 'ACTIVO',
+            horario_entrada: '11:00:00',
+            horario_salida: '19:00:00',
+            cadena: { codigo: 'SAN_PABLO', nombre: 'San Pablo', factor_cuota_default: 1 },
+            geocerca_pdv: { latitud: 19.4, longitud: -99.1, radio_tolerancia_metros: 400 },
+          },
         },
       ],
       error: null,
@@ -342,7 +383,7 @@ test('cubre el flujo de Assignment Validation Service con errores y alertas en a
           puesto: 'DERMOCONSEJERO',
           estatus_laboral: 'ACTIVO',
           telefono: null,
-          correo_electronico: 'ana@example.com',
+          correo_electronico: null,
           supervisor_empleado_id: 'sup-2',
           zona: 'Norte',
         },
@@ -409,23 +450,18 @@ test('cubre el flujo de Assignment Validation Service con errores y alertas en a
     },
   })
 
-  const data = await obtenerPanelAsignaciones(client as never, adminActor)
+  const data = await obtenerPanelAsignaciones(client as never, adminActor, {
+    assignmentState: 'PUBLICADA',
+  })
 
   expect(data.infraestructuraLista).toBe(true)
-  expect(data.resumen).toMatchObject({
-    total: 1,
-    publicada: 1,
-    conBloqueo: 1,
-    conAlerta: 1,
-    publicadasInvalidas: 1,
-  })
-  expect(data.asignaciones[0]).toMatchObject({
+  expect(data.activeView).toBe('asignaciones')
+  expect(data.assignmentsView?.estado).toBe('PUBLICADA')
+  expect(data.assignmentsView?.items[0]).toMatchObject({
     cuentaClienteId: null,
     bloqueada: true,
-    alertasCount: 3,
-    requiereConfirmacionAlertas: true,
   })
-  expect(data.asignaciones[0]?.issues.map((item) => item.label)).toEqual(
+  expect(data.assignmentsView?.items[0]?.issues.map((item) => item.label)).toEqual(
     expect.arrayContaining([
       'Sin cuenta cliente',
       'PDV sin supervisor activo',
@@ -436,7 +472,7 @@ test('cubre el flujo de Assignment Validation Service con errores y alertas en a
   )
 })
 
-test('cubre el flujo de incapacidad con aprobacion de SUPERVISOR y formalizacion de NOMINA', async () => {
+test('cubre el flujo de incapacidad con supervision, reclutamiento y formalizacion de nomina', async () => {
   const client = createFakeClient({
     solicitud: {
       data: [
@@ -454,7 +490,7 @@ test('cubre el flujo de incapacidad con aprobacion de SUPERVISOR y formalizacion
           estatus: 'REGISTRADA_RH',
           comentarios: 'Formalizada por nomina',
           metadata: {
-            approval_path: ['SUPERVISOR', 'NOMINA'],
+            approval_path: ['SUPERVISOR', 'RECLUTAMIENTO', 'NOMINA'],
             validada_supervisor_en: '2026-03-16T12:00:00.000Z',
             registrada_rh_en: '2026-03-16T18:00:00.000Z',
             justifica_asistencia: true,
@@ -494,7 +530,7 @@ test('cubre el flujo de incapacidad con aprobacion de SUPERVISOR y formalizacion
   expect(solicitudes.solicitudes[0]).toMatchObject({
     tipo: 'INCAPACIDAD',
     estatus: 'REGISTRADA_RH',
-    approvalPath: ['SUPERVISOR', 'NOMINA'],
+    approvalPath: ['SUPERVISOR', 'RECLUTAMIENTO', 'NOMINA'],
     justificaAsistencia: true,
   })
 })

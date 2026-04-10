@@ -1,3 +1,4 @@
+import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus'
 import {
   buildWeekBucket,
   countWeeklyLaborDays,
@@ -204,7 +205,7 @@ export function evaluarReglasAsignacion(
     )
   }
 
-  if (pdv && pdv.estatus !== 'ACTIVO') {
+  if (pdv && !isOperablePdvStatus(pdv.estatus)) {
     issues.push(
       createIssue(
         'ERROR',

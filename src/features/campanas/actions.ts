@@ -11,6 +11,13 @@ import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
 import { createServiceClient } from '@/lib/supabase/server'
 import { normalizeRequestedAccountId, readRequestAccountScope } from '@/lib/tenant/accountScope'
 import {
+  hasDirectR2Reference,
+  readDirectR2Manifest,
+  readDirectR2Reference,
+  registerDirectR2Evidence,
+  registerDirectR2EvidenceList,
+} from '@/lib/storage/directR2Server'
+import {
   ESTADO_CAMPANA_ADMIN_INICIAL,
   type CampanaAdminActionState,
 } from './state'
@@ -38,12 +45,19 @@ import {
   serializeVisitTaskSessions,
   updateVisitTaskSession,
   visitTaskRequiresPhoto,
+  type CampaignEvidenceEntry,
   type CampaignEvidenceKind,
   type CampaignGoalType,
   type VisitTaskKind,
   type VisitTaskStatus,
 } from './lib/campaignProgress'
 import { parseCampaignProductQuotaWorkbook } from './lib/campaignProductQuotaImport'
+import {
+  applyCampaignRotationDecisions,
+  buildCampaignRotationImpactPreview,
+  expandCampaignRotationCascadePreview,
+  parseCampaignRotationDecisions,
+} from './lib/campaignRotationImpact'
 
 const CAMPANA_EVIDENCIAS_BUCKET = 'operacion-evidencias'
 const CAMPANA_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
@@ -509,6 +523,52 @@ async function uploadCampaignManual(
   }
 }
 
+async function resolveCampaignManual(
+  service: ReturnType<typeof createServiceClient>,
+  {
+    actorUsuarioId,
+    cuentaClienteId,
+    campanaId,
+    file,
+    directReference,
+  }: {
+    actorUsuarioId: string
+    cuentaClienteId: string
+    campanaId: string
+    file: File | null
+    directReference: ReturnType<typeof readDirectR2Reference>
+  }
+) {
+  if (hasDirectR2Reference(directReference)) {
+    const registered = await registerDirectR2Evidence(service, {
+      actorUsuarioId,
+      modulo: 'campanas_manual',
+      referenciaEntidadId: campanaId,
+      reference: directReference,
+    })
+
+    return {
+      url: registered.url,
+      hash: registered.hash,
+      fileName: registered.fileName,
+      mimeType: registered.contentType ?? 'application/pdf',
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: actorUsuarioId,
+    }
+  }
+
+  if (!file) {
+    return null
+  }
+
+  return uploadCampaignManual(service, {
+    actorUsuarioId,
+    cuentaClienteId,
+    campanaId,
+    file,
+  })
+}
+
 async function notifySuspiciousVisitTask(
   service: ReturnType<typeof createServiceClient>,
   {
@@ -581,8 +641,338 @@ function revalidateCampaignPaths() {
   revalidatePath('/campanas')
   revalidatePath('/dashboard')
   revalidatePath('/reportes')
+  revalidatePath('/mensajes')
 }
 
+async function notifyCampaignPublication(
+  service: ReturnType<typeof createServiceClient>,
+  {
+    cuentaClienteId,
+    actorUsuarioId,
+    campanaId,
+    nombre,
+    fechaInicio,
+    instrucciones,
+    recipientIds,
+    pdvCount,
+  }: {
+    cuentaClienteId: string
+    actorUsuarioId: string
+    campanaId: string
+    nombre: string
+    fechaInicio: string
+    instrucciones: string | null
+    recipientIds: string[]
+    pdvCount: number
+  }
+) {
+  if (recipientIds.length === 0) {
+    return 0
+  }
+
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const title = fechaInicio > todayIso ? 'Campana proxima asignada' : 'Campana activa asignada'
+  const body =
+    nombre +
+    ' ya fue publicada para ' +
+    String(pdvCount) +
+    ' PDV(s). Inicio: ' +
+    fechaInicio +
+    '.' +
+    (instrucciones ? ' Instrucciones: ' + instrucciones : '')
+
+  const { data: message, error: messageError } = await service
+    .from('mensaje_interno')
+    .insert({
+      cuenta_cliente_id: cuentaClienteId,
+      creado_por_usuario_id: actorUsuarioId,
+      titulo: title,
+      cuerpo: body,
+      tipo: 'MENSAJE',
+      grupo_destino: 'TODOS_DCS',
+      opciones_respuesta: [],
+      metadata: {
+        origen: 'campana_publicada',
+        campana_id: campanaId,
+        fecha_inicio: fechaInicio,
+        pdvs_objetivo: pdvCount,
+      },
+    })
+    .select('id')
+    .maybeSingle()
+
+  if (messageError || !message?.id) {
+    throw new Error(messageError?.message ?? 'No fue posible generar la notificacion de la campana.')
+  }
+
+  const recipientRows = recipientIds.map((empleadoId) => ({
+    mensaje_id: message.id,
+    cuenta_cliente_id: cuentaClienteId,
+    empleado_id: empleadoId,
+    estado: 'PENDIENTE' as const,
+    metadata: {
+      origen: 'campana_publicada',
+      campana_id: campanaId,
+    },
+  }))
+
+  const { error: recipientError } = await service.from('mensaje_receptor').insert(recipientRows)
+
+  if (recipientError) {
+    throw new Error(recipientError.message)
+  }
+
+  return recipientIds.length
+}
+
+export async function publicarCampana(
+  prevState: CampanaAdminActionState,
+  formData: FormData
+): Promise<CampanaAdminActionState> {
+  try {
+    const actor = await requerirGestorCampanas()
+    const service = createServiceClient()
+    const campanaId = normalizeRequiredText(formData.get('campana_id'), 'Campana')
+    const confirmarRotacion = String(formData.get('confirmar_rotacion') ?? '').trim() === 'true'
+
+    const { data: campaign, error: campaignError } = await service
+      .from('campana')
+      .select('id, cuenta_cliente_id, nombre, fecha_inicio, fecha_fin, estado, instrucciones')
+      .eq('id', campanaId)
+      .maybeSingle()
+
+    if (campaignError || !campaign) {
+      throw new Error(campaignError?.message ?? 'No fue posible encontrar la campana a publicar.')
+    }
+
+    if (actor.cuentaClienteId && actor.cuentaClienteId !== campaign.cuenta_cliente_id) {
+      throw new Error('No puedes publicar campanas fuera de tu cuenta cliente asignada.')
+    }
+
+    if (campaign.estado === 'CANCELADA') {
+      throw new Error('La campana cancelada no puede publicarse.')
+    }
+
+    if (campaign.estado === 'CERRADA') {
+      throw new Error('La campana cerrada no puede volver a publicarse.')
+    }
+
+    const { data: campaignPdvs, error: campaignPdvsError } = await service
+      .from('campana_pdv')
+      .select('id, pdv_id, dc_empleado_id, metadata')
+      .eq('campana_id', campanaId)
+      .limit(1000)
+
+    if (campaignPdvsError) {
+      throw new Error(campaignPdvsError.message)
+    }
+
+    if (!campaignPdvs || campaignPdvs.length === 0) {
+      throw new Error('La campana debe tener al menos un PDV objetivo antes de publicarse.')
+    }
+
+    const persistedRotationPreview =
+      confirmarRotacion &&
+      prevState.requiresRotationReview &&
+      prevState.rotationImpactPreview?.campanaId === campanaId
+        ? prevState.rotationImpactPreview
+        : null
+
+    const rotationPreview =
+      persistedRotationPreview ??
+      (await buildCampaignRotationImpactPreview(service, {
+        campanaId,
+        accountId: campaign.cuenta_cliente_id,
+        fechaInicio: campaign.fecha_inicio,
+        fechaFin: campaign.fecha_fin,
+        campaignPdvs: campaignPdvs.map((item) => ({
+          id: item.id,
+          pdv_id: item.pdv_id,
+          dc_empleado_id: item.dc_empleado_id,
+          metadata: item.metadata as Record<string, unknown> | null,
+        })),
+      }))
+
+    if (rotationPreview && !confirmarRotacion) {
+      return buildState({
+        ok: false,
+        requiresRotationReview: true,
+        rotationImpactPreview: rotationPreview,
+        message:
+          'La campana impacta ' +
+          String(rotationPreview.totalNodes) +
+          ' PDV(s) rotativo(s). Revisa si se asignan coberturas temporales o si se reservan durante la ventana de campana.',
+      })
+    }
+
+    if (rotationPreview && confirmarRotacion) {
+      const decisions = parseCampaignRotationDecisions(formData, rotationPreview)
+      const missingAssignments = decisions.filter((item) => item.decision === 'ASIGNAR' && !item.empleadoId)
+
+      if (missingAssignments.length > 0) {
+        return buildState({
+          ok: false,
+          requiresRotationReview: true,
+          rotationImpactPreview: rotationPreview,
+          message: 'Selecciona una DC para cada PDV marcado como asignar antes de confirmar la publicacion.',
+        })
+      }
+
+      const expandedPreview = await expandCampaignRotationCascadePreview(service, {
+        accountId: campaign.cuenta_cliente_id,
+        fechaInicio: campaign.fecha_inicio,
+        fechaFin: campaign.fecha_fin,
+        preview: rotationPreview,
+        decisions,
+      })
+
+      if (expandedPreview.nodes.length > rotationPreview.nodes.length) {
+        return buildState({
+          ok: false,
+          requiresRotationReview: true,
+          rotationImpactPreview: expandedPreview,
+          message: 'La cobertura elegida abre una cascada adicional sobre otros PDVs rotativos. Resuelve los nuevos nodos antes de publicar.',
+        })
+      }
+
+      try {
+        await applyCampaignRotationDecisions(service, {
+          actorUsuarioId: actor.usuarioId,
+          campanaId: campaign.id,
+          campanaNombre: campaign.nombre,
+          accountId: campaign.cuenta_cliente_id,
+          fechaInicio: campaign.fecha_inicio,
+          fechaFin: campaign.fecha_fin,
+          decisions,
+        })
+      } catch (rotationError) {
+        return buildState({
+          ok: false,
+          requiresRotationReview: true,
+          rotationImpactPreview: expandedPreview,
+          message:
+            rotationError instanceof Error
+              ? rotationError.message
+              : 'No fue posible resolver el impacto rotativo de la campana.',
+        })
+      }
+    }
+    const { data: refreshedCampaignPdvs, error: refreshedCampaignPdvsError } = await service
+      .from('campana_pdv')
+      .select('id, pdv_id, dc_empleado_id')
+      .eq('campana_id', campanaId)
+      .limit(1000)
+
+    if (refreshedCampaignPdvsError) {
+      throw new Error(refreshedCampaignPdvsError.message)
+    }
+
+    const pdvIds = dedupeStringArray((refreshedCampaignPdvs ?? []).map((item) => item.pdv_id))
+    const { data: assignmentRows, error: assignmentError } = await service
+      .from('asignacion')
+      .select('pdv_id, empleado_id, fecha_inicio, fecha_fin, estado_publicacion, created_at')
+      .in('pdv_id', pdvIds)
+      .limit(2000)
+
+    if (assignmentError) {
+      throw new Error(assignmentError.message)
+    }
+
+    const assignmentMap = new Map<string, Array<{ empleado_id: string; fecha_inicio: string; fecha_fin: string; estado_publicacion: string; created_at: string }>>()
+    for (const assignment of assignmentRows ?? []) {
+      const current = assignmentMap.get(assignment.pdv_id) ?? []
+      current.push(assignment)
+      assignmentMap.set(assignment.pdv_id, current)
+    }
+
+    for (const [pdvId, rows] of assignmentMap.entries()) {
+      assignmentMap.set(
+        pdvId,
+        [...rows].sort((left, right) => right.created_at.localeCompare(left.created_at))
+      )
+    }
+
+    const recipientIds = Array.from(
+      new Set(
+        (refreshedCampaignPdvs ?? [])
+          .map((row) => {
+            if (row.dc_empleado_id) {
+              return row.dc_empleado_id
+            }
+
+            const overlappingAssignment = (assignmentMap.get(row.pdv_id) ?? []).find(
+              (item) =>
+                item.estado_publicacion === 'PUBLICADA' &&
+                rangesOverlapIso(item.fecha_inicio, item.fecha_fin, campaign.fecha_inicio, campaign.fecha_fin)
+            )
+
+            return overlappingAssignment?.empleado_id ?? null
+          })
+          .filter((item): item is string => Boolean(item))
+      )
+    )
+
+    const { error: updateError } = await service
+      .from('campana')
+      .update({
+        estado: 'ACTIVA',
+        updated_by_usuario_id: actor.usuarioId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', campanaId)
+
+    if (updateError) {
+      throw new Error(updateError.message)
+    }
+
+    const notifiedCount = await notifyCampaignPublication(service, {
+      cuentaClienteId: campaign.cuenta_cliente_id,
+      actorUsuarioId: actor.usuarioId,
+      campanaId: campaign.id,
+      nombre: campaign.nombre,
+      fechaInicio: campaign.fecha_inicio,
+      instrucciones: campaign.instrucciones,
+      recipientIds,
+      pdvCount: refreshedCampaignPdvs?.length ?? campaignPdvs.length,
+    })
+
+    await registrarEventoAudit(service, {
+      actorUsuarioId: actor.usuarioId,
+      cuentaClienteId: campaign.cuenta_cliente_id,
+      tabla: 'campana',
+      registroId: campaign.id,
+      payload: {
+        evento: 'campana_publicada',
+        nombre: campaign.nombre,
+        fecha_inicio: campaign.fecha_inicio,
+        fecha_fin: campaign.fecha_fin,
+        pdvs_objetivo: refreshedCampaignPdvs?.length ?? campaignPdvs.length,
+        dc_notificadas: notifiedCount,
+        rotacion_revisada: Boolean(rotationPreview),
+        rotacion_nodos: rotationPreview?.totalNodes ?? 0,
+      },
+    })
+
+    revalidateCampaignPaths()
+
+    return buildState({
+      ok: true,
+      requiresRotationReview: false,
+      rotationImpactPreview: null,
+      message:
+        notifiedCount > 0
+          ? 'Campana publicada. Se notifico a ' + String(notifiedCount) + ' DC(s).'
+          : 'Campana publicada. No se encontraron DCs asignadas para notificar.',
+    })
+  } catch (error) {
+    return buildState({
+      ok: false,
+      requiresRotationReview: false,
+      rotationImpactPreview: null,
+      message: error instanceof Error ? error.message : 'No fue posible publicar la campana.',
+    })
+  }
+}
 export async function guardarCampana(
   _prevState: CampanaAdminActionState,
   formData: FormData
@@ -610,6 +1000,7 @@ export async function guardarCampana(
     const manualMercadeoFile = formData.get('manual_mercadeo')
     const manualMercadeoUpload =
       manualMercadeoFile instanceof File && manualMercadeoFile.size > 0 ? manualMercadeoFile : null
+    const manualMercadeoR2 = readDirectR2Reference(formData, 'manual_mercadeo')
     const metasProductoFile = formData.get('metas_producto_excel')
     const metasProductoUpload =
       metasProductoFile instanceof File && metasProductoFile.size > 0 ? metasProductoFile : null
@@ -844,35 +1235,38 @@ export async function guardarCampana(
       throw new Error(campaignError?.message ?? 'No fue posible guardar la campana.')
     }
 
-    if (manualMercadeoUpload) {
-      const storedManual = await uploadCampaignManual(service, {
+    if (manualMercadeoUpload || hasDirectR2Reference(manualMercadeoR2)) {
+      const storedManual = await resolveCampaignManual(service, {
         actorUsuarioId: actor.usuarioId,
         cuentaClienteId: cuentaCliente.id,
         campanaId: campaign.id,
         file: manualMercadeoUpload,
+        directReference: manualMercadeoR2,
       })
 
-      const { error: manualUpdateError } = await service
-        .from('campana')
-        .update({
-          metadata: {
-            ...campaignPayload.metadata,
-            manual_mercadeo: {
-              url: storedManual.url,
-              hash: storedManual.hash,
-              file_name: storedManual.fileName,
-              mime_type: storedManual.mimeType,
-              uploaded_at: storedManual.uploadedAt,
-              uploaded_by: storedManual.uploadedBy,
+      if (storedManual) {
+        const { error: manualUpdateError } = await service
+          .from('campana')
+          .update({
+            metadata: {
+              ...campaignPayload.metadata,
+              manual_mercadeo: {
+                url: storedManual.url,
+                hash: storedManual.hash,
+                file_name: storedManual.fileName,
+                mime_type: storedManual.mimeType,
+                uploaded_at: storedManual.uploadedAt,
+                uploaded_by: storedManual.uploadedBy,
+              },
             },
-          },
-          updated_by_usuario_id: actor.usuarioId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', campaign.id)
+            updated_by_usuario_id: actor.usuarioId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', campaign.id)
 
-      if (manualUpdateError) {
-        throw new Error(manualUpdateError.message)
+        if (manualUpdateError) {
+          throw new Error(manualUpdateError.message)
+        }
       }
     }
 
@@ -1177,6 +1571,8 @@ export async function ejecutarTareasCampanaPdv(
     const comentarios = normalizeOptionalText(formData.get('comentarios'))
     const selectedEvidenceRequirementId = normalizeOptionalText(formData.get('evidence_requirement_id'))
     const evidenceFiles = getUploadedFiles(formData, 'evidencia')
+    const evidenceR2Manifest = readDirectR2Manifest(formData, 'evidencia_r2_manifest')
+    const taskEvidenceR2Manifest = readDirectR2Manifest(formData, 'task_evidence_r2_manifest')
 
     const { data: row, error: rowError } = await service
       .from('campana_pdv')
@@ -1250,7 +1646,7 @@ export async function ejecutarTareasCampanaPdv(
     })
     const updatedSession = updateVisitTaskSession(session, getTaskSessionUpdates(formData), nowIso)
     const existingEntries = readCampaignEvidenceEntries(row.metadata)
-    const uploadedEntries = []
+    const uploadedEntries: CampaignEvidenceEntry[] = []
     const suspiciousNotifications: Array<{ taskLabel: string; reason: string }> = []
     const taskEvidencePayloads = getTaskEvidencePayloads(formData)
     const resolvedTaskMap = new Map(updatedSession.tasks.map((task) => [task.key, task]))
@@ -1296,6 +1692,41 @@ export async function ejecutarTareasCampanaPdv(
         evidenceLabel: selectedEvidenceRequirement?.label ?? null,
         evidenceKind: selectedEvidenceRequirement?.kind ?? null,
       } as const)
+    }
+
+    if (evidenceR2Manifest.length > 0) {
+      const registeredGeneralEvidence = await registerDirectR2EvidenceList(service, {
+        actorUsuarioId: actor.usuarioId,
+        modulo: 'campanas_evidencia',
+        referenciaEntidadId: row.id,
+        references: evidenceR2Manifest,
+      })
+
+      for (const stored of registeredGeneralEvidence) {
+        uploadedEntries.push({
+          url: stored.url,
+          hash: stored.hash,
+          thumbnailUrl: null,
+          thumbnailHash: null,
+          uploadedAt: nowIso,
+          uploadedBy: actor.usuarioId,
+          asistenciaId: activeAttendance.id,
+          fileName: stored.fileName,
+          mimeType: stored.contentType || 'application/octet-stream',
+          officialAssetKind: 'original',
+          taskKey: null,
+          capturedAt: null,
+          latitude: null,
+          longitude: null,
+          cameraCaptured: false,
+          timestampStamped: false,
+          distanceFromCheckInMeters: null,
+          suspicious: false,
+          suspiciousReason: null,
+          evidenceLabel: selectedEvidenceRequirement?.label ?? null,
+          evidenceKind: selectedEvidenceRequirement?.kind ?? null,
+        } as const)
+      }
     }
 
     const taskSessionUpdates = getTaskSessionUpdates(formData)
@@ -1411,6 +1842,125 @@ export async function ejecutarTareasCampanaPdv(
           taskLabel: task.label,
           reason: suspiciousReason,
         })
+      }
+    }
+
+    if (taskEvidenceR2Manifest.length > 0) {
+      const registeredTaskEvidence = await registerDirectR2EvidenceList(service, {
+        actorUsuarioId: actor.usuarioId,
+        modulo: 'campanas_tarea',
+        referenciaEntidadId: row.id,
+        references: taskEvidenceR2Manifest,
+      })
+
+      for (const stored of registeredTaskEvidence) {
+        const metadata =
+          stored.metadata && typeof stored.metadata === 'object' ? stored.metadata : {}
+        const taskKey = typeof metadata.taskKey === 'string' ? metadata.taskKey : null
+        if (!taskKey) {
+          continue
+        }
+
+        const task = resolvedTaskMap.get(taskKey)
+        if (!task) {
+          continue
+        }
+
+        const capturedAt = typeof metadata.capturedAt === 'string' ? metadata.capturedAt : null
+        const latitude = typeof metadata.latitude === 'number' ? metadata.latitude : null
+        const longitude = typeof metadata.longitude === 'number' ? metadata.longitude : null
+        const cameraCaptured = metadata.captureSource === 'camera' || metadata.cameraCaptured === true
+        const timestampStamped = metadata.timestampStamped === true
+        let suspiciousReason: string | null = null
+        let distanceFromCheckInMeters: number | null = null
+
+        if (!cameraCaptured || !timestampStamped || !capturedAt) {
+          suspiciousReason = 'La evidencia no contiene metadata valida de captura en vivo.'
+        }
+
+        if (capturedAt) {
+          const capturedAtMs = Date.parse(capturedAt)
+          const checkInMs = Date.parse(activeAttendance.check_in_utc)
+          const nowMs = Date.parse(nowIso)
+
+          if (!Number.isFinite(capturedAtMs) || capturedAtMs < checkInMs - 60000 || capturedAtMs > nowMs + 30000) {
+            suspiciousReason =
+              suspiciousReason ?? 'La evidencia no fue capturada dentro de la ventana temporal valida de la visita activa.'
+          }
+        }
+
+        if (
+          latitude !== null &&
+          longitude !== null &&
+          activeAttendance.latitud_check_in !== null &&
+          activeAttendance.longitud_check_in !== null
+        ) {
+          distanceFromCheckInMeters = calculateDistanceMeters(
+            activeAttendance.latitud_check_in,
+            activeAttendance.longitud_check_in,
+            latitude,
+            longitude
+          )
+
+          if (distanceFromCheckInMeters > 200) {
+            suspiciousReason = `Las coordenadas de la evidencia difieren ${Math.round(distanceFromCheckInMeters)} m del check-in activo.`
+          }
+        } else if (visitTaskRequiresPhoto(task.kind)) {
+          suspiciousReason = suspiciousReason ?? 'La evidencia no contiene coordenadas GPS consistentes.'
+        }
+
+        if (visitTaskRequiresPhoto(task.kind) && !(stored.contentType ?? '').startsWith('image/')) {
+          suspiciousReason = suspiciousReason ?? 'La tarea fotografica no envio un archivo de imagen valido.'
+        }
+
+        const reusedEvidence = existingEntries.find(
+          (entry) => entry.hash === stored.hash && entry.asistenciaId !== activeAttendance.id
+        )
+        if (reusedEvidence) {
+          suspiciousReason = suspiciousReason ?? 'La evidencia coincide con una captura previa de otra visita.'
+        }
+
+        const suspicious = Boolean(suspiciousReason)
+
+        uploadedEntries.push({
+          url: stored.url,
+          hash: stored.hash,
+          thumbnailUrl: null,
+          thumbnailHash: null,
+          uploadedAt: nowIso,
+          uploadedBy: actor.usuarioId,
+          asistenciaId: activeAttendance.id,
+          fileName: stored.fileName,
+          mimeType: stored.contentType || 'application/octet-stream',
+          officialAssetKind: 'original',
+          taskKey: task.key,
+          capturedAt,
+          latitude,
+          longitude,
+          cameraCaptured,
+          timestampStamped,
+          distanceFromCheckInMeters,
+          suspicious,
+          suspiciousReason,
+          evidenceLabel: selectedEvidenceRequirement?.label ?? task.label,
+          evidenceKind: selectedEvidenceRequirement?.kind ?? null,
+        })
+
+        taskSessionUpdateMap.set(task.key, {
+          key: task.key,
+          status: task.status,
+          justification: task.justification,
+          suspicious,
+          suspiciousReason,
+          evidenceCountIncrement: 1,
+        })
+
+        if (suspicious && suspiciousReason) {
+          suspiciousNotifications.push({
+            taskLabel: task.label,
+            reason: suspiciousReason,
+          })
+        }
       }
     }
 

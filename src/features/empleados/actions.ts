@@ -9,9 +9,16 @@ import {
 } from '@/lib/files/documentOptimization'
 import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
 import { performConfiguredDocumentOcr } from '@/lib/ocr/gemini'
+import type { GeminiOcrExtractionResult } from '@/lib/ocr/gemini'
 import { sendOperationalPushNotification } from '@/lib/push/pushFanout'
 import { requerirPuestosActivos } from '@/lib/auth/session'
-import type { EmpleadoActionState } from './state'
+import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus'
+import { getSingleTenantAccountId } from '@/lib/tenant/singleTenant'
+import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
+import type {
+  CoberturaPdvOperativaActionState,
+  EmpleadoActionState,
+} from './state'
 import {
   OCR_MODEL_CONFIG_KEY,
   OCR_PROVIDER_CONFIG_KEY,
@@ -118,6 +125,12 @@ const RAW_UPLOAD_MAX_BYTES = EXPEDIENTE_RAW_UPLOAD_MAX_BYTES
 const PDF_UPLOAD_MAX_BYTES = EXPEDIENTE_PDF_UPLOAD_MAX_BYTES
 const EMPLEADOS_STORAGE_MAX_BYTES = 15 * 1024 * 1024
 
+type CoberturaPdvOperativaAction =
+  | 'APARTAR_PDV'
+  | 'MARCAR_PENDIENTE_ACCESO'
+  | 'ASIGNAR_PDV_PASO'
+  | 'LIBERAR_ACCESO'
+  | 'QUITAR_RESERVA'
 function buildState(partial: Partial<EmpleadoActionState>): EmpleadoActionState {
   return {
     ...ESTADO_EMPLEADO_INICIAL,
@@ -153,11 +166,6 @@ function buildPreferredUsername(explicitValue: string, empleado: EmpleadoBaseRow
   const explicit = sanitizeToken(explicitValue)
   if (explicit) {
     return explicit
-  }
-
-  const nomina = sanitizeToken(empleado.id_nomina ?? '')
-  if (nomina) {
-    return nomina
   }
 
   const nombre = sanitizeToken(empleado.nombre_completo)
@@ -520,6 +528,7 @@ async function prepararDocumentoEmpleado(
     expectedDocumentType,
     employeeName,
     employeeNss,
+    skipOcr = false,
     metadataExtra,
   }: {
     actorUsuarioId: string
@@ -530,21 +539,61 @@ async function prepararDocumentoEmpleado(
     expectedDocumentType: string
     employeeName: string | null
     employeeNss?: string | null
+    skipOcr?: boolean
     metadataExtra?: Record<string, unknown>
   }
 ) {
   await ensureBucket(service)
   const originalBuffer = Buffer.from(await file.arrayBuffer())
-  const ocrConfiguracion = await obtenerConfiguracionOcr(service)
-  const ocr = await performConfiguredDocumentOcr({
-    buffer: originalBuffer,
-    mimeType: file.type || 'application/octet-stream',
-    fileName: file.name,
-    expectedDocumentType,
-    employeeName,
-    providerOverride: ocrConfiguracion.providerOverride,
-    modelOverride: ocrConfiguracion.modelOverride,
-  })
+  const ocrConfiguracion = skipOcr ? null : await obtenerConfiguracionOcr(service)
+  const ocr = skipOcr
+    ? {
+        provider: null,
+        result: {
+          provider: null,
+          model: null,
+          status: 'needs_review',
+          documentTypeExpected: expectedDocumentType,
+          documentTypeDetected: null,
+          employeeName: employeeName ?? null,
+          curp: null,
+          rfc: null,
+          nss: employeeNss ?? null,
+          address: null,
+          postalCode: null,
+          phoneNumber: null,
+          email: null,
+          birthDate: null,
+          employmentStartDate: null,
+          age: null,
+          yearsWorking: null,
+          sex: null,
+          maritalStatus: null,
+          originPlace: null,
+          dailyBaseSalary: null,
+          addressSourceDocumentType: null,
+          employer: null,
+          position: null,
+          documentNumber: null,
+          keyDates: [],
+          extractedText: null,
+          confidenceSummary: 'OCR omitido para evitar lecturas innecesarias durante la validacion documental.',
+          mismatchHints: [],
+          observations: ['ocr_skipped_for_document_verification'],
+          errorMessage: null,
+          extractedAt: new Date().toISOString(),
+          usage: null,
+        } satisfies GeminiOcrExtractionResult,
+      }
+    : await performConfiguredDocumentOcr({
+        buffer: originalBuffer,
+        mimeType: file.type || 'application/octet-stream',
+        fileName: file.name,
+        expectedDocumentType,
+        employeeName,
+        providerOverride: ocrConfiguracion?.providerOverride,
+        modelOverride: ocrConfiguracion?.modelOverride,
+      })
   const storageDirectory = buildEmployeeStorageDirectory({
     empleadoId,
     nombreCompleto: employeeName ?? ocr.result.employeeName,
@@ -1033,7 +1082,7 @@ export async function crearEmpleado(
   }
 
   try {
-    const expedienteFile = formData.get('expediente_pdf')
+    const curriculumFile = formData.get('curriculum_pdf') ?? formData.get('expediente_pdf')
     const nombreManual = normalizeUppercaseText(formData.get('nombre_completo'))
     const curpManual = normalizeUpperIdentifier(normalizeOptionalText(formData.get('curp')))
     const nssManual = normalizeUpperIdentifier(normalizeOptionalText(formData.get('nss')))
@@ -1055,17 +1104,17 @@ export async function crearEmpleado(
     const credencialPdf = formData.get('credencial_pdf')
     const constanciaFiscalPdf = formData.get('constancia_fiscal_pdf')
 
-    if (!(expedienteFile instanceof File) || expedienteFile.size <= 0) {
-      return buildState({ message: 'Adjunta el expediente completo en PDF para crear el empleado.' })
+    if (!(curriculumFile instanceof File) || curriculumFile.size <= 0) {
+      return buildState({ message: 'Adjunta el curriculum en PDF para crear el candidato.' })
     }
 
-    if (expedienteFile.type !== 'application/pdf') {
-      return buildState({ message: 'El expediente inicial debe cargarse como PDF.' })
+    if (curriculumFile.type !== 'application/pdf') {
+      return buildState({ message: 'El curriculum inicial debe cargarse como PDF.' })
     }
 
-    if (exceedsOperationalUploadLimit(expedienteFile)) {
+    if (exceedsOperationalUploadLimit(curriculumFile)) {
       return buildState({
-        message: buildUploadLimitMessage('expediente', expedienteFile),
+        message: buildUploadLimitMessage('curriculum', curriculumFile),
       })
     }
 
@@ -1108,13 +1157,14 @@ export async function crearEmpleado(
       empleadoId,
       categoria: 'EXPEDIENTE',
       tipoDocumento: 'OTRO',
-      file: expedienteFile,
-      expectedDocumentType: 'EXPEDIENTE_COMPLETO',
+      file: curriculumFile,
+      expectedDocumentType: 'CV',
       employeeName: nombreManual,
       employeeNss: nssManual,
       metadataExtra: {
         workflow_stage: 'reclutamiento_upload',
-        full_expediente_pdf: true,
+        source_document: 'CV',
+        curriculum_upload: true,
       },
     })
 
@@ -1143,7 +1193,7 @@ export async function crearEmpleado(
     if (!nombreCompleto || !curp || !nss || !rfc) {
       return buildState({
         message:
-          'El OCR no logro completar nombre, CURP, NSS y RFC del expediente. Corrige el PDF o captura manualmente los faltantes.',
+          'Gemini no logro completar nombre, CURP, NSS y RFC desde el curriculum. Corrige el CV o captura manualmente los faltantes.',
         ocrSnapshot,
       })
     }
@@ -1196,8 +1246,11 @@ export async function crearEmpleado(
           source: 'modulo_empleados_reclutamiento',
           workflow_stage: 'PENDIENTE_COORDINACION',
           admin_access_pending: false,
+          curriculum_pdf_sha256: documentoPreparado.archivoHash.sha256,
+          curriculum_pdf_path: documentoPreparado.archivoHash.ruta_archivo,
           expediente_pdf_sha256: documentoPreparado.archivoHash.sha256,
           expediente_pdf_path: documentoPreparado.archivoHash.ruta_archivo,
+          candidate_profile_source: 'CV_GEMINI',
           ocr_snapshot: documentoPreparado.ocr.result,
           onboarding_operativo: onboardingOperativo,
         },
@@ -1217,10 +1270,11 @@ export async function crearEmpleado(
       empleadoId: insertedEmpleado.id,
       categoria: 'EXPEDIENTE',
       tipoDocumento: 'OTRO',
-      file: expedienteFile,
+      file: curriculumFile,
       metadataExtra: {
         workflow_stage: 'reclutamiento_upload',
-        full_expediente_pdf: true,
+        source_document: 'CV',
+        curriculum_upload: true,
       },
     })
 
@@ -1253,9 +1307,12 @@ export async function crearEmpleado(
         expectedDocumentType: documentoComplementario.expectedDocumentType,
         employeeName: nombreCompleto,
         employeeNss: nss,
+        skipOcr: true,
         metadataExtra: {
           workflow_stage: 'reclutamiento_upload',
           complemento_alta: true,
+          source_document: 'DOCUMENTO_VERIFICACION',
+          ocr_skipped: true,
         },
       })
 
@@ -1268,6 +1325,8 @@ export async function crearEmpleado(
         metadataExtra: {
           workflow_stage: 'reclutamiento_upload',
           complemento_alta: true,
+          source_document: 'DOCUMENTO_VERIFICACION',
+          ocr_skipped: true,
         },
       })
 
@@ -1308,7 +1367,7 @@ export async function crearEmpleado(
       tabla: 'empleado',
       registroId: insertedEmpleado.id,
       payload: {
-        evento: 'empleado_creado_desde_expediente_ocr',
+        evento: 'empleado_creado_desde_cv_ocr',
         nombre: nombreCompleto,
         puesto,
         zona,
@@ -2847,10 +2906,42 @@ export async function subirDocumentoEmpleado(
   const empleadoId = String(formData.get('empleado_id') ?? '').trim()
   const categoria = String(formData.get('categoria') ?? '').trim() as CategoriaDocumento
   const tipoDocumento = String(formData.get('tipo_documento') ?? '').trim() as TipoDocumento
+  
+  // Phase 2: Intercepcion limpia R2 (Subida Directa)
+  const r2Reference = readDirectR2Reference(formData)
+
   const file = formData.get('archivo')
 
   if (!empleadoId) {
     return buildState({ message: 'Selecciona un empleado valido.' })
+  }
+
+  // Cortafuegos: Si el archivo subio directo a R2, no metemos presion a Vercel ni a Gemini
+  if (hasDirectR2Reference(r2Reference)) {
+    const registered = await registerDirectR2Evidence(service, {
+      actorUsuarioId: actor.usuarioId,
+      modulo: 'reclutamiento',
+      referenciaEntidadId: empleadoId,
+      reference: r2Reference,
+    })
+
+    // 3. Registrar expediente formalmente
+    await service.from('empleado_documento').insert({
+      empleado_id: empleadoId,
+      archivo_hash_id: registered.archivoHashId,
+      categoria,
+      tipo_documento: tipoDocumento,
+      nombre_archivo_original: registered.fileName,
+      mime_type: registered.contentType,
+      tamano_bytes: registered.size,
+      estado_documento: 'CARGADO',
+      ocr_resultado: { confidenceSummary: 'Subida directa via R2 sin OCR para maximizar velocidad (FinOps).' },
+      metadata: { uploaded_from: 'modulo_reclutamiento_r2_direct' },
+      creado_por_usuario_id: actor.usuarioId
+    })
+
+    revalidatePath('/empleados')
+    return buildState({ ok: true, message: 'Archivo inyectado a la Bodega R2 (Cero Egress).' })
   }
 
   if (!DOCUMENT_CATEGORIES.includes(categoria)) {
@@ -2903,6 +2994,9 @@ export async function subirDocumentoEmpleado(
   }
 
   try {
+    const skipOcrForVerification =
+      categoria === 'EXPEDIENTE' && (actor.puesto === 'RECLUTAMIENTO' || actor.puesto === 'ADMINISTRADOR')
+
     const documentoPreparado = await prepararDocumentoEmpleado(service, {
       actorUsuarioId: actor.usuarioId,
       empleadoId,
@@ -2912,6 +3006,7 @@ export async function subirDocumentoEmpleado(
       expectedDocumentType: tipoDocumento,
       employeeName: empleado.nombre_completo,
       employeeNss: empleado.nss,
+      skipOcr: skipOcrForVerification,
     })
 
     const documentoRegistrado = await registrarDocumentoEmpleado(service, documentoPreparado, {
@@ -2920,6 +3015,12 @@ export async function subirDocumentoEmpleado(
       categoria,
       tipoDocumento,
       file,
+      metadataExtra: skipOcrForVerification
+        ? {
+            source_document: 'DOCUMENTO_VERIFICACION',
+            ocr_skipped: true,
+          }
+        : undefined,
     })
 
     if (empleado.expediente_estado === 'PENDIENTE_DOCUMENTOS') {
@@ -2977,6 +3078,304 @@ export async function subirDocumentoEmpleado(
   }
 }
 
+export async function actualizarCoberturaPdvOperativa(
+  _prevState: CoberturaPdvOperativaActionState,
+  formData: FormData
+): Promise<CoberturaPdvOperativaActionState> {
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO'])
+  const { service, error: adminError } = obtenerClienteAdmin()
 
+  if (!service) {
+    return {
+      ok: false,
+      message: adminError ?? 'No fue posible conectarse con el servicio administrativo.',
+    }
+  }
 
+  const action = String(formData.get('action') ?? '').trim() as CoberturaPdvOperativaAction
+  const pdvId = String(formData.get('pdv_id') ?? '').trim()
+  const empleadoReservadoId = String(formData.get('empleado_reservado_id') ?? '').trim() || null
+  const pdvPasoId = String(formData.get('pdv_paso_id') ?? '').trim() || null
+  const observaciones = String(formData.get('observaciones') ?? '').trim() || null
 
+  const allowedActions: CoberturaPdvOperativaAction[] = [
+    'APARTAR_PDV',
+    'MARCAR_PENDIENTE_ACCESO',
+    'ASIGNAR_PDV_PASO',
+    'LIBERAR_ACCESO',
+    'QUITAR_RESERVA',
+  ]
+
+  if (!allowedActions.includes(action)) {
+    return { ok: false, message: 'Accion de cobertura no valida.' }
+  }
+
+  if (!pdvId) {
+    return { ok: false, message: 'Selecciona el PDV que deseas actualizar.' }
+  }
+
+  const accountId = actor.cuentaClienteId ?? getSingleTenantAccountId()
+  const nowIso = new Date().toISOString()
+  const reminderAt = new Date(nowIso)
+  reminderAt.setHours(reminderAt.getHours() + 48)
+
+  const [pdvResult, overlayResult, assignmentResult] = await Promise.all([
+    service
+      .from('pdv')
+      .select('id, nombre, estatus')
+      .eq('id', pdvId)
+      .maybeSingle(),
+    service
+      .from('pdv_cobertura_operativa')
+      .select('id, estado_operativo, motivo_operativo, empleado_reservado_id, pdv_paso_id, acceso_pendiente_desde, proximo_recordatorio_at, observaciones, metadata')
+      .eq('pdv_id', pdvId)
+      .maybeSingle(),
+    service
+      .from('asignacion')
+      .select('id, empleado_id')
+      .eq('cuenta_cliente_id', accountId)
+      .eq('pdv_id', pdvId)
+      .eq('estado_publicacion', 'PUBLICADA')
+      .lte('fecha_inicio', nowIso.slice(0, 10))
+      .or(`fecha_fin.is.null,fecha_fin.gte.${nowIso.slice(0, 10)}`)
+      .order('fecha_inicio', { ascending: false })
+      .maybeSingle(),
+  ])
+
+  if (pdvResult.error || !pdvResult.data) {
+    return { ok: false, message: pdvResult.error?.message ?? 'No encontramos el PDV seleccionado.' }
+  }
+
+  const pdv = pdvResult.data
+  if (!isOperablePdvStatus(pdv.estatus)) {
+    return { ok: false, message: 'El PDV esta inactivo o bloqueado y no acepta cobertura operativa manual.' }
+  }
+
+  const existingOverlay = overlayResult.data
+  const assignmentEmployeeId = assignmentResult.data?.empleado_id ?? null
+  const effectiveEmployeeId = empleadoReservadoId ?? existingOverlay?.empleado_reservado_id ?? assignmentEmployeeId
+
+  let reservedEmployee:
+    | {
+        id: string
+        nombre_completo: string
+        puesto: Puesto
+        estatus_laboral: 'ACTIVO' | 'SUSPENDIDO' | 'BAJA'
+      }
+    | null = null
+
+  if (['APARTAR_PDV', 'MARCAR_PENDIENTE_ACCESO', 'ASIGNAR_PDV_PASO', 'LIBERAR_ACCESO'].includes(action)) {
+    if (!effectiveEmployeeId) {
+      return {
+        ok: false,
+        message: 'Selecciona la dermoconsejera reservada para este PDV antes de continuar.',
+      }
+    }
+
+    const { data: empleadoRow, error: empleadoError } = await service
+      .from('empleado')
+      .select('id, nombre_completo, puesto, estatus_laboral')
+      .eq('id', effectiveEmployeeId)
+      .maybeSingle()
+
+    if (empleadoError || !empleadoRow) {
+      return { ok: false, message: empleadoError?.message ?? 'No encontramos a la DC reservada.' }
+    }
+
+    if (empleadoRow.estatus_laboral === 'BAJA') {
+      return { ok: false, message: 'No puedes reservar un PDV para una DC dada de baja.' }
+    }
+
+    if (empleadoRow.puesto !== 'DERMOCONSEJERO') {
+      return { ok: false, message: 'La reserva solo puede ligarse a una dermoconsejera.' }
+    }
+
+    reservedEmployee = empleadoRow
+  }
+
+  let pdvPaso:
+    | {
+        id: string
+        nombre: string
+        estatus: 'ACTIVO' | 'TEMPORAL' | 'INACTIVO'
+      }
+    | null = null
+
+  if (action === 'ASIGNAR_PDV_PASO') {
+    if (!pdvPasoId) {
+      return { ok: false, message: 'Selecciona el PDV de paso temporal.' }
+    }
+
+    if (pdvPasoId === pdvId) {
+      return { ok: false, message: 'El PDV de paso debe ser distinto al PDV destino.' }
+    }
+
+    const { data: pdvPasoRow, error: pdvPasoError } = await service
+      .from('pdv')
+      .select('id, nombre, estatus')
+      .eq('id', pdvPasoId)
+      .maybeSingle()
+
+    if (pdvPasoError || !pdvPasoRow) {
+      return { ok: false, message: pdvPasoError?.message ?? 'No encontramos el PDV de paso seleccionado.' }
+    }
+
+    if (!isOperablePdvStatus(pdvPasoRow.estatus)) {
+      return { ok: false, message: 'El PDV de paso debe estar activo o temporal.' }
+    }
+
+    pdvPaso = pdvPasoRow
+  }
+
+  const payloadBase = {
+    cuenta_cliente_id: accountId,
+    pdv_id: pdvId,
+    apartado_por_usuario_id: actor.usuarioId,
+    observaciones,
+  }
+
+  let updatePayload: Record<string, unknown>
+  let auditEvent = 'pdv_cobertura_operativa_actualizada'
+  let successMessage = 'Cobertura operativa actualizada.'
+
+  switch (action) {
+    case 'APARTAR_PDV':
+      updatePayload = {
+        ...payloadBase,
+        estado_operativo: 'RESERVADO_PENDIENTE_ACCESO',
+        motivo_operativo: 'MOVIMIENTO_TEMPORAL',
+        empleado_reservado_id: reservedEmployee?.id ?? null,
+        pdv_paso_id: null,
+        acceso_pendiente_desde: existingOverlay?.acceso_pendiente_desde ?? nowIso,
+        proximo_recordatorio_at: reminderAt.toISOString(),
+        metadata: {
+          ...(existingOverlay?.metadata ?? {}),
+          source_action: action,
+          reserved_for_return: true,
+        },
+      }
+      auditEvent = 'pdv_apartado_para_regreso'
+      successMessage = 'PDV apartado y reservado para el movimiento temporal.'
+      break
+    case 'MARCAR_PENDIENTE_ACCESO':
+      updatePayload = {
+        ...payloadBase,
+        estado_operativo: 'RESERVADO_PENDIENTE_ACCESO',
+        motivo_operativo: 'PENDIENTE_ACCESO',
+        empleado_reservado_id: reservedEmployee?.id ?? null,
+        pdv_paso_id: existingOverlay?.pdv_paso_id ?? null,
+        acceso_pendiente_desde: existingOverlay?.acceso_pendiente_desde ?? nowIso,
+        proximo_recordatorio_at: reminderAt.toISOString(),
+        metadata: {
+          ...(existingOverlay?.metadata ?? {}),
+          source_action: action,
+        },
+      }
+      auditEvent = 'pdv_marcado_pendiente_acceso'
+      successMessage = 'PDV marcado como asignado pendiente de acceso.'
+      break
+    case 'ASIGNAR_PDV_PASO':
+      updatePayload = {
+        ...payloadBase,
+        estado_operativo: 'RESERVADO_PENDIENTE_ACCESO',
+        motivo_operativo: 'PDV_DE_PASO',
+        empleado_reservado_id: reservedEmployee?.id ?? null,
+        pdv_paso_id: pdvPaso?.id ?? null,
+        acceso_pendiente_desde: existingOverlay?.acceso_pendiente_desde ?? nowIso,
+        proximo_recordatorio_at: reminderAt.toISOString(),
+        metadata: {
+          ...(existingOverlay?.metadata ?? {}),
+          source_action: action,
+          pdv_paso_nombre: pdvPaso?.nombre ?? null,
+        },
+      }
+      auditEvent = 'pdv_asignado_con_pdv_de_paso'
+      successMessage = 'PDV reservado con tienda de paso asignada.'
+      break
+    case 'LIBERAR_ACCESO':
+      updatePayload = {
+        ...payloadBase,
+        estado_operativo: 'CUBIERTO',
+        motivo_operativo: null,
+        empleado_reservado_id: reservedEmployee?.id ?? null,
+        pdv_paso_id: null,
+        acceso_pendiente_desde: null,
+        proximo_recordatorio_at: null,
+        metadata: {
+          ...(existingOverlay?.metadata ?? {}),
+          source_action: action,
+          access_released_at: nowIso,
+        },
+      }
+      auditEvent = 'pdv_liberado_para_operacion'
+      successMessage = 'Acceso liberado. El PDV vuelve a cobertura operativa.'
+      break
+    default:
+      updatePayload = {
+        ...payloadBase,
+        estado_operativo: 'VACANTE',
+        motivo_operativo: 'SIN_DC',
+        empleado_reservado_id: null,
+        pdv_paso_id: null,
+        acceso_pendiente_desde: null,
+        proximo_recordatorio_at: null,
+        metadata: {
+          ...(existingOverlay?.metadata ?? {}),
+          source_action: action,
+        },
+      }
+      auditEvent = 'pdv_reserva_liberada'
+      successMessage = 'Reserva liberada. El PDV regreso a vacante operativa.'
+      break
+  }
+
+  const { data: savedOverlay, error: upsertError } = await service
+    .from('pdv_cobertura_operativa')
+    .upsert(updatePayload, { onConflict: 'pdv_id' })
+    .select('id')
+    .maybeSingle()
+
+  if (upsertError) {
+    return {
+      ok: false,
+      message: upsertError.message || 'No fue posible actualizar la cobertura operativa del PDV.',
+    }
+  }
+
+  await registrarEventoAudit(service, {
+    tabla: 'pdv_cobertura_operativa',
+    registroId: savedOverlay?.id ?? existingOverlay?.id ?? pdvId,
+    payload: {
+      evento: auditEvent,
+      pdv_id: pdvId,
+      pdv_nombre: pdv.nombre,
+      action,
+      before: existingOverlay
+        ? {
+            estado_operativo: existingOverlay.estado_operativo,
+            motivo_operativo: existingOverlay.motivo_operativo,
+            empleado_reservado_id: existingOverlay.empleado_reservado_id,
+            pdv_paso_id: existingOverlay.pdv_paso_id,
+          }
+        : null,
+      after: {
+        estado_operativo: updatePayload.estado_operativo,
+        motivo_operativo: updatePayload.motivo_operativo,
+        empleado_reservado_id: updatePayload.empleado_reservado_id,
+        pdv_paso_id: updatePayload.pdv_paso_id,
+      },
+      empleado_reservado: reservedEmployee?.nombre_completo ?? null,
+      observaciones,
+    },
+    usuarioId: actor.usuarioId,
+  })
+
+  revalidatePath('/empleados')
+  revalidatePath('/dashboard')
+  revalidatePath('/mensajes')
+
+  return {
+    ok: true,
+    message: successMessage,
+  }
+}

@@ -15,20 +15,34 @@ import {
   resolveMaterializationImpactRange,
 } from '@/features/asignaciones/services/asignacionMaterializationService'
 import { resolveApprovalFlow } from '@/features/reglas/lib/businessRules'
+import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
+import {
+  getIncapacidadApprovalPath,
+  getIncapacidadNextActor,
+  hasIncapacidadRecruitmentValidation,
+} from './lib/incapacidadWorkflow'
+import {
+  buildVacationPolicySnapshot,
+  buildVacationTeamWeeklyLoad,
+  type VacationRangeLike,
+  validateVacationRequestPolicy,
+} from './lib/vacationPolicy'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { CuentaCliente, Puesto, Solicitud } from '@/types/database'
+import type { CuentaCliente, Empleado, Puesto, Solicitud } from '@/types/database'
 import { ESTADO_SOLICITUD_INICIAL, type SolicitudActionState } from './state'
 
 const SOLICITUD_WRITE_ROLES = [
-  'ADMINISTRADOR',
   'DERMOCONSEJERO',
   'SUPERVISOR',
-  'COORDINADOR',
-  'NOMINA',
-  'RECLUTAMIENTO',
 ] as const satisfies Puesto[]
 
-const SOLICITUD_APPROVAL_ROLES = ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'NOMINA'] as const satisfies Puesto[]
+const SOLICITUD_APPROVAL_ROLES = [
+  'ADMINISTRADOR',
+  'SUPERVISOR',
+  'COORDINADOR',
+  'RECLUTAMIENTO',
+  'NOMINA',
+] as const satisfies Puesto[]
 const SOLICITUDES_BUCKET = 'operacion-evidencias'
 const SOLICITUD_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 const JUSTIFICACION_SLA_HOURS = 48
@@ -37,6 +51,8 @@ const JUSTIFICACION_SLA_HOURS = 48
 type TypedSupabaseClient = SupabaseClient<any>
 
 type SolicitudMetadata = Record<string, unknown>
+
+type VacationEmployeeRow = Pick<Empleado, 'id' | 'fecha_alta' | 'metadata'>
 
 type SolicitudApprovalRow = Pick<
   Solicitud,
@@ -81,6 +97,125 @@ function normalizeMetadata(value: unknown): SolicitudMetadata {
   }
 
   return value as SolicitudMetadata
+}
+
+function getTodayMexicoIso() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date())
+}
+
+function readIngresoOficial(metadata: unknown) {
+  const payload = normalizeMetadata(metadata)
+  const onboarding = normalizeMetadata(payload.onboarding_operativo)
+  const ingreso = onboarding.fecha_ingreso_oficial
+
+  return typeof ingreso === 'string' && ingreso.trim().length > 0 ? ingreso.trim() : null
+}
+
+async function resolveVacationEmployee(
+  service: TypedSupabaseClient,
+  empleadoId: string
+) {
+  const result = await service
+    .from('empleado')
+    .select('id, fecha_alta, metadata')
+    .eq('id', empleadoId)
+    .maybeSingle()
+
+  if (result.error || !result.data) {
+    throw new Error(result.error?.message ?? 'No fue posible cargar el expediente del empleado.')
+  }
+
+  return result.data as VacationEmployeeRow
+}
+
+async function fetchApprovedVacationRanges(
+  service: TypedSupabaseClient,
+  options: {
+    empleadoId?: string | null
+    supervisorEmpleadoId?: string | null
+    fechaInicio: string
+    fechaFin: string
+  }
+) {
+  let query = service
+    .from('solicitud')
+    .select('empleado_id, fecha_inicio, fecha_fin, estatus')
+    .eq('tipo', 'VACACIONES')
+    .eq('estatus', 'REGISTRADA')
+
+  if (options.empleadoId) {
+    query = query.eq('empleado_id', options.empleadoId)
+  }
+
+  if (options.supervisorEmpleadoId) {
+    query = query.eq('supervisor_empleado_id', options.supervisorEmpleadoId)
+  }
+
+  if (typeof query.lte === 'function') {
+    query = query.lte('fecha_inicio', options.fechaFin)
+  }
+
+  if (typeof query.gte === 'function') {
+    query = query.gte('fecha_fin', options.fechaInicio)
+  }
+
+  const result = await query.limit(240)
+
+  if (result.error) {
+    throw new Error(result.error.message)
+  }
+
+  return ((result.data ?? []) as Array<Record<string, unknown>>).map((item) => ({
+    empleadoId: typeof item.empleado_id === 'string' ? item.empleado_id : null,
+    fechaInicio: String(item.fecha_inicio ?? ''),
+    fechaFin: String(item.fecha_fin ?? ''),
+    estatus: typeof item.estatus === 'string' ? item.estatus : null,
+  })) satisfies VacationRangeLike[]
+}
+
+async function validateVacationOperationalPolicy(
+  service: TypedSupabaseClient,
+  input: {
+    empleadoId: string
+    supervisorEmpleadoId: string | null
+    fechaInicio: string
+    fechaFin: string
+  }
+) {
+  const employee = await resolveVacationEmployee(service, input.empleadoId)
+  const ingresoOficial = readIngresoOficial(employee.metadata) ?? employee.fecha_alta
+  const approvedEmployeeRanges = await fetchApprovedVacationRanges(service, {
+    empleadoId: input.empleadoId,
+    fechaInicio: input.fechaInicio,
+    fechaFin: input.fechaFin,
+  })
+  const approvedTeamRanges = input.supervisorEmpleadoId
+    ? await fetchApprovedVacationRanges(service, {
+        supervisorEmpleadoId: input.supervisorEmpleadoId,
+        fechaInicio: input.fechaInicio,
+        fechaFin: input.fechaFin,
+      })
+    : []
+  const todayIso = getTodayMexicoIso()
+  const validation = validateVacationRequestPolicy({
+    ingresoOficial,
+    todayIso,
+    fechaInicio: input.fechaInicio,
+    fechaFin: input.fechaFin,
+    approvedEmployeeRanges,
+    approvedTeamRanges,
+    currentEmployeeId: input.empleadoId,
+  })
+
+  return {
+    snapshot: buildVacationPolicySnapshot({
+      ingresoOficial,
+      todayIso,
+      approvedRanges: approvedEmployeeRanges,
+    }),
+    validation,
+    teamWeeklyLoad: buildVacationTeamWeeklyLoad(approvedTeamRanges, todayIso, 8),
+  }
 }
 
 function normalizeTipo(value: FormDataEntryValue | null) {
@@ -306,6 +441,58 @@ async function uploadJustificanteSolicitud(
   }
 }
 
+async function resolveSolicitudJustificante(
+  service: TypedSupabaseClient,
+  {
+    actorUsuarioId,
+    cuentaClienteId,
+    empleadoId,
+    file,
+    directReference,
+  }: {
+    actorUsuarioId: string
+    cuentaClienteId: string
+    empleadoId: string
+    file: File | null
+    directReference: ReturnType<typeof readDirectR2Reference>
+  }
+) {
+  if (hasDirectR2Reference(directReference)) {
+    const registered = await registerDirectR2Evidence(service, {
+      actorUsuarioId,
+      modulo: 'solicitudes',
+      referenciaEntidadId: empleadoId,
+      reference: directReference,
+    })
+
+    return {
+      url: registered.url,
+      hash: registered.hash,
+      thumbnailUrl: null,
+      thumbnailHash: null,
+      optimization: {
+        kind: 'r2_direct',
+        originalBytes: registered.size,
+        finalBytes: registered.size,
+        targetMet: true,
+        notes: ['Subida directa via R2'],
+        officialAssetKind: 'original',
+      },
+    }
+  }
+
+  if (!file) {
+    return null
+  }
+
+  return uploadJustificanteSolicitud(service, {
+    actorUsuarioId,
+    cuentaClienteId,
+    empleadoId,
+    file,
+  })
+}
+
 function buildApprovalMetadata(
   tipo: Solicitud['tipo'],
   options?: { requesterPuesto?: Puesto; selfRequest?: boolean }
@@ -314,9 +501,15 @@ function buildApprovalMetadata(
     options?.requesterPuesto === 'SUPERVISOR' && options?.selfRequest === true
 
   if (tipo === 'INCAPACIDAD') {
+    const approvalPath = getIncapacidadApprovalPath({
+      requesterPuesto: options?.requesterPuesto ?? null,
+      selfRequest: options?.selfRequest === true,
+    })
     return {
-      approval_path: ['NOMINA'],
-      approval_target_statuses: ['REGISTRADA_RH'],
+      approval_path: approvalPath,
+      approval_target_statuses: approvalPath.map((actor) =>
+        actor === 'NOMINA' ? 'REGISTRADA_RH' : 'VALIDADA_SUP'
+      ),
       justifica_asistencia: true,
       estado_resolucion: 'PENDIENTE',
       notificaciones: [],
@@ -492,6 +685,71 @@ async function notificarAvisoInasistenciaSupervisor(
   })
 }
 
+async function notificarSolicitudVacaciones(
+  service: TypedSupabaseClient,
+  input: {
+    actorUsuarioId: string
+    cuentaClienteId: string
+    empleadoId: string
+    supervisorEmpleadoId: string | null
+    fechaInicio: string
+    fechaFin: string
+  }
+) {
+  if (input.supervisorEmpleadoId) {
+    await sendOperationalPushNotification({
+      employeeIds: [input.supervisorEmpleadoId],
+      title: 'Solicitud de vacaciones',
+      body: `Un integrante de tu equipo solicito vacaciones del ${input.fechaInicio} al ${input.fechaFin}. Pendiente de aprobacion por Coordinacion.`,
+      path: '/dashboard',
+      tag: `vacaciones-cortesia-${input.empleadoId}-${input.fechaInicio}`,
+      cuentaClienteId: input.cuentaClienteId,
+      audit: {
+        tabla: 'solicitud',
+        registroId: input.empleadoId,
+        accion: 'notificar_vacaciones_supervisor_cortesia',
+      },
+      data: {
+        workflow: 'vacaciones_cortesia',
+        fechaInicio: input.fechaInicio,
+        fechaFin: input.fechaFin,
+      },
+    })
+  }
+
+  const coordinadores = await service
+    .from('empleado')
+    .select('id')
+    .eq('puesto', 'COORDINADOR')
+    .eq('estatus_laboral', 'ACTIVO')
+    .limit(32)
+
+  const coordinatorIds = ((coordinadores.data ?? []) as Array<Record<string, unknown>>)
+    .map((item) => (typeof item.id === 'string' ? item.id : null))
+    .filter((item): item is string => Boolean(item))
+
+  if (coordinatorIds.length > 0) {
+    await sendOperationalPushNotification({
+      employeeIds: coordinatorIds,
+      title: 'Vacaciones pendientes de coordinación',
+      body: `Hay una solicitud de vacaciones por revisar del ${input.fechaInicio} al ${input.fechaFin}.`,
+      path: '/solicitudes',
+      tag: `vacaciones-coordinacion-${input.empleadoId}-${input.fechaInicio}`,
+      cuentaClienteId: input.cuentaClienteId,
+      audit: {
+        tabla: 'solicitud',
+        registroId: input.empleadoId,
+        accion: 'notificar_vacaciones_coordinacion',
+      },
+      data: {
+        workflow: 'vacaciones_aprobacion_coordinacion',
+        fechaInicio: input.fechaInicio,
+        fechaFin: input.fechaFin,
+      },
+    })
+  }
+}
+
 async function registrarNotificacionIncapacidad(
   service: TypedSupabaseClient,
   {
@@ -504,6 +762,8 @@ async function registrarNotificacionIncapacidad(
     empleadoNombre,
     motivo,
     incapacidadClase,
+    stage,
+    supervisorSelfRequest,
   }: {
     actorUsuarioId: string
     cuentaClienteId: string
@@ -514,27 +774,61 @@ async function registrarNotificacionIncapacidad(
     empleadoNombre: string
     motivo: string | null
     incapacidadClase: string | null
+    stage: 'ENVIADA' | 'VALIDADA_SUP' | 'VALIDADA_RECLUTAMIENTO'
+    supervisorSelfRequest: boolean
   }
 ) {
+  const actionablePuestos =
+    stage === 'VALIDADA_RECLUTAMIENTO'
+      ? ['NOMINA']
+      : stage === 'VALIDADA_SUP'
+        ? ['RECLUTAMIENTO']
+        : []
+  const informationalPuestos =
+    stage === 'ENVIADA' ? ['RECLUTAMIENTO'] : actionablePuestos
+  const targetPuestos = Array.from(new Set([...actionablePuestos, ...informationalPuestos]))
+
   const { data: recipients, error } = await service
     .from('empleado')
     .select('id, puesto')
-    .in('puesto', ['NOMINA', 'COORDINADOR', 'RECLUTAMIENTO'])
+    .in('puesto', targetPuestos)
     .eq('estatus_laboral', 'ACTIVO')
 
   if (error) {
     throw new Error(error.message)
   }
 
-  const recipientIds = new Set<string>(
-    (recipients ?? []).map((item) => String(item.id)).filter(Boolean)
-  )
+  const actionableRecipientIds = new Set<string>()
+  const informationalRecipientIds = new Set<string>()
 
-  if (supervisorEmpleadoId) {
-    recipientIds.add(supervisorEmpleadoId)
+  for (const item of recipients ?? []) {
+    const recipientId = String(item.id)
+    const puesto = String(item.puesto ?? '').trim().toUpperCase()
+
+    if (!recipientId) {
+      continue
+    }
+
+    if (actionablePuestos.includes(puesto)) {
+      actionableRecipientIds.add(recipientId)
+    }
+
+    if (informationalPuestos.includes(puesto)) {
+      informationalRecipientIds.add(recipientId)
+    }
   }
 
-  if (recipientIds.size === 0) {
+  if (stage === 'ENVIADA' && !supervisorSelfRequest && supervisorEmpleadoId) {
+    actionableRecipientIds.add(supervisorEmpleadoId)
+  }
+
+  if (stage === 'ENVIADA' && supervisorEmpleadoId) {
+    informationalRecipientIds.add(supervisorEmpleadoId)
+  }
+
+  Array.from(actionableRecipientIds).forEach((item) => informationalRecipientIds.add(item))
+
+  if (informationalRecipientIds.size === 0) {
     return
   }
 
@@ -544,26 +838,44 @@ async function registrarNotificacionIncapacidad(
       : incapacidadClase === 'INICIAL'
         ? 'Incapacidad inicial'
         : 'Incapacidad'
-  const body = `${empleadoNombre} reporto ${claseLabel.toLowerCase()} del ${fechaInicio} al ${fechaFin}${motivo ? `. Motivo: ${motivo}.` : '.'}`
+  const body =
+    stage === 'VALIDADA_RECLUTAMIENTO'
+      ? `${empleadoNombre} tiene ${claseLabel.toLowerCase()} validada por reclutamiento del ${fechaInicio} al ${fechaFin}${motivo ? `. Motivo: ${motivo}.` : '.'}`
+      : stage === 'VALIDADA_SUP'
+        ? `${empleadoNombre} tiene ${claseLabel.toLowerCase()} validada por supervision y pendiente de revision documental del ${fechaInicio} al ${fechaFin}${motivo ? `. Motivo: ${motivo}.` : '.'}`
+        : `${empleadoNombre} reporto ${claseLabel.toLowerCase()} del ${fechaInicio} al ${fechaFin}${motivo ? `. Motivo: ${motivo}.` : '.'}`
+  const workflow =
+    stage === 'VALIDADA_RECLUTAMIENTO'
+      ? 'solicitud_incapacidad_revision_nomina'
+      : stage === 'VALIDADA_SUP'
+        ? 'solicitud_incapacidad_revision_reclutamiento'
+        : 'solicitud_incapacidad_revision_inicial'
+  const title =
+    stage === 'VALIDADA_RECLUTAMIENTO'
+      ? `${claseLabel} lista para nomina`
+      : stage === 'VALIDADA_SUP'
+        ? `${claseLabel} validada por supervision`
+        : `${claseLabel} registrada`
 
   const { data: mensaje, error: mensajeError } = await service
     .from('mensaje_interno')
     .insert({
       cuenta_cliente_id: cuentaClienteId,
       creado_por_usuario_id: actorUsuarioId,
-      titulo: `${claseLabel} registrada`,
+      titulo: title,
       cuerpo: body,
       tipo: 'MENSAJE',
-      grupo_destino: 'SUPERVISOR',
+      grupo_destino: stage === 'VALIDADA_RECLUTAMIENTO' ? 'NOMINA' : 'SUPERVISOR',
       zona: null,
       supervisor_empleado_id: supervisorEmpleadoId,
       opciones_respuesta: [],
       metadata: {
-        workflow: 'solicitud_incapacidad_directa_nomina',
+        workflow,
         empleado_id: empleadoId,
         fecha_inicio: fechaInicio,
         fecha_fin: fechaFin,
         incapacidad_clase: incapacidadClase,
+        etapa_revision: stage,
       },
     })
     .select('id')
@@ -571,20 +883,19 @@ async function registrarNotificacionIncapacidad(
 
   if (!mensajeError && mensaje?.id) {
     await service.from('mensaje_receptor').insert(
-      Array.from(recipientIds).map((recipientId) => ({
+      Array.from(informationalRecipientIds).map((recipientId) => ({
         mensaje_id: mensaje.id,
         cuenta_cliente_id: cuentaClienteId,
         empleado_id: recipientId,
         estado: 'PENDIENTE',
         metadata: {
-          workflow: 'solicitud_incapacidad_directa_nomina',
+          workflow,
           empleado_id: empleadoId,
           fecha_inicio: fechaInicio,
           fecha_fin: fechaFin,
           incapacidad_clase: incapacidadClase,
-          requiere_accion: recipients?.some(
-            (item) => String(item.id) === recipientId && String(item.puesto) === 'NOMINA'
-          ) ?? false,
+          etapa_revision: stage,
+          requiere_accion: actionableRecipientIds.has(recipientId),
         },
       }))
     )
@@ -592,8 +903,8 @@ async function registrarNotificacionIncapacidad(
 
   try {
     await sendOperationalPushNotification({
-      employeeIds: Array.from(recipientIds),
-      title: `${claseLabel} registrada`,
+      employeeIds: Array.from(informationalRecipientIds),
+      title,
       body,
       path: '/solicitudes?tipo=INCAPACIDAD',
       tag: `solicitud-incapacidad-${empleadoId}-${fechaInicio}-${fechaFin}`,
@@ -601,14 +912,20 @@ async function registrarNotificacionIncapacidad(
       audit: {
         tabla: 'solicitud',
         registroId: empleadoId,
-        accion: 'notificar_incapacidad_directa_nomina',
+        accion:
+          stage === 'VALIDADA_RECLUTAMIENTO'
+            ? 'notificar_incapacidad_a_nomina'
+            : stage === 'VALIDADA_SUP'
+              ? 'notificar_incapacidad_a_reclutamiento'
+              : 'notificar_incapacidad_a_supervision_y_reclutamiento',
       },
       data: {
-        workflow: 'solicitud_incapacidad_directa_nomina',
+        workflow,
         empleadoId,
         fechaInicio,
         fechaFin,
         incapacidadClase,
+        etapaRevision: stage,
       },
     })
   } catch {
@@ -648,8 +965,10 @@ export async function registrarSolicitudOperativa(
       formData.get('justificante'),
       formData.get('justificante_camera')
     )
+    const justificanteR2 = readDirectR2Reference(formData)
     const isAvisoInasistencia = tipo === 'AVISO_INASISTENCIA'
     const isJustificacionFalta = tipo === 'JUSTIFICACION_FALTA'
+    const isVacaciones = tipo === 'VACACIONES'
 
     if (isAvisoInasistencia || isJustificacionFalta) {
       normalizeSingleDateRange(fechaInicio, fechaFin, isAvisoInasistencia ? 'El aviso de inasistencia' : 'La justificacion de falta')
@@ -665,6 +984,16 @@ export async function registrarSolicitudOperativa(
 
     await validarCuentaCliente(service, cuentaClienteId)
 
+    const vacationPolicy =
+      isVacaciones
+        ? await validateVacationOperationalPolicy(service, {
+            empleadoId,
+            supervisorEmpleadoId,
+            fechaInicio,
+            fechaFin,
+          })
+        : null
+
     const avisoPrevio = isJustificacionFalta
       ? await validarAvisoPrevioInasistencia(service, {
           empleadoId,
@@ -672,14 +1001,13 @@ export async function registrarSolicitudOperativa(
         })
       : null
 
-    const justificanteUpload = justificante
-      ? await uploadJustificanteSolicitud(service, {
-          actorUsuarioId: actor.usuarioId,
-          cuentaClienteId,
-          empleadoId,
-          file: justificante,
-        })
-      : null
+    const justificanteUpload = await resolveSolicitudJustificante(service, {
+      actorUsuarioId: actor.usuarioId,
+      cuentaClienteId,
+      empleadoId,
+      file: justificante,
+      directReference: justificanteR2,
+    })
 
     const approvalMetadata = buildApprovalMetadata(tipo, {
       requesterPuesto: actor.puesto,
@@ -695,12 +1023,21 @@ export async function registrarSolicitudOperativa(
     const nextRole =
       initialStatus === 'ENVIADA'
         ? tipo === 'INCAPACIDAD'
-          ? 'NOMINA'
+          ? getIncapacidadNextActor({
+              estatus: 'ENVIADA',
+              metadata: {
+                actor_puesto: actor.puesto,
+                solicitud_autogestion_supervisor: actor.puesto === 'SUPERVISOR' && isSelfRequest,
+              },
+              requesterPuesto: actor.puesto,
+            })
           : tipo === 'JUSTIFICACION_FALTA'
             ? 'SUPERVISOR'
+          : tipo === 'VACACIONES'
+            ? 'COORDINADOR'
           : actor.puesto === 'SUPERVISOR' && isSelfRequest
             ? 'COORDINADOR'
-          : 'SUPERVISOR'
+            : 'SUPERVISOR'
         : null
     const metadata = {
       ...approvalMetadata,
@@ -709,6 +1046,21 @@ export async function registrarSolicitudOperativa(
       solicitud_autogestion_supervisor: actor.puesto === 'SUPERVISOR' && isSelfRequest,
       incapacidad_clase: incapacidadClase,
       tiene_justificante: Boolean(justificanteUpload),
+      vacaciones_policy:
+        isVacaciones && vacationPolicy
+          ? {
+              annual_days: vacationPolicy.snapshot.annualDays,
+              requested_days: vacationPolicy.validation.requestedDays,
+              requested_by_bucket: vacationPolicy.validation.requestedByBucket,
+              anniversary_start: vacationPolicy.snapshot.anniversaryStart,
+              anniversary_end: vacationPolicy.snapshot.anniversaryEnd,
+              current_semester: vacationPolicy.snapshot.currentSemester,
+              first_semester: vacationPolicy.snapshot.firstSemester,
+              second_semester: vacationPolicy.snapshot.secondSemester,
+              affected_weeks: vacationPolicy.validation.affectedWeeks,
+              team_weekly_load: vacationPolicy.teamWeeklyLoad,
+            }
+          : null,
       justificante_clase: isJustificacionFalta ? 'RECETA_IMSS' : null,
       justificante_thumbnail_url: justificanteUpload?.thumbnailUrl ?? null,
       justificante_thumbnail_hash: justificanteUpload?.thumbnailHash ?? null,
@@ -722,9 +1074,13 @@ export async function registrarSolicitudOperativa(
           ? appendNotification(approvalMetadata, {
               mensaje:
                 tipo === 'INCAPACIDAD'
-                  ? 'Incapacidad enviada y pendiente de revision de nomina.'
+                  ? nextRole === 'RECLUTAMIENTO'
+                    ? 'Incapacidad enviada y pendiente de revision documental de reclutamiento.'
+                    : 'Incapacidad enviada y pendiente de validacion de supervision.'
                   : tipo === 'JUSTIFICACION_FALTA'
                     ? 'Justificacion de falta enviada y pendiente de revision de supervision.'
+                  : tipo === 'VACACIONES'
+                    ? 'Solicitud de vacaciones enviada y pendiente de aprobacion de coordinacion.'
                   : actor.puesto === 'SUPERVISOR' && isSelfRequest
                     ? 'Solicitud enviada y pendiente de revision de coordinacion.'
                     : 'Solicitud enviada y pendiente de revision operativa.',
@@ -781,6 +1137,8 @@ export async function registrarSolicitudOperativa(
         empleadoNombre: String(empleado?.nombre_completo ?? 'Colaborador'),
         motivo,
         incapacidadClase,
+        stage: 'ENVIADA',
+        supervisorSelfRequest: actor.puesto === 'SUPERVISOR' && isSelfRequest,
       })
     }
 
@@ -792,6 +1150,17 @@ export async function registrarSolicitudOperativa(
         empleadoId,
         fechaFalta: fechaInicio,
         motivo,
+      })
+    }
+
+    if (isVacaciones && initialStatus === 'ENVIADA') {
+      await notificarSolicitudVacaciones(service, {
+        actorUsuarioId: actor.usuarioId,
+        cuentaClienteId,
+        empleadoId,
+        supervisorEmpleadoId,
+        fechaInicio,
+        fechaFin,
       })
     }
 
@@ -868,29 +1237,89 @@ async function resolverEstatusSolicitud(
   const comentariosActualizados = comentariosResolucion
     ? [comentariosBase, `${actor.puesto}: ${comentariosResolucion}`].filter(Boolean).join('\n')
     : comentariosBase || null
-  let shouldNotifyIncapacidad = false
+  let shouldNotifyIncapacidad: 'ENVIADA' | 'VALIDADA_SUP' | 'VALIDADA_RECLUTAMIENTO' | null = null
   const requesterPuesto =
     typeof metadata.actor_puesto === 'string' ? metadata.actor_puesto : 'DERMOCONSEJERO'
+  const incapacidadNextActor =
+    solicitud.tipo === 'INCAPACIDAD'
+      ? getIncapacidadNextActor({
+          estatus: solicitud.estatus,
+          metadata,
+          requesterPuesto: requesterPuesto as Puesto,
+        })
+      : null
 
   if (estatus === 'VALIDADA_SUP') {
-    if (actor.puesto !== 'SUPERVISOR' && actor.puesto !== 'ADMINISTRADOR') {
-      throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden registrar la validacion operativa.')
-    }
+    if (solicitud.tipo === 'INCAPACIDAD') {
+      if (incapacidadNextActor === 'RECLUTAMIENTO') {
+        if (actor.puesto !== 'RECLUTAMIENTO' && actor.puesto !== 'ADMINISTRADOR') {
+          throw new Error('Solo RECLUTAMIENTO o ADMINISTRADOR pueden validar el documento de incapacidad.')
+        }
 
-    if (!['ENVIADA', 'BORRADOR'].includes(solicitud.estatus)) {
-      throw new Error('La validacion operativa solo aplica sobre solicitudes enviadas o en borrador.')
-    }
+        if (!['ENVIADA', 'VALIDADA_SUP'].includes(solicitud.estatus)) {
+          throw new Error('La revision de reclutamiento solo aplica sobre incapacidades pendientes de revision documental.')
+        }
 
-    nextMetadata.validada_supervisor_en = new Date().toISOString()
-    nextMetadata.validada_supervisor_por_usuario_id = actor.usuarioId
-    nextMetadata.validada_supervisor_por_puesto = actor.puesto
-    nextMetadata.estado_resolucion = 'PENDIENTE'
-    nextMetadata.siguiente_actor = solicitud.tipo === 'INCAPACIDAD' ? 'NOMINA' : 'COORDINADOR'
-    nextMetadata.notificaciones = appendNotification(nextMetadata, {
-      mensaje: 'Solicitud validada por supervisor y en espera de resolucion final.',
-      destinatarioEmpleadoId: solicitud.empleado_id,
-      destinatarioPuesto: requesterPuesto,
-    })
+        nextMetadata.reclutamiento_validada_en = new Date().toISOString()
+        nextMetadata.reclutamiento_validada_por_usuario_id = actor.usuarioId
+        nextMetadata.reclutamiento_validada_por_puesto = actor.puesto
+        nextMetadata.estado_resolucion = 'PENDIENTE'
+        nextMetadata.siguiente_actor = getIncapacidadNextActor({
+          estatus: solicitud.estatus === 'VALIDADA_SUP' ? 'VALIDADA_SUP' : 'ENVIADA',
+          metadata: nextMetadata,
+          requesterPuesto: requesterPuesto as Puesto,
+        })
+        nextMetadata.notificaciones = appendNotification(nextMetadata, {
+          mensaje: 'Documento de incapacidad validado por reclutamiento y enviado a nomina.',
+          destinatarioEmpleadoId: solicitud.empleado_id,
+          destinatarioPuesto: requesterPuesto,
+        })
+        shouldNotifyIncapacidad = 'VALIDADA_RECLUTAMIENTO'
+      } else {
+        if (actor.puesto !== 'SUPERVISOR' && actor.puesto !== 'ADMINISTRADOR') {
+          throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden registrar la validacion operativa.')
+        }
+
+        if (!['ENVIADA', 'BORRADOR'].includes(solicitud.estatus)) {
+          throw new Error('La validacion operativa solo aplica sobre solicitudes enviadas o en borrador.')
+        }
+
+        nextMetadata.validada_supervisor_en = new Date().toISOString()
+        nextMetadata.validada_supervisor_por_usuario_id = actor.usuarioId
+        nextMetadata.validada_supervisor_por_puesto = actor.puesto
+        nextMetadata.estado_resolucion = 'PENDIENTE'
+        nextMetadata.siguiente_actor = 'RECLUTAMIENTO'
+        nextMetadata.notificaciones = appendNotification(nextMetadata, {
+          mensaje: 'Incapacidad validada por supervision y enviada a reclutamiento para revision documental.',
+          destinatarioEmpleadoId: solicitud.empleado_id,
+          destinatarioPuesto: requesterPuesto,
+        })
+        shouldNotifyIncapacidad = 'VALIDADA_SUP'
+      }
+    } else {
+      if (solicitud.tipo === 'VACACIONES') {
+        throw new Error('Las vacaciones se resuelven directamente en coordinacion y no pasan por validacion de supervisor.')
+      }
+
+      if (actor.puesto !== 'SUPERVISOR' && actor.puesto !== 'ADMINISTRADOR') {
+        throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden registrar la validacion operativa.')
+      }
+
+      if (!['ENVIADA', 'BORRADOR'].includes(solicitud.estatus)) {
+        throw new Error('La validacion operativa solo aplica sobre solicitudes enviadas o en borrador.')
+      }
+
+      nextMetadata.validada_supervisor_en = new Date().toISOString()
+      nextMetadata.validada_supervisor_por_usuario_id = actor.usuarioId
+      nextMetadata.validada_supervisor_por_puesto = actor.puesto
+      nextMetadata.estado_resolucion = 'PENDIENTE'
+      nextMetadata.siguiente_actor = 'COORDINADOR'
+      nextMetadata.notificaciones = appendNotification(nextMetadata, {
+        mensaje: 'Solicitud validada por supervisor y en espera de resolucion final.',
+        destinatarioEmpleadoId: solicitud.empleado_id,
+        destinatarioPuesto: requesterPuesto,
+      })
+    }
   }
 
   if (estatus === 'REGISTRADA_RH') {
@@ -898,8 +1327,14 @@ async function resolverEstatusSolicitud(
       throw new Error('Solo NOMINA o ADMINISTRADOR pueden formalizar en RH.')
     }
 
-    if (solicitud.tipo === 'INCAPACIDAD' && !['ENVIADA', 'VALIDADA_SUP'].includes(solicitud.estatus)) {
-      throw new Error('La incapacidad debe estar enviada a nomina para poder formalizarse.')
+    if (solicitud.tipo === 'INCAPACIDAD') {
+      if (!['ENVIADA', 'VALIDADA_SUP'].includes(solicitud.estatus)) {
+        throw new Error('La incapacidad debe estar en proceso antes de formalizarse en nomina.')
+      }
+
+      if (incapacidadNextActor !== 'NOMINA' && !hasIncapacidadRecruitmentValidation(metadata)) {
+        throw new Error('La incapacidad debe quedar validada por reclutamiento antes de pasar a nomina.')
+      }
     }
 
     nextMetadata.registrada_rh_en = new Date().toISOString()
@@ -934,12 +1369,20 @@ async function resolverEstatusSolicitud(
       solicitud.estatus === 'ENVIADA' &&
       metadata.solicitud_autogestion_supervisor === true &&
       solicitud.tipo !== 'INCAPACIDAD'
+    const canCloseVacationFromSent =
+      solicitud.tipo === 'VACACIONES' &&
+      solicitud.estatus === 'ENVIADA'
 
     const canCloseJustificacion =
       solicitud.tipo === 'JUSTIFICACION_FALTA' &&
       ['ENVIADA', 'CORRECCION_SOLICITADA'].includes(solicitud.estatus)
 
-    if (solicitud.estatus !== 'VALIDADA_SUP' && !canCloseDirectFromSent && !canCloseJustificacion) {
+    if (
+      solicitud.estatus !== 'VALIDADA_SUP' &&
+      !canCloseDirectFromSent &&
+      !canCloseVacationFromSent &&
+      !canCloseJustificacion
+    ) {
       throw new Error('La solicitud debe pasar primero por VALIDADA_SUP.')
     }
 
@@ -956,8 +1399,18 @@ async function resolverEstatusSolicitud(
   }
 
   if (estatus === 'RECHAZADA') {
-    if (solicitud.tipo === 'INCAPACIDAD' && actor.puesto !== 'NOMINA' && actor.puesto !== 'ADMINISTRADOR') {
-      throw new Error('Solo NOMINA o ADMINISTRADOR pueden rechazar una incapacidad.')
+    if (solicitud.tipo === 'INCAPACIDAD') {
+      if (incapacidadNextActor === 'SUPERVISOR') {
+        if (actor.puesto !== 'SUPERVISOR' && actor.puesto !== 'ADMINISTRADOR') {
+          throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden rechazar una incapacidad en revision operativa.')
+        }
+      } else if (incapacidadNextActor === 'NOMINA') {
+        if (actor.puesto !== 'NOMINA' && actor.puesto !== 'ADMINISTRADOR') {
+          throw new Error('Solo NOMINA o ADMINISTRADOR pueden rechazar una incapacidad en formalizacion.')
+        }
+      } else {
+        throw new Error('La incapacidad debe regresar con correccion desde reclutamiento o rechazarse desde el actor responsable.')
+      }
     }
 
     if (solicitud.tipo === 'JUSTIFICACION_FALTA' && !['SUPERVISOR', 'ADMINISTRADOR'].includes(actor.puesto)) {
@@ -977,28 +1430,49 @@ async function resolverEstatusSolicitud(
   }
 
   if (estatus === 'CORRECCION_SOLICITADA') {
-    if (solicitud.tipo !== 'JUSTIFICACION_FALTA') {
-      throw new Error('La correccion solo esta disponible para justificacion de faltas.')
-    }
+    if (solicitud.tipo === 'INCAPACIDAD') {
+      if (!['RECLUTAMIENTO', 'ADMINISTRADOR'].includes(actor.puesto)) {
+        throw new Error('Solo RECLUTAMIENTO o ADMINISTRADOR pueden regresar una incapacidad para correccion.')
+      }
 
-    if (!['SUPERVISOR', 'ADMINISTRADOR'].includes(actor.puesto)) {
-      throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden pedir correccion.')
-    }
+      if (incapacidadNextActor !== 'RECLUTAMIENTO') {
+        throw new Error('La correccion solo aplica cuando la incapacidad esta en revision documental de reclutamiento.')
+      }
 
-    if (!['ENVIADA', 'CORRECCION_SOLICITADA'].includes(solicitud.estatus)) {
-      throw new Error('La correccion solo aplica sobre solicitudes pendientes de supervision.')
-    }
+      nextMetadata.correccion_solicitada_en = new Date().toISOString()
+      nextMetadata.correccion_solicitada_por_usuario_id = actor.usuarioId
+      nextMetadata.correccion_solicitada_por_puesto = actor.puesto
+      nextMetadata.estado_resolucion = 'PENDIENTE'
+      nextMetadata.siguiente_actor = requesterPuesto
+      nextMetadata.notificaciones = appendNotification(nextMetadata, {
+        mensaje: 'Tu incapacidad requiere correccion documental y reenvio antes de pasar a nomina.',
+        destinatarioEmpleadoId: solicitud.empleado_id,
+        destinatarioPuesto: requesterPuesto,
+      })
+    } else {
+      if (solicitud.tipo !== 'JUSTIFICACION_FALTA') {
+        throw new Error('La correccion solo esta disponible para justificacion de faltas.')
+      }
 
-    nextMetadata.correccion_solicitada_en = new Date().toISOString()
-    nextMetadata.correccion_solicitada_por_usuario_id = actor.usuarioId
-    nextMetadata.correccion_solicitada_por_puesto = actor.puesto
-    nextMetadata.estado_resolucion = 'PENDIENTE'
-    nextMetadata.siguiente_actor = requesterPuesto
-    nextMetadata.notificaciones = appendNotification(nextMetadata, {
-      mensaje: 'Tu justificacion requiere correccion y reenvio con receta IMSS valida.',
-      destinatarioEmpleadoId: solicitud.empleado_id,
-      destinatarioPuesto: requesterPuesto,
-    })
+      if (!['SUPERVISOR', 'ADMINISTRADOR'].includes(actor.puesto)) {
+        throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden pedir correccion.')
+      }
+
+      if (!['ENVIADA', 'CORRECCION_SOLICITADA'].includes(solicitud.estatus)) {
+        throw new Error('La correccion solo aplica sobre solicitudes pendientes de supervision.')
+      }
+
+      nextMetadata.correccion_solicitada_en = new Date().toISOString()
+      nextMetadata.correccion_solicitada_por_usuario_id = actor.usuarioId
+      nextMetadata.correccion_solicitada_por_puesto = actor.puesto
+      nextMetadata.estado_resolucion = 'PENDIENTE'
+      nextMetadata.siguiente_actor = requesterPuesto
+      nextMetadata.notificaciones = appendNotification(nextMetadata, {
+        mensaje: 'Tu justificacion requiere correccion y reenvio con receta IMSS valida.',
+        destinatarioEmpleadoId: solicitud.empleado_id,
+        destinatarioPuesto: requesterPuesto,
+      })
+    }
   }
 
   if (estatus === 'ENVIADA') {
@@ -1010,21 +1484,31 @@ async function resolverEstatusSolicitud(
     nextMetadata.estado_resolucion = 'PENDIENTE'
     nextMetadata.siguiente_actor =
       solicitud.tipo === 'INCAPACIDAD'
-        ? 'NOMINA'
+        ? getIncapacidadNextActor({
+            estatus: 'ENVIADA',
+            metadata: nextMetadata,
+            requesterPuesto: requesterPuesto as Puesto,
+          })
+        : solicitud.tipo === 'VACACIONES'
+          ? 'COORDINADOR'
         : metadata.solicitud_autogestion_supervisor === true
           ? 'COORDINADOR'
           : 'SUPERVISOR'
     nextMetadata.notificaciones = appendNotification(nextMetadata, {
       mensaje:
         solicitud.tipo === 'INCAPACIDAD'
-          ? 'Incapacidad reenviada y pendiente de revision de nomina.'
+          ? nextMetadata.siguiente_actor === 'RECLUTAMIENTO'
+            ? 'Incapacidad reenviada y pendiente de revision documental de reclutamiento.'
+            : 'Incapacidad reenviada y pendiente de validacion de supervision.'
+          : solicitud.tipo === 'VACACIONES'
+            ? 'Solicitud de vacaciones reenviada y pendiente de aprobacion de coordinacion.'
           : metadata.solicitud_autogestion_supervisor === true
             ? 'Solicitud reenviada y pendiente de revision de coordinacion.'
             : 'Solicitud enviada y pendiente de revision operativa.',
       destinatarioEmpleadoId: solicitud.empleado_id,
       destinatarioPuesto: requesterPuesto,
     })
-    shouldNotifyIncapacidad = solicitud.tipo === 'INCAPACIDAD'
+    shouldNotifyIncapacidad = solicitud.tipo === 'INCAPACIDAD' ? 'ENVIADA' : null
   }
 
   const { error } = await service
@@ -1065,6 +1549,8 @@ async function resolverEstatusSolicitud(
       motivo: solicitud.motivo ?? null,
       incapacidadClase:
         typeof nextMetadata.incapacidad_clase === 'string' ? nextMetadata.incapacidad_clase : null,
+      stage: shouldNotifyIncapacidad,
+      supervisorSelfRequest: metadata.solicitud_autogestion_supervisor === true,
     })
   }
 
@@ -1098,6 +1584,7 @@ async function resolverEstatusSolicitud(
       estatus,
       actor_puesto: actor.puesto,
       estado_resolucion: nextMetadata.estado_resolucion ?? null,
+      siguiente_actor: nextMetadata.siguiente_actor ?? null,
     },
     usuario_id: actor.usuarioId,
     cuenta_cliente_id: cuentaClienteId,
@@ -1116,7 +1603,11 @@ async function resolverEstatusSolicitud(
         : estatus === 'CORRECCION_SOLICITADA'
           ? 'Correccion solicitada al colaborador.'
         : estatus === 'VALIDADA_SUP'
-          ? 'Solicitud validada por supervisor.'
+          ? solicitud.tipo === 'INCAPACIDAD' &&
+            (actor.puesto === 'RECLUTAMIENTO' || actor.puesto === 'ADMINISTRADOR') &&
+            incapacidadNextActor === 'RECLUTAMIENTO'
+            ? 'Documento de incapacidad validado por reclutamiento.'
+            : 'Solicitud validada por supervisor.'
         : 'Solicitud actualizada.',
   })
 }

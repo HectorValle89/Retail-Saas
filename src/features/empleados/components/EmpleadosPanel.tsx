@@ -12,11 +12,13 @@ import {
 import { useFormStatus } from 'react-dom'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { ModalPanel } from '@/components/ui/modal-panel'
 import { Select } from '@/components/ui/select'
 import {
   actualizarFichaEmpleadoReclutamiento,
   actualizarDatosAdministrativosEmpleado,
+  actualizarCoberturaPdvOperativa,
   actualizarEstadoExpedienteEmpleado,
   actualizarEstadoImssEmpleado,
   aprobarCandidatoCoordinacion,
@@ -31,7 +33,11 @@ import {
   subirDocumentoEmpleado,
   validarCierreOnboardingReclutamiento,
 } from '../actions'
-import { ESTADO_EMPLEADO_INICIAL, type EmpleadoOcrSnapshot } from '../state'
+import {
+  ESTADO_COBERTURA_PDV_OPERATIVA_INICIAL,
+  ESTADO_EMPLEADO_INICIAL,
+  type EmpleadoOcrSnapshot,
+} from '../state'
 import { deriveYearsFromAgencyStartDate } from '../lib/ocrMapping'
 import {
   filterEmpleadosListado,
@@ -52,6 +58,9 @@ import type {
   OnboardingExternalAccessStatus,
 } from '../services/empleadoService'
 import type { Puesto } from '@/types/database'
+import { ClientImageFileInput } from '@/components/ui/client-image-file-input'
+import { injectDirectR2Upload } from '@/lib/storage/directR2Client'
+import { startTransition } from 'react'
 
 const PUESTOS_OPTIONS = [
   'ADMINISTRADOR',
@@ -167,10 +176,10 @@ function formatPuesto(value: string | null) {
   return value ? value.replace(/_/g, ' ') : 'Sin dato'
 }
 
-function formatTipoDocumentoLabel(value: string) {
+function formatTipoDocumentoLabel(value: string, sourceDocument?: string | null) {
   switch (value) {
     case 'OTRO':
-      return 'Expediente completo'
+      return sourceDocument === 'CV' ? 'Curriculum / CV' : 'Expediente completo'
     case 'INE':
       return 'Credencial oficial'
     case 'RFC':
@@ -668,7 +677,7 @@ export function EmpleadosPanel({
   actorPuesto: Puesto
   initialFilters?: EmpleadosPanelInitialFilters
 }) {
-  const [mainTab, setMainTab] = useState<'base' | 'reclutamiento' | 'coordinacion'>(
+  const [mainTab, setMainTab] = useState<'base' | 'reclutamiento' | 'coordinacion' | 'pdvs'>(
     actorPuesto === 'COORDINADOR' ? 'coordinacion' : actorPuesto === 'RECLUTAMIENTO' ? 'reclutamiento' : 'base'
   )
   const [search, setSearch] = useState(initialFilters?.search ?? '')
@@ -714,6 +723,101 @@ export function EmpleadosPanel({
 
   const selectedEmployee = data.empleados.find((empleado) => empleado.id === selectedEmployeeId) ?? null
   const recruitingInboxCount = data.recruitingInbox.reduce((total, lane) => total + lane.items.length, 0)
+  const topMetrics =
+    mainTab === 'reclutamiento'
+      ? [
+          {
+            label: 'Candidatos en pipeline',
+            value: String(data.resumenReclutamiento.candidatosEnPipeline),
+            accentClass: 'from-sky-100 via-cyan-50 to-white text-sky-700',
+          },
+          {
+            label: 'Pendientes Coordinacion',
+            value: String(data.resumenReclutamiento.pendientesCoordinacion),
+            accentClass: 'from-violet-100 via-fuchsia-50 to-white text-violet-700',
+          },
+          {
+            label: 'Pendientes documentacion',
+            value: String(data.resumenReclutamiento.pendientesDocumentacion),
+            accentClass: 'from-amber-100 via-yellow-50 to-white text-amber-700',
+          },
+          {
+            label: 'Pendientes Nomina / IMSS',
+            value: String(data.resumenReclutamiento.pendientesNominaImss),
+            accentClass: 'from-rose-100 via-orange-50 to-white text-rose-700',
+          },
+          {
+            label: 'Listos Administracion',
+            value: String(data.resumenReclutamiento.listosAdministracion),
+            accentClass: 'from-emerald-100 via-lime-50 to-white text-emerald-700',
+          },
+          {
+            label: 'Proximas ISDINIZACIONES',
+            value: String(data.resumenReclutamiento.proximasIsdinizaciones),
+            accentClass: 'from-teal-100 via-cyan-50 to-white text-teal-700',
+          },
+        ]
+      : mainTab === 'pdvs'
+        ? [
+            {
+              label: 'PDVs cubiertos',
+              value: String(data.recruitmentCoverageSummary.pdvsCubiertos),
+              accentClass: 'from-emerald-100 via-lime-50 to-white text-emerald-700',
+            },
+            {
+              label: 'Reservados / pendiente acceso',
+              value: String(data.recruitmentCoverageSummary.pdvsReservados),
+              accentClass: 'from-amber-100 via-yellow-50 to-white text-amber-700',
+            },
+            {
+              label: 'Vacantes',
+              value: String(data.recruitmentCoverageSummary.pdvsVacantes),
+              accentClass: 'from-orange-100 via-amber-50 to-white text-orange-700',
+            },
+            {
+              label: 'PDVs bloqueados',
+              value: String(data.recruitmentCoverageSummary.pdvsBloqueados),
+              accentClass: 'from-rose-100 via-red-50 to-white text-rose-700',
+            },
+            {
+              label: 'Pendientes >48h',
+              value: String(data.recruitmentCoverageSummary.pendientesAccesoVencidos),
+              accentClass: 'from-sky-100 via-cyan-50 to-white text-sky-700',
+            },
+            {
+              label: 'En proceso de firma',
+              value: String(data.recruitmentCoverageSummary.vacantesEnProcesoFirma),
+              accentClass: 'from-violet-100 via-fuchsia-50 to-white text-violet-700',
+            },
+          ]
+        : [
+            {
+              label: 'Base operativa',
+              value: String(operationalEmployees.length),
+              accentClass: 'from-emerald-100 via-teal-50 to-white text-emerald-700',
+            },
+            {
+              label: 'Candidatos por coordinar',
+              value: String(coordinationEmployees.length),
+              accentClass: 'from-sky-100 via-cyan-50 to-white text-sky-700',
+            },
+            {
+              label: 'Bandeja reclutamiento',
+              value: String(recruitingInboxCount),
+              accentClass: 'from-violet-100 via-fuchsia-50 to-white text-violet-700',
+            },
+            {
+              label: 'Activos',
+              value: String(data.resumen.activos),
+              accentClass: 'from-lime-100 via-emerald-50 to-white text-lime-700',
+            },
+            {
+              label: 'IMSS en proceso',
+              value: String(data.resumen.imssEnProceso),
+              accentClass: 'from-amber-100 via-yellow-50 to-white text-amber-700',
+            },
+          ]
+
   return (
     <div className="space-y-6">
       {!data.infraestructuraLista && data.mensajeInfraestructura && (
@@ -734,12 +838,21 @@ export function EmpleadosPanel({
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-5">
-        <MetricCard label="Base operativa" value={String(operationalEmployees.length)} />
-        <MetricCard label="Candidatos por coordinar" value={String(coordinationEmployees.length)} />
-        <MetricCard label="Bandeja reclutamiento" value={String(recruitingInboxCount)} />
-        <MetricCard label="Activos" value={String(data.resumen.activos)} />
-        <MetricCard label="IMSS en proceso" value={String(data.resumen.imssEnProceso)} />
+      <div
+        className={`grid gap-4 ${
+          mainTab === 'reclutamiento' || mainTab === 'pdvs' ? 'md:grid-cols-2 xl:grid-cols-3' : 'md:grid-cols-2 xl:grid-cols-5'
+        }`}
+      >
+        {topMetrics.map((metric) => (
+          <MetricCard
+            key={metric.label}
+            label={metric.label}
+            value={metric.value}
+            accentClass={metric.accentClass}
+            emphasized={mainTab === 'reclutamiento'}
+            tinted={mainTab !== 'reclutamiento'}
+          />
+        ))}
       </div>
 
       <Card className="space-y-5 p-6">
@@ -747,16 +860,21 @@ export function EmpleadosPanel({
           <div>
             <h2 className="text-lg font-semibold text-slate-950">Canvas de empleados</h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-500">
-              Separamos la base operativa de empleados completos del trabajo vivo de Reclutamiento y Coordinacion.
+Concentramos a Reclutamiento en su pipeline, su base operativa y su tablero de cobertura PDV desde un solo canvas.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {canRecruit ? (
+              <CanvasTabButton active={mainTab === 'reclutamiento'} onClick={() => setMainTab('reclutamiento')}>
+                Reclutamiento
+              </CanvasTabButton>
+            ) : null}
             <CanvasTabButton active={mainTab === 'base'} onClick={() => setMainTab('base')}>
               Base operativa
             </CanvasTabButton>
             {canRecruit ? (
-              <CanvasTabButton active={mainTab === 'reclutamiento'} onClick={() => setMainTab('reclutamiento')}>
-                Reclutamiento
+              <CanvasTabButton active={mainTab === 'pdvs'} onClick={() => setMainTab('pdvs')}>
+                Cobertura PDVs
               </CanvasTabButton>
             ) : null}
             {canCoordinate ? (
@@ -811,6 +929,10 @@ export function EmpleadosPanel({
         <CoordinationInboxBoard data={data} empleados={coordinationEmployees} onOpen={(empleado) => setSelectedEmployeeId(empleado.id)} />
       ) : null}
 
+      {mainTab === 'pdvs' && canRecruit ? (
+        <CoberturaPdvPanel data={data} canManage={canRecruit} />
+      ) : null}
+
       {mainTab === 'base' ? (
         <>
           <Card className="p-6">
@@ -818,7 +940,7 @@ export function EmpleadosPanel({
               <div>
                 <h2 className="text-lg font-semibold text-slate-950">Base operativa de empleados</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Consulta la plantilla ya integrada. Los candidatos y expedientes en proceso viven en Reclutamiento y Coordinacion.
+Consulta la plantilla ya integrada. Los candidatos y expedientes vivos ya no se mezclan con esta base estabilizada.
                 </p>
               </div>
               <p className="text-sm text-slate-500">
@@ -931,6 +1053,586 @@ export function EmpleadosPanel({
         />
       ) : null}
     </div>
+  )
+}
+function PdvDisponiblesPanel({
+  pdvs,
+}: {
+  pdvs: EmpleadosPanelData['pdvsDisponibles']
+}) {
+  const [search, setSearch] = useState('')
+  const [cadenaFilter, setCadenaFilter] = useState('ALL')
+  const [ciudadFilter, setCiudadFilter] = useState('ALL')
+  const [zonaFilter, setZonaFilter] = useState('ALL')
+
+  const cadenas = Array.from(new Set(pdvs.map((pdv) => pdv.cadena).filter((value): value is string => Boolean(value)))).sort((a, b) =>
+    a.localeCompare(b, 'es-MX')
+  )
+  const ciudades = Array.from(new Set(pdvs.map((pdv) => pdv.ciudad).filter((value): value is string => Boolean(value)))).sort((a, b) =>
+    a.localeCompare(b, 'es-MX')
+  )
+  const zonas = Array.from(new Set(pdvs.map((pdv) => pdv.zona).filter((value): value is string => Boolean(value)))).sort((a, b) =>
+    a.localeCompare(b, 'es-MX')
+  )
+
+  const normalizedSearch = search.trim().toLocaleLowerCase('es-MX')
+  const pdvsFiltrados = pdvs.filter((pdv) => {
+    const matchesSearch =
+      normalizedSearch.length === 0 ||
+      [pdv.nombre, pdv.claveBtl, pdv.cadena, pdv.ciudad, pdv.zona]
+        .filter(Boolean)
+        .some((value) => String(value).toLocaleLowerCase('es-MX').includes(normalizedSearch))
+
+    const matchesCadena = cadenaFilter === 'ALL' || pdv.cadena === cadenaFilter
+    const matchesCiudad = ciudadFilter === 'ALL' || pdv.ciudad === ciudadFilter
+    const matchesZona = zonaFilter === 'ALL' || pdv.zona === zonaFilter
+
+    return matchesSearch && matchesCadena && matchesCiudad && matchesZona
+  })
+
+  return (
+    <div className="space-y-6">
+      <Card className="p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">PDVs disponibles</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Aqui ves tiendas sin asignacion activa estructural vigente para apoyar nuevos ingresos o cambios operativos.
+            </p>
+          </div>
+          <p className="text-sm text-slate-500">
+            Mostrando <span className="font-semibold text-slate-900">{pdvsFiltrados.length}</span> de{' '}
+            <span className="font-semibold text-slate-900">{pdvs.length}</span> PDVs disponibles.
+          </p>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Input
+            label="Buscar"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Sucursal, clave BTL, cadena, ciudad o zona"
+          />
+          <Select
+            label="Cadena"
+            value={cadenaFilter}
+            onChange={(event) => setCadenaFilter(event.target.value)}
+            options={[{ value: 'ALL', label: 'Todas' }, ...cadenas.map((cadena) => ({ value: cadena, label: cadena }))]}
+          />
+          <Select
+            label="Ciudad"
+            value={ciudadFilter}
+            onChange={(event) => setCiudadFilter(event.target.value)}
+            options={[{ value: 'ALL', label: 'Todas' }, ...ciudades.map((ciudad) => ({ value: ciudad, label: ciudad }))]}
+          />
+          <Select
+            label="Zona"
+            value={zonaFilter}
+            onChange={(event) => setZonaFilter(event.target.value)}
+            options={[{ value: 'ALL', label: 'Todas' }, ...zonas.map((zona) => ({ value: zona, label: zona }))]}
+          />
+        </div>
+      </Card>
+
+      <Card className="overflow-hidden p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full table-fixed text-sm">
+            <thead className="bg-slate-50 text-left text-slate-500">
+              <tr>
+                <th className="w-[30%] px-5 py-3 font-medium">PDV</th>
+                <th className="w-[16%] px-5 py-3 font-medium">Clave BTL</th>
+                <th className="w-[18%] px-5 py-3 font-medium">Cadena</th>
+                <th className="w-[18%] px-5 py-3 font-medium">Ciudad</th>
+                <th className="w-[18%] px-5 py-3 font-medium">Zona</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pdvsFiltrados.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                    No hay PDVs disponibles que coincidan con los filtros activos.
+                  </td>
+                </tr>
+              ) : (
+                pdvsFiltrados.map((pdv) => (
+                  <tr key={pdv.id} className="border-t border-slate-100 align-top">
+                    <td className="px-5 py-4">
+                      <div className="font-semibold text-slate-900">{pdv.nombre}</div>
+                      <div className="mt-1 text-xs text-emerald-600">Sin asignacion activa</div>
+                    </td>
+                    <td className="px-5 py-4 text-slate-600">{pdv.claveBtl ?? 'Sin clave'}</td>
+                    <td className="px-5 py-4 text-slate-600">{pdv.cadena ?? 'Sin cadena'}</td>
+                    <td className="px-5 py-4 text-slate-600">{pdv.ciudad ?? 'Sin ciudad'}</td>
+                    <td className="px-5 py-4 text-slate-600">{pdv.zona ?? 'Sin zona'}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+
+type CoberturaBoardItem = EmpleadosPanelData['pdvCoberturaBoard'][number]
+type CoberturaActionValue =
+  | 'APARTAR_PDV'
+  | 'MARCAR_PENDIENTE_ACCESO'
+  | 'ASIGNAR_PDV_PASO'
+  | 'LIBERAR_ACCESO'
+  | 'QUITAR_RESERVA'
+
+function getCoberturaSemaforoTone(semaforo: CoberturaBoardItem['semaforo']) {
+  switch (semaforo) {
+    case 'VERDE':
+      return 'bg-emerald-100 text-emerald-700'
+    case 'AMARILLO':
+      return 'bg-amber-100 text-amber-700'
+    case 'NARANJA':
+      return 'bg-orange-100 text-orange-700'
+    default:
+      return 'bg-rose-100 text-rose-700'
+  }
+}
+
+function getCoberturaNeedTone(actionNeed: CoberturaBoardItem['actionNeed']) {
+  switch (actionNeed) {
+    case 'COBERTURA_OK':
+      return 'bg-emerald-100 text-emerald-700'
+    case 'PENDIENTE_ACCESO':
+      return 'bg-amber-100 text-amber-700'
+    case 'PENDIENTE_ACCESO_VENCIDO':
+      return 'bg-rose-100 text-rose-700'
+    case 'VACANTE_EN_PROCESO_FIRMA':
+      return 'bg-violet-100 text-violet-700'
+    case 'PDV_INACTIVO':
+      return 'bg-slate-100 text-slate-700'
+    default:
+      return 'bg-orange-100 text-orange-700'
+  }
+}
+
+function getCoberturaActionLabel(action: CoberturaActionValue) {
+  switch (action) {
+    case 'APARTAR_PDV':
+      return 'Apartar PDV'
+    case 'MARCAR_PENDIENTE_ACCESO':
+      return 'Marcar pendiente de acceso'
+    case 'ASIGNAR_PDV_PASO':
+      return 'Asignar PDV de paso'
+    case 'LIBERAR_ACCESO':
+      return 'Liberar acceso'
+    default:
+      return 'Quitar reserva'
+  }
+}
+
+function getCoberturaActionOptions(item: CoberturaBoardItem) {
+  if (item.semaforo === 'ROJO') {
+    return []
+  }
+
+  const options: CoberturaActionValue[] = [
+    'MARCAR_PENDIENTE_ACCESO',
+    'ASIGNAR_PDV_PASO',
+    'LIBERAR_ACCESO',
+    'APARTAR_PDV',
+    'QUITAR_RESERVA',
+  ]
+
+  return options.map((value) => ({ value, label: getCoberturaActionLabel(value) }))
+}
+
+function getCoberturaDefaultAction(item: CoberturaBoardItem): CoberturaActionValue {
+  if (item.semaforo === 'AMARILLO') {
+    return 'LIBERAR_ACCESO'
+  }
+
+  if (item.actionNeed === 'VACANTE_EN_PROCESO_FIRMA') {
+    return 'MARCAR_PENDIENTE_ACCESO'
+  }
+
+  if (item.semaforo === 'VERDE') {
+    return 'APARTAR_PDV'
+  }
+
+  return 'MARCAR_PENDIENTE_ACCESO'
+}
+
+function formatCoberturaWaitLabel(days: number | null) {
+  if (days === null) {
+    return 'Sin espera activa'
+  }
+
+  if (days === 0) {
+    return 'Hoy'
+  }
+
+  if (days === 1) {
+    return '1 dia'
+  }
+
+  return `${days} dias`
+}
+
+function CoberturaPdvPanel({
+  data,
+  canManage,
+}: {
+  data: EmpleadosPanelData
+  canManage: boolean
+}) {
+  const [search, setSearch] = useState('')
+  const [actionNeedFilter, setActionNeedFilter] = useState('ALL')
+  const [semaforoFilter, setSemaforoFilter] = useState('ALL')
+  const [cadenaFilter, setCadenaFilter] = useState('ALL')
+  const [ciudadFilter, setCiudadFilter] = useState('ALL')
+  const [zonaFilter, setZonaFilter] = useState('ALL')
+  const [selectedPdvId, setSelectedPdvId] = useState<string | null>(null)
+
+  const items = data.pdvCoberturaBoard
+  const cadenas = Array.from(new Set(items.map((item) => item.cadena).filter((value): value is string => Boolean(value)))).sort((a, b) =>
+    a.localeCompare(b, 'es-MX')
+  )
+  const ciudades = Array.from(new Set(items.map((item) => item.ciudad).filter((value): value is string => Boolean(value)))).sort((a, b) =>
+    a.localeCompare(b, 'es-MX')
+  )
+  const zonas = Array.from(new Set(items.map((item) => item.zona).filter((value): value is string => Boolean(value)))).sort((a, b) =>
+    a.localeCompare(b, 'es-MX')
+  )
+
+  const normalizedSearch = search.trim().toLocaleLowerCase('es-MX')
+  const filteredItems = items.filter((item) => {
+    const matchesSearch =
+      normalizedSearch.length === 0 ||
+      [
+        item.nombre,
+        item.claveBtl,
+        item.cadena,
+        item.ciudad,
+        item.zona,
+        item.employeeName,
+        item.candidateName,
+        item.pdvPasoNombre,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLocaleLowerCase('es-MX').includes(normalizedSearch))
+
+    const matchesActionNeed = actionNeedFilter === 'ALL' || item.actionNeed === actionNeedFilter
+    const matchesSemaforo = semaforoFilter === 'ALL' || item.semaforo === semaforoFilter
+    const matchesCadena = cadenaFilter === 'ALL' || item.cadena === cadenaFilter
+    const matchesCiudad = ciudadFilter === 'ALL' || item.ciudad === ciudadFilter
+    const matchesZona = zonaFilter === 'ALL' || item.zona === zonaFilter
+
+    return (
+      matchesSearch &&
+      matchesActionNeed &&
+      matchesSemaforo &&
+      matchesCadena &&
+      matchesCiudad &&
+      matchesZona
+    )
+  })
+
+  const selectedItem = filteredItems.find((item) => item.pdvId === selectedPdvId)
+    ?? items.find((item) => item.pdvId === selectedPdvId)
+    ?? null
+
+  return (
+    <div className="space-y-6">
+      <Card className="p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">Cobertura PDVs</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Semaforo operativo para vacantes, reservas, accesos pendientes y PDVs de paso de la cuenta ISDIN.
+            </p>
+          </div>
+          <p className="text-sm text-slate-500">
+            Mostrando <span className="font-semibold text-slate-900">{filteredItems.length}</span> de{' '}
+            <span className="font-semibold text-slate-900">{items.length}</span> PDVs cubribles y bloqueados.
+          </p>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <Input
+            label="Buscar"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Sucursal, clave, DC, cadena, ciudad o PDV de paso"
+          />
+          <Select
+            label="Necesidad de accion"
+            value={actionNeedFilter}
+            onChange={(event) => setActionNeedFilter(event.target.value)}
+            options={[
+              { value: 'ALL', label: 'Todas' },
+              { value: 'VACANTE_URGENTE', label: 'Vacante urgente' },
+              { value: 'VACANTE_EN_PROCESO_FIRMA', label: 'Vacante en proceso de firma' },
+              { value: 'PENDIENTE_ACCESO', label: 'Pendiente de acceso' },
+              { value: 'PENDIENTE_ACCESO_VENCIDO', label: 'Pendiente >48h' },
+              { value: 'COBERTURA_OK', label: 'Cobertura estable' },
+              { value: 'PDV_INACTIVO', label: 'PDV inactivo' },
+            ]}
+          />
+          <Select
+            label="Estado semaforo"
+            value={semaforoFilter}
+            onChange={(event) => setSemaforoFilter(event.target.value)}
+            options={[
+              { value: 'ALL', label: 'Todos' },
+              { value: 'VERDE', label: 'Verde / cubierto' },
+              { value: 'AMARILLO', label: 'Amarillo / pendiente acceso' },
+              { value: 'NARANJA', label: 'Naranja / vacante' },
+              { value: 'ROJO', label: 'Rojo / inactivo' },
+            ]}
+          />
+          <Select
+            label="Cadena"
+            value={cadenaFilter}
+            onChange={(event) => setCadenaFilter(event.target.value)}
+            options={[{ value: 'ALL', label: 'Todas' }, ...cadenas.map((cadena) => ({ value: cadena, label: cadena }))]}
+          />
+          <Select
+            label="Ciudad"
+            value={ciudadFilter}
+            onChange={(event) => setCiudadFilter(event.target.value)}
+            options={[{ value: 'ALL', label: 'Todas' }, ...ciudades.map((ciudad) => ({ value: ciudad, label: ciudad }))]}
+          />
+          <Select
+            label="Zona"
+            value={zonaFilter}
+            onChange={(event) => setZonaFilter(event.target.value)}
+            options={[{ value: 'ALL', label: 'Todas' }, ...zonas.map((zona) => ({ value: zona, label: zona }))]}
+          />
+        </div>
+      </Card>
+
+      <Card className="overflow-hidden p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1180px] table-fixed text-sm">
+            <thead className="bg-slate-50 text-left text-slate-500">
+              <tr>
+                <th className="w-[23%] px-5 py-3 font-medium">PDV</th>
+                <th className="w-[12%] px-5 py-3 font-medium">Semaforo</th>
+                <th className="w-[17%] px-5 py-3 font-medium">Cobertura</th>
+                <th className="w-[18%] px-5 py-3 font-medium">DC / Candidato</th>
+                <th className="w-[12%] px-5 py-3 font-medium">PDV de paso</th>
+                <th className="w-[10%] px-5 py-3 font-medium">Espera</th>
+                <th className="w-[8%] px-5 py-3 font-medium">Accion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredItems.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                    No hay PDVs de cobertura que coincidan con los filtros activos.
+                  </td>
+                </tr>
+              ) : (
+                filteredItems.map((item) => (
+                  <tr key={item.pdvId} className="border-t border-slate-100 align-top">
+                    <td className="px-5 py-4">
+                      <div className="font-semibold text-slate-900">{item.nombre}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {item.claveBtl ?? 'Sin clave'} · {item.cadena ?? 'Sin cadena'} · {item.ciudad ?? 'Sin ciudad'}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <StatusPill label={item.estadoMaestroLabel} className="bg-slate-100 text-slate-700" />
+                        {item.zona ? <StatusPill label={item.zona} className="bg-sky-50 text-sky-700" /> : null}
+                      </div>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex flex-col gap-2">
+                        <StatusPill label={item.semaforoLabel} className={getCoberturaSemaforoTone(item.semaforo)} />
+                        <StatusPill label={item.actionNeedLabel} className={getCoberturaNeedTone(item.actionNeed)} />
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-slate-600">
+                      <div className="font-medium text-slate-900">{item.estadoOperativoLabel}</div>
+                      <div className="mt-1 text-xs text-slate-500">{item.motivoOperativoLabel ?? 'Sin motivo adicional'}</div>
+                      {item.observaciones ? (
+                        <div className="mt-2 text-xs text-slate-500">{item.observaciones}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-5 py-4 text-slate-600">
+                      {item.employeeName ? (
+                        <>
+                          <div className="font-medium text-slate-900">{item.employeeName}</div>
+                          <div className="mt-1 text-xs text-slate-500">DC reservada</div>
+                        </>
+                      ) : item.candidateName ? (
+                        <>
+                          <div className="font-medium text-slate-900">{item.candidateName}</div>
+                          <div className="mt-1 text-xs text-violet-600">
+                            Candidato en {item.candidateWorkflowStage?.replace(/_/g, ' ').toLowerCase() ?? 'proceso'}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="text-slate-500">Sin vinculacion activa</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-4 text-slate-600">
+                      {item.pdvPasoNombre ? (
+                        <>
+                          <div className="font-medium text-slate-900">{item.pdvPasoNombre}</div>
+                          <div className="mt-1 text-xs text-slate-500">Ubicacion temporal</div>
+                        </>
+                      ) : (
+                        <span className="text-slate-500">Sin PDV de paso</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-4 text-slate-600">
+                      <div className="font-medium text-slate-900">{formatCoberturaWaitLabel(item.diasEsperandoAcceso)}</div>
+                      <div className="mt-1 text-xs text-slate-500">{item.responsableSugerido}</div>
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      {canManage && item.semaforo !== 'ROJO' ? (
+                        <button
+                          type="button"
+                          className="inline-flex min-h-9 min-w-[88px] items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100"
+                          onClick={() => setSelectedPdvId(item.pdvId)}
+                        >
+                          Gestionar
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-400">Sin accion</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {selectedItem ? (
+        <CoberturaPdvModal
+          item={selectedItem}
+          data={data}
+          onClose={() => setSelectedPdvId(null)}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function CoberturaPdvModal({
+  item,
+  data,
+  onClose,
+}: {
+  item: CoberturaBoardItem
+  data: EmpleadosPanelData
+  onClose: () => void
+}) {
+  const [state, formAction] = useActionState(
+    actualizarCoberturaPdvOperativa,
+    ESTADO_COBERTURA_PDV_OPERATIVA_INICIAL
+  )
+  const [action, setAction] = useState<CoberturaActionValue>(getCoberturaDefaultAction(item))
+  const [employeeId, setEmployeeId] = useState(item.employeeId ?? item.candidateId ?? '')
+  const [pdvPasoId, setPdvPasoId] = useState(item.pdvPasoId ?? '')
+
+  const employeeOptions = data.empleados
+    .filter((empleado) => empleado.puesto === 'DERMOCONSEJERO' && empleado.estatusLaboral !== 'BAJA')
+    .map((empleado) => ({
+      value: empleado.id,
+      label: `${empleado.nombreCompleto} · ${empleado.zona ?? 'Sin zona'}`,
+    }))
+
+  const pdvPasoOptions = data.pdvs
+    .filter((pdv) => pdv.id !== item.pdvId)
+    .map((pdv) => ({
+      value: pdv.id,
+      label: [pdv.claveBtl, pdv.nombre, pdv.ciudad].filter(Boolean).join(' · '),
+    }))
+
+  const employeeRequired = ['APARTAR_PDV', 'MARCAR_PENDIENTE_ACCESO', 'ASIGNAR_PDV_PASO', 'LIBERAR_ACCESO'].includes(action)
+  const pdvPasoRequired = action === 'ASIGNAR_PDV_PASO'
+
+  return (
+    <ModalPanel
+      open
+      onClose={onClose}
+      title={`Cobertura PDV · ${item.nombre}`}
+      subtitle="Actualiza la reserva, el acceso pendiente o la tienda de paso sin tocar la asignacion estructural."
+      maxWidthClassName="max-w-3xl"
+    >
+      <form action={formAction} className="space-y-5">
+        <input type="hidden" name="pdv_id" value={item.pdvId} />
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Semaforo actual</p>
+            <p className="mt-2 text-sm font-semibold text-slate-900">{item.semaforoLabel}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Cobertura actual</p>
+            <p className="mt-2 text-sm font-semibold text-slate-900">{item.estadoOperativoLabel}</p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Select
+            label="Accion"
+            name="action"
+            value={action}
+            onChange={(event) => setAction(event.target.value as CoberturaActionValue)}
+            options={getCoberturaActionOptions(item)}
+          />
+          <Select
+            label="Dermoconsejera reservada"
+            name="empleado_reservado_id"
+            value={employeeId}
+            onChange={(event) => setEmployeeId(event.target.value)}
+            options={[{ value: '', label: employeeRequired ? 'Selecciona DC' : 'Sin DC' }, ...employeeOptions]}
+            required={employeeRequired}
+          />
+        </div>
+
+        {pdvPasoRequired ? (
+          <Select
+            label="PDV de paso"
+            name="pdv_paso_id"
+            value={pdvPasoId}
+            onChange={(event) => setPdvPasoId(event.target.value)}
+            options={[{ value: '', label: 'Selecciona PDV de paso' }, ...pdvPasoOptions]}
+            required
+          />
+        ) : (
+          <input type="hidden" name="pdv_paso_id" value="" />
+        )}
+
+        <TextareaField
+          label="Observaciones"
+          name="observaciones"
+          defaultValue={item.observaciones ?? ''}
+          placeholder="Ej. acceso bloqueado por cadena, pendiente carnet, regreso programado o notas administrativas."
+        />
+
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+          <p className="font-semibold text-slate-900">Responsable sugerido</p>
+          <p className="mt-1">{item.responsableSugerido}</p>
+          {item.pdvPasoNombre ? <p className="mt-2">PDV de paso actual: {item.pdvPasoNombre}</p> : null}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <SubmitButton idleLabel="Guardar cobertura" pendingLabel="Guardando..." variant="primary" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Cerrar
+          </button>
+        </div>
+
+        {state.message ? (<p className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>) : null}
+      </form>
+    </ModalPanel>
   )
 }
 function EmpleadoRow({
@@ -1473,7 +2175,15 @@ function RecruitingDashboard({
         </div>
       </Card>
 
-      <div className="overflow-x-auto pb-2">
+      <div
+        ref={boardScrollRef}
+        className="cursor-grab overflow-x-auto pb-2 active:cursor-grabbing"
+        onMouseDown={handleBoardMouseDown}
+        onMouseMove={handleBoardMouseMove}
+        onMouseUp={stopBoardDrag}
+        onMouseLeave={stopBoardDrag}
+        onClickCapture={handleBoardClickCapture}
+      >
         <div className="flex min-w-max gap-4">
           {pipelineOrder.map((stageKey) => {
             const stageMeta = getRecruitingStageMeta(stageKey)
@@ -1965,7 +2675,7 @@ function CrearEmpleadoForm({ data }: { data: EmpleadosPanelData }) {
     message: string | null
   } | null>(null)
 
-  async function handleExpedienteSelected(event: ChangeEvent<HTMLInputElement>) {
+  async function handleCurriculumSelected(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
 
     if (!file) {
@@ -1980,7 +2690,7 @@ function CrearEmpleadoForm({ data }: { data: EmpleadosPanelData }) {
 
     try {
       const body = new FormData()
-      body.set('expediente_pdf', file)
+      body.set('curriculum_pdf', file)
 
       const response = await fetch('/api/empleados/ocr-preview', {
         method: 'POST',
@@ -2068,10 +2778,10 @@ function CrearEmpleadoForm({ data }: { data: EmpleadosPanelData }) {
               <label className="mb-2 block text-sm font-semibold text-slate-950">Curriculum / CV (PDF)</label>
               <input
                 type="file"
-                name="expediente_pdf"
+                name="curriculum_pdf"
                 accept="application/pdf"
                 required
-                onChange={handleExpedienteSelected}
+                onChange={handleCurriculumSelected}
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm file:mr-4 file:rounded-xl file:border-0 file:bg-slate-100 file:px-4 file:py-2 file:text-xs file:font-semibold file:text-slate-700"
               />
               <p className="mt-2 text-xs text-slate-500">El PDF debe venir comprimido desde origen y no puede exceder 10 MB.</p>
@@ -2960,7 +3670,7 @@ export function DocumentoUploadForm({
       : selectedCategory === 'BAJA'
         ? [{ value: 'BAJA', label: 'Expediente de baja' }]
         : [
-            { value: 'OTRO', label: 'Expediente completo' },
+            { value: 'OTRO', label: 'Expediente / soporte general' },
             { value: 'INE', label: 'Credencial oficial' },
             { value: 'RFC', label: 'Constancia SAT' },
           ]
@@ -2969,8 +3679,30 @@ export function DocumentoUploadForm({
     ? 'application/pdf'
     : 'image/jpeg,image/png,image/webp,application/pdf'
 
+  const [isUploadingR2, setIsUploadingR2] = useState(false)
+
+  const handleInterceptedSubmit = async (formData: FormData) => {
+    const archivo = formData.get('archivo') as File | null
+    if (archivo && archivo.size > 0) {
+      setIsUploadingR2(true)
+      try {
+        await injectDirectR2Upload(formData, archivo, {
+          modulo: 'reclutamiento',
+          removeFieldName: 'archivo',
+        })
+      } catch (err) {
+        console.error('Error fallback a R2', err)
+      } finally {
+        setIsUploadingR2(false)
+      }
+    }
+    startTransition(() => {
+      formAction(formData)
+    })
+  }
+
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={handleInterceptedSubmit} className="space-y-4">
       <input type="hidden" name="empleado_id" value={empleado.id} />
       <div className="grid gap-4 md:grid-cols-2">
         <Select
@@ -3001,8 +3733,8 @@ export function DocumentoUploadForm({
         />
         <div className="w-full md:col-span-2">
           <label className="mb-1.5 block text-sm font-medium text-foreground">Archivo</label>
-          <input
-            type="file"
+          <ClientImageFileInput
+            useNativeInput
             name="archivo"
             accept={acceptedMimeTypes}
             className="w-full overflow-hidden rounded-xl border border-border bg-surface px-4 py-2.5 text-sm text-foreground file:mr-3 file:max-w-full file:truncate file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700"
@@ -3020,8 +3752,7 @@ export function DocumentoUploadForm({
           </p>
         ) : isRecruitment ? (
           <p>
-            Reclutamiento solo corrige y vuelve a cargar el expediente, la credencial oficial o la
-            constancia SAT. No carga comprobantes IMSS. OCR provider actual:{' '}
+            Reclutamiento solo adjunta soportes y verifica datos ya cargados desde el CV, como expediente, credencial oficial o constancia SAT. No carga comprobantes IMSS ni relanza OCR sobre estos documentos. OCR provider actual:{' '}
             <span className="font-semibold text-slate-900">{ocrProvider ?? 'sin configurar'}</span>.
           </p>
         ) : (
@@ -3032,7 +3763,11 @@ export function DocumentoUploadForm({
           </p>
         )}
       </div>
-      <SubmitButton idleLabel="Subir documento" pendingLabel="Subiendo..." variant="outline" />
+      <SubmitButton 
+        idleLabel={isUploadingR2 ? "Saltando hacia Bodega R2..." : "Subir documento"} 
+        pendingLabel={isUploadingR2 ? "Saltando hacia Bodega R2..." : "Subiendo..."} 
+        variant="outline" 
+      />
       {state.message && (
         <p className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
           {state.message}
@@ -3244,7 +3979,7 @@ export function DocumentosList({ documentos }: { documentos: DocumentoExpediente
               <div className="flex flex-wrap items-center gap-2">
                 <StatusPill label={documento.categoria} className="bg-slate-100 text-slate-700" />
                 <StatusPill
-                  label={formatTipoDocumentoLabel(documento.tipoDocumento)}
+                  label={formatTipoDocumentoLabel(documento.tipoDocumento, documento.sourceDocument)}
                   className="bg-sky-100 text-sky-700"
                 />
                 <StatusPill label={documento.estadoDocumento} className="bg-emerald-100 text-emerald-700" />
@@ -3381,12 +4116,47 @@ function SubmitButton({
   )
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
+function MetricCard({
+  label,
+  value,
+  accentClass = '',
+  emphasized = false,
+  tinted = false,
+}: {
+  label: string
+  value: string
+  accentClass?: string
+  emphasized?: boolean
+  tinted?: boolean
+}) {
+  const tone =
+    accentClass.includes('emerald')
+      ? 'emerald'
+      : accentClass.includes('sky')
+        ? 'sky'
+        : accentClass.includes('amber')
+          ? 'amber'
+          : accentClass.includes('rose')
+            ? 'rose'
+            : 'module'
+
   return (
-    <Card className="border-slate-200 bg-white">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
-    </Card>
+    <SharedMetricCard
+      label={label}
+      value={value}
+      tone={tone}
+      className={emphasized ? 'min-h-[118px]' : tinted ? 'min-h-[102px]' : undefined}
+      labelClassName={
+        emphasized
+          ? 'max-w-[16rem] text-[15px] font-medium leading-6 text-slate-700'
+          : tinted
+            ? 'max-w-[16rem] text-[14px] font-medium leading-5 text-slate-700'
+            : 'max-w-[16rem] text-sm text-slate-500'
+      }
+      valueClassName={
+        emphasized ? 'text-[40px] leading-none' : tinted ? 'text-[32px] leading-none' : 'text-3xl'
+      }
+    />
   )
 }
 

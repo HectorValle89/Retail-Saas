@@ -18,7 +18,10 @@ function pickString(value: string | string[] | undefined) {
 export default async function EmpleadosPage({ searchParams }: EmpleadosPageProps) {
   const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR'])
   const supabase = createServiceClient()
-  const data = await obtenerPanelEmpleados(supabase)
+  const data = await obtenerPanelEmpleados(supabase, {
+    actor,
+    emitCoverageSideEffects: actor.puesto === 'RECLUTAMIENTO' || actor.puesto === 'ADMINISTRADOR',
+  })
   const params = (await searchParams) ?? {}
   const initialFilters = {
     search: pickString(params.search) ?? '',
@@ -42,7 +45,7 @@ export default async function EmpleadosPage({ searchParams }: EmpleadosPageProps
             </p>
             <h1 className="page-hero-title">Empleados</h1>
             <p className="page-hero-copy max-w-3xl">
-              Candidatos, reclutamiento, coordinacion y base operativa del equipo.
+              Pipeline de reclutamiento, base operativa y cobertura PDV del equipo.
             </p>
           </div>
           <a

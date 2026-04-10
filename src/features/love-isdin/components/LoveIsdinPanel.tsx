@@ -12,6 +12,8 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { EvidencePreview } from '@/components/ui/evidence-preview'
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
+import { ExtemporaneoQueueSection } from '@/features/solicitudes/components/ExtemporaneoQueueSection'
 import {
   getSingleTenantAccountLabel,
   isSingleTenantUiEnabled,
@@ -837,6 +839,14 @@ export function LoveIsdinPanel({ data }: { data: LoveIsdinPanelData }) {
               </div>
             </CardContent>
           </Card>
+
+          <ExtemporaneoQueueSection
+            title="LOVE tardio"
+            description="Afiliaciones registradas fuera de ventana pendientes de aprobacion o ya consolidadas en LOVE ISDIN."
+            emptyMessage="Todavia no hay afiliaciones LOVE tardias visibles para esta cuenta."
+            resumen={data.resumenExtemporaneo}
+            registros={data.registrosExtemporaneos}
+          />
         </section>
       )}
 
@@ -1321,26 +1331,12 @@ function MetricCard({
   value: string
   tone?: 'emerald' | 'rose' | 'sky' | 'amber' | 'slate'
 }) {
-  const toneClass = {
-    emerald: 'bg-emerald-100 text-emerald-700',
-    rose: 'bg-rose-100 text-rose-700',
-    sky: 'bg-sky-100 text-sky-700',
-    amber: 'bg-amber-100 text-amber-700',
-    slate: 'bg-slate-100 text-slate-700',
-  }[tone]
-
   return (
-    <Card className="bg-white">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm text-slate-500">{label}</p>
-          <p className="mt-3 text-3xl font-semibold text-slate-950">{value}</p>
-        </div>
-        <span className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl ${toneClass}`}>
-          <span className="text-sm font-semibold">{value === '0' ? '0' : '•'}</span>
-        </span>
-      </div>
-    </Card>
+    <SharedMetricCard
+      label={label}
+      value={value}
+      tone={tone}
+    />
   )
 }
 

@@ -12,10 +12,11 @@ test('reclutamiento solo ve modulos alineados a su operacion en el sidebar', asy
   await login(page, 'test_reclutamiento_01@fieldforce.test', 'RtlTest!Rec01')
 
   await expect(page.getByRole('link', { name: 'Empleados' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Formaciones' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Solicitudes' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Mensajes' })).toBeVisible()
 
+  await expect(page.getByRole('link', { name: 'PDVs' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Formaciones' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Solicitudes' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Ventas' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'LOVE ISDIN' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Nomina' })).toHaveCount(0)

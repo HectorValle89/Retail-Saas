@@ -17,6 +17,7 @@ const PUBLIC_PATHS = new Set([
   '/',
   '/offline',
   '/login',
+  '/logout',
   '/forgot-password',
   '/check-email',
   '/update-password',
@@ -29,7 +30,13 @@ export function AppRuntime() {
   const router = useRouter()
 
   useEffect(() => {
-    if (process.env.NODE_ENV === 'production') {
+    if (!pathname || PUBLIC_PATHS.has(pathname)) {
+      return
+    }
+
+    const isLocalHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+
+    if (process.env.NODE_ENV === 'production' && !isLocalHost) {
       return
     }
 
@@ -64,7 +71,7 @@ export function AppRuntime() {
     return () => {
       cancelled = true
     }
-  }, [router])
+  }, [pathname, router])
 
   if (!pathname || PUBLIC_PATHS.has(pathname)) {
     return null

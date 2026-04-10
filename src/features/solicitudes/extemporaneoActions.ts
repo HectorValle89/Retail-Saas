@@ -12,6 +12,7 @@ import { sendOperationalPushNotification } from '@/lib/push/pushFanout'
 import { createServiceClient } from '@/lib/supabase/server'
 import { registerVentaWithService } from '@/features/ventas/lib/ventaRegistration'
 import { registerLoveAffiliationWithService } from '@/features/love-isdin/lib/loveRegistration'
+import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
 import type { Puesto, RegistroExtemporaneo } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ESTADO_SOLICITUD_INICIAL, type SolicitudActionState } from './state'
@@ -192,6 +193,50 @@ async function uploadExtemporaneoEvidence(
   }
 }
 
+async function resolveExtemporaneoEvidence(
+  service: TypedSupabaseClient,
+  {
+    actorUsuarioId,
+    cuentaClienteId,
+    empleadoId,
+    file,
+    directReference,
+  }: {
+    actorUsuarioId: string
+    cuentaClienteId: string
+    empleadoId: string
+    file: File | null
+    directReference: ReturnType<typeof readDirectR2Reference>
+  }
+) {
+  if (hasDirectR2Reference(directReference)) {
+    const registered = await registerDirectR2Evidence(service, {
+      actorUsuarioId,
+      modulo: 'registros_extemporaneos',
+      referenciaEntidadId: empleadoId,
+      reference: directReference,
+    })
+
+    return {
+      url: registered.url,
+      hash: registered.hash,
+      thumbnailUrl: null,
+      thumbnailHash: null,
+    }
+  }
+
+  if (!file) {
+    return null
+  }
+
+  return uploadExtemporaneoEvidence(service, {
+    actorUsuarioId,
+    cuentaClienteId,
+    empleadoId,
+    file,
+  })
+}
+
 async function resolveExtemporaneoOperationalContext(
   service: TypedSupabaseClient,
   {
@@ -270,10 +315,11 @@ async function resolveExtemporaneoOperationalContext(
   }
 }
 
-async function resolveVentaPayload(service: TypedSupabaseClient, formData: FormData) {
-  const productoId = normalizeRequiredText(formData.get('producto_id'), 'Producto')
-  const unidades = normalizePositiveInteger(formData.get('venta_total_unidades'), 'Unidades')
-
+async function resolveVentaPayloadByProductId(
+  service: TypedSupabaseClient,
+  productoId: string,
+  unidades: number
+) {
   const productResult = await service
     .from('producto')
     .select('id, sku, nombre, nombre_corto, activo')
@@ -302,12 +348,129 @@ async function resolveVentaPayload(service: TypedSupabaseClient, formData: FormD
   }
 }
 
+function parseJsonArrayField(formData: FormData, field: string) {
+  const raw = normalizeOptionalText(formData.get(field))
+
+  if (!raw) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      throw new Error('INVALID')
+    }
+
+    return parsed.filter((item) => item && typeof item === 'object' && !Array.isArray(item)) as Array<Record<string, unknown>>
+  } catch {
+    throw new Error(`No fue posible leer ${field}.`)
+  }
+}
+
+async function resolveVentaPayload(service: TypedSupabaseClient, formData: FormData) {
+  const productoId = normalizeRequiredText(formData.get('producto_id'), 'Producto')
+  const unidades = normalizePositiveInteger(formData.get('venta_total_unidades'), 'Unidades')
+  return resolveVentaPayloadByProductId(service, productoId, unidades)
+}
+
+function normalizeRequiredJsonText(
+  value: unknown,
+  field: string
+) {
+  if (typeof value !== 'string') {
+    throw new Error(`${field} es obligatorio.`)
+  }
+
+  const normalized = value.trim()
+
+  if (!normalized) {
+    throw new Error(`${field} es obligatorio.`)
+  }
+
+  return normalized
+}
+
+function normalizeOptionalJsonText(value: unknown) {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalized = value.trim()
+  return normalized ? normalized : null
+}
+
+function normalizePositiveIntegerFromUnknown(value: unknown, field: string) {
+  if (typeof value === 'number') {
+    if (Number.isInteger(value) && value > 0) {
+      return value
+    }
+
+    throw new Error(`${field} debe ser un entero positivo.`)
+  }
+
+  return normalizePositiveInteger(typeof value === 'string' ? value : null, field)
+}
+
+async function resolveVentaPayloads(service: TypedSupabaseClient, formData: FormData) {
+  const items = parseJsonArrayField(formData, 'venta_items_json')
+
+  if (items.length === 0) {
+    return [await resolveVentaPayload(service, formData)]
+  }
+
+  return Promise.all(
+    items.map((item) =>
+      resolveVentaPayloadByProductId(
+        service,
+        normalizeRequiredJsonText(item.productoId ?? item.producto_id ?? null, 'Producto'),
+        normalizePositiveIntegerFromUnknown(item.unidades ?? item.total_unidades ?? null, 'Unidades')
+      )
+    )
+  )
+}
+
 function resolveLovePayload(formData: FormData) {
   return {
     afiliado_nombre: normalizeRequiredText(formData.get('love_afiliado_nombre'), 'Nombre del cliente'),
     afiliado_contacto: normalizeOptionalText(formData.get('love_afiliado_contacto')),
     ticket_folio: normalizeOptionalText(formData.get('love_ticket_folio')),
   }
+}
+
+function resolveLovePayloads(formData: FormData) {
+  const items = parseJsonArrayField(formData, 'love_items_json')
+
+  if (items.length === 0) {
+    return [resolveLovePayload(formData)]
+  }
+
+  return items.map((item) => ({
+    afiliado_nombre: normalizeRequiredJsonText(item.afiliadoNombre ?? item.afiliado_nombre ?? null, 'Nombre del cliente'),
+    afiliado_contacto: normalizeOptionalJsonText(item.afiliadoContacto ?? item.afiliado_contacto ?? null),
+    ticket_folio: normalizeOptionalJsonText(item.ticketFolio ?? item.ticket_folio ?? null),
+  }))
+}
+
+function normalizeVentaPayloadItems(value: unknown) {
+  const payload = normalizeMetadata(value)
+  const items = payload.items
+  if (Array.isArray(items)) {
+    return items.filter((item) => item && typeof item === 'object' && !Array.isArray(item)) as RegistroExtemporaneoMetadata[]
+  }
+  return Object.keys(payload).length > 0 ? [payload] : []
+}
+
+function normalizeLovePayloadItems(value: unknown) {
+  const payload = normalizeMetadata(value)
+  const items = payload.items
+  if (Array.isArray(items)) {
+    return items.filter((item) => item && typeof item === 'object' && !Array.isArray(item)) as RegistroExtemporaneoMetadata[]
+  }
+  return Object.keys(payload).length > 0 ? [payload] : []
+}
+
+function normalizeStringList(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : []
 }
 
 async function countEmployeeIncidencesThisMonth(
@@ -423,6 +586,7 @@ export async function registrarRegistroExtemporaneo(
     const fechaOperativa = normalizeRequiredText(formData.get('fecha_operativa'), 'Fecha a regularizar')
     const motivo = normalizeRequiredText(formData.get('motivo'), 'Justificacion')
     const evidenceFile = asUploadedFile(formData.get('evidencia'))
+    const evidenceR2 = readDirectR2Reference(formData)
     const todayIso = getCurrentMexicoDateIso()
     const gapDays = diffDays(fechaOperativa, todayIso)
 
@@ -444,23 +608,31 @@ export async function registrarRegistroExtemporaneo(
       fechaOperativa,
     })
 
-    const ventaPayload =
+    const ventaPayloads =
       tipoRegistro === 'VENTA' || tipoRegistro === 'AMBAS'
-        ? await resolveVentaPayload(service, formData)
-        : {}
-    const lovePayload =
+        ? await resolveVentaPayloads(service, formData)
+        : []
+    const lovePayloads =
       tipoRegistro === 'LOVE_ISDIN' || tipoRegistro === 'AMBAS'
-        ? resolveLovePayload(formData)
-        : {}
+        ? resolveLovePayloads(formData)
+        : []
 
-    const evidenceUpload = evidenceFile
-      ? await uploadExtemporaneoEvidence(service, {
-          actorUsuarioId: actor.usuarioId,
-          cuentaClienteId: context.cuentaClienteId,
-          empleadoId,
-          file: evidenceFile,
-        })
-      : null
+    const ventaPayload =
+      ventaPayloads.length > 1
+        ? { items: ventaPayloads }
+        : ventaPayloads[0] ?? {}
+    const lovePayload =
+      lovePayloads.length > 1
+        ? { items: lovePayloads }
+        : lovePayloads[0] ?? {}
+
+    const evidenceUpload = await resolveExtemporaneoEvidence(service, {
+      actorUsuarioId: actor.usuarioId,
+      cuentaClienteId: context.cuentaClienteId,
+      empleadoId,
+      file: evidenceFile,
+      directReference: evidenceR2,
+    })
 
     const duplicatePending = await service
       .from('registro_extemporaneo')
@@ -647,68 +819,84 @@ export async function resolverRegistroExtemporaneo(
     const gapDays = Number(metadata.gap_dias_retraso ?? diffDays(row.fecha_operativa, getCurrentMexicoDateIso()))
     let ventaRegistroId = row.venta_registro_id
     let loveRegistroId = row.love_registro_id
+    const ventaRegistroIds = normalizeStringList(metadata.venta_registro_ids)
+    const loveRegistroIds = normalizeStringList(metadata.love_registro_ids)
 
     if (row.tipo_registro === 'VENTA' || row.tipo_registro === 'AMBAS') {
-      const ventaPayload = normalizeMetadata(row.venta_payload)
-      const ventaResult = await registerVentaWithService(service, {
-        cuentaClienteId: row.cuenta_cliente_id,
-        asistenciaId: row.asistencia_id,
-        empleadoId: row.empleado_id,
-        pdvId: row.pdv_id,
-        productoId: String(ventaPayload.producto_id ?? '') || null,
-        productoSku: String(ventaPayload.producto_sku ?? '') || null,
-        productoNombre: String(ventaPayload.producto_nombre ?? ''),
-        productoNombreCorto: String(ventaPayload.producto_nombre_corto ?? '') || null,
-        fechaUtc: row.fecha_registro_utc,
-        totalUnidades: Number(ventaPayload.total_unidades ?? 0),
-        totalMonto: Number(ventaPayload.total_monto ?? 0),
-        confirmada: true,
-        validadaPorEmpleadoId: row.empleado_id,
-        validadaEn: new Date().toISOString(),
-        observaciones: row.motivo,
-        origen: 'AJUSTE_ADMIN',
-        allowOutsideStandardWindow: true,
-        metadata: {
-          fecha_operativa: row.fecha_operativa,
-          fecha_registro: row.fecha_registro_utc,
-          metodo_ingreso: 'EXTEMPORANEO',
-          fuera_de_ventana: true,
-          gap_dias_retraso: gapDays,
-          registro_extemporaneo_id: row.id,
-        },
-      })
+      const ventaPayloadItems = normalizeVentaPayloadItems(row.venta_payload)
+      const ventaResults = await Promise.all(
+        ventaPayloadItems.map((ventaPayload, index) =>
+          registerVentaWithService(service, {
+            cuentaClienteId: row.cuenta_cliente_id,
+            asistenciaId: row.asistencia_id,
+            empleadoId: row.empleado_id,
+            pdvId: row.pdv_id,
+            productoId: String(ventaPayload.producto_id ?? '') || null,
+            productoSku: String(ventaPayload.producto_sku ?? '') || null,
+            productoNombre: String(ventaPayload.producto_nombre ?? ''),
+            productoNombreCorto: String(ventaPayload.producto_nombre_corto ?? '') || null,
+            fechaUtc: row.fecha_registro_utc,
+            totalUnidades: Number(ventaPayload.total_unidades ?? 0),
+            totalMonto: Number(ventaPayload.total_monto ?? 0),
+            confirmada: true,
+            validadaPorEmpleadoId: row.empleado_id,
+            validadaEn: new Date().toISOString(),
+            observaciones: row.motivo,
+            origen: 'AJUSTE_ADMIN',
+            allowOutsideStandardWindow: true,
+            metadata: {
+              fecha_operativa: row.fecha_operativa,
+              fecha_registro: row.fecha_registro_utc,
+              metodo_ingreso: 'EXTEMPORANEO',
+              fuera_de_ventana: true,
+              gap_dias_retraso: gapDays,
+              registro_extemporaneo_id: row.id,
+              carrito_index: index,
+              carrito_total_items: ventaPayloadItems.length,
+            },
+          })
+        )
+      )
 
-      ventaRegistroId = ventaResult.id
+      ventaRegistroId = ventaResults[0]?.id ?? ventaRegistroId
+      ventaRegistroIds.splice(0, ventaRegistroIds.length, ...ventaResults.map((item) => item.id))
     }
 
     if (row.tipo_registro === 'LOVE_ISDIN' || row.tipo_registro === 'AMBAS') {
-      const lovePayload = normalizeMetadata(row.love_payload)
-      const loveResult = await registerLoveAffiliationWithService(service, {
-        cuentaClienteId: row.cuenta_cliente_id,
-        asistenciaId: row.asistencia_id,
-        empleadoId: row.empleado_id,
-        pdvId: row.pdv_id,
-        afiliadoNombre: String(lovePayload.afiliado_nombre ?? ''),
-        afiliadoContacto: lovePayload.afiliado_contacto ? String(lovePayload.afiliado_contacto) : null,
-        ticketFolio: lovePayload.ticket_folio ? String(lovePayload.ticket_folio) : null,
-        fechaUtc: row.fecha_registro_utc,
-        origen: 'AJUSTE_ADMIN',
-        allowOutsideStandardWindow: true,
-        evidenciaUrl: row.evidencia_url,
-        evidenciaHash: row.evidencia_hash,
-        evidenciaThumbnailUrl: row.evidencia_thumbnail_url,
-        evidenciaThumbnailHash: row.evidencia_thumbnail_hash,
-        metadata: {
-          fecha_operativa: row.fecha_operativa,
-          fecha_registro: row.fecha_registro_utc,
-          metodo_ingreso: 'EXTEMPORANEO',
-          fuera_de_ventana: true,
-          gap_dias_retraso: gapDays,
-          registro_extemporaneo_id: row.id,
-        },
-      })
+      const lovePayloadItems = normalizeLovePayloadItems(row.love_payload)
+      const loveResults = await Promise.all(
+        lovePayloadItems.map((lovePayload, index) =>
+          registerLoveAffiliationWithService(service, {
+            cuentaClienteId: row.cuenta_cliente_id,
+            asistenciaId: row.asistencia_id,
+            empleadoId: row.empleado_id,
+            pdvId: row.pdv_id,
+            afiliadoNombre: String(lovePayload.afiliado_nombre ?? ''),
+            afiliadoContacto: lovePayload.afiliado_contacto ? String(lovePayload.afiliado_contacto) : null,
+            ticketFolio: lovePayload.ticket_folio ? String(lovePayload.ticket_folio) : null,
+            fechaUtc: row.fecha_registro_utc,
+            origen: 'AJUSTE_ADMIN',
+            allowOutsideStandardWindow: true,
+            evidenciaUrl: row.evidencia_url,
+            evidenciaHash: row.evidencia_hash,
+            evidenciaThumbnailUrl: row.evidencia_thumbnail_url,
+            evidenciaThumbnailHash: row.evidencia_thumbnail_hash,
+            metadata: {
+              fecha_operativa: row.fecha_operativa,
+              fecha_registro: row.fecha_registro_utc,
+              metodo_ingreso: 'EXTEMPORANEO',
+              fuera_de_ventana: true,
+              gap_dias_retraso: gapDays,
+              registro_extemporaneo_id: row.id,
+              carrito_index: index,
+              carrito_total_items: lovePayloadItems.length,
+            },
+          })
+        )
+      )
 
-      loveRegistroId = loveResult.id
+      loveRegistroId = loveResults[0]?.id ?? loveRegistroId
+      loveRegistroIds.splice(0, loveRegistroIds.length, ...loveResults.map((item) => item.id))
     }
 
     const { error } = await service
@@ -724,6 +912,8 @@ export async function resolverRegistroExtemporaneo(
           ...metadata,
           aprobado_por_puesto: actor.puesto,
           metodo_ingreso: 'EXTEMPORANEO',
+          venta_registro_ids: ventaRegistroIds,
+          love_registro_ids: loveRegistroIds,
         },
       })
       .eq('id', row.id)
@@ -740,6 +930,8 @@ export async function resolverRegistroExtemporaneo(
         evento: 'registro_extemporaneo_aprobado',
         venta_registro_id: ventaRegistroId,
         love_registro_id: loveRegistroId,
+        venta_registro_ids: ventaRegistroIds,
+        love_registro_ids: loveRegistroIds,
       },
       usuario_id: actor.usuarioId,
       cuenta_cliente_id: row.cuenta_cliente_id,

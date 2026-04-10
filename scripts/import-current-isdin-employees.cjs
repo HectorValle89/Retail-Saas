@@ -331,11 +331,11 @@ async function getIsdinAccountId(supabase) {
 }
 
 async function findEmpleadoExistente(supabase, row) {
-  if (row.idNomina) {
+  if (row.curp) {
     const { data, error } = await supabase
       .from('empleado')
       .select('id, id_nomina, metadata')
-      .eq('id_nomina', row.idNomina)
+      .eq('curp', row.curp)
       .maybeSingle()
 
     if (error) {
@@ -347,11 +347,11 @@ async function findEmpleadoExistente(supabase, row) {
     }
   }
 
-  if (row.curp) {
+  if (row.idNomina) {
     const { data, error } = await supabase
       .from('empleado')
       .select('id, id_nomina, metadata')
-      .eq('curp', row.curp)
+      .eq('id_nomina', row.idNomina)
       .maybeSingle()
 
     if (error) {
@@ -620,8 +620,8 @@ async function upsertUsuario(supabase, row, empleadoId, cuentaClienteId, authPro
 function assertRowValid(row) {
   const errors = []
 
-  if (!row.idNomina) {
-    errors.push('Falta Clave')
+  if (!row.idNomina && !row.curp) {
+    errors.push('Falta Clave o CURP')
   }
 
   if (!row.nombreCompleto) {

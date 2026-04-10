@@ -2,7 +2,7 @@ import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ActorActual } from '@/lib/auth/session'
 import { createServiceClient } from '@/lib/supabase/server'
-import type { Database, Puesto } from '@/types/database'
+import type { Database, Puesto, Solicitud } from '@/types/database'
 import { deriveAttendanceDiscipline } from '@/features/asistencias/lib/attendanceDiscipline'
 import type { AttendanceMissionCatalogItem } from '@/features/asistencias/lib/attendanceMission'
 import {
@@ -28,6 +28,20 @@ import {
   fetchLoveQuotaTargetRows,
   LOVE_DAILY_QUOTA_DEFAULT,
 } from '@/features/love-isdin/lib/loveQuota'
+import { getIncapacidadNextActor } from '@/features/solicitudes/lib/incapacidadWorkflow'
+import {
+  buildRecruitmentCoverageBoard,
+  type RecruitmentCoverageSummary,
+} from '@/features/empleados/services/pdvCoberturaService'
+import {
+  obtenerWorkspaceNomina,
+  type NominaWorkspaceData,
+} from '@/features/nomina/services/nominaWorkspaceService'
+import {
+  obtenerResumenAlcanceVisitas,
+  type VisitReachDashboardSummary,
+} from '@/features/rutas/services/rutaSemanalService'
+export type { VisitReachDashboardSummary } from '@/features/rutas/services/rutaSemanalService'
 import {
   type CampaignEvidenceKind,
   readCampaignEvidenceTemplate,
@@ -35,10 +49,16 @@ import {
   readCampaignProductGoals,
 } from '@/features/campanas/lib/campaignProgress'
 import { resolveLoveQrSignedUrl } from '@/features/love-isdin/lib/loveQrImport'
+import {
+  buildVacationPolicySnapshot,
+  buildVacationTeamWeeklyLoad,
+  type VacationRangeLike,
+} from '@/features/solicitudes/lib/vacationPolicy'
 
 const DASHBOARD_REFRESH_MAX_AGE_MS = 5 * 60 * 1000
 const DASHBOARD_KPI_CACHE_TTL_MS = 5 * 60 * 1000
 const DASHBOARD_KPI_REVALIDATE_SECONDS = 60
+const DASHBOARD_VISIT_REACH_REVALIDATE_SECONDS = 60
 const DASHBOARD_LIVE_ALERT_LIMIT = 8
 const DASHBOARD_LIVE_QUERY_LIMIT = 250
 const DASHBOARD_GEOFENCE_LIMIT = 500
@@ -86,6 +106,9 @@ interface DashboardSupabaseClient {
       | 'love_isdin_qr_asignacion'
       | 'campana'
       | 'campana_pdv'
+      | 'ruta_semanal'
+      | 'ruta_semanal_visita'
+      | 'ruta_visita_pendiente_reposicion'
       | 'formacion_evento'
       | 'formacion_asistencia'
       | 'mensaje_interno'
@@ -435,6 +458,7 @@ interface DashboardDermoEmployeeProfileRow {
   telefono: string | null
   fecha_alta: string | null
   supervisor_empleado_id: string | null
+  metadata?: Record<string, unknown> | null
 }
 
 interface DashboardDermoProductRow {
@@ -587,8 +611,10 @@ export interface DashboardDermoconsejoFormation {
   horarioInicio: string | null
   horarioFin: string | null
   supervisorNombre: string | null
-  manualUrl: string | null
-  manualNombre: string | null
+  locationAddress: string | null
+  locationLatitude: number | null
+  locationLongitude: number | null
+  locationRadiusMeters: number | null
   attendanceId: string | null
   attendanceStatus: 'PENDIENTE' | 'LLEGADA_REGISTRADA' | 'SALIDA_REGISTRADA' | 'COMPLETA'
   checkInUtc: string | null
@@ -602,6 +628,7 @@ export interface DashboardDermoconsejoNotificationItem {
   createdAt: string
   estado: 'PENDIENTE' | 'LEIDO' | 'RESPONDIDO'
   tipo: string
+  remitente: string
 }
 
 export interface DashboardDermoconsejoNotificationsSummary {
@@ -685,6 +712,7 @@ export interface DashboardDermoconsejoQuickAction {
     | 'justificacion-faltas'
     | 'comunicacion'
     | 'incidencias'
+    | 'registro-extemporaneo'
     | 'perfil'
     | 'incapacidad'
     | 'vacaciones'
@@ -721,6 +749,44 @@ export interface DashboardDermoconsejoProductItem {
   nombreCorto: string
 }
 
+export interface DashboardVacationTeamWeekItem {
+  weekStart: string
+  weekEnd: string
+  absentCount: number
+  limit: number
+  blocked: boolean
+}
+
+export interface DashboardVacationPolicySummary {
+  ingresoOficial: string | null
+  eligible: boolean
+  annualDays: number
+  annualUsedDays: number
+  annualAvailableDays: number
+  currentSemester: 'PRIMER_SEMESTRE' | 'SEGUNDO_SEMESTRE' | null
+  currentSemesterLabel: string | null
+  nextUnlockDate: string | null
+  anniversaryStart: string | null
+  anniversaryEnd: string | null
+  firstSemester: {
+    availableFrom: string
+    availableUntil: string
+    totalDays: number
+    usedDays: number
+    availableDays: number
+    unlocked: boolean
+  } | null
+  secondSemester: {
+    availableFrom: string
+    availableUntil: string
+    totalDays: number
+    usedDays: number
+    availableDays: number
+    unlocked: boolean
+  } | null
+  teamWeeklyLoad: DashboardVacationTeamWeekItem[]
+}
+
 export interface DashboardDermoconsejoData {
   greetingName: string
   todayLabel: string
@@ -740,6 +806,7 @@ export interface DashboardDermoconsejoData {
   requestStatus: DashboardDermoconsejoSolicitudStatusItem[]
   catalogoProductos: DashboardDermoconsejoProductItem[]
   calendar: DashboardDermoconsejoCalendar
+  vacationPolicy: DashboardVacationPolicySummary | null
 }
 
 export interface DashboardDermoconsejoLoveQr {
@@ -860,11 +927,24 @@ export interface DashboardSupervisorLoveQuotaSummary {
   dcConMetaHoy: number
 }
 
+export interface DashboardSupervisorRouteSnapshot {
+  totalRutas: number
+  totalVisitas: number
+  visitasCompletadas: number
+  pendientesReposicion: number
+  currentWeekStart: string
+  nextWeekStart: string
+  nextWeekEnd: string
+  hasCurrentWeekRoute: boolean
+  hasNextWeekRoute: boolean
+}
+
 export type DashboardWidgetId =
   | 'dermoconsejo'
   | 'snapshot'
   | 'filtros'
   | 'metricas'
+  | 'alcance_visitas'
   | 'cartera'
   | 'mapa'
   | 'alertas'
@@ -892,7 +972,12 @@ export interface DashboardPanelData {
   supervisorAuthorizations: DashboardSupervisorAuthorizationItem[]
   supervisorRequestInbox: DashboardSupervisorRequestInbox
   supervisorSelfRequestStatus: DashboardDermoconsejoSolicitudStatusItem[]
+  supervisorVacationPolicy: DashboardVacationPolicySummary | null
   supervisorActiveFormation: DashboardDermoconsejoFormation | null
+  supervisorRouteSnapshot: DashboardSupervisorRouteSnapshot | null
+  recruitmentCoverage: RecruitmentCoverageSummary | null
+  nominaWorkspace: NominaWorkspaceData | null
+  visitReach: VisitReachDashboardSummary | null
 }
 
 export interface DashboardInsightsData {
@@ -924,6 +1009,19 @@ function roundToTwo(value: number) {
 
 function getTodayIso() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function normalizeMetadataRecord(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function readIngresoOficialFromMetadata(value: unknown) {
+  const metadata = normalizeMetadataRecord(value)
+  const onboarding = normalizeMetadataRecord(metadata.onboarding_operativo)
+  const ingreso = String(onboarding.fecha_ingreso_oficial ?? '').trim()
+  return ingreso || null
 }
 
 function formatLongDateLabel(value: string) {
@@ -997,12 +1095,113 @@ function getFirst<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value
 }
 
+function toVacationRangeLike(item: Pick<DashboardSolicitudRow, 'empleado_id' | 'fecha_inicio' | 'fecha_fin' | 'estatus'>): VacationRangeLike {
+  return {
+    empleadoId: item.empleado_id,
+    fechaInicio: item.fecha_inicio,
+    fechaFin: item.fecha_fin,
+    estatus: item.estatus,
+  }
+}
+
+function buildDashboardVacationPolicySummary(input: {
+  ingresoOficial: string | null
+  todayIso: string
+  approvedOwnRanges: VacationRangeLike[]
+  teamRanges: VacationRangeLike[]
+}): DashboardVacationPolicySummary | null {
+  const snapshot = buildVacationPolicySnapshot({
+    ingresoOficial: input.ingresoOficial,
+    todayIso: input.todayIso,
+    approvedRanges: input.approvedOwnRanges,
+  })
+
+  return {
+    ingresoOficial: snapshot.ingresoOficial,
+    eligible: snapshot.eligible,
+    annualDays: snapshot.annualDays,
+    annualUsedDays: snapshot.annualUsedDays,
+    annualAvailableDays: snapshot.annualAvailableDays,
+    currentSemester: snapshot.currentSemester,
+    currentSemesterLabel: snapshot.currentSemesterLabel,
+    nextUnlockDate: snapshot.nextUnlockDate,
+    anniversaryStart: snapshot.anniversaryStart,
+    anniversaryEnd: snapshot.anniversaryEnd,
+    firstSemester: snapshot.firstSemester
+      ? {
+          availableFrom: snapshot.firstSemester.availableFrom,
+          availableUntil: snapshot.firstSemester.availableUntil,
+          totalDays: snapshot.firstSemester.totalDays,
+          usedDays: snapshot.firstSemester.usedDays,
+          availableDays: snapshot.firstSemester.availableDays,
+          unlocked: snapshot.firstSemester.unlocked,
+        }
+      : null,
+    secondSemester: snapshot.secondSemester
+      ? {
+          availableFrom: snapshot.secondSemester.availableFrom,
+          availableUntil: snapshot.secondSemester.availableUntil,
+          totalDays: snapshot.secondSemester.totalDays,
+          usedDays: snapshot.secondSemester.usedDays,
+          availableDays: snapshot.secondSemester.availableDays,
+          unlocked: snapshot.secondSemester.unlocked,
+        }
+      : null,
+    teamWeeklyLoad: buildVacationTeamWeeklyLoad(input.teamRanges, input.todayIso, 8),
+  }
+}
+
 function normalizeConfigNumber(rows: DashboardConfigRow[], key: string, fallback: number) {
   const row = rows.find((item) => item.clave === key)
   const parsed = typeof row?.valor === 'number' ? row.valor : Number(row?.valor)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
+function serializeVisitReachCacheInput(
+  actor: ActorActual,
+  options: {
+    supervisorEmpleadoId?: string | null
+    weekStart?: string | null
+    cadenaCodigo?: string | null
+    storeType?: string | null
+  }
+) {
+  return JSON.stringify({
+    actor: {
+      puesto: actor.puesto,
+      cuentaClienteId: actor.cuentaClienteId ?? '',
+      empleadoId: actor.empleadoId ?? '',
+    },
+    options: {
+      supervisorEmpleadoId: options.supervisorEmpleadoId ?? '',
+      weekStart: options.weekStart ?? '',
+      cadenaCodigo: options.cadenaCodigo ?? '',
+      storeType: options.storeType ?? '',
+    },
+  })
+}
+
+const fetchCachedVisitReachSummary = unstable_cache(
+  async (serializedInput: string) => {
+    const parsed = JSON.parse(serializedInput) as {
+      actor: Pick<ActorActual, 'puesto' | 'cuentaClienteId' | 'empleadoId'>
+      options: {
+        supervisorEmpleadoId?: string
+        weekStart?: string
+        cadenaCodigo?: string
+        storeType?: string
+      }
+    }
+
+    return obtenerResumenAlcanceVisitas(
+      createServiceClient() as unknown as SupabaseClient<any>,
+      parsed.actor as ActorActual,
+      parsed.options
+    )
+  },
+  ['dashboard-visit-reach'],
+  { revalidate: DASHBOARD_VISIT_REACH_REVALIDATE_SECONDS }
+)
 function buildEmptyDashboard(scopeLabel: string, mensajeInfraestructura?: string): DashboardPanelData {
   return {
     stats: EMPTY_STATS,
@@ -1017,12 +1216,13 @@ function buildEmptyDashboard(scopeLabel: string, mensajeInfraestructura?: string
       dermoconsejo: null,
       supervisorDailyBoard: null,
       supervisorLoveQuota: null,
+      supervisorVacationPolicy: null,
       supervisorNotifications: {
         unreadCount: 0,
         items: [],
       },
         supervisorAuthorizations: [],
-        supervisorRequestInbox: {
+      supervisorRequestInbox: {
           items: [],
           summaries: [
             { key: 'TODAS', label: 'Todas', count: 0, actionableCount: 0 },
@@ -1031,8 +1231,12 @@ function buildEmptyDashboard(scopeLabel: string, mensajeInfraestructura?: string
             { key: 'CUMPLEANOS', label: 'Dia cumple', count: 0, actionableCount: 0 },
           ],
         },
-        supervisorSelfRequestStatus: [],
+      supervisorSelfRequestStatus: [],
       supervisorActiveFormation: null,
+      supervisorRouteSnapshot: null,
+      recruitmentCoverage: null,
+      nominaWorkspace: null,
+      visitReach: null,
     }
 }
 
@@ -1052,6 +1256,8 @@ export function resolveDashboardWidgets(puesto: Puesto): DashboardWidgetId[] {
         'alertas',
         'pulso_comercial',
       ]
+    case 'RECLUTAMIENTO':
+      return ['snapshot', 'metricas', 'alertas']
     case 'COORDINADOR':
     case 'ADMINISTRADOR':
       return [
@@ -1068,6 +1274,19 @@ export function resolveDashboardWidgets(puesto: Puesto): DashboardWidgetId[] {
       return ['snapshot', 'filtros', 'metricas', 'cartera', 'alertas', 'pulso_comercial']
     default:
       return ['snapshot', 'filtros', 'metricas', 'cartera', 'pulso_comercial']
+  }
+}
+
+function buildRoleScopedSummary(
+  scopeLabel: string,
+  actor: ActorActual,
+  partial: Partial<DashboardPanelData>
+): DashboardPanelData {
+  return {
+    ...buildEmptyDashboard(scopeLabel),
+    widgets: resolveDashboardWidgets(actor.puesto),
+    scopeLabel,
+    ...partial,
   }
 }
 
@@ -1216,12 +1435,16 @@ async function fetchDermoconsejoSales(
   actor: ActorActual,
   todayIso: string
 ) {
+  const windowStartIso = `${addDaysIso(todayIso, -1)}T00:00:00.000Z`
+  const windowEndIso = `${addDaysIso(todayIso, 1)}T23:59:59.999Z`
   const result = await supabase
     .from('venta')
     .select('id, empleado_id, fecha_utc, metadata')
     .eq('empleado_id', actor.empleadoId)
+    .gte('fecha_utc', windowStartIso)
+    .lte('fecha_utc', windowEndIso)
     .order('fecha_utc', { ascending: false })
-    .limit(80)
+    .limit(24)
 
   return {
     data: ((result.data ?? []) as DashboardDermoSaleRow[]).filter(
@@ -1236,12 +1459,16 @@ async function fetchDermoconsejoLove(
   actor: ActorActual,
   todayIso: string
 ) {
+  const windowStartIso = `${addDaysIso(todayIso, -1)}T00:00:00.000Z`
+  const windowEndIso = `${addDaysIso(todayIso, 1)}T23:59:59.999Z`
   const result = await supabase
     .from('love_isdin')
     .select('id, empleado_id, fecha_utc, metadata')
     .eq('empleado_id', actor.empleadoId)
+    .gte('fecha_utc', windowStartIso)
+    .lte('fecha_utc', windowEndIso)
     .order('fecha_utc', { ascending: false })
-    .limit(80)
+    .limit(24)
 
   return {
     data: ((result.data ?? []) as DashboardDermoLoveRow[]).filter(
@@ -1475,8 +1702,10 @@ async function fetchDermoconsejoActiveFormation(
 
 async function fetchDermoconsejoNotifications(
   supabase: DashboardSupabaseClient,
-  actor: ActorActual
+  actor: ActorActual,
+  options: { includeItems?: boolean } = {}
 ) {
+  const includeItems = options.includeItems ?? true
   const recipientResult = await supabase
     .from('mensaje_receptor')
     .select('id, mensaje_id, empleado_id, estado, leido_en, created_at')
@@ -1493,6 +1722,16 @@ async function fetchDermoconsejoNotifications(
   }
 
   const recipients = (recipientResult.data ?? []) as DashboardDermoNotificationRecipientRow[]
+  const unreadCount = recipients.filter((item) => item.estado === 'PENDIENTE').length
+
+  if (!includeItems) {
+    return {
+      data: [] as DashboardDermoconsejoNotificationItem[],
+      unreadCount,
+      error: null,
+    }
+  }
+
   const messageIds = Array.from(new Set(recipients.map((item) => item.mensaje_id).filter(Boolean)))
 
   if (messageIds.length === 0) {
@@ -1586,10 +1825,6 @@ async function fetchDermoconsejoNotifications(
         ? creatorByEmployeeId.get(creatorUser.empleado_id) ?? null
         : null
 
-      if (creatorEmployee?.puesto !== 'ADMINISTRADOR') {
-        return null
-      }
-
       return {
         id: recipient.id,
         titulo: message.titulo,
@@ -1597,6 +1832,7 @@ async function fetchDermoconsejoNotifications(
         createdAt: message.created_at,
         estado: recipient.estado,
         tipo: message.tipo,
+        remitente: creatorEmployee?.nombre_completo ?? 'Sistema',
       } satisfies DashboardDermoconsejoNotificationItem
     })
     .filter((item): item is DashboardDermoconsejoNotificationItem => Boolean(item))
@@ -1604,7 +1840,7 @@ async function fetchDermoconsejoNotifications(
 
   return {
     data: adminNotifications,
-    unreadCount: adminNotifications.filter((item) => item.estado === 'PENDIENTE').length,
+    unreadCount,
     error: null,
   }
 }
@@ -1617,7 +1853,7 @@ async function fetchDermoconsejoProfile(
   const profileResult = await supabase
     .from('empleado')
     .select(
-      'id, nombre_completo, puesto, zona, correo_electronico, telefono, fecha_alta, supervisor_empleado_id'
+      'id, nombre_completo, puesto, zona, correo_electronico, telefono, fecha_alta, supervisor_empleado_id, metadata'
     )
     .eq('id', actor.empleadoId)
     .limit(1)
@@ -1653,7 +1889,7 @@ async function fetchDermoconsejoProfile(
     const supervisorResult = await supabase
       .from('empleado')
       .select(
-        'id, nombre_completo, puesto, zona, correo_electronico, telefono, fecha_alta, supervisor_empleado_id'
+        'id, nombre_completo, puesto, zona, correo_electronico, telefono, fecha_alta, supervisor_empleado_id, metadata'
       )
       .eq('id', profileRow.supervisor_empleado_id)
       .limit(1)
@@ -1741,6 +1977,14 @@ function buildDermoconsejoQuickActions() {
       preferredSnap: 'expanded',
     },
     {
+      key: 'registro-extemporaneo',
+      label: 'Registro extemporaneo',
+      helper: 'Regulariza ventas y LOVE ISDIN de dias anteriores',
+      href: '/solicitudes?tipo=REGISTRO_EXTEMPORANEO',
+      accent: 'amber',
+      preferredSnap: 'expanded',
+    },
+    {
       key: 'justificacion-faltas',
       label: 'Justificacion de faltas',
       helper: 'Justifica una falta con receta del IMSS',
@@ -1751,7 +1995,7 @@ function buildDermoconsejoQuickActions() {
     {
       key: 'incapacidad',
       label: 'Incapacidad',
-      helper: 'Enviar incapacidad directa a nomina',
+      helper: 'Enviar incapacidad con validacion de supervision, reclutamiento y nomina',
       href: '/solicitudes?tipo=INCAPACIDAD',
       accent: 'rose',
       preferredSnap: 'expanded',
@@ -1829,10 +2073,145 @@ async function fetchDermoconsejoRequestStatus(
   }
 }
 
-async function buildDermoconsejoData(
+async function buildVacationPolicyForEmployee(
+  supabase: DashboardSupabaseClient,
+  input: {
+    empleadoId: string
+    todayIso: string
+    teamRanges?: VacationRangeLike[]
+  }
+) {
+  const [employeeResult, ownVacationResult] = await Promise.all([
+    supabase
+      .from('empleado')
+      .select('id, fecha_alta, metadata')
+      .eq('id', input.empleadoId)
+      .limit(1),
+    supabase
+      .from('solicitud')
+      .select('empleado_id, fecha_inicio, fecha_fin, estatus')
+      .eq('empleado_id', input.empleadoId)
+      .eq('tipo', 'VACACIONES')
+      .eq('estatus', 'REGISTRADA')
+      .limit(64),
+  ])
+
+  if (employeeResult.error || ownVacationResult.error) {
+    return null
+  }
+
+  const employee = ((employeeResult.data ?? []) as Array<{
+    id: string
+    fecha_alta: string | null
+    metadata: Record<string, unknown> | null
+  }>)[0] ?? null
+
+  const ingresoOficial = employee
+    ? readIngresoOficialFromMetadata(employee.metadata) ?? employee.fecha_alta
+    : null
+  const approvedOwnRanges = ((ownVacationResult.data ?? []) as Array<{
+    empleado_id: string
+    fecha_inicio: string
+    fecha_fin: string
+    estatus: string
+  }>).map((item) => ({
+    empleadoId: item.empleado_id,
+    fechaInicio: item.fecha_inicio,
+    fechaFin: item.fecha_fin,
+    estatus: item.estatus,
+  }))
+  const teamRanges =
+    input.teamRanges ??
+    approvedOwnRanges
+
+  return buildDashboardVacationPolicySummary({
+    ingresoOficial,
+    todayIso: input.todayIso,
+    approvedOwnRanges,
+    teamRanges,
+  })
+}
+
+async function fetchSupervisorRouteSnapshot(
   supabase: DashboardSupabaseClient,
   actor: ActorActual
+): Promise<DashboardSupervisorRouteSnapshot | null> {
+  const currentWeekStart = getTodayIso()
+  const currentWeek = new Date(`${currentWeekStart}T12:00:00`)
+  const currentWeekday = currentWeek.getUTCDay() === 0 ? 7 : currentWeek.getUTCDay()
+  currentWeek.setUTCDate(currentWeek.getUTCDate() - currentWeekday + 1)
+  const currentWeekIso = currentWeek.toISOString().slice(0, 10)
+  const nextWeekDate = new Date(`${currentWeekIso}T12:00:00`)
+  nextWeekDate.setUTCDate(nextWeekDate.getUTCDate() + 7)
+  const nextWeekStart = nextWeekDate.toISOString().slice(0, 10)
+  const nextWeekEnd = addDaysIso(nextWeekStart, 6)
+
+  let rutasQuery = supabase
+    .from('ruta_semanal')
+    .select('id, cuenta_cliente_id, supervisor_empleado_id, semana_inicio, estatus')
+    .eq('supervisor_empleado_id', actor.empleadoId)
+    .order('semana_inicio', { ascending: false })
+
+  let visitasQuery = supabase
+    .from('ruta_semanal_visita')
+    .select('id, ruta_semanal_id, supervisor_empleado_id, estatus')
+    .eq('supervisor_empleado_id', actor.empleadoId)
+    .order('created_at', { ascending: false })
+
+  let pendientesQuery = supabase
+    .from('ruta_visita_pendiente_reposicion')
+    .select('id, supervisor_empleado_id')
+    .eq('supervisor_empleado_id', actor.empleadoId)
+
+  if (actor.cuentaClienteId) {
+    rutasQuery = rutasQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+    visitasQuery = visitasQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+    pendientesQuery = pendientesQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+
+  const [rutasResult, visitasResult, pendientesResult] = await Promise.all([
+    rutasQuery.limit(24),
+    visitasQuery.limit(400),
+    pendientesQuery.limit(200),
+  ])
+
+  if (rutasResult.error || visitasResult.error || pendientesResult.error) {
+    return null
+  }
+
+  const rutas = (rutasResult.data ?? []) as Array<{
+    id: string
+    semana_inicio: string
+    estatus: string
+  }>
+  const visitas = (visitasResult.data ?? []) as Array<{
+    ruta_semanal_id: string
+    estatus: string
+  }>
+  const totalVisitas = visitas.length
+  const visitasCompletadas = visitas.filter((item) => item.estatus === 'COMPLETADA').length
+  const nextWeekRoute = rutas.find((item) => item.semana_inicio === nextWeekStart) ?? null
+  const currentWeekRoute = rutas.find((item) => item.semana_inicio === currentWeekIso) ?? null
+
+  return {
+    totalRutas: rutas.length,
+    totalVisitas,
+    visitasCompletadas,
+    pendientesReposicion: (pendientesResult.data ?? []).length,
+    currentWeekStart: currentWeekIso,
+    nextWeekStart,
+    nextWeekEnd,
+    hasCurrentWeekRoute: Boolean(currentWeekRoute),
+    hasNextWeekRoute: Boolean(nextWeekRoute && totalVisitas > 0),
+  }
+}
+
+async function buildDermoconsejoData(
+  supabase: DashboardSupabaseClient,
+  actor: ActorActual,
+  options: { includeSecondaryData?: boolean } = {}
 ): Promise<DashboardDermoconsejoData> {
+  const includeSecondaryData = options.includeSecondaryData ?? true
   const todayIso = getTodayIso()
   const [
     assignmentsResult,
@@ -1848,9 +2227,21 @@ async function buildDermoconsejoData(
     fetchDermoconsejoAttendances(supabase, actor, todayIso),
     fetchDermoconsejoSales(supabase, actor, todayIso),
     fetchDermoconsejoLove(supabase, actor, todayIso),
-    fetchDermoconsejoLoveQr(supabase, actor),
-    fetchDermoconsejoProductCatalog(supabase),
-    fetchDermoconsejoNotifications(supabase, actor),
+    includeSecondaryData
+      ? fetchDermoconsejoLoveQr(supabase, actor)
+      : Promise.resolve({
+          data: null as DashboardDermoconsejoLoveQr | null,
+          error: null,
+        }),
+    includeSecondaryData
+      ? fetchDermoconsejoProductCatalog(supabase)
+      : Promise.resolve({
+          data: [] as DashboardDermoconsejoProductItem[],
+          error: null,
+        }),
+    fetchDermoconsejoNotifications(supabase, actor, {
+      includeItems: includeSecondaryData,
+    }),
     fetchDermoconsejoRequestStatus(supabase, actor),
   ])
 
@@ -1889,13 +2280,15 @@ async function buildDermoconsejoData(
     fetchDermoconsejoMissionCatalog(supabase),
   ])
   const supportServiceForCampaign =
-    (() => {
+    includeSecondaryData
+      ? (() => {
       try {
         return createServiceClient() as unknown as DashboardSupabaseClient
       } catch {
         return null
       }
     })()
+      : null
   const productCatalogMap = new Map(
     (productCatalogResult.error ? [] : productCatalogResult.data).map((item) => [item.id, item] as const)
   )
@@ -1925,8 +2318,8 @@ async function buildDermoconsejoData(
               campaign.evidencias_requeridas ?? []
             )
             const productGoals = readCampaignProductGoals(campaign.metadata)
-            const productLabels =
-              productGoals.length > 0
+            const productLabels = includeSecondaryData
+              ? productGoals.length > 0
                 ? productGoals.map((goal) => {
                     const product = productCatalogMap.get(goal.productId)
                     const quotaLabel =
@@ -1939,6 +2332,7 @@ async function buildDermoconsejoData(
                     const product = productCatalogMap.get(productId)
                     return product ? product.nombreCorto : productId
                   })
+              : []
 
             return {
               id: campaign.id,
@@ -1950,20 +2344,22 @@ async function buildDermoconsejoData(
               instrucciones: campaign.instrucciones,
               productosFoco: productLabels,
               evidenciasRequeridas: campaign.evidencias_requeridas ?? [],
-              evidenceTemplate: evidenceTemplate.map((item) => ({
-                id: item.id,
-                label: item.label,
-                kind: item.kind,
-              })),
+              evidenceTemplate: includeSecondaryData
+                ? evidenceTemplate.map((item) => ({
+                    id: item.id,
+                    label: item.label,
+                    kind: item.kind,
+                  }))
+                : [],
               cuotaAdicional: campaign.cuota_adicional ?? 0,
               manualMercadeoUrl:
-                manualMercadeo && supportServiceForCampaign
+                includeSecondaryData && manualMercadeo && supportServiceForCampaign
                   ? await resolveLoveQrSignedUrl(
                       supportServiceForCampaign as unknown as SupabaseClient<any>,
                       manualMercadeo.url
                     )
-                  : manualMercadeo?.url ?? null,
-              manualMercadeoNombre: manualMercadeo?.fileName ?? null,
+                  : null,
+              manualMercadeoNombre: includeSecondaryData ? manualMercadeo?.fileName ?? null : null,
               ctaHref: '/campanas',
             } satisfies DashboardDermoconsejoCampaign
           })
@@ -1998,8 +2394,10 @@ async function buildDermoconsejoData(
           horarioInicio: activeFormationTargeting?.scheduleStart ?? null,
           horarioFin: activeFormationTargeting?.scheduleEnd ?? null,
           supervisorNombre: activeFormationTargeting?.supervisorName ?? null,
-          manualUrl: activeFormationTargeting?.manualDocument?.url ?? null,
-          manualNombre: activeFormationTargeting?.manualDocument?.fileName ?? null,
+          locationAddress: activeFormationTargeting?.locationAddress ?? null,
+          locationLatitude: activeFormationTargeting?.locationLatitude ?? null,
+          locationLongitude: activeFormationTargeting?.locationLongitude ?? null,
+          locationRadiusMeters: activeFormationTargeting?.locationRadiusMeters ?? null,
           attendanceId: (activeFormationResult.data as DashboardDermoFormationRow & { attendance_id?: string | null }).attendance_id ?? null,
           attendanceStatus:
             ((activeFormationResult.data as DashboardDermoFormationRow & { attendance_status?: DashboardDermoconsejoFormation['attendanceStatus'] }).attendance_status ??
@@ -2074,11 +2472,19 @@ async function buildDermoconsejoData(
               : 'Necesitas una asignacion activa con PDV y horario para registrar la llegada.'
   const previousMissionId = latestAttendance?.mision_dia_id ?? null
   const previousMissionCodigo = latestAttendance?.mision_codigo ?? null
-  const profileResult = await fetchDermoconsejoProfile(
-    supabase,
-    actor,
-    chosenPdv?.nombre ?? latestAttendance?.pdv_nombre ?? 'Sin sucursal asignada hoy'
-  )
+  const [profileResult, vacationPolicy] = await Promise.all([
+    fetchDermoconsejoProfile(
+      supabase,
+      actor,
+      chosenPdv?.nombre ?? latestAttendance?.pdv_nombre ?? 'Sin sucursal asignada hoy'
+    ),
+    includeSecondaryData
+      ? buildVacationPolicyForEmployee(supabase, {
+          empleadoId: actor.empleadoId,
+          todayIso,
+        })
+      : Promise.resolve(null),
+  ])
   const quickActions = buildDermoconsejoQuickActions().map((item) =>
     item.key === 'comunicacion'
       ? { ...item, badgeCount: notificationsResult.unreadCount }
@@ -2217,6 +2623,7 @@ async function buildDermoconsejoData(
     requestStatus: requestStatusResult.error ? [] : requestStatusResult.data,
     catalogoProductos: productCatalogResult.error ? [] : productCatalogResult.data,
     calendar,
+    vacationPolicy,
   }
 }
 
@@ -2865,15 +3272,16 @@ function buildLiveAlerts(
     })
     .filter(Boolean) as DashboardLiveAlertItem[]
 
-  const discipline = deriveAttendanceDiscipline({
-    assignments: options.assignments.map((item) => ({
-      id: item.id,
-      empleadoId: item.empleado_id,
-      cuentaClienteId: item.cuenta_cliente_id,
-      supervisorEmpleadoId: item.supervisor_empleado_id,
-      fechaInicio: item.fecha_inicio,
-      fechaFin: item.fecha_fin,
-      tipo: item.tipo,
+    const discipline = deriveAttendanceDiscipline({
+      assignments: options.assignments.map((item) => ({
+        id: item.id,
+        empleadoId: item.empleado_id,
+        pdvId: item.pdv_id,
+        cuentaClienteId: item.cuenta_cliente_id,
+        supervisorEmpleadoId: item.supervisor_empleado_id,
+        fechaInicio: item.fecha_inicio,
+        fechaFin: item.fecha_fin,
+        tipo: item.tipo,
       diasLaborales: item.dias_laborales,
       diaDescanso: item.dia_descanso,
       horarioReferencia: item.horario_referencia,
@@ -3063,8 +3471,24 @@ function buildMapItems(
 function getDashboardSolicitudNextActor(item: DashboardSolicitudRow): string | null {
   const metadata =
     item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
-      ? item.metadata
+      ? (item.metadata as Record<string, unknown>)
       : {}
+  const configuredNextActor =
+    typeof metadata.siguiente_actor === 'string' && metadata.siguiente_actor.trim().length > 0
+      ? metadata.siguiente_actor.trim()
+      : null
+
+  if (configuredNextActor) {
+    return configuredNextActor
+  }
+
+  if (item.tipo === 'INCAPACIDAD') {
+    return getIncapacidadNextActor({
+      estatus: item.estatus as Solicitud['estatus'],
+      metadata,
+    })
+  }
+
   const approvalPath = Array.isArray(metadata.approval_path)
     ? metadata.approval_path.map((value) => String(value).trim().toUpperCase()).filter(Boolean)
     : []
@@ -3274,11 +3698,35 @@ function buildSupervisorRequestInbox(
   }
 }
 
+function buildSupervisorRequestInboxFromSummaries(
+  summaries: DashboardSupervisorRequestSummaryItem[]
+): DashboardSupervisorRequestInbox {
+  return {
+    items: [],
+    summaries:
+      summaries.length > 0
+        ? summaries
+        : [
+            { key: 'TODAS', label: 'Todas', count: 0, actionableCount: 0 },
+            { key: 'VACACIONES', label: 'Vacaciones', count: 0, actionableCount: 0 },
+            { key: 'INCAPACIDAD', label: 'Incapacidades', count: 0, actionableCount: 0 },
+            { key: 'CUMPLEANOS', label: 'Dia cumple', count: 0, actionableCount: 0 },
+            { key: 'JUSTIFICACION_FALTA', label: 'Justificacion', count: 0, actionableCount: 0 },
+          ],
+  }
+}
+
 export interface DashboardPanelOptions {
   period?: string
   estado?: string
   zona?: string
   supervisorId?: string
+  reachSupervisorId?: string
+  reachWeekStart?: string
+  reachChain?: string
+  reachStoreType?: string
+  includeDermoSecondaryData?: boolean
+  includeSupervisorSecondaryData?: boolean
 }
 
 async function resolveDashboardContext(
@@ -3319,8 +3767,187 @@ async function resolveDashboardContext(
     }
   }
 
+  if (actor.puesto === 'RECLUTAMIENTO') {
+    try {
+      const coverage = await buildRecruitmentCoverageBoard(
+        supabase as unknown as SupabaseClient<any>,
+        {
+          actor,
+          emitSideEffects: false,
+        }
+      )
+
+      return {
+        scopeLabel,
+        filters,
+        empty: null,
+        summary: {
+          ...buildEmptyDashboard(scopeLabel),
+          infraestructuraLista: true,
+          mensajeInfraestructura: undefined,
+          filtros: filters,
+          opcionesFiltro: { estados: [], zonas: [], supervisores: [] },
+          widgets: resolveDashboardWidgets(actor.puesto),
+          scopeLabel: 'Cobertura de reclutamiento',
+          recruitmentCoverage: coverage.summary,
+        },
+        insights: {
+          tendenciaSemana: [],
+          tendenciaMes: [],
+          alertasLive: [],
+          mapaPromotores: [],
+          filtros: filters,
+          widgets: resolveDashboardWidgets(actor.puesto),
+        },
+      }
+    } catch (error) {
+      return {
+        scopeLabel,
+        filters,
+        empty: buildEmptyDashboard(
+          scopeLabel,
+          error instanceof Error
+            ? error.message
+            : 'No fue posible resolver la cobertura operativa para Reclutamiento.'
+        ),
+      }
+    }
+  }
+
+  if (actor.puesto === 'NOMINA') {
+    try {
+      const [workspace, pendingImss] = await Promise.all([
+        obtenerWorkspaceNomina(supabase as unknown as SupabaseClient<any>, actor),
+        fetchDashboardPendingImss(supabase, actor),
+      ])
+      const imssPendientes = Math.max(
+        workspace.summary.altasImssPendientes,
+        pendingImss.data.length
+      )
+      const nominaAlerts = pendingImss.data.map((item) => {
+        const metadata =
+          item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
+            ? item.metadata
+            : {}
+        const workflowStage = String(metadata.workflow_stage ?? '').trim()
+        const fechaReferencia = item.expediente_validado_en ?? item.created_at
+        const motivo =
+          workflowStage === 'EN_FLUJO_IMSS'
+            ? 'Alta IMSS iniciada por Nomina, pero todavia no cerrada.'
+            : item.imss_estado === 'ERROR'
+              ? 'Expediente con incidencia de IMSS. Requiere correccion y seguimiento.'
+              : item.imss_estado === 'PENDIENTE_DOCUMENTOS'
+                ? 'Expediente validado y pendiente de documentos para completar el alta IMSS.'
+                : 'Expediente validado y listo para que Nomina procese el alta IMSS.'
+
+        return {
+          id: `imss:${item.id}`,
+          tipo: 'IMSS_PENDIENTE',
+          cuentaClienteId: '',
+          pdvId: null,
+          pdv: 'Alta IMSS pendiente',
+          pdvClaveBtl: null,
+          empleado: item.nombre_completo,
+          fechaOperacion: fechaReferencia.slice(0, 10),
+          radioToleranciaMetros: null,
+          motivo,
+          estadoGps: item.imss_estado,
+          distanciaCheckInMetros: null,
+        } satisfies DashboardLiveAlertItem
+      })
+
+      return {
+        scopeLabel,
+        filters,
+        empty: null,
+        summary: {
+          ...buildEmptyDashboard(scopeLabel),
+          infraestructuraLista: workspace.infraestructuraLista,
+          mensajeInfraestructura: workspace.mensajeInfraestructura,
+          filtros: filters,
+          opcionesFiltro: { estados: [], zonas: [], supervisores: [] },
+          widgets: resolveDashboardWidgets(actor.puesto),
+        scopeLabel: 'Operacion de nomina',
+        stats: {
+          ...EMPTY_STATS,
+          imssPendientes,
+        },
+          nominaWorkspace: workspace,
+        },
+        insights: {
+          tendenciaSemana: [],
+          tendenciaMes: [],
+          alertasLive: nominaAlerts,
+          mapaPromotores: [],
+          filtros: filters,
+          widgets: resolveDashboardWidgets(actor.puesto),
+        },
+      }
+    } catch (error) {
+      return {
+        scopeLabel,
+        filters,
+        empty: buildEmptyDashboard(
+          scopeLabel,
+          error instanceof Error
+            ? error.message
+            : 'No fue posible resolver el workspace operativo de Nomina.'
+        ),
+      }
+    }
+  }
+
+  let visitReach: VisitReachDashboardSummary | null = null
+
+  if (actor.puesto === 'COORDINADOR' || actor.puesto === 'ADMINISTRADOR') {
+    try {
+      const visitReachOptions = {
+        supervisorEmpleadoId: options.reachSupervisorId,
+        weekStart: options.reachWeekStart,
+        cadenaCodigo: options.reachChain,
+        storeType: options.reachStoreType,
+      }
+
+      visitReach = customSupabase
+        ? await obtenerResumenAlcanceVisitas(
+            supabase as unknown as SupabaseClient<any>,
+            actor,
+            visitReachOptions
+          )
+        : await fetchCachedVisitReachSummary(
+            serializeVisitReachCacheInput(actor, visitReachOptions)
+          )
+    } catch {
+      visitReach = null
+    }
+  }
+
   const dermoconsejoData =
-    actor.puesto === 'DERMOCONSEJERO' ? await buildDermoconsejoData(supabase, actor) : null
+    actor.puesto === 'DERMOCONSEJERO'
+      ? await buildDermoconsejoData(supabase, actor, {
+          includeSecondaryData: options.includeDermoSecondaryData ?? true,
+        })
+      : null
+  if (actor.puesto === 'DERMOCONSEJERO') {
+    return {
+      scopeLabel,
+      filters,
+      empty: null,
+      summary: buildRoleScopedSummary(scopeLabel, actor, {
+        dermoconsejo: dermoconsejoData,
+        filtros: filters,
+      }),
+      insights: {
+        tendenciaSemana: [],
+        tendenciaMes: [],
+        alertasLive: [],
+        mapaPromotores: [],
+        filtros: filters,
+        widgets: resolveDashboardWidgets(actor.puesto),
+      },
+    }
+  }
+
   const supervisorSelfRequestStatusResult =
     actor.puesto === 'SUPERVISOR'
       ? await fetchDermoconsejoRequestStatus(supabase, actor)
@@ -3337,6 +3964,141 @@ async function resolveDashboardContext(
           pdvIds: [],
         })
       : { data: null as DashboardDermoFormationRow | null, error: null }
+
+  if (actor.puesto === 'SUPERVISOR') {
+    const includeSupervisorSecondaryData = options.includeSupervisorSecondaryData ?? false
+    const [
+      liveAsistenciasResult,
+      supervisorDailyAssignmentsResult,
+      solicitudesResult,
+      configResult,
+      supervisorNotificationsResult,
+      supervisorLoveQuota,
+      supervisorRouteSnapshot,
+    ] = await Promise.all([
+      fetchLiveAssistances(supabase, actor, allowGlobalScope),
+      fetchSupervisorDailyAssignments(supabase, actor, allowGlobalScope),
+      includeSupervisorSecondaryData
+        ? fetchDashboardSolicitudes(supabase)
+        : fetchSupervisorRequestSummaries(supabase, actor),
+      fetchDashboardConfig(supabase),
+      fetchDermoconsejoNotifications(supabase, actor, {
+        includeItems: includeSupervisorSecondaryData,
+      }),
+      buildSupervisorLoveQuotaSummary(supabase, actor, getTodayIso()),
+      fetchSupervisorRouteSnapshot(supabase, actor),
+    ])
+
+    const toleranceMinutes = normalizeConfigNumber(
+      configResult.data,
+      'asistencias.tolerancia_checkin_minutos',
+      15
+    )
+    const supervisorRequestInbox = solicitudesResult.error
+      ? buildSupervisorRequestInbox({ ...actor, puesto: actor.puesto }, [])
+      : includeSupervisorSecondaryData
+        ? buildSupervisorRequestInbox(actor, solicitudesResult.data as DashboardSolicitudRow[])
+        : (solicitudesResult.data as DashboardSupervisorRequestInbox)
+    const supervisorAuthorizations =
+      solicitudesResult.error || !includeSupervisorSecondaryData
+        ? []
+        : buildSupervisorAuthorizationItems(actor, solicitudesResult.data as DashboardSolicitudRow[])
+    const teamVacationRanges =
+      solicitudesResult.error || !includeSupervisorSecondaryData
+        ? []
+        : (solicitudesResult.data as DashboardSolicitudRow[])
+            .filter(
+              (item) =>
+                item.tipo === 'VACACIONES' &&
+                item.estatus === 'REGISTRADA' &&
+                item.supervisor_empleado_id === actor.empleadoId
+            )
+            .map(toVacationRangeLike)
+    const refreshedVacationPolicy = includeSupervisorSecondaryData
+      ? await buildVacationPolicyForEmployee(supabase, {
+          empleadoId: actor.empleadoId,
+          todayIso: getTodayIso(),
+          teamRanges: teamVacationRanges,
+        })
+      : null
+    const supervisorDailyBoard = supervisorDailyAssignmentsResult.error
+      ? null
+      : buildSupervisorDailyBoard(
+          actor,
+          supervisorDailyAssignmentsResult.data,
+          liveAsistenciasResult.error ? [] : liveAsistenciasResult.data,
+          getTodayIso(),
+          toleranceMinutes
+        )
+
+    return {
+      scopeLabel,
+      filters,
+      empty: null,
+      summary: buildRoleScopedSummary(scopeLabel, actor, {
+        filtros: filters,
+        supervisorDailyBoard,
+        supervisorLoveQuota,
+        supervisorNotifications: {
+          unreadCount: supervisorNotificationsResult.unreadCount,
+          items: supervisorNotificationsResult.data,
+        },
+        supervisorAuthorizations,
+        supervisorRequestInbox,
+        supervisorSelfRequestStatus: supervisorSelfRequestStatusResult.error
+          ? []
+          : supervisorSelfRequestStatusResult.data,
+        supervisorVacationPolicy: refreshedVacationPolicy,
+        supervisorActiveFormation: supervisorActiveFormationResult.error
+          ? null
+          : supervisorActiveFormationResult.data
+            ? (() => {
+                const targeting = normalizeFormacionTargetingMetadata(supervisorActiveFormationResult.data.metadata)
+                return {
+                  id: supervisorActiveFormationResult.data.id,
+                  nombre: supervisorActiveFormationResult.data.nombre,
+                  fechaInicio: supervisorActiveFormationResult.data.fecha_inicio,
+                  fechaFin: supervisorActiveFormationResult.data.fecha_fin,
+                  sede: supervisorActiveFormationResult.data.sede,
+                  tipo: supervisorActiveFormationResult.data.tipo,
+                  tipoEvento: targeting.eventType,
+                  modalidad: targeting.modality,
+                  horarioInicio: targeting.scheduleStart,
+                  horarioFin: targeting.scheduleEnd,
+                  supervisorNombre: targeting.supervisorName,
+                  locationAddress: targeting.locationAddress ?? null,
+                  locationLatitude: targeting.locationLatitude ?? null,
+                  locationLongitude: targeting.locationLongitude ?? null,
+                  locationRadiusMeters: targeting.locationRadiusMeters ?? null,
+                  attendanceId:
+                    (supervisorActiveFormationResult.data as DashboardDermoFormationRow & { attendance_id?: string | null }).attendance_id ?? null,
+                  attendanceStatus:
+                    ((supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
+                      attendance_status?: DashboardDermoconsejoFormation['attendanceStatus']
+                    }).attendance_status ?? 'PENDIENTE'),
+                  checkInUtc:
+                    (supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
+                      attendance_check_in_utc?: string | null
+                    }).attendance_check_in_utc ?? null,
+                  checkOutUtc:
+                    (supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
+                      attendance_check_out_utc?: string | null
+                    }).attendance_check_out_utc ?? null,
+                }
+              })()
+            : null,
+        supervisorRouteSnapshot,
+      }),
+      insights: {
+        tendenciaSemana: [],
+        tendenciaMes: [],
+        alertasLive: [],
+        mapaPromotores: [],
+        filtros: filters,
+        widgets: resolveDashboardWidgets(actor.puesto),
+      },
+    }
+  }
 
   const [
     dashboardResult,
@@ -3419,14 +4181,12 @@ async function resolveDashboardContext(
   const supervisorRequestInbox = solicitudesResult.error
     ? buildSupervisorRequestInbox({ ...actor, puesto: actor.puesto }, [])
     : buildSupervisorRequestInbox(actor, solicitudesResult.data)
-  const supervisorNotificationsResult =
-    actor.puesto === 'SUPERVISOR'
-      ? await fetchDermoconsejoNotifications(supabase, actor)
-      : {
-          data: [] as DashboardDermoconsejoNotificationItem[],
-          unreadCount: 0,
-          error: null,
-        }
+  const supervisorVacationPolicy = null
+  const supervisorNotificationsResult = {
+    data: [] as DashboardDermoconsejoNotificationItem[],
+    unreadCount: 0,
+    error: null,
+  }
   const supervisorDailyBoard = supervisorDailyAssignmentsResult.error
     ? null
     : buildSupervisorDailyBoard(
@@ -3436,10 +4196,7 @@ async function resolveDashboardContext(
         getTodayIso(),
         toleranceMinutes
       )
-  const supervisorLoveQuota =
-    actor.puesto === 'SUPERVISOR'
-      ? await buildSupervisorLoveQuotaSummary(supabase, actor, getTodayIso())
-      : null
+  const supervisorLoveQuota = null
 
   if (filteredDashboardRows.length === 0) {
     return {
@@ -3457,7 +4214,8 @@ async function resolveDashboardContext(
           dermoconsejo: dermoconsejoData,
           supervisorDailyBoard,
           supervisorLoveQuota,
-          supervisorNotifications: {
+          supervisorVacationPolicy,
+        supervisorNotifications: {
             unreadCount: supervisorNotificationsResult.unreadCount,
               items: supervisorNotificationsResult.data,
             },
@@ -3466,6 +4224,8 @@ async function resolveDashboardContext(
             supervisorSelfRequestStatus: supervisorSelfRequestStatusResult.error
               ? []
               : supervisorSelfRequestStatusResult.data,
+            supervisorRouteSnapshot: null,
+            visitReach,
           },
         insights: {
           tendenciaSemana: [],
@@ -3565,6 +4325,8 @@ async function resolveDashboardContext(
         dermoconsejo: dermoconsejoData,
         supervisorDailyBoard,
         supervisorLoveQuota,
+        supervisorVacationPolicy,
+        supervisorRouteSnapshot: null,
           supervisorNotifications: {
             unreadCount: supervisorNotificationsResult.unreadCount,
             items: supervisorNotificationsResult.data,
@@ -3591,8 +4353,10 @@ async function resolveDashboardContext(
                   horarioInicio: targeting.scheduleStart,
                   horarioFin: targeting.scheduleEnd,
                   supervisorNombre: targeting.supervisorName,
-                  manualUrl: targeting.manualDocument?.url ?? null,
-                  manualNombre: targeting.manualDocument?.fileName ?? null,
+                  locationAddress: targeting.locationAddress ?? null,
+                  locationLatitude: targeting.locationLatitude ?? null,
+                  locationLongitude: targeting.locationLongitude ?? null,
+                  locationRadiusMeters: targeting.locationRadiusMeters ?? null,
                   attendanceId: (supervisorActiveFormationResult.data as DashboardDermoFormationRow & { attendance_id?: string | null }).attendance_id ?? null,
                   attendanceStatus:
                     ((supervisorActiveFormationResult.data as DashboardDermoFormationRow & { attendance_status?: DashboardDermoconsejoFormation['attendanceStatus'] }).attendance_status ??
@@ -3606,6 +4370,9 @@ async function resolveDashboardContext(
                 }
                 })()
               : null,
+          recruitmentCoverage: null,
+          nominaWorkspace: null,
+          visitReach,
         },
     insights: {
       tendenciaSemana,
@@ -3684,6 +4451,91 @@ async function fetchDashboardSolicitudes(supabase: DashboardSupabaseClient) {
   return {
     data: (result.data ?? []) as DashboardSolicitudRow[],
     error: result.error,
+  }
+}
+
+async function fetchSupervisorRequestSummaries(
+  supabase: DashboardSupabaseClient,
+  actor: ActorActual
+) {
+  if (actor.puesto !== 'SUPERVISOR') {
+    return {
+      data: buildSupervisorRequestInboxFromSummaries([]),
+      error: null,
+    }
+  }
+
+  const result = await supabase
+    .from('solicitud')
+    .select('id, supervisor_empleado_id, tipo, estatus, metadata')
+    .eq('supervisor_empleado_id', actor.empleadoId)
+    .order('fecha_inicio', { ascending: false })
+    .limit(160)
+
+  if (result.error) {
+    return {
+      data: buildSupervisorRequestInboxFromSummaries([]),
+      error: result.error,
+    }
+  }
+
+  const lightweightRows = ((result.data ?? []) as Array<{
+    id: string
+    supervisor_empleado_id: string | null
+    tipo: string
+    estatus: string
+    metadata: unknown
+  }>).map((item) => {
+    const kind = mapSupervisorRequestKind(item.tipo)
+    if (!kind) {
+      return null
+    }
+
+    const nextActor = getDashboardSolicitudNextActor({
+      id: item.id,
+      cuenta_cliente_id: '',
+      empleado_id: '',
+      supervisor_empleado_id: item.supervisor_empleado_id,
+      fecha_inicio: '',
+      fecha_fin: '',
+      tipo: item.tipo,
+      estatus: item.estatus,
+      motivo: null,
+      comentarios: null,
+      justificante_url: null,
+      metadata: item.metadata,
+      empleado: [],
+      cuenta_cliente: [],
+    } as DashboardSolicitudRow)
+
+    return {
+      kind,
+      actionable: nextActor === 'SUPERVISOR',
+    }
+  }).filter((item): item is { kind: DashboardSupervisorRequestKind; actionable: boolean } => Boolean(item))
+
+  const buildSummary = (
+    key: DashboardSupervisorRequestSummaryItem['key'],
+    label: string
+  ): DashboardSupervisorRequestSummaryItem => {
+    const filtered = key === 'TODAS' ? lightweightRows : lightweightRows.filter((item) => item.kind === key)
+    return {
+      key,
+      label,
+      count: filtered.length,
+      actionableCount: filtered.filter((item) => item.actionable).length,
+    }
+  }
+
+  return {
+    data: buildSupervisorRequestInboxFromSummaries([
+      buildSummary('TODAS', 'Todas'),
+      buildSummary('VACACIONES', 'Vacaciones'),
+      buildSummary('INCAPACIDAD', 'Incapacidades'),
+      buildSummary('CUMPLEANOS', 'Dia cumple'),
+      buildSummary('JUSTIFICACION_FALTA', 'Justificacion'),
+    ]),
+    error: null,
   }
 }
 

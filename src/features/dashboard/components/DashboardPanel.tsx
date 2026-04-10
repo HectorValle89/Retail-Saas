@@ -17,7 +17,9 @@ import { ModalPanel } from '@/components/ui/modal-panel';
 import { Button } from '@/components/ui/button';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
 import { Card } from '@/components/ui/card';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
 import { PremiumLineIcon, type PremiumIconName } from '@/components/ui/premium-icons';
+import { resolveKpiSemantic, withAlpha } from '@/components/ui/kpi-semantics';
 import { ToastBanner } from '@/components/ui/toast-banner';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import type { ActorActual } from '@/lib/auth/session';
@@ -27,6 +29,7 @@ import { ejecutarTareasCampanaPdv } from '@/features/campanas/actions';
 import { ESTADO_CAMPANA_ADMIN_INICIAL } from '@/features/campanas/state';
 import { registrarAfiliacionLoveIsdin } from '@/features/love-isdin/actions';
 import { ESTADO_LOVE_ISDIN_INICIAL } from '@/features/love-isdin/state';
+import { injectDirectR2Manifest, injectDirectR2Upload } from '@/lib/storage/directR2Client';
 import {
   enviarMensajeSoporteDermoconsejo,
   marcarMensajeLeido,
@@ -41,6 +44,7 @@ import {
 import { registrarRegistroExtemporaneo } from '@/features/solicitudes/extemporaneoActions';
 import { ESTADO_SOLICITUD_INICIAL } from '@/features/solicitudes/state';
 import { DermoCheckInSheet } from './DermoCheckInSheet';
+import { DermoLoveCartSheet, DermoRegistroExtemporaneoSheet, DermoVentasCartSheet } from './DermoCommercialSheets';
 import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog';
 import {
   captureAttendancePosition,
@@ -55,8 +59,9 @@ import { resolverAsistenciaSupervisor } from '@/features/asistencias/actions';
 import { ESTADO_SUPERVISOR_ASISTENCIA_INICIAL } from '@/features/asistencias/state';
 import { RutaSemanalPanel } from '@/features/rutas/components/RutaSemanalPanel';
 import { SupervisorTodayRouteSheet } from '@/features/rutas/components/SupervisorTodayRouteSheet';
+import { SupervisorMonthlyRoleSheet } from './SupervisorMonthlyRoleSheet';
 import type { RutaSemanalPanelData } from '@/features/rutas/services/rutaSemanalService';
-import { getNextWeekStartIso, getWeekEndIso } from '@/features/rutas/lib/weeklyRoute';
+import { NominaWorkspacePanel } from '@/features/nomina/components/NominaWorkspacePanel'
 import {
   buildDashboardHref,
   EMPTY_DASHBOARD_FILTERS,
@@ -71,6 +76,9 @@ import type {
   DashboardSupervisorDailyItem,
   DashboardSupervisorRequestItem,
   DashboardTrendItem,
+  DashboardVacationPolicySummary,
+  DashboardSupervisorRouteSnapshot,
+  VisitReachDashboardSummary,
 } from '../services/dashboardService';
 
 function formatCurrency(value: number) {
@@ -86,6 +94,10 @@ function formatDateLabel(value: string) {
     month: 'short',
     day: '2-digit',
   }).format(new Date(`${value}T12:00:00`));
+}
+
+function formatWeekRangeLabel(start: string, end: string) {
+  return `${formatDateLabel(start)} - ${formatDateLabel(end)}`;
 }
 
 function getLocalDateValue() {
@@ -150,19 +162,354 @@ function getQuickActionTone(accent: DashboardDermoconsejoData['quickActions'][nu
   }
 }
 
-function MetricGlyph({ tone = 'emerald' }: { tone?: 'emerald' | 'sky' | 'amber' | 'slate' }) {
-  const toneClasses = {
-    emerald: 'bg-[var(--module-soft-bg)] text-[var(--module-text)]',
-    sky: 'bg-sky-100 text-sky-700',
-    amber: 'bg-amber-100 text-amber-700',
-    slate: 'bg-slate-100 text-slate-600',
-  };
+function NominaDashboard({
+  data,
+}: {
+  data: NonNullable<DashboardPanelData['nominaWorkspace']>
+}) {
+  return (
+    <div className="space-y-6">
+      <section className="page-hero overflow-hidden">
+        <div className="grid gap-6 lg:grid-cols-[1.35fr_0.95fr]">
+          <div>
+            <p className="page-hero-eyebrow">Operacion de nomina</p>
+            <h1 className="page-hero-title sm:text-4xl">Flujo IMSS y asistencias</h1>
+            <p className="page-hero-copy max-w-3xl sm:text-base">
+              Nomina solo revisa altas, cierre de incapacidades y descarga mensual de asistencias.
+            </p>
+          </div>
+
+          <div className="surface-soft p-5 sm:p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--module-text)]">
+              Hoy
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <SnapshotMetric label="Altas IMSS" value={String(data.summary.altasImssPendientes)} />
+              <SnapshotMetric label="En proceso" value={String(data.summary.altasEnProceso)} />
+              <SnapshotMetric label="Observadas" value={String(data.summary.altasObservadas)} />
+              <SnapshotMetric label="Incapacidades" value={String(data.summary.incapacidadesPendientes)} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <NominaWorkspacePanel data={data} compact />
+    </div>
+  )
+}
+
+function VisitReachDashboardSection({
+  data,
+  dashboardFilters,
+}: {
+  data: VisitReachDashboardSummary
+  dashboardFilters: DashboardPanelData['filtros']
+}) {
+  const [expandedSupervisorId, setExpandedSupervisorId] = useState<string | null>(
+    data.filters.supervisorEmpleadoId || data.supervisors[0]?.supervisorEmpleadoId || null
+  )
+
+  useEffect(() => {
+    setExpandedSupervisorId(data.filters.supervisorEmpleadoId || data.supervisors[0]?.supervisorEmpleadoId || null)
+  }, [data.filters.supervisorEmpleadoId, data.supervisors])
+
+  const expandedSupervisor =
+    data.supervisors.find((item) => item.supervisorEmpleadoId === expandedSupervisorId) ?? data.supervisors[0] ?? null
+
+  const buildVisitReachHref = (overrides: Partial<VisitReachDashboardSummary['filters']> = {}) => {
+    const next = { ...data.filters, ...overrides }
+    const params = new URLSearchParams()
+
+    if (dashboardFilters.periodo) params.set('periodo', dashboardFilters.periodo)
+    if (dashboardFilters.estado) params.set('estado', dashboardFilters.estado)
+    if (dashboardFilters.zona) params.set('zona', dashboardFilters.zona)
+    if (dashboardFilters.supervisorId) params.set('supervisorId', dashboardFilters.supervisorId)
+    if (next.supervisorEmpleadoId) params.set('reachSupervisorId', next.supervisorEmpleadoId)
+    if (next.weekStart) params.set('reachWeekStart', next.weekStart)
+    if (next.cadenaCodigo) params.set('reachChain', next.cadenaCodigo)
+    if (next.storeType) params.set('reachStoreType', next.storeType)
+
+    const query = params.toString()
+    return query ? `/dashboard?${query}` : '/dashboard'
+  }
 
   return (
-    <span className={`metric-icon-chip ${toneClasses[tone]}`}>
-      <PremiumLineIcon name="reports" className="h-5 w-5" strokeWidth={1.9} />
-    </span>
-  );
+    <Card className="space-y-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--module-text)]">
+            Alcance de visitas
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-950">KPIs diarios de cobertura</h2>
+          <p className="mt-2 max-w-3xl text-sm text-slate-500">
+            Seguimos el objetivo mensual definido en Ruta semanal y el avance de la semana visible sin recalcular otro motor.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/ruta-semanal?tab=quotas"
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            Ir a cuotas
+          </Link>
+          <Link
+            href="/ruta-semanal?tab=routes"
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            Tablero de rutas
+          </Link>
+          <Link
+            href="/ruta-semanal?tab=coverage"
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            Cobertura
+          </Link>
+        </div>
+      </div>
+
+      <form method="get" className="grid gap-4 lg:grid-cols-[1.15fr_1fr_1fr_1fr_auto] lg:items-end">
+        <input type="hidden" name="periodo" value={dashboardFilters.periodo} />
+        <input type="hidden" name="estado" value={dashboardFilters.estado} />
+        <input type="hidden" name="zona" value={dashboardFilters.zona} />
+        <input type="hidden" name="supervisorId" value={dashboardFilters.supervisorId} />
+
+        <Field label="Supervisor">
+          <select
+            name="reachSupervisorId"
+            defaultValue={data.filters.supervisorEmpleadoId}
+            className="w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+          >
+            <option value="">Todos los supervisores</option>
+            {data.options.supervisors.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.nombre}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Semana visible">
+          <input
+            name="reachWeekStart"
+            type="date"
+            defaultValue={data.filters.weekStart}
+            className="w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+          />
+        </Field>
+
+        <Field label="Cadena">
+          <select
+            name="reachChain"
+            defaultValue={data.filters.cadenaCodigo}
+            className="w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+          >
+            <option value="">Todas las cadenas</option>
+            {data.options.cadenas.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Tipo de tienda">
+          <select
+            name="reachStoreType"
+            defaultValue={data.filters.storeType}
+            className="w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+          >
+            {data.options.storeTypes.map((item) => (
+              <option key={item.value || 'ALL'} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <div className="flex gap-3">
+          <button
+            type="submit"
+            className="min-h-11 rounded-[14px] bg-[var(--module-primary)] px-5 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_var(--module-shadow)] transition hover:bg-[var(--module-hover)]"
+          >
+            Aplicar filtros
+          </button>
+          <Link
+            href={buildVisitReachHref({
+              supervisorEmpleadoId: '',
+              cadenaCodigo: '',
+              storeType: '',
+            })}
+            className="min-h-11 rounded-[14px] border border-border bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            Limpiar
+          </Link>
+        </div>
+      </form>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
+        <div>
+          <p className="text-sm font-semibold text-slate-950">
+            Semana visible {formatWeekRangeLabel(data.weekStart, data.weekEnd)}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {data.visibleSupervisors} supervisor{data.visibleSupervisors === 1 ? '' : 'es'} visibles con filtros actuales.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href={buildVisitReachHref({ weekStart: new Date(new Date(`${data.weekStart}T12:00:00`).getTime() - 7 * 86400000).toISOString().slice(0, 10) })}
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            Semana anterior
+          </Link>
+          <Link
+            href={buildVisitReachHref({ weekStart: new Date(new Date(`${data.weekStart}T12:00:00`).getTime() + 7 * 86400000).toISOString().slice(0, 10) })}
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            Semana siguiente
+          </Link>
+        </div>
+      </div>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <MetricCard label="Objetivo mensual" value={String(data.monthlyTarget)} />
+        <MetricCard label="Realizadas mes" value={String(data.monthlyCompleted)} />
+        <MetricCard label="Pendientes mes" value={String(data.monthlyPending)} />
+        <MetricCard label="Cumplimiento mensual" value={`${data.monthlyCompletionPct}%`} />
+        <MetricCard label="Planeadas semana" value={String(data.weeklyPlanned)} />
+        <MetricCard label="Realizadas semana" value={String(data.weeklyCompleted)} />
+        <MetricCard label="Pendientes semana" value={String(data.weeklyPending)} />
+        <MetricCard label="Cumplimiento semanal" value={`${data.weeklyCompletionPct}%`} />
+        <MetricCard label="Tiendas sin visita" value={`${data.storesWithoutVisitMonth} mes / ${data.storesWithoutVisitWeek} semana`} />
+      </section>
+
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-950">Detalle por supervisor</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            El dashboard abre primero el resumen ejecutivo. El detalle por PDV solo se despliega cuando filtras un supervisor.
+          </p>
+        </div>
+
+        {data.supervisors.length === 0 ? (
+          <Card className="border-dashed text-center text-sm text-slate-500">
+            No hay supervisores visibles con los filtros actuales.
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-3 xl:grid-cols-2">
+              {data.supervisors.map((item) => {
+                const active = item.supervisorEmpleadoId === expandedSupervisor?.supervisorEmpleadoId
+                return (
+                  <button
+                    key={item.supervisorEmpleadoId}
+                    type="button"
+                    onClick={() => setExpandedSupervisorId(item.supervisorEmpleadoId)}
+                    className={`rounded-[20px] border px-5 py-5 text-left transition ${
+                      active
+                        ? 'border-[var(--module-border)] bg-[var(--module-soft-bg)]'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-base font-semibold text-slate-950">{item.supervisor}</p>
+                        <p className="mt-1 text-xs text-slate-500">{item.zona ?? 'Sin zona'} · {item.visibleStores} tiendas visibles</p>
+                      </div>
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+                        {item.semaforo}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <MiniInsight label="Mes" value={`${item.monthlyCompleted}/${item.monthlyTarget}`} />
+                      <MiniInsight label="Semana" value={`${item.weeklyCompleted}/${item.weeklyPlanned}`} />
+                      <MiniInsight label="Sin visita" value={`${item.storesWithoutVisitMonth} mes`} />
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            {data.detailEnabled && expandedSupervisor ? (
+              <Card className="space-y-4">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h4 className="text-lg font-semibold text-slate-950">{expandedSupervisor.supervisor}</h4>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Objetivo mensual {expandedSupervisor.monthlyTarget} · realizadas {expandedSupervisor.monthlyCompleted} · semana {formatWeekRangeLabel(data.weekStart, data.weekEnd)}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                    {expandedSupervisor.pdvGaps.length} PDVs filtrados
+                  </span>
+                </div>
+
+                {expandedSupervisor.pdvGaps.length === 0 ? (
+                  <div className="rounded-[18px] border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+                    No hay PDVs visibles para este supervisor con la combinacion actual de filtros.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {expandedSupervisor.pdvGaps.map((item) => (
+                      <div key={item.pdvId} className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-950">{item.nombre}</p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {item.claveBtl} · {item.cadena ?? 'Sin cadena'} · {item.zona ?? 'Sin zona'}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {item.clasificacionMaestra && (
+                              <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-slate-700">
+                                {item.clasificacionMaestra}
+                              </span>
+                            )}
+                            {item.grupoRotacionCodigo && (
+                              <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-slate-700">
+                                {item.grupoRotacionCodigo}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-4 xl:grid-cols-8">
+                          <MiniInsight label="Objetivo mes" value={String(item.monthlyTarget)} />
+                          <MiniInsight label="Hechas mes" value={String(item.monthlyCompleted)} />
+                          <MiniInsight label="Pendientes mes" value={String(item.monthlyPending)} />
+                          <MiniInsight label="Cumplimiento mes" value={`${item.monthlyCompletionPct}%`} />
+                          <MiniInsight label="Planeadas semana" value={String(item.weeklyPlanned)} />
+                          <MiniInsight label="Hechas semana" value={String(item.weeklyCompleted)} />
+                          <MiniInsight label="Pendientes semana" value={String(item.weeklyPending)} />
+                          <MiniInsight label="Cumplimiento semana" value={`${item.weeklyCompletionPct}%`} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            ) : (
+              <Card className="border-dashed text-sm text-slate-500">
+                Aplica un filtro de supervisor para abrir el detalle consultivo por PDV sin cargar toda la lista desde el inicio.
+              </Card>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+function MiniInsight({ label, value }: { label: string; value: string }) {
+  return (
+    <SharedMetricCard
+      label={label}
+      value={value}
+      className="rounded-[16px] px-3 py-3 shadow-none"
+      labelClassName="text-[10px]"
+      valueClassName="text-base sm:text-lg"
+    />
+  )
 }
 
 type ShortcutTone = 'emerald' | 'sky' | 'amber' | 'rose' | 'slate' | 'orange' | 'purple';
@@ -258,18 +605,24 @@ const SUPERVISOR_SHORTCUTS: RoleShortcutItem[] = [
 export function DashboardPanel({
   actor,
   data,
-  supervisorRouteData = null,
 }: {
   actor: ActorActual;
   data: DashboardPanelData;
-  supervisorRouteData?: RutaSemanalPanelData | null;
 }) {
   if (actor.puesto === 'DERMOCONSEJERO' && data.dermoconsejo) {
     return <DermoconsejoDashboard data={data.dermoconsejo} />;
   }
 
   if (actor.puesto === 'SUPERVISOR') {
-    return <SupervisorFieldDashboard actor={actor} data={data} routeData={supervisorRouteData} />;
+    return <SupervisorFieldDashboard actor={actor} data={data} />;
+  }
+
+  if (actor.puesto === 'RECLUTAMIENTO' && data.recruitmentCoverage) {
+    return <RecruitmentCoverageDashboard data={data.recruitmentCoverage} />;
+  }
+
+  if (actor.puesto === 'NOMINA' && data.nominaWorkspace) {
+    return <NominaDashboard data={data.nominaWorkspace} />;
   }
 
   const widgets = new Set(data.widgets);
@@ -339,6 +692,14 @@ export function DashboardPanel({
       {widgets.has('filtros') && (
         <Card className="bg-white">
           <form method="get" className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_1fr_auto] lg:items-end">
+            {data.visitReach && (
+              <>
+                <input type="hidden" name="reachSupervisorId" value={data.visitReach.filters.supervisorEmpleadoId} />
+                <input type="hidden" name="reachWeekStart" value={data.visitReach.filters.weekStart} />
+                <input type="hidden" name="reachChain" value={data.visitReach.filters.cadenaCodigo} />
+                <input type="hidden" name="reachStoreType" value={data.visitReach.filters.storeType} />
+              </>
+            )}
             <Field label="Periodo">
               <input
                 name="periodo"
@@ -401,7 +762,18 @@ export function DashboardPanel({
                 Aplicar filtros
               </button>
               <a
-                href={buildDashboardHref(data.filtros, EMPTY_DASHBOARD_FILTERS)}
+                href={
+                  data.visitReach
+                    ? `${buildDashboardHref(data.filtros, EMPTY_DASHBOARD_FILTERS)}${
+                        (() => {
+                          const params = new URLSearchParams()
+                          if (data.visitReach?.filters.weekStart) params.set('reachWeekStart', data.visitReach.filters.weekStart)
+                          const query = params.toString()
+                          return query ? `?${query}` : ''
+                        })()
+                      }`
+                    : buildDashboardHref(data.filtros, EMPTY_DASHBOARD_FILTERS)
+                }
                 className="min-h-11 rounded-[14px] border border-border bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm"
               >
                 Limpiar
@@ -438,6 +810,10 @@ export function DashboardPanel({
             <MetricCard label="Altas IMSS pendientes" value={String(data.stats.imssPendientes)} />
           )}
         </section>
+      )}
+
+      {(actor.puesto === 'COORDINADOR' || actor.puesto === 'ADMINISTRADOR') && data.visitReach && (
+        <VisitReachDashboardSection data={data.visitReach} dashboardFilters={data.filtros} />
       )}
 
       {widgets.has('compacto_supervisor') && (
@@ -538,6 +914,171 @@ export function DashboardPanel({
   );
 }
 
+function RecruitmentCoverageDashboard({
+  data,
+}: {
+  data: NonNullable<DashboardPanelData['recruitmentCoverage']>;
+}) {
+  const activePct = data.target > 0 ? Math.min(100, Math.round((data.plantillaActiva / data.target) * 100)) : 0;
+  const waitingPct =
+    data.target > 0
+      ? Math.min(100 - activePct, Math.round((data.plantillaEsperaTransito / data.target) * 100))
+      : 0;
+  const gapPct = Math.max(0, 100 - activePct - waitingPct);
+  const quickActions = [
+    {
+      label: 'Vacantes urgentes',
+      value: data.vacantesUrgentes,
+      helper: 'PDVs listos para cubrir sin DC reservada.',
+      tone: 'border-orange-200 bg-orange-50/85 text-orange-950',
+    },
+    {
+      label: 'Pendientes de acceso >48h',
+      value: data.pendientesAccesoVencidos,
+      helper: 'Tiendas reservadas que siguen bloqueadas.',
+      tone: 'border-amber-200 bg-amber-50/85 text-amber-950',
+    },
+    {
+      label: 'Vacantes en proceso de firma',
+      value: data.vacantesEnProcesoFirma,
+      helper: 'PDVs con candidato vinculado pero todavía no contratado.',
+      tone: 'border-sky-200 bg-sky-50/85 text-sky-950',
+    },
+    {
+      label: 'Listos para administración',
+      value: data.listosAdministracion,
+      helper: 'Expedientes cerrados esperando acceso y salida operativa.',
+      tone: 'border-emerald-200 bg-emerald-50/85 text-emerald-950',
+    },
+    {
+      label: 'Próximas ISDINIZACIONES',
+      value: data.proximasIsdinizaciones,
+      helper: 'Ingresos programados para la próxima semana.',
+      tone: 'border-violet-200 bg-violet-50/85 text-violet-950',
+    },
+  ] as const;
+
+  return (
+    <div className="space-y-6">
+      <section className="page-hero overflow-hidden">
+        <div className="grid gap-6 lg:grid-cols-[1.25fr_0.95fr]">
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.4em] text-emerald-600">
+                Cobertura Reclutamiento
+              </p>
+              <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+                Termómetro de cobertura
+              </h1>
+              <p className="max-w-3xl text-base leading-7 text-slate-600">
+                Seguimos la plantilla activa, las DC en espera de acceso y la brecha contra la meta
+                operativa para que Reclutamiento y Administración trabajen sobre la misma foto.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/empleados"
+                className="inline-flex items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+              >
+                Abrir cobertura PDVs
+              </Link>
+              <Link
+                href="/mensajes"
+                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Abrir mensajes internos
+              </Link>
+            </div>
+          </div>
+          <Card className="rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-sm shadow-slate-950/5">
+            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.34em] text-slate-500">
+              Meta operativa
+            </p>
+            <div className="mt-3 flex items-end justify-between gap-4">
+              <div>
+                <p className="text-4xl font-semibold tracking-tight text-slate-950">{data.totalContratadas}</p>
+                <p className="mt-1 text-sm text-slate-500">de {data.target} contratadas</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-right">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-slate-500">Brecha</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-950">{data.brechaContratacion}</p>
+              </div>
+            </div>
+            <div className="mt-5 h-4 overflow-hidden rounded-full bg-slate-100">
+              <div className="flex h-full w-full overflow-hidden rounded-full">
+                <div
+                  className="h-full bg-emerald-500"
+                  style={{ width: `${activePct}%` }}
+                  aria-label="Plantilla activa"
+                />
+                <div
+                  className="h-full bg-sky-500"
+                  style={{ width: `${waitingPct}%` }}
+                  aria-label="Plantilla en espera"
+                />
+                <div
+                  className="h-full bg-slate-300"
+                  style={{ width: `${gapPct}%` }}
+                  aria-label="Brecha pendiente"
+                />
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-emerald-700">Activas</p>
+                <p className="mt-1 text-2xl font-semibold text-emerald-950">{data.plantillaActiva}</p>
+              </div>
+              <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-sky-700">En tránsito</p>
+                <p className="mt-1 text-2xl font-semibold text-sky-950">{data.plantillaEsperaTransito}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-slate-500">Cobertura</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-950">{data.progressPct}%</p>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </section>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SharedMetricCard label="Plantilla activa" value={String(data.plantillaActiva)} tone="emerald" />
+        <SharedMetricCard label="Plantilla en espera / tránsito" value={String(data.plantillaEsperaTransito)} tone="sky" />
+        <SharedMetricCard label="Brecha de contratación" value={String(data.brechaContratacion)} tone="slate" />
+        <SharedMetricCard label="Total contratadas" value={String(data.totalContratadas)} tone="module" />
+      </div>
+
+      <Card className="space-y-4 rounded-[28px] border border-slate-200/80 bg-white/90 p-6 shadow-sm shadow-slate-950/5">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.34em] text-slate-500">
+              Colas de acción
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              Lo que necesita movimiento hoy
+            </h2>
+          </div>
+          <p className="text-sm text-slate-500">
+            Cubiertos: <span className="font-semibold text-slate-900">{data.pdvsCubiertos}</span> · Reservados:{' '}
+            <span className="font-semibold text-slate-900">{data.pdvsReservados}</span> · Vacantes:{' '}
+            <span className="font-semibold text-slate-900">{data.pdvsVacantes}</span> · Bloqueados:{' '}
+            <span className="font-semibold text-slate-900">{data.pdvsBloqueados}</span>
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {quickActions.map((item) => (
+            <div key={item.label} className={`rounded-[24px] border px-4 py-4 shadow-sm shadow-slate-950/5 ${item.tone}`}>
+              <p className="text-sm font-medium">{item.label}</p>
+              <p className="mt-3 text-3xl font-semibold tracking-tight">{item.value}</p>
+              <p className="mt-2 text-xs leading-5 opacity-80">{item.helper}</p>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
   const [activeSheet, setActiveSheet] = useState<
     DashboardDermoconsejoData['quickActions'][number]['key'] | null
@@ -545,6 +1086,10 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
   const [isCheckInSheetOpen, setIsCheckInSheetOpen] = useState(false);
   const [isCampaignSheetOpen, setIsCampaignSheetOpen] = useState(false);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [sheetData, setSheetData] = useState<DashboardDermoconsejoData | null>(null);
+  const [sheetDataLoaded, setSheetDataLoaded] = useState(false);
+  const [sheetDataError, setSheetDataError] = useState<string | null>(null);
+  const [isSheetDataLoading, startSheetDataTransition] = useTransition();
   const [salesCount, setSalesCount] = useState(
     data.counters.find((item) => item.label === 'Ventas')?.value ?? 0
   );
@@ -567,22 +1112,23 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
 
   const counters = useMemo(
     () =>
-      data.counters.map((item) =>
+      (sheetData ?? data).counters.map((item) =>
         item.label === 'Ventas'
           ? { ...item, value: salesCount }
           : item.label === 'Capturas'
             ? { ...item, value: capturesCount }
             : item
       ),
-    [capturesCount, data.counters, salesCount]
+    [capturesCount, data, salesCount, sheetData]
   );
-
-  const activeAction = data.quickActions.find((item) => item.key === activeSheet) ?? null;
-  const actionMap = new Map(data.quickActions.map((item) => [item.key, item]));
+  const resolvedData = sheetData ?? data;
+  const activeAction = resolvedData.quickActions.find((item) => item.key === activeSheet) ?? null;
+  const actionMap = new Map(resolvedData.quickActions.map((item) => [item.key, item]));
   const primaryActions = [
     actionMap.get('calendario'),
     actionMap.get('ventas'),
     actionMap.get('love-isdin'),
+    actionMap.get('registro-extemporaneo'),
     actionMap.get('comunicacion'),
     actionMap.get('perfil'),
     actionMap.get('incidencias'),
@@ -594,26 +1140,120 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
   const quickActions = primaryActions.filter(
     (item): item is DashboardDermoconsejoData['quickActions'][number] => Boolean(item)
   );
-  const jornadaEstado = data.shift.isOpen ? 'INICIADA' : 'NO INICIADA';
-  const jornadaTitulo = data.shift.isOpen ? 'Jornada en curso' : 'Jornada por iniciar';
-  const jornadaCta = data.shift.isOpen ? 'CERRAR JORNADA' : 'LLEGUE A TIENDA';
-  const canStartShift = Boolean(data.shift.canStart);
-  const shiftBlockedReason = data.shift.disabledReason ?? data.shift.helper;
-  const timeBadge = data.shift.isOpen
-    ? `Inicio ${formatShortClock(data.shift.checkInUtc) ?? ''}`.trim()
+  const jornadaEstado = resolvedData.shift.isOpen ? 'INICIADA' : 'NO INICIADA';
+  const jornadaTitulo = resolvedData.shift.isOpen ? 'Jornada en curso' : 'Jornada por iniciar';
+  const jornadaCta = resolvedData.shift.isOpen ? 'CERRAR JORNADA' : 'LLEGUE A TIENDA';
+  const canStartShift = Boolean(resolvedData.shift.canStart);
+  const shiftBlockedReason = resolvedData.shift.disabledReason ?? resolvedData.shift.helper;
+  const timeBadge = resolvedData.shift.isOpen
+    ? `Inicio ${formatShortClock(resolvedData.shift.checkInUtc) ?? ''}`.trim()
     : canStartShift
       ? 'Lista para check-in'
       : 'Sin asignacion activa';
-  const campaignNoticeMessage = data.activeCampaign
-    ? `Tu PDV esta en la campana ${data.activeCampaign.nombre}.`
+  const campaignNoticeMessage = resolvedData.activeCampaign
+    ? `Tu PDV esta en la campana ${resolvedData.activeCampaign.nombre}.`
     : null;
-  const formationNoticeMessage = data.activeFormation
-    ? `Tienes formacion activa: ${data.activeFormation.nombre}.`
+  const formationNoticeMessage = resolvedData.activeFormation
+    ? `Tienes formacion activa: ${resolvedData.activeFormation.nombre}.`
     : null;
-  const reportPending = data.reportWindow.status === 'PENDIENTE_REPORTE';
+  const reportPending = resolvedData.reportWindow.status === 'PENDIENTE_REPORTE';
 
   const handleToast = (tone: 'success' | 'error' | 'info', message: string) => {
     setToast({ tone, message });
+  };
+
+  const requiresSheetData = (
+    key: DashboardDermoconsejoData['quickActions'][number]['key'] | 'campaign' | 'notifications'
+  ) =>
+    key === 'ventas' ||
+    key === 'love-isdin' ||
+    key === 'vacaciones' ||
+    key === 'permiso' ||
+    key === 'incapacidad' ||
+    key === 'justificacion-faltas' ||
+    key === 'campaign';
+
+  const ensureSheetData = (
+    target:
+      | DashboardDermoconsejoData['quickActions'][number]['key']
+      | 'campaign'
+      | 'notifications'
+      | null
+  ) => {
+    if (target && target !== 'campaign' && target !== 'notifications') {
+      setActiveSheet(target);
+    }
+
+    if (sheetDataLoaded || isSheetDataLoading) {
+      return;
+    }
+
+    startSheetDataTransition(() => {
+      void (async () => {
+        try {
+          setSheetDataError(null);
+          const response = await fetch('/api/dashboard/dermoconsejo-panel', {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-store',
+          });
+          const payload = (await response.json()) as {
+            data?: DashboardDermoconsejoData | null;
+            message?: string;
+          };
+
+          if (!response.ok || !payload.data) {
+            throw new Error(payload.message ?? 'No fue posible cargar el detalle operativo.');
+          }
+
+          setSheetData(payload.data);
+          setSheetDataLoaded(true);
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : 'No fue posible cargar el detalle operativo.';
+          setSheetDataError(message);
+          handleToast('error', message);
+        }
+      })();
+    });
+  };
+
+  const renderSheetDataState = (
+    target:
+      | DashboardDermoconsejoData['quickActions'][number]['key']
+      | 'campaign'
+      | 'notifications'
+  ) => {
+    if (isSheetDataLoading && !sheetData) {
+      return (
+        <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+          Cargando detalle operativo...
+        </div>
+      );
+    }
+
+    if (sheetDataError && !sheetData) {
+      return (
+        <div className="space-y-3 rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-8 text-center text-sm text-rose-700">
+          <p>{sheetDataError}</p>
+          <button
+            type="button"
+            onClick={() => ensureSheetData(target)}
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-100"
+          >
+            Reintentar carga
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+        El detalle operativo todavia no esta disponible.
+      </div>
+    );
   };
 
   const handleOpenCheckInSheet = () => {
@@ -641,7 +1281,10 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setIsNotificationCenterOpen(true)}
+            onClick={() => {
+              ensureSheetData('notifications');
+              setIsNotificationCenterOpen(true);
+            }}
             className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
             aria-label="Notificaciones"
           >
@@ -656,9 +1299,9 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
         </div>
       </div>
 
-      {(data.activeCampaign || data.activeFormation) && (
+      {(resolvedData.activeCampaign || resolvedData.activeFormation) && (
         <div className="grid gap-3">
-          {data.activeCampaign && (
+          {resolvedData.activeCampaign && (
             <div className="flex flex-col gap-3 rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-4 text-rose-950 shadow-sm sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-600">
@@ -666,17 +1309,17 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
                 </p>
                 <p className="mt-1 text-sm font-medium text-rose-950">{campaignNoticeMessage}</p>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs text-rose-800">
-                  {data.activeCampaign.productosFoco.slice(0, 2).map((item) => (
+                  {resolvedData.activeCampaign.productosFoco.slice(0, 2).map((item) => (
                     <span key={item} className="rounded-full border border-rose-200 bg-white/80 px-2.5 py-1">
                       {item}
                     </span>
                   ))}
-                  {data.activeCampaign.evidenciasRequeridas.length > 0 && (
+                  {resolvedData.activeCampaign.evidenciasRequeridas.length > 0 && (
                     <span className="rounded-full border border-rose-200 bg-white/80 px-2.5 py-1">
-                      {data.activeCampaign.evidenciasRequeridas.length} evidencias requeridas
+                      {resolvedData.activeCampaign.evidenciasRequeridas.length} evidencias requeridas
                     </span>
                   )}
-                  {data.activeCampaign.manualMercadeoNombre && (
+                  {resolvedData.activeCampaign.manualMercadeoNombre && (
                     <span className="rounded-full border border-rose-200 bg-white/80 px-2.5 py-1">
                       Manual disponible
                     </span>
@@ -686,14 +1329,19 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
               <div className="flex flex-col gap-2 sm:min-w-[220px]">
                 <button
                   type="button"
-                  onClick={() => setIsCampaignSheetOpen(true)}
+                  onClick={() => {
+                    if (requiresSheetData('campaign')) {
+                      ensureSheetData('campaign');
+                    }
+                    setIsCampaignSheetOpen(true);
+                  }}
                   className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm"
                 >
                   Registrar evidencia
                 </button>
-                {data.activeCampaign.manualMercadeoUrl && (
+                {resolvedData.activeCampaign.manualMercadeoUrl && (
                   <a
-                    href={data.activeCampaign.manualMercadeoUrl}
+                    href={resolvedData.activeCampaign.manualMercadeoUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-rose-100 bg-rose-100/70 px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm"
@@ -705,8 +1353,8 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
             </div>
           )}
 
-          {data.activeFormation && (
-            <DermoFormationAttendanceCard formation={data.activeFormation} />
+          {resolvedData.activeFormation && (
+            <DermoFormationAttendanceCard formation={resolvedData.activeFormation} />
           )}
         </div>
       )}
@@ -742,13 +1390,13 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
               <div className="relative">
                 <div className="flex items-center gap-2 text-[15px] font-semibold text-[#4d56d6]">
                   <ActionIconGlyph icon="store-pin" accent="sky" />
-                  <span>{data.store.nombre}</span>
+                  <span>{resolvedData.store.nombre}</span>
                 </div>
                 <p className="mt-4 text-[1.9rem] font-semibold leading-tight text-[#313fa7] sm:text-[2.3rem]">
-                  {data.store.claveBtl ?? 'SUCURSAL CENTRAL'}
+                  {resolvedData.store.claveBtl ?? 'SUCURSAL CENTRAL'}
                 </p>
                 <p className="mt-3 max-w-2xl text-base text-[#5162d9]">
-                  {data.store.direccion ?? 'Sin direccion visible'}
+                  {resolvedData.store.direccion ?? 'Sin direccion visible'}
                 </p>
                 <div className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-sm font-medium text-[#5b64db] shadow-sm">
                   <ActionIconGlyph icon="clock" accent="sky" small />
@@ -758,9 +1406,9 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
             </div>
           </div>
 
-          {data.shift.isOpen ? (
+          {resolvedData.shift.isOpen ? (
             <Link
-              href={data.shift.buttonHref}
+              href={resolvedData.shift.buttonHref}
               className="inline-flex min-h-14 w-full items-center justify-center gap-3 rounded-[20px] border-2 border-slate-950/85 bg-emerald-600 px-5 py-4 text-base font-semibold text-white shadow-[0_10px_20px_rgba(15,23,42,0.08)] transition hover:bg-emerald-700"
             >
               <ActionIconGlyph icon="arrival" accent="emerald" light />
@@ -790,14 +1438,14 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
           {!data.shift.isOpen && (
             <p className="text-sm leading-6 text-slate-500">{shiftBlockedReason}</p>
           )}
-          {data.reportWindow.canReportToday && (
+          {resolvedData.reportWindow.canReportToday && (
             <div className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-4 text-amber-950 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
                     Reportes pendientes del dia
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-amber-950">{data.reportWindow.helper}</p>
+                  <p className="mt-2 text-sm leading-6 text-amber-950">{resolvedData.reportWindow.helper}</p>
                 </div>
                 {reportPending && (
                   <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-700 shadow-sm">
@@ -825,7 +1473,7 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
             />
             <DermoStatTile
               title="LOVE ISDIN"
-              value={`${capturesCount}/${data.loveQuota.objetivoDiario}`}
+              value={`${capturesCount}/${resolvedData.loveQuota.objetivoDiario}`}
               icon="love"
               accent="rose"
             />
@@ -847,6 +1495,10 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
               key={item.key}
               item={item}
               onClick={() => {
+                if (requiresSheetData(item.key)) {
+                  ensureSheetData(item.key);
+                  return;
+                }
                 setActiveSheet(item.key);
               }}
             />
@@ -862,7 +1514,7 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
         initialSnap="expanded"
       >
         <DermoCheckInSheet
-          data={data}
+          data={resolvedData}
           onClose={() => setIsCheckInSheetOpen(false)}
           onSuccess={(message) => {
             setIsCheckInSheetOpen(false);
@@ -880,39 +1532,61 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
         initialSnap={activeAction?.preferredSnap ?? 'partial'}
       >
         {activeSheet === 'ventas' && (
-          <DermoVentasSheet
-            data={data}
-            onClose={() => setActiveSheet(null)}
-            onSuccess={(message) => {
-              setSalesCount((current) => current + 1);
-              setActiveSheet(null);
-              handleToast('success', message);
-            }}
-            onError={(message) => handleToast('error', message)}
-          />
+          sheetData ? (
+            <DermoVentasCartSheet
+              data={resolvedData}
+              onSuccess={(message, savedCount) => {
+                setSalesCount((current) => current + savedCount);
+                setActiveSheet(null);
+                handleToast('success', message);
+              }}
+              onError={(message) => handleToast('error', message)}
+            />
+          ) : (
+            renderSheetDataState('ventas')
+          )
         )}
 
-        {activeSheet === 'calendario' && <DermoCalendarioSheet data={data} />}
+        {activeSheet === 'calendario' && <DermoCalendarioSheet data={resolvedData} />}
 
         {activeSheet === 'love-isdin' && (
-          <DermoLoveSheet
-            data={data}
-            onClose={() => setActiveSheet(null)}
-            onSuccess={(message) => {
-              setCapturesCount((current) => current + 1);
-              setActiveSheet(null);
-              handleToast('success', message);
-            }}
-          />
+          sheetData ? (
+            <DermoLoveCartSheet
+              data={resolvedData}
+              onSuccess={(message, savedCount) => {
+                setCapturesCount((current) => current + savedCount);
+                setActiveSheet(null);
+                handleToast('success', message);
+              }}
+              onError={(message) => handleToast('error', message)}
+            />
+          ) : (
+            renderSheetDataState('love-isdin')
+          )
         )}
 
         {(activeSheet === 'incapacidad' ||
           activeSheet === 'justificacion-faltas' ||
           activeSheet === 'vacaciones' ||
           activeSheet === 'permiso') && (
-          <DermoSolicitudSheet
-            data={data}
-            tipo={activeSheet}
+          sheetData ? (
+            <DermoSolicitudSheet
+              data={resolvedData}
+              tipo={activeSheet}
+              onClose={() => setActiveSheet(null)}
+              onSuccess={(message) => {
+                setActiveSheet(null);
+                handleToast('success', message);
+              }}
+            />
+          ) : (
+            renderSheetDataState(activeSheet)
+          )
+        )}
+
+        {activeSheet === 'registro-extemporaneo' && (
+          <DermoRegistroExtemporaneoSheet
+            data={resolvedData}
             onClose={() => setActiveSheet(null)}
             onSuccess={(message) => {
               setActiveSheet(null);
@@ -923,7 +1597,7 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
 
         {activeSheet === 'incidencias' && (
           <DermoIncidenciasSheet
-            data={data}
+            data={resolvedData}
             onClose={() => setActiveSheet(null)}
             onSuccess={(message) => {
               handleToast('success', message);
@@ -934,7 +1608,7 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
 
         {activeSheet === 'comunicacion' && (
           <DermoComunicacionSheet
-            data={data}
+            data={resolvedData}
             onClose={() => setActiveSheet(null)}
             onSuccess={(message) => {
               handleToast('success', message);
@@ -954,7 +1628,7 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
       >
         {activeSheet === 'perfil' && (
           <DermoPerfilSheet
-            data={data}
+            data={resolvedData}
             onClose={() => setActiveSheet(null)}
             onSuccess={(message) => {
               handleToast('success', message);
@@ -967,20 +1641,24 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
       <BottomSheet
         open={isCampaignSheetOpen}
         onClose={() => setIsCampaignSheetOpen(false)}
-        title={data.activeCampaign?.nombre ?? 'Campana activa'}
+        title={resolvedData.activeCampaign?.nombre ?? 'Campana activa'}
         description="Registra evidencia del dia sin salir del dashboard operativo."
         initialSnap="expanded"
       >
-        {data.activeCampaign && (
-          <DermoCampanaSheet
-            data={data}
-            onClose={() => setIsCampaignSheetOpen(false)}
-            onSuccess={(message) => {
-              setIsCampaignSheetOpen(false);
-              handleToast('success', message);
-            }}
-          />
-        )}
+        {resolvedData.activeCampaign ? (
+          sheetData ? (
+            <DermoCampanaSheet
+              data={resolvedData}
+              onClose={() => setIsCampaignSheetOpen(false)}
+              onSuccess={(message) => {
+                setIsCampaignSheetOpen(false);
+                handleToast('success', message);
+              }}
+            />
+          ) : (
+            renderSheetDataState('campaign')
+          )
+        ) : null}
       </BottomSheet>
 
       <BottomSheet
@@ -990,7 +1668,11 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
         description="Avisos breves y lectura rapida de mensajes nuevos."
         initialSnap="partial"
       >
-        <NotificationCenterSheet notifications={data.notifications} />
+        {sheetData ? (
+          <NotificationCenterSheet notifications={resolvedData.notifications} />
+        ) : (
+          renderSheetDataState('notifications')
+        )}
       </BottomSheet>
 
       {toast && <ToastBanner tone={toast.tone} message={toast.message} />}
@@ -1001,12 +1683,44 @@ function DermoconsejoDashboard({ data }: { data: DashboardDermoconsejoData }) {
 function SupervisorFieldDashboard({
   actor,
   data,
-  routeData,
 }: {
   actor: ActorActual;
   data: DashboardPanelData;
-  routeData: RutaSemanalPanelData | null;
 }) {
+  const [dailyItems, setDailyItems] = useState<DashboardSupervisorDailyItem[]>(
+    data.supervisorDailyBoard?.items ?? []
+  );
+  const [selectedItem, setSelectedItem] = useState<DashboardSupervisorDailyItem | null>(null);
+  const [activeQuickAction, setActiveQuickAction] = useState<
+    | 'ruta-agenda'
+    | 'ruta-planning'
+    | 'ruta-history'
+    | 'rol-mensual'
+    | 'hoy'
+    | 'solicitudes'
+    | 'vacaciones'
+    | 'incapacidad'
+    | 'cumpleanos'
+    | null
+  >(null);
+  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [requestInboxItems, setRequestInboxItems] = useState(data.supervisorRequestInbox.items);
+  const [routeData, setRouteData] = useState<RutaSemanalPanelData | null>(null);
+  const [routeDataLoaded, setRouteDataLoaded] = useState(false);
+  const [routeDataError, setRouteDataError] = useState<string | null>(null);
+  const [isRouteDataLoading, startRouteDataTransition] = useTransition();
+  const [panelDataLoaded, setPanelDataLoaded] = useState(false);
+  const [panelDataError, setPanelDataError] = useState<string | null>(null);
+  const [isPanelDataLoading, startPanelDataTransition] = useTransition();
+  const [panelNotifications, setPanelNotifications] = useState(data.supervisorNotifications);
+  const [panelAuthorizations, setPanelAuthorizations] = useState(data.supervisorAuthorizations);
+  const [panelSelfRequestStatus, setPanelSelfRequestStatus] = useState(data.supervisorSelfRequestStatus);
+  const [panelVacationPolicy, setPanelVacationPolicy] = useState(data.supervisorVacationPolicy);
+  const [toast, setToast] = useState<{
+    tone: 'success' | 'error' | 'info';
+    message: string;
+  } | null>(null);
+  const routeSnapshot = data.supervisorRouteSnapshot;
   const supervisorSelfRequestData = useMemo(
     () => ({
       context: {
@@ -1017,23 +1731,11 @@ function SupervisorFieldDashboard({
         attendanceId: null,
         fechaOperacion: getLocalDateValue(),
       },
-      requestStatus: data.supervisorSelfRequestStatus,
+      requestStatus: panelSelfRequestStatus,
+      vacationPolicy: panelVacationPolicy,
     }),
-    [actor.cuentaClienteId, actor.empleadoId, data.supervisorSelfRequestStatus]
+    [actor.cuentaClienteId, actor.empleadoId, panelSelfRequestStatus, panelVacationPolicy]
   );
-  const [dailyItems, setDailyItems] = useState<DashboardSupervisorDailyItem[]>(
-    data.supervisorDailyBoard?.items ?? []
-  );
-  const [selectedItem, setSelectedItem] = useState<DashboardSupervisorDailyItem | null>(null);
-  const [activeQuickAction, setActiveQuickAction] = useState<
-    'ruta' | 'hoy' | 'solicitudes' | 'vacaciones' | 'incapacidad' | 'cumpleanos' | null
-  >(null);
-  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
-  const [requestInboxItems, setRequestInboxItems] = useState(data.supervisorRequestInbox.items);
-  const [toast, setToast] = useState<{
-    tone: 'success' | 'error' | 'info';
-    message: string;
-  } | null>(null);
 
   useEffect(() => {
     setDailyItems(data.supervisorDailyBoard?.items ?? []);
@@ -1042,6 +1744,22 @@ function SupervisorFieldDashboard({
   useEffect(() => {
     setRequestInboxItems(data.supervisorRequestInbox.items);
   }, [data.supervisorRequestInbox.items]);
+
+  useEffect(() => {
+    setPanelNotifications(data.supervisorNotifications);
+  }, [data.supervisorNotifications]);
+
+  useEffect(() => {
+    setPanelAuthorizations(data.supervisorAuthorizations);
+  }, [data.supervisorAuthorizations]);
+
+  useEffect(() => {
+    setPanelSelfRequestStatus(data.supervisorSelfRequestStatus);
+  }, [data.supervisorSelfRequestStatus]);
+
+  useEffect(() => {
+    setPanelVacationPolicy(data.supervisorVacationPolicy);
+  }, [data.supervisorVacationPolicy]);
 
   useEffect(() => {
     if (!toast) {
@@ -1053,65 +1771,312 @@ function SupervisorFieldDashboard({
   }, [toast]);
 
   const summary = useMemo(() => summarizeSupervisorDailyItems(dailyItems), [dailyItems]);
-  const requestSummary = useMemo(
-    () => summarizeSupervisorRequestInbox(requestInboxItems),
-    [requestInboxItems]
-  );
-  const supervisorFormation = data.supervisorActiveFormation;
-  const routeReminder = useMemo(() => {
-    if (!routeData) {
-      return null;
+  const requestSummary = useMemo(() => {
+    if (requestInboxItems.length > 0) {
+      return summarizeSupervisorRequestInbox(requestInboxItems);
     }
 
-    const nextWeekStart = getNextWeekStartIso();
-    const nextWeekEnd = getWeekEndIso(nextWeekStart);
-    const nextWeekRoute = routeData.rutas.find((item) => item.semanaInicio === nextWeekStart) ?? null;
+    return data.supervisorRequestInbox.summaries.reduce(
+      (acc, item) => {
+        if (item.key === 'TODAS') {
+          acc.total = item.count;
+          acc.actionable = item.actionableCount;
+        }
+        if (item.key === 'VACACIONES') acc.vacations = item.count;
+        if (item.key === 'INCAPACIDAD') acc.medical = item.count;
+        if (item.key === 'CUMPLEANOS') acc.birthdays = item.count;
+        if (item.key === 'JUSTIFICACION_FALTA') acc.justifiedAbsences = item.count;
+        return acc;
+      },
+      { total: 0, actionable: 0, vacations: 0, medical: 0, birthdays: 0, justifiedAbsences: 0 }
+    );
+  }, [data.supervisorRequestInbox.summaries, requestInboxItems]);
+  const supervisorFormation = data.supervisorActiveFormation;
+  const ensurePanelData = () => {
+    if (panelDataLoaded || isPanelDataLoading) {
+      return;
+    }
+
+    startPanelDataTransition(() => {
+      void (async () => {
+        try {
+          setPanelDataError(null);
+          const response = await fetch('/api/dashboard/supervisor-panel', {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-store',
+          });
+
+          const payload = (await response.json()) as {
+            data?: {
+              supervisorNotifications?: typeof data.supervisorNotifications;
+              supervisorAuthorizations?: typeof data.supervisorAuthorizations;
+              supervisorRequestInbox?: typeof data.supervisorRequestInbox;
+              supervisorSelfRequestStatus?: typeof data.supervisorSelfRequestStatus;
+              supervisorVacationPolicy?: typeof data.supervisorVacationPolicy;
+            };
+            message?: string;
+          };
+
+          if (!response.ok || !payload.data) {
+            throw new Error(payload.message ?? 'No fue posible cargar el detalle del supervisor.');
+          }
+
+          setPanelNotifications(payload.data.supervisorNotifications ?? data.supervisorNotifications);
+          setPanelAuthorizations(payload.data.supervisorAuthorizations ?? data.supervisorAuthorizations);
+          setRequestInboxItems(payload.data.supervisorRequestInbox?.items ?? []);
+          setPanelSelfRequestStatus(
+            payload.data.supervisorSelfRequestStatus ?? data.supervisorSelfRequestStatus
+          );
+          setPanelVacationPolicy(payload.data.supervisorVacationPolicy ?? data.supervisorVacationPolicy);
+          setPanelDataLoaded(true);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : 'No fue posible cargar el detalle del supervisor.';
+          setPanelDataError(message);
+          setToast({ tone: 'error', message });
+        }
+      })();
+    });
+  };
+  const ensureRouteData = (focusQuickAction?: 'ruta-agenda' | 'ruta-planning' | 'ruta-history' | 'hoy') => {
+    if (routeDataLoaded || isRouteDataLoading) {
+      if (focusQuickAction) {
+        setActiveQuickAction(focusQuickAction);
+      }
+      return;
+    }
+
+    if (focusQuickAction) {
+      setActiveQuickAction(focusQuickAction);
+    }
+
+    startRouteDataTransition(() => {
+      void (async () => {
+        try {
+          setRouteDataError(null);
+          const response = await fetch('/api/dashboard/supervisor-route-panel', {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-store',
+          });
+
+          const payload = (await response.json()) as { data?: RutaSemanalPanelData; message?: string };
+          if (!response.ok || !payload.data) {
+            throw new Error(payload.message ?? 'No fue posible cargar la ruta semanal del supervisor.');
+          }
+
+          setRouteData(payload.data);
+          setRouteDataLoaded(true);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : 'No fue posible cargar la ruta semanal del supervisor.';
+          setRouteDataError(message);
+          setToast({ tone: 'error', message });
+        }
+      })();
+    });
+  };
+
+  const routeReminder = useMemo(() => {
+    if (!routeSnapshot) {
+      return null;
+    }
     const currentWeekday = (() => {
       const now = new Date();
       return now.getDay() === 0 ? 7 : now.getDay();
     })();
     const deadlinePassed = currentWeekday >= 3;
 
-    if (nextWeekRoute && nextWeekRoute.totalVisitas > 0) {
+    if (routeSnapshot.hasNextWeekRoute) {
       return null;
     }
 
     return {
-      id: `system-route-${nextWeekStart}`,
+      id: `system-route-${routeSnapshot.nextWeekStart}`,
       titulo: deadlinePassed
         ? 'Ruta de la siguiente semana pendiente'
         : 'Recuerda enviar la siguiente ruta',
       cuerpo: deadlinePassed
-        ? `No has enviado tu ruta de la semana ${nextWeekStart} al ${nextWeekEnd}. Debes mandarla a coordinacion para aprobacion.`
-        : `Aun no envias tu ruta de la semana ${nextWeekStart} al ${nextWeekEnd}. Recuerda mandarla a mas tardar el miercoles previo.`,
+        ? `No has enviado tu ruta de la semana ${routeSnapshot.nextWeekStart} al ${routeSnapshot.nextWeekEnd}. Debes mandarla a coordinacion para aprobacion.`
+        : `Aun no envias tu ruta de la semana ${routeSnapshot.nextWeekStart} al ${routeSnapshot.nextWeekEnd}. Recuerda mandarla a mas tardar el miercoles previo.`,
       createdAt: new Date().toISOString(),
       estado: 'PENDIENTE' as const,
       tipo: 'SISTEMA_RUTA' as const,
+      remitente: 'Sistema',
       deadlinePassed,
     };
-  }, [routeData]);
+  }, [routeSnapshot]);
   const supervisorNotifications = useMemo<DashboardDermoconsejoNotificationsSummary>(() => {
     if (!routeReminder) {
-      return data.supervisorNotifications;
+      return panelNotifications;
     }
 
     return {
-      unreadCount: data.supervisorNotifications.unreadCount + 1,
-      items: [routeReminder, ...data.supervisorNotifications.items],
+      unreadCount: panelNotifications.unreadCount + 1,
+      items: [routeReminder, ...panelNotifications.items],
     };
-  }, [data.supervisorNotifications, routeReminder]);
+  }, [panelNotifications, routeReminder]);
   const routeSummary = useMemo(() => {
-    if (!routeData) {
+    if (!routeSnapshot) {
       return null;
     }
 
     return {
-      rutas: routeData.resumen.totalRutas,
-      visitas: routeData.resumen.totalVisitas,
-      completadas: routeData.resumen.visitasCompletadas,
-      sinVisita: routeData.agendaPendientesReposicion.length,
+      rutas: routeSnapshot.totalRutas,
+      visitas: routeSnapshot.totalVisitas,
+      completadas: routeSnapshot.visitasCompletadas,
+      sinVisita: routeSnapshot.pendientesReposicion,
     };
-  }, [routeData]);
+  }, [routeSnapshot]);
+  const supervisorMetricCards = useMemo(
+    () => {
+      const cards: Array<{
+        label: string;
+        value: string;
+        helper: string;
+        tone?: ShortcutTone;
+      }> = [
+        {
+          label: 'Tiendas hoy',
+          value: String(summary.total),
+          helper: 'Asignaciones activas del dia',
+        },
+        {
+          label: 'Pendientes',
+          value: String(summary.pendingReview),
+          helper: 'Entradas listas para revision',
+          tone: 'amber',
+        },
+        {
+          label: 'Sin llegada',
+          value: String(summary.noCheckIn),
+          helper: 'Asignaciones sin check-in',
+          tone: 'rose',
+        },
+        {
+          label: 'Solicitudes',
+          value: String(requestSummary.actionable),
+          helper: 'Pendientes de tu aprobacion',
+          tone: 'purple',
+        },
+      ];
+
+      if (data.supervisorLoveQuota) {
+        cards.push(
+          {
+            label: 'LOVE equipo',
+            value: `${data.supervisorLoveQuota.avanceHoy}/${data.supervisorLoveQuota.objetivoHoy}`,
+            helper: `${data.supervisorLoveQuota.cumplimientoHoyPct.toFixed(2)}% de cumplimiento`,
+            tone: 'rose',
+          },
+          {
+            label: 'DC con meta',
+            value: String(data.supervisorLoveQuota.dcConMetaHoy),
+            helper: 'Dermoconsejeras con objetivo hoy',
+            tone: 'sky',
+          },
+          {
+            label: 'LOVE pendiente',
+            value: String(data.supervisorLoveQuota.restanteHoy),
+            helper: 'Afiliaciones restantes del equipo',
+            tone: 'amber',
+          }
+        );
+      }
+
+      if (routeSummary) {
+        cards.push(
+          {
+            label: 'Rutas visibles',
+            value: String(routeSummary.rutas),
+            helper: 'Semanas con planeacion',
+          },
+          {
+            label: 'Visitas planeadas',
+            value: String(routeSummary.visitas),
+            helper: 'Carga total del modulo',
+            tone: 'sky',
+          },
+          {
+            label: 'Completadas',
+            value: String(routeSummary.completadas),
+            helper: 'Visitas ya ejecutadas',
+            tone: 'emerald',
+          },
+          {
+            label: 'Tiendas sin visita',
+            value: String(routeSummary.sinVisita),
+            helper: 'Pendientes por reponer',
+            tone: 'amber',
+          }
+        );
+      }
+
+      return cards;
+    },
+    [data.supervisorLoveQuota, requestSummary.actionable, routeSummary, summary.noCheckIn, summary.pendingReview, summary.total]
+  );
+  const renderRouteSheetState = (focusQuickAction: 'ruta-agenda' | 'ruta-planning' | 'ruta-history' | 'hoy') => {
+    if (isRouteDataLoading && !routeData) {
+      return (
+        <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+          Cargando ruta semanal del supervisor...
+        </div>
+      );
+    }
+
+    if (routeDataError && !routeData) {
+      return (
+        <div className="space-y-3 rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-8 text-center text-sm text-rose-700">
+          <p>{routeDataError}</p>
+          <button
+            type="button"
+            onClick={() => ensureRouteData(focusQuickAction)}
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-100"
+          >
+            Reintentar carga
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+        La ruta semanal todavia no esta disponible para este supervisor.
+      </div>
+    );
+  };
+  const renderPanelSheetState = () => {
+    if (isPanelDataLoading && !panelDataLoaded) {
+      return (
+        <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+          Cargando detalle del supervisor...
+        </div>
+      );
+    }
+
+    if (panelDataError && !panelDataLoaded) {
+      return (
+        <div className="space-y-3 rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-8 text-center text-sm text-rose-700">
+          <p>{panelDataError}</p>
+          <button
+            type="button"
+            onClick={() => ensurePanelData()}
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-100"
+          >
+            Reintentar carga
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+        El detalle del supervisor todavia no esta disponible.
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-5">
@@ -1129,7 +2094,10 @@ function SupervisorFieldDashboard({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setIsNotificationCenterOpen(true)}
+                onClick={() => {
+                  ensurePanelData();
+                  setIsNotificationCenterOpen(true);
+                }}
                 className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
                 aria-label="Notificaciones"
               >
@@ -1146,82 +2114,17 @@ function SupervisorFieldDashboard({
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <RoleMetricCard
-              label="Tiendas hoy"
-              value={String(summary.total)}
-              helper="Asignaciones activas del dia"
-            />
-            <RoleMetricCard
-              label="Pendientes"
-              value={String(summary.pendingReview)}
-              helper="Entradas listas para revision"
-              tone="amber"
-            />
-            <RoleMetricCard
-              label="Sin llegada"
-              value={String(summary.noCheckIn)}
-              helper="Asignaciones sin check-in"
-              tone="rose"
-            />
-            <RoleMetricCard
-              label="Solicitudes"
-              value={String(requestSummary.actionable)}
-              helper="Pendientes de tu aprobacion"
-              tone="purple"
-            />
+          <div className="mt-4 grid grid-cols-2 gap-1.5 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            {supervisorMetricCards.map((item) => (
+              <RoleMetricCard
+                key={item.label}
+                label={item.label}
+                value={item.value}
+                helper={item.helper}
+                tone={item.tone}
+              />
+            ))}
           </div>
-
-          {data.supervisorLoveQuota && (
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <RoleMetricCard
-                label="LOVE equipo"
-                value={`${data.supervisorLoveQuota.avanceHoy}/${data.supervisorLoveQuota.objetivoHoy}`}
-                helper={`${data.supervisorLoveQuota.cumplimientoHoyPct.toFixed(2)}% de cumplimiento`}
-                tone="rose"
-              />
-              <RoleMetricCard
-                label="DC con meta"
-                value={String(data.supervisorLoveQuota.dcConMetaHoy)}
-                helper="Dermoconsejeras con objetivo hoy"
-                tone="sky"
-              />
-              <RoleMetricCard
-                label="LOVE pendiente"
-                value={String(data.supervisorLoveQuota.restanteHoy)}
-                helper="Afiliaciones restantes del equipo"
-                tone="amber"
-              />
-            </div>
-          )}
-
-          {routeSummary && (
-            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <RoleMetricCard
-                label="Rutas visibles"
-                value={String(routeSummary.rutas)}
-                helper="Semanas con planeacion"
-              />
-              <RoleMetricCard
-                label="Visitas planeadas"
-                value={String(routeSummary.visitas)}
-                helper="Carga total del modulo"
-                tone="sky"
-              />
-              <RoleMetricCard
-                label="Completadas"
-                value={String(routeSummary.completadas)}
-                helper="Visitas ya ejecutadas"
-                tone="emerald"
-              />
-              <RoleMetricCard
-                label="Tiendas sin visita"
-                value={String(routeSummary.sinVisita)}
-                helper="Pendientes por reponer"
-                tone="amber"
-              />
-            </div>
-          )}
         </div>
       </section>
 
@@ -1235,6 +2138,18 @@ function SupervisorFieldDashboard({
             {supervisorFormation.sede
               ? `${supervisorFormation.sede} · ${formatDateLabel(supervisorFormation.fechaInicio)}`
               : formatDateLabel(supervisorFormation.fechaInicio)}
+          </p>
+          {supervisorFormation.locationAddress && (
+            <p className="mt-2 text-xs text-sky-700">
+              Sede operativa: {supervisorFormation.locationAddress}
+              {supervisorFormation.modalidad === 'PRESENCIAL' &&
+                supervisorFormation.locationLatitude !== null &&
+                supervisorFormation.locationLongitude !== null &&
+                ` · ${supervisorFormation.locationLatitude}, ${supervisorFormation.locationLongitude}`}
+            </p>
+          )}
+          <p className="mt-2 text-xs text-sky-700">
+            Debes registrar llegada con selfie en la sede de formacion.
           </p>
         </div>
       )}
@@ -1260,19 +2175,34 @@ function SupervisorFieldDashboard({
             </p>
             <h2 className="mt-2 text-xl font-semibold text-slate-950">Ruta, visita y solicitudes</h2>
             <p className="mt-2 text-sm text-slate-600">
-              Planea la semana, ejecuta la visita del dia y revisa ausencias del equipo.
+              Abre la agenda activa, define la semana y revisa correcciones sin mezclar flujos.
             </p>
           </div>
           <span className="rounded-full border border-[var(--module-border)] bg-[var(--module-soft-bg)] px-3 py-1 text-xs font-semibold text-[var(--module-text)]">
-            {routeData?.rutaSemanaActual ? 'Ruta activa' : 'Sin ruta cargada'}
+            {routeSnapshot?.hasCurrentWeekRoute ? 'Ruta activa' : 'Sin ruta cargada'}
           </span>
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <button
             type="button"
-            onClick={() => setActiveQuickAction('ruta')}
-            aria-label="Abrir ruta semanal"
+            onClick={() => ensureRouteData('ruta-agenda')}
+            aria-label="Abrir agenda operativa"
+            className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
+          >
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-sky-200 bg-sky-50 text-sky-700">
+              <ActionIconGlyph icon="calendar" accent="sky" />
+            </div>
+            <p className="mt-4 text-base font-semibold text-slate-950">Agenda operativa</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Entra directo a la agenda activa del supervisor, con eventos y ejecucion del dia.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => ensureRouteData('ruta-planning')}
+            aria-label="Abrir definir ruta semanal"
             className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
           >
             <div className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-sky-200 bg-sky-50 text-sky-700">
@@ -1280,10 +2210,39 @@ function SupervisorFieldDashboard({
             </div>
             <p className="mt-4 text-base font-semibold text-slate-950">Definir ruta semanal</p>
             <p className="mt-1 text-sm text-slate-500">
-              Elige que tiendas visitaras esta semana y solicita cambios si hace falta.
+              Elige la semana, abre cada dia y arma el borrador antes de enviarlo a coordinacion.
             </p>
           </button>
 
+          <button
+            type="button"
+            onClick={() => ensureRouteData('ruta-history')}
+            aria-label="Abrir correcciones e historicos"
+            className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
+          >
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-sky-200 bg-sky-50 text-sky-700">
+              <ActionIconGlyph icon="reports" accent="sky" />
+            </div>
+            <p className="mt-4 text-base font-semibold text-slate-950">Correcciones e historicos</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Consulta semanas enviadas, solicitudes de cambio y tiendas pendientes de reposicion.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveQuickAction('rol-mensual')}
+            aria-label="Abrir rol mensual"
+            className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
+          >
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-sky-200 bg-sky-50 text-sky-700">
+              <ActionIconGlyph icon="calendar" accent="sky" />
+            </div>
+            <p className="mt-4 text-base font-semibold text-slate-950">Rol mensual</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Consulta solo tus PDVs del mes, ordenados entre fijos y rotativos, con la DC asignada por dia.
+            </p>
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -1294,7 +2253,7 @@ function SupervisorFieldDashboard({
                 });
                 return;
               }
-              setActiveQuickAction('hoy')
+              ensureRouteData('hoy')
             }}
             aria-label="Abrir mi ruta de hoy"
             className={`rounded-[22px] border px-4 py-4 text-left shadow-sm transition ${
@@ -1316,7 +2275,10 @@ function SupervisorFieldDashboard({
 
           <button
             type="button"
-            onClick={() => setActiveQuickAction('solicitudes')}
+            onClick={() => {
+              ensurePanelData();
+              setActiveQuickAction('solicitudes');
+            }}
             aria-label="Abrir solicitudes del equipo"
             className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
           >
@@ -1332,13 +2294,16 @@ function SupervisorFieldDashboard({
             </div>
             <p className="mt-4 text-base font-semibold text-slate-950">Solicitudes</p>
             <p className="mt-1 text-sm text-slate-500">
-              Revisa vacaciones, incapacidades y dia de cumpleanos enviados por tu equipo.
+              Revisa vacaciones como aviso operativo y resuelve incapacidades o dia de cumpleanos cuando te toquen.
             </p>
           </button>
 
           <button
             type="button"
-            onClick={() => setActiveQuickAction('vacaciones')}
+            onClick={() => {
+              ensurePanelData();
+              setActiveQuickAction('vacaciones');
+            }}
             aria-label="Abrir mis vacaciones"
             className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
           >
@@ -1348,7 +2313,7 @@ function SupervisorFieldDashboard({
               </div>
               <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
                 {
-                  data.supervisorSelfRequestStatus.filter((item) => item.tipo === 'VACACIONES').length
+                  panelSelfRequestStatus.filter((item) => item.tipo === 'VACACIONES').length
                 }
               </span>
             </div>
@@ -1360,7 +2325,10 @@ function SupervisorFieldDashboard({
 
           <button
             type="button"
-            onClick={() => setActiveQuickAction('incapacidad')}
+            onClick={() => {
+              ensurePanelData();
+              setActiveQuickAction('incapacidad');
+            }}
             aria-label="Abrir mi incapacidad"
             className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
           >
@@ -1370,7 +2338,7 @@ function SupervisorFieldDashboard({
               </div>
               <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
                 {
-                  data.supervisorSelfRequestStatus.filter((item) => item.tipo === 'INCAPACIDAD').length
+                  panelSelfRequestStatus.filter((item) => item.tipo === 'INCAPACIDAD').length
                 }
               </span>
             </div>
@@ -1382,7 +2350,10 @@ function SupervisorFieldDashboard({
 
           <button
             type="button"
-            onClick={() => setActiveQuickAction('cumpleanos')}
+            onClick={() => {
+              ensurePanelData();
+              setActiveQuickAction('cumpleanos');
+            }}
             aria-label="Abrir mi dia cumple"
             className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
           >
@@ -1391,7 +2362,7 @@ function SupervisorFieldDashboard({
                 <ActionIconGlyph icon="cumple" accent="purple" />
               </div>
               <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
-                {data.supervisorSelfRequestStatus.filter((item) => item.tipo === 'PERMISO').length}
+                {panelSelfRequestStatus.filter((item) => item.tipo === 'PERMISO').length}
               </span>
             </div>
             <p className="mt-4 text-base font-semibold text-slate-950">Dia cumple</p>
@@ -1482,7 +2453,7 @@ function SupervisorFieldDashboard({
         onClose={() => setSelectedItem(null)}
         title={selectedItem ? `Entrada en ${selectedItem.pdv}` : 'Entrada operativa'}
         description="Valida o rechaza la llegada del dermoconsejero segun el check-in registrado."
-        initialSnap="partial"
+        initialSnap="expanded"
       >
         {selectedItem && (
           <SupervisorAttendanceReviewSheet
@@ -1509,21 +2480,72 @@ function SupervisorFieldDashboard({
       </BottomSheet>
 
       <BottomSheet
-        open={activeQuickAction === 'ruta'}
+        open={activeQuickAction === 'ruta-agenda'}
         onClose={() => setActiveQuickAction(null)}
-        title="Ruta semanal"
-        description="Planeacion, cambios y aprobacion de la ruta del supervisor."
+        title="Agenda operativa"
+        description="Agenda activa del supervisor en una hoja inferior compatible con movil."
         initialSnap="expanded"
       >
         {routeData ? (
-          <RutaSemanalPanel data={routeData} actorPuesto={actor.puesto} />
+          <RutaSemanalPanel
+            data={routeData}
+            actorPuesto={actor.puesto}
+            initialTab="agenda"
+            hideSupervisorTabs
+          />
         ) : (
-          <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-            La ruta semanal todavia no esta disponible para este supervisor.
-          </div>
+          renderRouteSheetState('ruta-agenda')
         )}
       </BottomSheet>
 
+      <BottomSheet
+        open={activeQuickAction === 'ruta-planning'}
+        onClose={() => setActiveQuickAction(null)}
+        title="Definir ruta semanal"
+        description="Planeacion semanal guiada en una hoja inferior arrastrable."
+        initialSnap="expanded"
+      >
+        {routeData ? (
+          <RutaSemanalPanel
+            data={routeData}
+            actorPuesto={actor.puesto}
+            initialTab="planning"
+            hideSupervisorTabs
+          />
+        ) : (
+          renderRouteSheetState('ruta-planning')
+        )}
+      </BottomSheet>
+
+      <BottomSheet
+        open={activeQuickAction === 'ruta-history'}
+        onClose={() => setActiveQuickAction(null)}
+        title="Correcciones e historicos"
+        description="Consulta semanas previas, cambios y pendientes desde una hoja inferior."
+        initialSnap="expanded"
+      >
+        {routeData ? (
+          <RutaSemanalPanel
+            data={routeData}
+            actorPuesto={actor.puesto}
+            initialTab="history"
+            hideSupervisorTabs
+          />
+        ) : (
+          renderRouteSheetState('ruta-history')
+        )}
+      </BottomSheet>
+
+
+      <BottomSheet
+        open={activeQuickAction === 'rol-mensual'}
+        onClose={() => setActiveQuickAction(null)}
+        title="Rol mensual"
+        description="Calendario mensual solo lectura de tus PDVs fijos y rotativos."
+        initialSnap="expanded"
+      >
+        <SupervisorMonthlyRoleSheet open={activeQuickAction === 'rol-mensual'} />
+      </BottomSheet>
       <BottomSheet
         open={activeQuickAction === 'hoy'}
         onClose={() => setActiveQuickAction(null)}
@@ -1531,56 +2553,64 @@ function SupervisorFieldDashboard({
         description="Ejecuta visita por visita con llegada, checklist y salida."
         initialSnap="expanded"
       >
-        <SupervisorTodayRouteSheet
-          data={routeData}
-          onSuccess={(message) => setToast({ tone: 'success', message })}
-          onError={(message) => setToast({ tone: 'error', message })}
-        />
+        {routeData ? (
+          <SupervisorTodayRouteSheet
+            data={routeData}
+            onSuccess={(message) => setToast({ tone: 'success', message })}
+            onError={(message) => setToast({ tone: 'error', message })}
+          />
+        ) : (
+          renderRouteSheetState('hoy')
+        )}
       </BottomSheet>
 
       <BottomSheet
         open={activeQuickAction === 'solicitudes'}
         onClose={() => setActiveQuickAction(null)}
         title="Solicitudes del equipo"
-        description="Aprueba vacaciones y dia de cumpleanos; da seguimiento a incapacidades."
+        description="Consulta vacaciones como aviso operativo y atiende incapacidades o dias de cumpleanos del equipo."
         initialSnap="expanded"
       >
-        <SupervisorRequestsInboxSheet
-          inbox={requestInboxItems}
-          authorizations={data.supervisorAuthorizations}
-          initialFilter={
-            activeQuickAction === 'vacaciones'
-              ? 'VACACIONES'
-              : activeQuickAction === 'incapacidad'
-                ? 'INCAPACIDAD'
-                : activeQuickAction === 'cumpleanos'
-                  ? 'CUMPLEANOS'
-                  : 'TODAS'
-          }
-          onResolved={(requestId, nextStatus, message) => {
-            setRequestInboxItems((current) =>
-              current.map((item) =>
-                item.id === requestId
-                  ? {
-                      ...item,
-                      estatus: nextStatus,
-                      actionable: false,
-                      siguienteActor:
-                        nextStatus === 'VALIDADA_SUP'
-                          ? 'COORDINADOR'
-                          : nextStatus === 'CORRECCION_SOLICITADA'
-                            ? 'DERMOCONSEJERO'
-                            : null,
-                    }
-                  : item
-              )
-            );
-            setToast({
-              tone: nextStatus === 'RECHAZADA' ? 'info' : 'success',
-              message,
-            });
-          }}
+        {panelDataLoaded ? (
+          <SupervisorRequestsInboxSheet
+            inbox={requestInboxItems}
+            authorizations={panelAuthorizations}
+            initialFilter={
+              activeQuickAction === 'vacaciones'
+                ? 'VACACIONES'
+                : activeQuickAction === 'incapacidad'
+                  ? 'INCAPACIDAD'
+                  : activeQuickAction === 'cumpleanos'
+                    ? 'CUMPLEANOS'
+                    : 'TODAS'
+            }
+            onResolved={(requestId, nextStatus, message) => {
+              setRequestInboxItems((current) =>
+                current.map((item) =>
+                  item.id === requestId
+                    ? {
+                        ...item,
+                        estatus: nextStatus,
+                        actionable: false,
+                        siguienteActor:
+                          nextStatus === 'VALIDADA_SUP'
+                            ? 'COORDINADOR'
+                            : nextStatus === 'CORRECCION_SOLICITADA'
+                              ? 'DERMOCONSEJERO'
+                              : null,
+                      }
+                    : item
+                )
+              );
+              setToast({
+                tone: nextStatus === 'RECHAZADA' ? 'info' : 'success',
+                message,
+              });
+            }}
           />
+        ) : (
+          renderPanelSheetState()
+        )}
       </BottomSheet>
 
       <BottomSheet
@@ -1601,14 +2631,15 @@ function SupervisorFieldDashboard({
           activeQuickAction === 'vacaciones'
             ? 'Registra tu solicitud personal y revisa su estatus sin salir del dashboard.'
             : activeQuickAction === 'incapacidad'
-              ? 'Registra tu incapacidad y manda evidencia directa para revision.'
+              ? 'Registra tu incapacidad y adjunta evidencia para validacion de supervision, reclutamiento y nomina.'
               : 'Solicita tu dia de cumpleanos y consulta el avance.'
         }
         initialSnap="expanded"
       >
-        {(activeQuickAction === 'vacaciones' ||
-          activeQuickAction === 'incapacidad' ||
-          activeQuickAction === 'cumpleanos') && (
+        {panelDataLoaded &&
+          (activeQuickAction === 'vacaciones' ||
+            activeQuickAction === 'incapacidad' ||
+            activeQuickAction === 'cumpleanos') && (
           <DermoSolicitudSheet
             data={supervisorSelfRequestData}
             requesterRole="SUPERVISOR"
@@ -1626,6 +2657,7 @@ function SupervisorFieldDashboard({
             }}
           />
         )}
+        {!panelDataLoaded && renderPanelSheetState()}
       </BottomSheet>
 
       <BottomSheet
@@ -1635,13 +2667,17 @@ function SupervisorFieldDashboard({
         description="Avisos breves y lectura rapida para supervision."
         initialSnap="partial"
       >
-        <NotificationCenterSheet
-          notifications={supervisorNotifications}
-          onOpenRoutePlanner={() => {
-            setIsNotificationCenterOpen(false);
-            setActiveQuickAction('ruta');
-          }}
-        />
+        {panelDataLoaded ? (
+          <NotificationCenterSheet
+            notifications={supervisorNotifications}
+            onOpenRoutePlanner={() => {
+              setIsNotificationCenterOpen(false);
+              setActiveQuickAction('ruta-planning');
+            }}
+          />
+        ) : (
+          renderPanelSheetState()
+        )}
       </BottomSheet>
 
       {toast && <ToastBanner tone={toast.tone} message={toast.message} />}
@@ -1790,8 +2826,8 @@ function SupervisorRequestsInboxSheet({
       <div className="rounded-[22px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
         <p className="text-sm font-semibold text-slate-950">Solicitudes del equipo</p>
         <p className="mt-1 text-sm text-slate-600">
-          Vacaciones, dia de cumpleanos y justificaciones de faltas pasan por tu validacion.
-          Incapacidad queda visible para seguimiento operativo y asistencia.
+          Vacaciones quedan visibles como aviso operativo.
+          Dia de cumpleanos, justificaciones e incapacidades siguen tu filtro operativo; despues Reclutamiento y Nomina cierran la incapacidad.
         </p>
       </div>
 
@@ -1986,7 +3022,7 @@ function SupervisorRequestInfoSheet({ item }: { item: DashboardSupervisorRequest
     <div className="space-y-4">
       <div className="rounded-[22px] border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-sky-900">
         {item.kind === 'INCAPACIDAD'
-          ? 'Esta incapacidad ya sigue el flujo directo con Nomina. Aqui solo se mantiene visible para control operativo y asistencia.'
+          ? 'Esta incapacidad sigue una ruta escalonada: supervision valida primero, reclutamiento revisa el documento y nomina formaliza al final.'
           : 'Esta solicitud ya avanzo fuera de tu aprobacion directa.'}
       </div>
 
@@ -2208,6 +3244,22 @@ function DermoFormationAttendanceCard({
         formData.set('longitude', String(gpsCapture.position.longitud));
       }
 
+      try {
+        await injectDirectR2Upload(formData, stamped.file, {
+          modulo: 'formaciones',
+          removeFieldName: 'selfie_file',
+          fieldNames: {
+            objectKey: 'selfie_r2_object_key',
+            sha256: 'selfie_r2_sha256',
+            fileName: 'selfie_r2_file_name',
+            contentType: 'selfie_r2_type',
+            size: 'selfie_r2_size',
+          },
+        });
+      } catch (error) {
+        console.error('No fue posible subir la selfie de formación a R2.', error);
+      }
+
       const result =
         mode === 'CHECK_IN'
           ? await registrarLlegadaFormacionDashboard(ESTADO_FORMACION_ADMIN_INICIAL, formData)
@@ -2283,15 +3335,14 @@ function DermoFormationAttendanceCard({
             <p className="mt-2 text-sm text-sky-800">
               Tu asignacion normal en tienda queda suspendida por este evento.
             </p>
-            {currentFormation.manualUrl && (
-              <a
-                href={currentFormation.manualUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 inline-flex text-sm font-medium text-sky-700 hover:text-sky-800"
-              >
-                Abrir manual{currentFormation.manualNombre ? ` · ${currentFormation.manualNombre}` : ''}
-              </a>
+            {currentFormation.locationAddress && (
+              <p className="mt-2 text-xs text-sky-700">
+                Sede operativa: {currentFormation.locationAddress}
+                {currentFormation.modalidad === 'PRESENCIAL' &&
+                  currentFormation.locationLatitude !== null &&
+                  currentFormation.locationLongitude !== null &&
+                  ` · ${currentFormation.locationLatitude}, ${currentFormation.locationLongitude}`}
+              </p>
             )}
           </div>
           <span
@@ -2481,16 +3532,24 @@ function DermoSupportButton({
 }
 
 function DashboardLogoutButton() {
+  const [isPending, startTransition] = useTransition();
+
+  const handleLogout = () => {
+    startTransition(() => {
+      window.location.assign('/logout');
+    });
+  };
+
   return (
-    <form action={signout}>
-      <Button
-        type="submit"
-        variant="outline"
-        className="min-h-10 rounded-[14px] border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-      >
-        Cerrar sesion
-      </Button>
-    </form>
+    <Button
+      type="button"
+      variant="outline"
+      onClick={handleLogout}
+      isLoading={isPending}
+      className="min-h-10 rounded-[14px] border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+    >
+      Cerrar sesion
+    </Button>
   );
 }
 
@@ -2528,6 +3587,8 @@ function getDermoActionIcon(
       return 'profile';
     case 'incidencias':
       return 'warning';
+    case 'registro-extemporaneo':
+      return 'clock';
     case 'justificacion-faltas':
       return 'requests';
     case 'incapacidad':
@@ -2666,28 +3727,64 @@ function RoleMetricCard({
   helper: string;
   tone?: ShortcutTone;
 }) {
-  const icon =
-    tone === 'amber'
-      ? 'warning'
-      : tone === 'sky'
-        ? 'attendance'
-        : tone === 'rose'
-          ? 'heart'
-          : 'sales';
+  const semantic = resolveKpiSemantic(label);
+  const icon = semantic.icon;
+
+  const metricTone =
+    tone === 'emerald' || tone === 'sky' || tone === 'amber' || tone === 'rose'
+      ? tone
+      : tone === 'purple'
+        ? 'violet'
+        : semantic.tone;
+
+  const toneSurfaceClassName =
+    metricTone === 'emerald'
+      ? 'border-emerald-100/80 bg-gradient-to-b from-emerald-100/90 via-emerald-50/45 to-white'
+      : metricTone === 'sky'
+        ? 'border-sky-100/80 bg-gradient-to-b from-sky-100/90 via-sky-50/45 to-white'
+        : metricTone === 'amber'
+          ? 'border-amber-100/80 bg-gradient-to-b from-amber-100/90 via-amber-50/45 to-white'
+          : metricTone === 'rose'
+            ? 'border-rose-100/80 bg-gradient-to-b from-rose-100/90 via-rose-50/45 to-white'
+            : metricTone === 'violet'
+              ? 'border-violet-100/80 bg-gradient-to-b from-violet-100/90 via-violet-50/45 to-white'
+            : 'border-[var(--module-border)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--module-primary)_14%,white)_0%,var(--module-soft-bg)_38%,rgba(255,255,255,0.95)_100%)]';
+  const indicatorStyle = {
+    borderColor: withAlpha(semantic.color, 0.24),
+    backgroundColor: withAlpha(semantic.color, 0.1),
+    color: semantic.color,
+  };
 
   return (
-    <div className="rounded-[22px] border border-[var(--module-border)] bg-white/90 p-4 shadow-sm backdrop-blur">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
-          <p className="mt-2 text-xs leading-5 text-slate-500">{helper}</p>
+    <div
+      className={`min-h-[54px] rounded-[14px] border px-3 py-2 shadow-[0_6px_14px_rgba(148,163,184,0.08)] ${toneSurfaceClassName}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[8px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            {label}
+          </p>
+          <div className="mt-1 grid grid-cols-[auto,1fr] items-end gap-x-2 gap-y-0.5">
+            <p className="min-w-[24px] text-[1.05rem] font-semibold leading-none tracking-[-0.03em] text-slate-950 sm:text-[1.15rem]">
+              {value}
+            </p>
+            <p className="min-w-0 line-clamp-2 text-[9px] leading-3 text-slate-500">
+              {helper}
+            </p>
+          </div>
         </div>
-        <div
-          className={`inline-flex h-10 w-10 items-center justify-center rounded-[16px] ${getQuickActionTone(tone)}`}
+        <span
+          className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[8px]"
+          style={indicatorStyle}
         >
-          <ActionIconGlyph icon={icon} accent={tone} small />
-        </div>
+          <PremiumLineIcon
+            name={icon}
+            className="h-4 w-4"
+            stroke={semantic.color}
+            strokeWidth={1.95}
+            variant={semantic.variant}
+          />
+        </span>
       </div>
     </div>
   );
@@ -2981,6 +4078,7 @@ function DermoLoveSheet({
     ESTADO_LOVE_ISDIN_INICIAL
   );
   const [isPending, startTransition] = useTransition();
+  const [isUploadingR2, setIsUploadingR2] = useState(false);
   const canSubmit = Boolean(
     data.context.cuentaClienteId &&
       data.context.pdvId &&
@@ -3005,7 +4103,7 @@ function DermoLoveSheet({
     onClose();
   }, [onClose, onSuccess, state.message, state.ok]);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const capturedAt = new Date().toISOString();
@@ -3013,8 +4111,20 @@ function DermoLoveSheet({
     formData.delete('evidencia');
     formData.set('fecha_utc', capturedAt);
 
-    if (cameraPhotoFile) {
-      formData.append('evidencia', cameraPhotoFile);
+    if (cameraPhotoFile && offline.isOnline) {
+      setIsUploadingR2(true);
+      try {
+        await injectDirectR2Upload(formData, cameraPhotoFile, {
+          modulo: 'love_isdin',
+        });
+      } catch (err) {
+        console.error('Error en subida R2 LOVE ISDIN:', err)
+        setLocalMessage('Error al subir evidencia. Reintentar o continuar sin foto.')
+      } finally {
+        setIsUploadingR2(false)
+      }
+    } else if (cameraPhotoFile) {
+      formData.append('evidencia', cameraPhotoFile)
     }
 
     if (!offline.isOnline) {
@@ -3178,11 +4288,14 @@ function DermoLoveSheet({
       <div className="sticky bottom-0 bg-white pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2">
         <SheetSubmitButton
           form="dermo-love-sheet-form"
-          label="Guardar registro"
+          label={isUploadingR2 ? 'Subiendo evidencia...' : 'Guardar registro'}
           pendingLabel="Guardando..."
-          disabled={!canSubmit || isPending}
+          disabled={!canSubmit || isPending || isUploadingR2}
           className="w-full bg-rose-500 text-white shadow-[0_14px_28px_rgba(244,114,182,0.28)] hover:bg-rose-600"
         />
+        {isUploadingR2 && (
+          <p className="mt-2 text-center text-xs text-rose-600">Subiendo fotografia a la nube...</p>
+        )}
       </div>
     </form>
       <NativeCameraSelfieDialog
@@ -3208,7 +4321,7 @@ function DermoSolicitudSheet({
   onClose,
   onSuccess,
 }: {
-  data: Pick<DashboardDermoconsejoData, 'context' | 'requestStatus'>;
+  data: Pick<DashboardDermoconsejoData, 'context' | 'requestStatus' | 'vacationPolicy'>;
   tipo:
     | 'incapacidad'
     | 'vacaciones'
@@ -3235,6 +4348,10 @@ function DermoSolicitudSheet({
   const isIncapacidad = tipo === 'incapacidad';
   const isAvisoInasistencia = tipo === 'aviso-inasistencia';
   const isJustificacionFalta = tipo === 'justificacion-faltas';
+  const isVacaciones = tipo === 'vacaciones';
+  const vacationMinDate = new Intl.DateTimeFormat('en-CA').format(
+    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+  );
   const [showRequestStatus, setShowRequestStatus] = useState(false);
   const [incapacidadClase, setIncapacidadClase] = useState<'INICIAL' | 'SUBSECUENTE'>('INICIAL');
   const [selectedGalleryFile, setSelectedGalleryFile] = useState<string | null>(null);
@@ -3263,7 +4380,7 @@ function DermoSolicitudSheet({
     onClose();
   }, [onClose, onSuccess, state.message, state.ok]);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
 
@@ -3271,6 +4388,23 @@ function DermoSolicitudSheet({
 
     if (cameraEvidenceFile) {
       formData.append('justificante_camera', cameraEvidenceFile);
+    }
+
+    const justificante =
+      cameraEvidenceFile ??
+      ((formData.get('justificante') instanceof File && (formData.get('justificante') as File).size > 0)
+        ? (formData.get('justificante') as File)
+        : null);
+
+    if (justificante) {
+      try {
+        await injectDirectR2Upload(formData, justificante, {
+          modulo: 'solicitudes',
+          removeFieldName: cameraEvidenceFile ? 'justificante_camera' : 'justificante',
+        });
+      } catch (error) {
+        console.error('No fue posible subir el justificante a R2.', error);
+      }
     }
 
     startTransition(() => {
@@ -3292,6 +4426,53 @@ function DermoSolicitudSheet({
       {isIncapacidad && <input type="hidden" name="incapacidad_clase" value={incapacidadClase} />}
 
       <div className="grid gap-4">
+        {isVacaciones && data.vacationPolicy && (
+          <div className="space-y-3 rounded-[20px] border border-emerald-200 bg-[linear-gradient(180deg,rgba(236,253,245,0.98),rgba(255,255,255,0.98))] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-emerald-950">Saldo anual</p>
+                <p className="mt-1 text-sm text-emerald-800">
+                  {data.vacationPolicy.annualUsedDays} dias usados / {data.vacationPolicy.annualAvailableDays} disponibles
+                </p>
+              </div>
+              <span className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+                Dias totales del año: {data.vacationPolicy.annualDays}
+              </span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <VacationBucketCard
+                title="Primer semestre"
+                tone="emerald"
+                bucket={data.vacationPolicy.firstSemester}
+              />
+              <VacationBucketCard
+                title="Segundo semestre"
+                tone="slate"
+                bucket={data.vacationPolicy.secondSemester}
+              />
+            </div>
+
+            {!data.vacationPolicy.eligible ? (
+              <div className="rounded-[16px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Tus vacaciones se habilitan al cumplir el año. Proxima fecha: {formatVacationDateLabel(data.vacationPolicy.nextUnlockDate)}.
+              </div>
+            ) : data.vacationPolicy.currentSemester === 'PRIMER_SEMESTRE' ? (
+              <div className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                El segundo semestre sigue bloqueado hasta {formatVacationDateLabel(data.vacationPolicy.nextUnlockDate)}. Los dias no usados del primer semestre caducan y no se acumulan.
+              </div>
+            ) : (
+              <div className="rounded-[16px] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                Ya estas en el segundo semestre del ciclo anual. Solo se pueden usar los 6 dias de esta bolsa; los del primer semestre no se transfieren.
+              </div>
+            )}
+
+            {requesterRole === 'SUPERVISOR' && (
+              <VacationTeamLoadList weeks={data.vacationPolicy.teamWeeklyLoad} />
+            )}
+          </div>
+        )}
+
         <div className="flex items-center justify-between gap-3 rounded-[18px] border border-border bg-surface-subtle px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-slate-950">Estatus de solicitudes</p>
@@ -3390,7 +4571,8 @@ function DermoSolicitudSheet({
             <input
               name="fecha_inicio"
               type="date"
-              defaultValue={getLocalDateValue()}
+              defaultValue={isVacaciones ? vacationMinDate : getLocalDateValue()}
+              min={isVacaciones ? vacationMinDate : undefined}
               className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
             />
           </SheetField>
@@ -3398,7 +4580,8 @@ function DermoSolicitudSheet({
             <input
               name="fecha_fin"
               type="date"
-              defaultValue={getLocalDateValue()}
+              defaultValue={isVacaciones ? vacationMinDate : getLocalDateValue()}
+              min={isVacaciones ? vacationMinDate : undefined}
               readOnly={isAvisoInasistencia || isJustificacionFalta}
               className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
             />
@@ -3422,7 +4605,7 @@ function DermoSolicitudSheet({
             required={isIncapacidad || isAvisoInasistencia || isJustificacionFalta}
             placeholder={
               isIncapacidad
-                ? 'Escribe tu solicitud breve para nomina.'
+                ? 'Escribe tu solicitud breve para supervision y reclutamiento.'
                 : isAvisoInasistencia
                   ? 'Explica por que no podras asistir a la sucursal este dia.'
                   : isJustificacionFalta
@@ -3492,15 +4675,17 @@ function DermoSolicitudSheet({
                 )}
 
                 <p className="mt-3 text-sm text-slate-600">
-                  {selectedCameraFile ?? selectedGalleryFile ?? 'Adjunta el documento medico para que Nomina lo revise.'}
+                  {selectedCameraFile ??
+                    selectedGalleryFile ??
+                    'Adjunta el documento medico para que supervision, reclutamiento y nomina lo revisen.'}
                 </p>
               </div>
             </SheetField>
 
             <div className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
               {requesterRole === 'SUPERVISOR'
-                ? 'Se enviara directo a nomina y quedara visible para coordinacion en la trazabilidad operativa.'
-                : 'Se enviara directo a nomina. Supervision, coordinacion y reclutamiento solo recibiran aviso del rango de dias.'}
+                ? 'Se enviara a reclutamiento para revision documental y despues a nomina para formalizacion.'
+                : 'Primero la valida supervision, despues la revisa reclutamiento y finalmente la formaliza nomina.'}
             </div>
           </>
         ) : isAvisoInasistencia ? (
@@ -3525,6 +4710,11 @@ function DermoSolicitudSheet({
           </>
         ) : (
           <>
+            {isVacaciones && (
+              <div className="rounded-[18px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                La solicitud requiere 30 dias naturales de anticipacion y la aprueba Coordinacion. Supervision solo recibe aviso para ajustar cobertura.
+              </div>
+            )}
             <SheetField label="Comentarios">
               <textarea
                 name="comentarios"
@@ -3646,6 +4836,111 @@ function formatRemainingMinutes(totalMinutes: number | null) {
 
   parts.push(`${minutes}m`);
   return parts.join(' ');
+}
+
+function formatVacationDateLabel(value: string | null) {
+  if (!value) {
+    return 'Sin fecha';
+  }
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(`${value}T12:00:00`));
+}
+
+function VacationBucketCard({
+  title,
+  tone,
+  bucket,
+}: {
+  title: string;
+  tone: 'emerald' | 'slate';
+  bucket: DashboardVacationPolicySummary['firstSemester'];
+}) {
+  const toneClass =
+    tone === 'emerald'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
+      : 'border-slate-200 bg-slate-50 text-slate-900';
+
+  if (!bucket) {
+    return (
+      <div className={`rounded-[18px] border px-4 py-4 ${toneClass}`}>
+        <p className="text-sm font-semibold">{title}</p>
+        <p className="mt-1 text-sm opacity-80">No hay periodo habilitado todavia.</p>
+      </div>
+    );
+  }
+
+  const usedPct = bucket.totalDays > 0 ? Math.min(100, Math.round((bucket.usedDays / bucket.totalDays) * 100)) : 0;
+
+  return (
+    <div className={`rounded-[18px] border px-4 py-4 ${toneClass}`}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold">{title}</p>
+        <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-semibold">
+          {bucket.unlocked ? 'Activo' : 'Bloqueado'}
+        </span>
+      </div>
+      <p className="mt-2 text-sm">
+        {bucket.usedDays} usados / {bucket.availableDays} disponibles
+      </p>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/80">
+        <div
+          className="h-full rounded-full bg-current transition-all"
+          style={{ width: `${Math.max(8, usedPct)}%` }}
+        />
+      </div>
+      <p className="mt-3 text-xs opacity-80">
+        {formatVacationDateLabel(bucket.availableFrom)} al {formatVacationDateLabel(bucket.availableUntil)}
+      </p>
+    </div>
+  );
+}
+
+function VacationTeamLoadList({ weeks }: { weeks: DashboardVacationPolicySummary['teamWeeklyLoad'] }) {
+  if (weeks.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-2 rounded-[18px] border border-sky-200 bg-sky-50 p-4">
+      <div>
+        <p className="text-sm font-semibold text-sky-950">Mapa semanal del equipo</p>
+        <p className="mt-1 text-xs text-sky-700">
+          Maximo 2 personas de vacaciones por semana en tu equipo.
+        </p>
+      </div>
+      <div className="space-y-2">
+        {weeks.map((week) => {
+          const fillPct = week.limit > 0 ? Math.min(100, Math.round((week.absentCount / week.limit) * 100)) : 0;
+          return (
+            <div key={week.weekStart} className="rounded-[14px] border border-white/70 bg-white/70 px-3 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold text-slate-900">
+                  {formatVacationDateLabel(week.weekStart)} al {formatVacationDateLabel(week.weekEnd)}
+                </p>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                    week.blocked ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
+                  }`}
+                >
+                  {week.absentCount}/{week.limit}
+                </span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className={`h-full rounded-full ${week.blocked ? 'bg-rose-500' : 'bg-sky-500'}`}
+                  style={{ width: `${Math.max(6, fillPct)}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function DermoIncidenciasSheet({
@@ -3780,15 +5075,32 @@ function DermoIncidenciasSheet({
       title: 'Avisar inasistencia',
       helper: 'Registra el aviso previo que despues habilita la justificacion de falta.',
     },
-    {
-      value: 'REGISTRO_EXTEMPORANEO',
-      title: 'Registro extemporaneo',
-      helper: 'Regulariza ventas y LOVE ISDIN de dias anteriores con aprobacion del supervisor.',
-    },
+
   ];
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setLastSubmittedType(tipo);
+
+    const formData = new FormData(event.currentTarget);
+    if (tipo === 'REGISTRO_EXTEMPORANEO') {
+      const evidencia = formData.get('evidencia');
+      if (evidencia instanceof File && evidencia.size > 0) {
+        try {
+          await injectDirectR2Upload(formData, evidencia, {
+            modulo: 'registros_extemporaneos',
+            removeFieldName: 'evidencia',
+          });
+        } catch (error) {
+          console.error('No fue posible subir la evidencia extemporánea a R2.', error);
+        }
+      }
+    }
+
+    const submitAction = (
+      isExtemporaneo ? extemporaneoAction : isAvisoInasistencia ? solicitudAction : incidenciaAction
+    ) as unknown as (payload: FormData) => void;
+    submitAction(formData);
   };
 
   return (
@@ -4240,6 +5552,7 @@ function DermoPerfilSheet({
   const [correctionField, setCorrectionField] = useState<
     'CORREO_ELECTRONICO' | 'TELEFONO' | 'DOMICILIO_COMPLETO'
   >('CORREO_ELECTRONICO');
+  const [isUploadingR2, setIsUploadingR2] = useState(false);
   const profileRows = [
     { label: 'Nombre', value: data.profile.nombreCompleto },
     { label: 'Rol', value: data.profile.puesto },
@@ -4268,6 +5581,30 @@ function DermoPerfilSheet({
     onSuccess(state.message);
     onClose();
   }, [onClose, onSuccess, state.message, state.ok]);
+
+  const handleCorrectionSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const formData = new FormData(event.currentTarget);
+    const evidence = formData.get('evidencia');
+
+    if (evidence instanceof File && evidence.size > 0) {
+      setIsUploadingR2(true);
+      try {
+        await injectDirectR2Manifest(formData, [evidence], {
+          modulo: 'correccion_perfil_dermoconsejo',
+          removeFieldName: 'evidencia',
+          manifestFieldName: 'evidencia_r2_manifest',
+        });
+      } catch (error) {
+        console.error('No fue posible subir la evidencia de correccion de perfil a R2.', error);
+      } finally {
+        setIsUploadingR2(false);
+      }
+    }
+
+    formAction(formData);
+  };
 
   return (
     <div className="space-y-4">
@@ -4307,6 +5644,15 @@ function DermoPerfilSheet({
           <p className="mt-2 text-sm text-slate-600">
             Este evento exime tu asistencia en tienda mientras este activo.
           </p>
+          {data.activeFormation.locationAddress && (
+            <p className="mt-2 text-xs text-sky-700">
+              Sede operativa: {data.activeFormation.locationAddress}
+              {data.activeFormation.modalidad === 'PRESENCIAL' &&
+                data.activeFormation.locationLatitude !== null &&
+                data.activeFormation.locationLongitude !== null &&
+                ` · ${data.activeFormation.locationLatitude}, ${data.activeFormation.locationLongitude}`}
+            </p>
+          )}
         </div>
       )}
 
@@ -4330,7 +5676,12 @@ function DermoPerfilSheet({
         </div>
 
         {showCorrectionForm && (
-          <form id="dermo-profile-correction-form" action={formAction} className="mt-4 space-y-4">
+          <form
+            id="dermo-profile-correction-form"
+            action={formAction}
+            onSubmit={handleCorrectionSubmit}
+            className="mt-4 space-y-4"
+          >
             <input type="hidden" name="cuenta_cliente_id" value={data.context.cuentaClienteId ?? ''} />
             <input type="hidden" name="empleado_id" value={data.context.empleadoId} />
             <input type="hidden" name="campo" value={correctionField} />
@@ -4446,11 +5797,14 @@ function DermoPerfilSheet({
             <div className="sticky bottom-0 bg-white pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2">
               <SheetSubmitButton
                 form="dermo-profile-correction-form"
-                label="Enviar solicitud"
+                label={isUploadingR2 ? 'Subiendo evidencia...' : 'Enviar solicitud'}
                 pendingLabel="Enviando..."
                 className="w-full"
-                disabled={!data.context.cuentaClienteId}
+                disabled={!data.context.cuentaClienteId || isUploadingR2}
               />
+              {isUploadingR2 ? (
+                <p className="mt-2 text-center text-xs text-sky-700">Subiendo evidencia a la nube...</p>
+              ) : null}
             </div>
           </form>
         )}
@@ -4471,7 +5825,7 @@ function NotificationCenterSheet({
       <div className="rounded-[22px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
         <p className="text-sm font-semibold text-slate-950">Centro de notificaciones</p>
         <p className="mt-1 text-sm text-slate-600">
-          Avisos breves enviados por administracion. Puedes revisar y marcar su lectura desde aqui.
+          Avisos breves y mensajes internos recientes. Puedes revisar y marcar su lectura desde aqui.
         </p>
       </div>
 
@@ -4487,6 +5841,7 @@ function NotificationCenterSheet({
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-950">{item.titulo}</p>
                   <p className="mt-1 text-xs text-slate-500">{formatDateTime(item.createdAt)}</p>
+                  {item.remitente && <p className="mt-1 text-xs text-slate-500">De: {item.remitente}</p>}
                 </div>
                 <span
                   className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold ${
@@ -4685,6 +6040,7 @@ function DermoCampanaSheet({
     ESTADO_CAMPANA_ADMIN_INICIAL
   );
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [isUploadingR2, setIsUploadingR2] = useState(false);
 
   useEffect(() => {
     if (!state.ok || !state.message) {
@@ -4697,6 +6053,30 @@ function DermoCampanaSheet({
 
   const canSubmit = Boolean(data.shift.isOpen && data.context.attendanceId);
 
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const formData = new FormData(event.currentTarget);
+    const evidence = formData.get('evidencia');
+
+    if (evidence instanceof File && evidence.size > 0) {
+      setIsUploadingR2(true);
+      try {
+        await injectDirectR2Manifest(formData, [evidence], {
+          modulo: 'campanas_evidencia',
+          removeFieldName: 'evidencia',
+          manifestFieldName: 'evidencia_r2_manifest',
+        });
+      } catch (error) {
+        console.error('No fue posible subir la evidencia de campana a R2.', error);
+      } finally {
+        setIsUploadingR2(false);
+      }
+    }
+
+    formAction(formData);
+  };
+
   if (!data.activeCampaign) {
     return (
       <div className="rounded-[22px] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
@@ -4706,7 +6086,7 @@ function DermoCampanaSheet({
   }
 
   return (
-    <form id="dermo-campana-sheet-form" action={formAction} className="space-y-4">
+    <form id="dermo-campana-sheet-form" action={formAction} onSubmit={handleSubmit} className="space-y-4">
       <input type="hidden" name="campana_pdv_id" value={data.activeCampaign.campanaPdvId} />
 
       <div className="rounded-[22px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-lime-50 to-amber-50 px-4 py-4 text-emerald-950">
@@ -4826,11 +6206,14 @@ function DermoCampanaSheet({
         <Button
           type="submit"
           size="lg"
-          disabled={!canSubmit}
+          disabled={!canSubmit || isUploadingR2}
           className="w-full bg-emerald-500 text-white hover:bg-emerald-600"
         >
-          Guardar evidencia
+          {isUploadingR2 ? 'Subiendo evidencia...' : 'Guardar evidencia'}
         </Button>
+        {isUploadingR2 ? (
+          <p className="text-center text-xs text-emerald-700">Subiendo evidencia a la nube...</p>
+        ) : null}
       </div>
     </form>
   );
@@ -5152,17 +6535,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card className="bg-white">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-slate-500">{label}</p>
-          <p className="mt-3 text-3xl font-semibold text-slate-950">{value}</p>
-        </div>
-        <MetricGlyph />
-      </div>
-    </Card>
-  );
+  return <SharedMetricCard label={label} value={value} />;
 }
 
 function CompactMetric({
@@ -5174,28 +6547,29 @@ function CompactMetric({
   value: string;
   tone?: 'slate' | 'amber';
 }) {
+  const valueToneClass = tone === 'amber' ? 'text-amber-800' : 'text-slate-950'
+
   return (
-    <div
-      className={`rounded-[18px] border px-4 py-3 shadow-sm ${tone === 'amber' ? 'border-amber-200 bg-amber-50' : 'border-border/60 bg-white'}`}
-    >
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
-      <p
-        className={`mt-2 text-2xl font-semibold ${tone === 'amber' ? 'text-amber-800' : 'text-slate-950'}`}
-      >
-        {value}
-      </p>
-    </div>
+    <SharedMetricCard
+      label={label}
+      value={value}
+      tone={tone}
+      className="rounded-[18px] px-4 py-3 shadow-sm"
+      labelClassName="text-[10px]"
+      valueClassName={'text-lg ' + valueToneClass}
+    />
   );
 }
 
 function SnapshotMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[18px] border border-[var(--module-border)] bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-        {label}
-      </p>
-      <p className="mt-2 text-sm font-medium text-slate-950">{value}</p>
-    </div>
+    <SharedMetricCard
+      label={label}
+      value={value}
+      className="rounded-[18px] border-[var(--module-border)] bg-white/80 px-4 py-3 shadow-sm backdrop-blur"
+      labelClassName="text-[10px]"
+      valueClassName="text-sm font-medium"
+    />
   );
 }
 

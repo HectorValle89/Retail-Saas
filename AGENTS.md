@@ -37,6 +37,40 @@ Reglas obligatorias de ejecucion:
 
 Si el analisis revela consecuencias no obvias, riesgo de regresion amplio o necesidad de cambiar contratos existentes, el agente debe pausar y explicitar ese impacto antes de continuar con la implementacion.
 
+## Performance and Cost Guardrail Rule
+
+Desde este punto, todo agente que modifique backend, frontend, consultas, layouts, servicios, sincronizacion o dashboards debe optimizar por defecto para evitar estas cuatro cosas:
+
+- lecturas extremas
+- consultas innecesarias
+- excesos en la factura de Supabase
+- que la app se sienta lenta al navegar o refrescar modulos
+
+Analisis minimo obligatorio antes de implementar o refactorizar:
+
+1. Cuantas lecturas, queries, joins, subscriptions o refreshes adicionales introduce el cambio.
+2. Si el cambio corre por request, por navegacion, por render, por foco de ventana, por poll o por evento realtime.
+3. Si existe una alternativa mas barata usando cache, paginacion, vistas agregadas, lazy load, prefetch selectivo, memoizacion o diferimiento de carga.
+4. Que impacto probable tendra en latencia percibida, consumo de red, consumo de CPU cliente y costo de Supabase.
+
+Reglas obligatorias de ejecucion:
+
+- No agregar queries nuevas si la misma informacion ya existe en la cadena de carga actual y puede reutilizarse.
+- No hacer lecturas masivas por defecto en paneles, dashboards o reportes si el usuario aun no ha filtrado, abierto o solicitado el detalle.
+- No disparar side effects de escritura, recalculo, mensajeria o sincronizacion pesada dentro de cargas de lectura salvo necesidad operacional explicita y documentada.
+- Preferir vistas agregadas, cache de servidor, `unstable_cache`, paginacion, cursores y carga por secciones antes que consultas monoliticas.
+- En navegacion entre modulos, priorizar que la ruta cargue primero el resumen visible y difiera detalles secundarios, tablas extensas, historiales, graficas pesadas y exportaciones.
+- Todo agente debe revisar si el `layout`, `proxy`, middleware, realtime, polling o `router.refresh()` pueden amplificar el costo de una pantalla y reducir ese impacto cuando sea posible.
+- Si un cambio introduce polling, realtime o refresh automatico, el agente debe justificar por que no basta una actualizacion manual, diferida o por evento mas acotado.
+- En cualquier modulo con riesgo de costo o lentitud, el agente debe preferir menos columnas, menos filas y menos round-trips antes de cerrar el corte.
+
+Validacion minima antes de cerrar un cambio relevante:
+
+- identificar las consultas principales afectadas
+- confirmar si quedaron mas baratas, iguales o mas costosas que antes
+- explicitar cualquier tradeoff de costo vs latencia cuando no se pueda mejorar ambos
+
+Si el agente detecta que una mejora funcional empeora claramente costo, lecturas o latencia percibida, debe pausar y advertirlo antes de continuar.
 ## UTF-8 Rule
 
 Los tres documentos canonicos ya estan almacenados en UTF-8 valido. Si PowerShell o la terminal muestran mojibake al leerlos, tratalo como un problema de render de consola, no como corrupcion del archivo.

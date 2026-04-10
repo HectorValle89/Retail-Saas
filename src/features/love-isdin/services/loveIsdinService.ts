@@ -17,6 +17,11 @@ import {
   computeLoveQuotaProgress,
   fetchLoveQuotaTargetRows,
 } from '../lib/loveQuota'
+import {
+  obtenerRegistrosExtemporaneosPanel,
+  type RegistroExtemporaneoListadoItem,
+  type RegistroExtemporaneoResumen,
+} from '@/features/solicitudes/extemporaneoService'
 
 type MaybeMany<T> = T | T[] | null
 
@@ -285,6 +290,8 @@ export interface LoveIsdinPanelData {
   qrInfraestructuraLista: boolean
   qrMensajeInfraestructura?: string
   qrImportLotes: LoveQrImportLotItem[]
+  resumenExtemporaneo: RegistroExtemporaneoResumen
+  registrosExtemporaneos: RegistroExtemporaneoListadoItem[]
   paginacion: {
     page: number
     pageSize: number
@@ -475,6 +482,13 @@ export async function obtenerPanelLoveIsdin(
       qrMensajeInfraestructura:
         'Las tablas de QR oficial aun no estan disponibles. Aplica la migracion de LOVE ISDIN para habilitar el inventario.',
       qrImportLotes: [],
+      resumenExtemporaneo: {
+        total: 0,
+        pendientes: 0,
+        aprobados: 0,
+        rechazados: 0,
+      },
+      registrosExtemporaneos: [],
       paginacion: {
         page,
         pageSize,
@@ -584,6 +598,13 @@ export async function obtenerPanelLoveIsdin(
       qrMensajeInfraestructura:
         'Las tablas de QR oficial aun no estan disponibles. Aplica la migracion de LOVE ISDIN para habilitar el inventario.',
       qrImportLotes: [],
+      resumenExtemporaneo: {
+        total: 0,
+        pendientes: 0,
+        aprobados: 0,
+        rechazados: 0,
+      },
+      registrosExtemporaneos: [],
       paginacion: {
         page: safePage,
         pageSize,
@@ -1234,6 +1255,12 @@ export async function obtenerPanelLoveIsdin(
     } satisfies LoveQrImportLotItem
   })
 
+  const extemporaneosPanel = await obtenerRegistrosExtemporaneosPanel(client, {
+    actorPuesto: options?.actor?.puesto ?? null,
+    actorEmpleadoId: options?.actor?.empleadoId ?? null,
+    tiposRegistro: ['LOVE_ISDIN', 'AMBAS'],
+  })
+
   const validasMes = kpiDataset.reduce((acc, item) => acc + item.validas, 0)
   const pendientesMes = kpiDataset.reduce((acc, item) => acc + item.pendientes, 0)
   const hoy = kpiDataset
@@ -1314,6 +1341,8 @@ export async function obtenerPanelLoveIsdin(
       ? undefined
       : 'Las tablas de QR oficial aun no estan disponibles. Aplica la migracion LOVE QR para habilitar inventario y cobertura.',
     qrImportLotes,
+    resumenExtemporaneo: extemporaneosPanel.resumen,
+    registrosExtemporaneos: extemporaneosPanel.registros,
     paginacion: {
       page: safePage,
       pageSize,

@@ -52,7 +52,7 @@ describe('solicitudes actions', () => {
     vi.clearAllMocks()
   })
 
-  it('formaliza una incapacidad validada por supervisor en REGISTRADA_RH y genera notificacion', async () => {
+  it('formaliza una incapacidad validada por reclutamiento en REGISTRADA_RH y genera notificacion', async () => {
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-1',
       puesto: 'NOMINA',
@@ -100,7 +100,9 @@ describe('solicitudes actions', () => {
                   fecha_fin: '2026-03-18',
                   estatus: 'VALIDADA_SUP',
                   metadata: {
-                    approval_path: ['SUPERVISOR', 'NOMINA'],
+                    approval_path: ['SUPERVISOR', 'RECLUTAMIENTO', 'NOMINA'],
+                    validada_supervisor_en: '2026-03-16T12:00:00.000Z',
+                    reclutamiento_validada_en: '2026-03-16T16:00:00.000Z',
                     justifica_asistencia: true,
                   },
                 },
@@ -180,7 +182,159 @@ describe('solicitudes actions', () => {
     expect(revalidatePathMock).toHaveBeenNthCalledWith(2, '/asistencias')
   })
 
-  it('envia incapacidad directa a nomina y notifica a las demas areas como informativas', async () => {
+  it('permite que reclutamiento valide el documento de incapacidad y la pase a nomina', async () => {
+    requerirPuestosActivosMock.mockResolvedValue({
+      usuarioId: 'user-reclut-1',
+      puesto: 'RECLUTAMIENTO',
+    })
+
+    const updates: UpdatePayload[] = []
+
+    const service = {
+      from(table: string) {
+        if (table === 'cuenta_cliente') {
+          return {
+            select() {
+              return this
+            },
+            eq() {
+              return this
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: { id: 'cuenta-1', activa: true },
+                error: null,
+              })
+            },
+          }
+        }
+
+        if (table === 'solicitud') {
+          return {
+            select() {
+              return this
+            },
+            eq() {
+              return this
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: {
+                  id: 'sol-2',
+                  cuenta_cliente_id: 'cuenta-1',
+                  empleado_id: 'emp-1',
+                  supervisor_empleado_id: 'sup-1',
+                  tipo: 'INCAPACIDAD',
+                  fecha_inicio: '2026-03-16',
+                  fecha_fin: '2026-03-18',
+                  estatus: 'VALIDADA_SUP',
+                  metadata: {
+                    actor_puesto: 'DERMOCONSEJERO',
+                    approval_path: ['SUPERVISOR', 'RECLUTAMIENTO', 'NOMINA'],
+                    validada_supervisor_en: '2026-03-16T12:00:00.000Z',
+                    justifica_asistencia: true,
+                  },
+                },
+                error: null,
+              })
+            },
+            update(payload: UpdatePayload) {
+              updates.push(payload)
+              const updateChain = {
+                eq() {
+                  return updateChain
+                },
+                then(resolve: (value: { error: null }) => void) {
+                  return Promise.resolve({ error: null }).then(resolve)
+                },
+              }
+              return updateChain
+            },
+          }
+        }
+
+        if (table === 'empleado') {
+          return {
+            select() {
+              return this
+            },
+            eq() {
+              return this
+            },
+            in() {
+              return this
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: { id: 'emp-1', nombre_completo: 'Dermo Uno' },
+                error: null,
+              })
+            },
+            then(resolve: (value: { data: Array<Record<string, unknown>>; error: null }) => void) {
+              return Promise.resolve({
+                data: [{ id: 'nom-1', puesto: 'NOMINA' }],
+                error: null,
+              }).then(resolve)
+            },
+          }
+        }
+
+        if (table === 'mensaje_interno') {
+          return {
+            insert() {
+              return {
+                select() {
+                  return this
+                },
+                maybeSingle() {
+                  return Promise.resolve({
+                    data: { id: 'msg-2' },
+                    error: null,
+                  })
+                },
+              }
+            },
+          }
+        }
+
+        if (table === 'mensaje_receptor' || table === 'audit_log') {
+          return {
+            insert() {
+              return Promise.resolve({ error: null })
+            },
+          }
+        }
+
+        throw new Error(`Unexpected table ${table}`)
+      },
+    }
+
+    createServiceClientMock.mockReturnValue(service)
+
+    const formData = new FormData()
+    formData.set('solicitud_id', 'sol-2')
+    formData.set('cuenta_cliente_id', 'cuenta-1')
+    formData.set('estatus', 'VALIDADA_SUP')
+
+    await actualizarEstatusSolicitud(formData)
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]).toMatchObject({
+      estatus: 'VALIDADA_SUP',
+      metadata: expect.objectContaining({
+        reclutamiento_validada_por_puesto: 'RECLUTAMIENTO',
+        siguiente_actor: 'NOMINA',
+      }),
+    })
+    expect(sendOperationalPushNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        employeeIds: ['nom-1'],
+        path: '/solicitudes?tipo=INCAPACIDAD',
+      })
+    )
+  })
+
+  it('envia incapacidad a supervision y reclutamiento antes de nomina', async () => {
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-1',
       puesto: 'DERMOCONSEJERO',
@@ -251,8 +405,6 @@ describe('solicitudes actions', () => {
             then(resolve: (value: { data: Array<Record<string, unknown>>; error: null }) => void) {
               return Promise.resolve({
                 data: [
-                  { id: 'nom-1', puesto: 'NOMINA' },
-                  { id: 'coord-1', puesto: 'COORDINADOR' },
                   { id: 'reclut-1', puesto: 'RECLUTAMIENTO' },
                 ],
                 error: null,
@@ -348,22 +500,108 @@ describe('solicitudes actions', () => {
       justificante_url: 'https://files.test/incapacidad.jpg',
       metadata: expect.objectContaining({
         incapacidad_clase: 'INICIAL',
-        siguiente_actor: 'NOMINA',
-        approval_path: ['NOMINA'],
+        siguiente_actor: 'SUPERVISOR',
+        approval_path: ['SUPERVISOR', 'RECLUTAMIENTO', 'NOMINA'],
       }),
     })
     expect(mensajeRows[0]).toMatchObject({
       titulo: 'Incapacidad inicial registrada',
     })
-    expect(mensajeReceptorRows[0]).toHaveLength(4)
+    expect(mensajeReceptorRows[0]).toHaveLength(2)
     expect(sendOperationalPushNotificationMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        employeeIds: expect.arrayContaining(['nom-1', 'coord-1', 'reclut-1', 'sup-1']),
+        employeeIds: expect.arrayContaining(['reclut-1', 'sup-1']),
         path: '/solicitudes?tipo=INCAPACIDAD',
       })
     )
   })
 
+  it('solo permite crear solicitudes desde dermoconsejo y supervision', async () => {
+    requerirPuestosActivosMock.mockImplementation(async (allowedRoles: unknown) => {
+      expect(allowedRoles).toEqual(['DERMOCONSEJERO', 'SUPERVISOR'])
+      return {
+        usuarioId: 'user-dermo-1',
+        puesto: 'DERMOCONSEJERO',
+        empleadoId: 'emp-1',
+      }
+    })
+
+    storeOptimizedEvidenceMock.mockResolvedValue({
+      archivo: {
+        url: 'https://files.test/permiso.pdf',
+        hash: 'hash-permiso',
+      },
+      miniatura: null,
+      optimization: {
+        optimizationKind: 'passthrough',
+        originalBytes: 1024,
+        optimizedBytes: 1024,
+        targetMet: true,
+        notes: [],
+        officialAssetKind: 'document',
+      },
+    })
+
+    const service = {
+      storage: {
+        createBucket() {
+          return Promise.resolve({ error: null })
+        },
+      },
+      from(table: string) {
+        if (table === 'cuenta_cliente') {
+          return {
+            select() { return this },
+            eq() { return this },
+            maybeSingle() {
+              return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null })
+            },
+          }
+        }
+
+        if (table === 'solicitud') {
+          return {
+            insert() {
+              return {
+                select() { return this },
+                maybeSingle() {
+                  return Promise.resolve({ data: { id: 'sol-per-1' }, error: null })
+                },
+              }
+            },
+          }
+        }
+
+        if (table === 'audit_log') {
+          return {
+            insert() {
+              return Promise.resolve({ error: null })
+            },
+          }
+        }
+
+        throw new Error(`Unexpected table ${table}`)
+      },
+    }
+
+    createServiceClientMock.mockReturnValue(service)
+
+    const formData = new FormData()
+    formData.set('cuenta_cliente_id', 'cuenta-1')
+    formData.set('empleado_id', 'emp-1')
+    formData.set('supervisor_empleado_id', 'sup-1')
+    formData.set('tipo', 'PERMISO')
+    formData.set('fecha_inicio', '2026-03-25')
+    formData.set('fecha_fin', '2026-03-25')
+    formData.set('motivo', 'Permiso personal')
+    formData.set('comentarios', 'Salida por tramite')
+    formData.set('justificante', new File(['mock'], 'permiso.pdf', { type: 'application/pdf' }))
+
+    const result = await registrarSolicitudOperativa({ ok: false, message: null }, formData)
+
+    expect(result).toMatchObject({ ok: true })
+    expect(requerirPuestosActivosMock).toHaveBeenCalledWith(['DERMOCONSEJERO', 'SUPERVISOR'])
+  })
   it('bloquea justificacion de falta si no existe aviso previo y la permite con receta IMSS cuando si existe', async () => {
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-dermo-1',

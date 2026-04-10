@@ -1,3 +1,4 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/server'
 import type {
@@ -5,6 +6,8 @@ import type {
   AsignacionDiariaDirtyQueue,
   AsignacionDiariaResuelta,
   Empleado,
+  PdvRotacionMaestra,
+  SupervisorPdv,
 } from '@/types/database'
 import { resolveEffectiveAssignmentForEmployeeDate } from '@/features/asignaciones/services/asignacionResolverService'
 
@@ -131,6 +134,75 @@ export interface MaterializedMonthlyCalendar {
   totalEmpleados: number
   empleados: MaterializedCalendarEmployeeRow[]
 }
+
+type MaybeMany<T> = T | T[] | null
+
+interface SupervisorMonthlyRoleCadenaRow {
+  codigo: string | null
+  nombre: string | null
+}
+
+interface SupervisorMonthlyRolePdvRow {
+  id: string
+  nombre: string
+  clave_btl: string
+  zona: string | null
+  cadena: MaybeMany<SupervisorMonthlyRoleCadenaRow>
+}
+
+interface SupervisorMonthlyRoleRelacionRow
+  extends Pick<SupervisorPdv, 'pdv_id' | 'empleado_id' | 'activo' | 'fecha_inicio' | 'fecha_fin'> {
+  pdv: MaybeMany<SupervisorMonthlyRolePdvRow>
+}
+
+interface SupervisorMonthlyRoleRotationRow
+  extends Pick<PdvRotacionMaestra, 'pdv_id' | 'clasificacion_maestra' | 'grupo_rotacion_codigo' | 'slot_rotacion'> {}
+
+export type SupervisorMonthlyPdvStoreType = 'FIJO' | 'ROTATIVO'
+
+export interface SupervisorMonthlyPdvFilters {
+  month: string
+  supervisorEmpleadoId: string
+  cuentaClienteId?: string | null
+  cadenaCodigo?: string | null
+  storeType?: SupervisorMonthlyPdvStoreType | null
+}
+
+export interface SupervisorMonthlyPdvDayCell {
+  fecha: string
+  empleadoId: string | null
+  empleadoNombre: string | null
+  estadoOperativo: AsignacionDiariaResuelta['estado_operativo'] | 'SIN_DC'
+  origen: AsignacionDiariaResuelta['origen']
+}
+
+export interface SupervisorMonthlyPdvRow {
+  pdvId: string
+  pdvNombre: string
+  pdvClaveBtl: string
+  cadena: string | null
+  cadenaCodigo: string | null
+  zona: string | null
+  clasificacionMaestra: SupervisorMonthlyPdvStoreType
+  grupoRotacionCodigo: string | null
+  slotRotacion: PdvRotacionMaestra['slot_rotacion']
+  days: SupervisorMonthlyPdvDayCell[]
+}
+
+export interface SupervisorMonthlyPdvCalendar {
+  month: string
+  fechaInicio: string
+  fechaFin: string
+  dias: string[]
+  totalPdvs: number
+  totalFijos: number
+  totalRotativos: number
+  pdvsSinDcVisible: number
+  cadenasDisponibles: Array<{ value: string; label: string }>
+  rows: SupervisorMonthlyPdvRow[]
+}
+
+const MATERIALIZED_MONTHLY_CALENDAR_REVALIDATE_SECONDS = 60
 
 function createService(serviceClient?: TypedSupabaseClient) {
   return serviceClient ?? (createServiceClient() as TypedSupabaseClient)
@@ -372,7 +444,7 @@ async function loadMaterializationSources(
       .lte('fecha_inicio', fechaFin)
       .gte('fecha_fin', fechaInicio),
     service
-      .from('formacion')
+      .from('formacion_evento')
       .select('id, fecha_inicio, fecha_fin, estado, nombre, tipo, sede, participantes, metadata')
       .lte('fecha_inicio', fechaFin)
       .gte('fecha_fin', fechaInicio),
@@ -707,42 +779,96 @@ export async function processMaterializationDirtyQueue(
   }
 }
 
-export async function getMaterializedMonthlyCalendar(
-  filters: MaterializedMonthlyFilters,
-  serviceClient?: TypedSupabaseClient
-): Promise<MaterializedMonthlyCalendar> {
-  const service = createService(serviceClient)
-  const fechaInicio = startOfMonth(filters.month)
-  const fechaFin = endOfMonth(filters.month)
+function isMissingMaterializedAssignmentsInfrastructure(detail: string | null | undefined) {
+  const normalized = String(detail ?? '').toLowerCase()
+  return normalized.includes('asignacion_diaria_resuelta') && (
+    normalized.includes('schema cache') ||
+    normalized.includes('could not find the table') ||
+    normalized.includes('does not exist')
+  )
+}
 
-  let rowsQuery = service
-    .from('asignacion_diaria_resuelta')
-    .select('*')
-    .gte('fecha', fechaInicio)
-    .lte('fecha', fechaFin)
-    .order('empleado_id', { ascending: true })
-    .order('fecha', { ascending: true })
+async function loadFallbackMaterializedRows(
+  service: TypedSupabaseClient,
+  filters: MaterializedMonthlyFilters,
+  fechaInicio: string,
+  fechaFin: string
+) {
+  let supervisorScopeIds: string[] | null = null
+
+  if (filters.coordinadorEmpleadoId) {
+    const { data, error } = await service
+      .from('empleado')
+      .select('id')
+      .eq('supervisor_empleado_id', filters.coordinadorEmpleadoId)
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    supervisorScopeIds = (data ?? []).map((item) => item.id).filter(Boolean)
+    if (supervisorScopeIds.length === 0) {
+      return [] as AsignacionDiariaResuelta[]
+    }
+  }
+
+  let assignmentsQuery = service
+    .from('asignacion')
+    .select('empleado_id, supervisor_empleado_id, cuenta_cliente_id')
+    .eq('estado_publicacion', 'PUBLICADA')
+    .lte('fecha_inicio', fechaFin)
+    .or(`fecha_fin.is.null,fecha_fin.gte.${fechaInicio}`)
 
   if (filters.supervisorEmpleadoId) {
-    rowsQuery = rowsQuery.eq('supervisor_empleado_id', filters.supervisorEmpleadoId)
-  }
-  if (filters.coordinadorEmpleadoId) {
-    rowsQuery = rowsQuery.eq('coordinador_empleado_id', filters.coordinadorEmpleadoId)
+    assignmentsQuery = assignmentsQuery.eq('supervisor_empleado_id', filters.supervisorEmpleadoId)
   }
   if (filters.cuentaClienteId) {
-    rowsQuery = rowsQuery.eq('cuenta_cliente_id', filters.cuentaClienteId)
+    assignmentsQuery = assignmentsQuery.eq('cuenta_cliente_id', filters.cuentaClienteId)
+  }
+  if (supervisorScopeIds) {
+    assignmentsQuery = assignmentsQuery.in('supervisor_empleado_id', supervisorScopeIds)
+  }
+
+  const { data: assignmentRows, error: assignmentsError } = await assignmentsQuery
+  if (assignmentsError) {
+    throw new Error(assignmentsError.message)
+  }
+
+  const empleadoIds = Array.from(new Set((assignmentRows ?? []).map((item) => item.empleado_id).filter(Boolean)))
+  if (empleadoIds.length === 0) {
+    return [] as AsignacionDiariaResuelta[]
+  }
+
+  const sources = await loadMaterializationSources(service, empleadoIds, fechaInicio, fechaFin)
+  let rows = buildMaterializedRows({
+    fechaInicio,
+    fechaFin,
+    ...sources,
+  })
+
+  if (filters.supervisorEmpleadoId) {
+    rows = rows.filter((item) => item.supervisor_empleado_id === filters.supervisorEmpleadoId)
+  }
+  if (filters.coordinadorEmpleadoId) {
+    rows = rows.filter((item) => item.coordinador_empleado_id === filters.coordinadorEmpleadoId)
+  }
+  if (filters.cuentaClienteId) {
+    rows = rows.filter((item) => item.cuenta_cliente_id === filters.cuentaClienteId)
   }
   if (filters.estadoOperativo) {
-    rowsQuery = rowsQuery.eq('estado_operativo', filters.estadoOperativo)
+    rows = rows.filter((item) => item.estado_operativo === filters.estadoOperativo)
   }
 
-  const { data: rowsRaw, error: rowsError } = await rowsQuery
+  return rows
+}
 
-  if (rowsError) {
-    throw new Error(rowsError.message)
-  }
-
-  const rows = (rowsRaw ?? []) as AsignacionDiariaResuelta[]
+async function buildMonthlyCalendarFromRows(
+  service: TypedSupabaseClient,
+  filters: MaterializedMonthlyFilters,
+  fechaInicio: string,
+  fechaFin: string,
+  rows: AsignacionDiariaResuelta[]
+): Promise<MaterializedMonthlyCalendar> {
   const empleadoIds = Array.from(new Set(rows.map((item) => item.empleado_id)))
   const pdvIds = Array.from(new Set(rows.map((item) => item.pdv_id).filter((item): item is string => Boolean(item))))
   const supervisorIds = Array.from(
@@ -885,4 +1011,350 @@ export async function getMaterializedMonthlyCalendar(
     totalEmpleados: empleados.length,
     empleados,
   }
+}
+
+async function loadMaterializedRowsForFilters(
+  service: TypedSupabaseClient,
+  filters: MaterializedMonthlyFilters,
+  fechaInicio: string,
+  fechaFin: string
+) {
+  let rowsQuery = service
+    .from('asignacion_diaria_resuelta')
+    .select('*')
+    .gte('fecha', fechaInicio)
+    .lte('fecha', fechaFin)
+    .order('empleado_id', { ascending: true })
+    .order('fecha', { ascending: true })
+
+  if (filters.supervisorEmpleadoId) {
+    rowsQuery = rowsQuery.eq('supervisor_empleado_id', filters.supervisorEmpleadoId)
+  }
+  if (filters.coordinadorEmpleadoId) {
+    rowsQuery = rowsQuery.eq('coordinador_empleado_id', filters.coordinadorEmpleadoId)
+  }
+  if (filters.cuentaClienteId) {
+    rowsQuery = rowsQuery.eq('cuenta_cliente_id', filters.cuentaClienteId)
+  }
+  if (filters.estadoOperativo) {
+    rowsQuery = rowsQuery.eq('estado_operativo', filters.estadoOperativo)
+  }
+
+  const { data: rowsRaw, error: rowsError } = await rowsQuery
+
+  if (rowsError && !isMissingMaterializedAssignmentsInfrastructure(rowsError.message)) {
+    throw new Error(rowsError.message)
+  }
+
+  let rows = rowsError
+    ? await loadFallbackMaterializedRows(service, filters, fechaInicio, fechaFin)
+    : ((rowsRaw ?? []) as AsignacionDiariaResuelta[])
+
+  if (rows.length === 0) {
+    const fallbackRows = await loadFallbackMaterializedRows(service, filters, fechaInicio, fechaFin)
+    if (fallbackRows.length > 0) {
+      rows = fallbackRows
+    }
+  }
+
+  return rows
+}
+
+function normalizeMany<T>(value: MaybeMany<T>): T | null {
+  if (!value) {
+    return null
+  }
+
+  return Array.isArray(value) ? (value[0] ?? null) : value
+}
+
+function compareRotationSlot(
+  left: PdvRotacionMaestra['slot_rotacion'],
+  right: PdvRotacionMaestra['slot_rotacion']
+) {
+  const rank = (value: PdvRotacionMaestra['slot_rotacion']) => {
+    switch (value) {
+      case 'A':
+        return 0
+      case 'B':
+        return 1
+      case 'C':
+        return 2
+      default:
+        return 3
+    }
+  }
+
+  return rank(left) - rank(right)
+}
+
+async function loadSupervisorMonthlyPdvCalendar(
+  service: TypedSupabaseClient,
+  filters: SupervisorMonthlyPdvFilters
+): Promise<SupervisorMonthlyPdvCalendar> {
+  const fechaInicio = startOfMonth(filters.month)
+  const fechaFin = endOfMonth(filters.month)
+  const dias = listDatesInclusive(fechaInicio, fechaFin)
+
+  const { data: supervisorPdvRaw, error: supervisorPdvError } = await service
+    .from('supervisor_pdv')
+    .select(
+      'pdv_id, empleado_id, activo, fecha_inicio, fecha_fin, pdv:pdv_id(id, nombre, clave_btl, zona, cadena:cadena_id(codigo, nombre))'
+    )
+    .eq('empleado_id', filters.supervisorEmpleadoId)
+    .eq('activo', true)
+    .lte('fecha_inicio', fechaFin)
+    .or(`fecha_fin.is.null,fecha_fin.gte.${fechaInicio}`)
+
+  if (supervisorPdvError) {
+    throw new Error(supervisorPdvError.message)
+  }
+
+  const supervisorPdvs = Array.from(
+    ((supervisorPdvRaw ?? []) as SupervisorMonthlyRoleRelacionRow[]).reduce(
+      (acc, item) => {
+        const current = acc.get(item.pdv_id)
+        if (!current || item.fecha_inicio > current.fecha_inicio) {
+          acc.set(item.pdv_id, item)
+        }
+        return acc
+      },
+      new Map<string, SupervisorMonthlyRoleRelacionRow>()
+    ).values()
+  )
+  const pdvIds = supervisorPdvs.map((item) => item.pdv_id)
+
+  if (pdvIds.length === 0) {
+    return {
+      month: filters.month,
+      fechaInicio,
+      fechaFin,
+      dias,
+      totalPdvs: 0,
+      totalFijos: 0,
+      totalRotativos: 0,
+      pdvsSinDcVisible: 0,
+      cadenasDisponibles: [],
+      rows: [],
+    }
+  }
+
+  const [rotacionResult, empleadosResult, materializedRows] = await Promise.all([
+    service
+      .from('pdv_rotacion_maestra')
+      .select('pdv_id, clasificacion_maestra, grupo_rotacion_codigo, slot_rotacion')
+      .in('pdv_id', pdvIds)
+      .eq('vigente', true),
+    service.from('empleado').select('id, nombre_completo'),
+    loadMaterializedRowsForFilters(
+      service,
+      {
+        month: filters.month,
+        supervisorEmpleadoId: filters.supervisorEmpleadoId,
+        cuentaClienteId: filters.cuentaClienteId ?? null,
+      },
+      fechaInicio,
+      fechaFin
+    ),
+  ])
+
+  if (rotacionResult.error) {
+    throw new Error(rotacionResult.error.message)
+  }
+  if (empleadosResult.error) {
+    throw new Error(empleadosResult.error.message)
+  }
+
+  const rotacionMap = new Map(
+    ((rotacionResult.data ?? []) as SupervisorMonthlyRoleRotationRow[]).map((item) => [item.pdv_id, item])
+  )
+  const empleadoMap = new Map(
+    ((empleadosResult.data ?? []) as Array<Pick<Empleado, 'id' | 'nombre_completo'>>).map((item) => [
+      item.id,
+      item.nombre_completo,
+    ])
+  )
+
+  const assignmentByPdvAndDate = new Map<string, SupervisorMonthlyPdvDayCell>()
+  for (const row of materializedRows) {
+    if (!row.pdv_id) {
+      continue
+    }
+
+    const key = `${row.pdv_id}:${row.fecha}`
+    if (assignmentByPdvAndDate.has(key)) {
+      continue
+    }
+
+    assignmentByPdvAndDate.set(key, {
+      fecha: row.fecha,
+      empleadoId: row.empleado_id,
+      empleadoNombre: empleadoMap.get(row.empleado_id) ?? row.empleado_id,
+      estadoOperativo: row.estado_operativo,
+      origen: row.origen,
+    })
+  }
+
+  const rows = supervisorPdvs
+    .map((item) => {
+      const pdv = normalizeMany(item.pdv)
+      if (!pdv) {
+        return null
+      }
+
+      const cadena = normalizeMany(pdv.cadena)
+      const rotacion = rotacionMap.get(item.pdv_id)
+
+      return {
+        pdvId: item.pdv_id,
+        pdvNombre: pdv.nombre,
+        pdvClaveBtl: pdv.clave_btl,
+        cadena: cadena?.nombre ?? null,
+        cadenaCodigo: cadena?.codigo ?? null,
+        zona: pdv.zona,
+        clasificacionMaestra: rotacion?.clasificacion_maestra ?? 'FIJO',
+        grupoRotacionCodigo: rotacion?.grupo_rotacion_codigo ?? null,
+        slotRotacion: rotacion?.slot_rotacion ?? null,
+        days: dias.map((fecha) => {
+          const found = assignmentByPdvAndDate.get(`${item.pdv_id}:${fecha}`)
+          return (
+            found ?? {
+              fecha,
+              empleadoId: null,
+              empleadoNombre: null,
+              estadoOperativo: 'SIN_DC',
+              origen: 'NINGUNO',
+            }
+          )
+        }),
+      } satisfies SupervisorMonthlyPdvRow
+    })
+    .filter((item): item is SupervisorMonthlyPdvRow => Boolean(item))
+    .filter((item) => {
+      if (filters.cadenaCodigo && item.cadenaCodigo !== filters.cadenaCodigo) {
+        return false
+      }
+
+      if (filters.storeType && item.clasificacionMaestra !== filters.storeType) {
+        return false
+      }
+
+      return true
+    })
+    .sort((left, right) => {
+      const leftFixed = left.clasificacionMaestra === 'FIJO' ? 0 : 1
+      const rightFixed = right.clasificacionMaestra === 'FIJO' ? 0 : 1
+      if (leftFixed !== rightFixed) {
+        return leftFixed - rightFixed
+      }
+
+      const leftGroup = left.grupoRotacionCodigo ?? ''
+      const rightGroup = right.grupoRotacionCodigo ?? ''
+      if (leftGroup !== rightGroup) {
+        return leftGroup.localeCompare(rightGroup, 'es-MX')
+      }
+
+      const slotCompare = compareRotationSlot(left.slotRotacion, right.slotRotacion)
+      if (slotCompare !== 0) {
+        return slotCompare
+      }
+
+      return left.pdvNombre.localeCompare(right.pdvNombre, 'es-MX')
+    })
+
+  const totalFijos = rows.filter((item) => item.clasificacionMaestra === 'FIJO').length
+  const totalRotativos = rows.filter((item) => item.clasificacionMaestra === 'ROTATIVO').length
+  const pdvsSinDcVisible = rows.filter((item) => item.days.some((day) => !day.empleadoId)).length
+  const cadenasDisponibles = Array.from(
+    new Map(
+      rows
+        .filter((item) => item.cadenaCodigo && item.cadena)
+        .map((item) => [
+          item.cadenaCodigo as string,
+          { value: item.cadenaCodigo as string, label: item.cadena as string },
+        ])
+    ).values()
+  ).sort((left, right) => left.label.localeCompare(right.label, 'es-MX'))
+
+  return {
+    month: filters.month,
+    fechaInicio,
+    fechaFin,
+    dias,
+    totalPdvs: rows.length,
+    totalFijos,
+    totalRotativos,
+    pdvsSinDcVisible,
+    cadenasDisponibles,
+    rows,
+  }
+}
+
+async function loadMaterializedMonthlyCalendar(
+  service: TypedSupabaseClient,
+  filters: MaterializedMonthlyFilters
+): Promise<MaterializedMonthlyCalendar> {
+  const fechaInicio = startOfMonth(filters.month)
+  const fechaFin = endOfMonth(filters.month)
+  const rows = await loadMaterializedRowsForFilters(service, filters, fechaInicio, fechaFin)
+
+  return buildMonthlyCalendarFromRows(service, filters, fechaInicio, fechaFin, rows)
+}
+
+function serializeMonthlyCalendarFilters(filters: MaterializedMonthlyFilters) {
+  return JSON.stringify({
+    month: filters.month,
+    supervisorEmpleadoId: filters.supervisorEmpleadoId ?? '',
+    coordinadorEmpleadoId: filters.coordinadorEmpleadoId ?? '',
+    cuentaClienteId: filters.cuentaClienteId ?? '',
+    zona: filters.zona ?? '',
+    estadoOperativo: filters.estadoOperativo ?? '',
+  })
+}
+function serializeSupervisorMonthlyPdvFilters(filters: SupervisorMonthlyPdvFilters) {
+  return JSON.stringify({
+    month: filters.month,
+    supervisorEmpleadoId: filters.supervisorEmpleadoId,
+    cuentaClienteId: filters.cuentaClienteId ?? '',
+    cadenaCodigo: filters.cadenaCodigo ?? '',
+    storeType: filters.storeType ?? '',
+  })
+}
+
+const fetchCachedMaterializedMonthlyCalendar = unstable_cache(
+  async (serializedFilters: string) => {
+    const filters = JSON.parse(serializedFilters) as MaterializedMonthlyFilters
+    return loadMaterializedMonthlyCalendar(createService(), filters)
+  },
+  ['materialized-monthly-calendar'],
+  { revalidate: MATERIALIZED_MONTHLY_CALENDAR_REVALIDATE_SECONDS }
+)
+const fetchCachedSupervisorMonthlyPdvCalendar = unstable_cache(
+  async (serializedFilters: string) => {
+    const filters = JSON.parse(serializedFilters) as SupervisorMonthlyPdvFilters
+    return loadSupervisorMonthlyPdvCalendar(createService(), filters)
+  },
+  ['supervisor-monthly-pdv-calendar'],
+  { revalidate: MATERIALIZED_MONTHLY_CALENDAR_REVALIDATE_SECONDS }
+)
+
+export async function getMaterializedMonthlyCalendar(
+  filters: MaterializedMonthlyFilters,
+  serviceClient?: TypedSupabaseClient
+): Promise<MaterializedMonthlyCalendar> {
+  if (serviceClient) {
+    return loadMaterializedMonthlyCalendar(createService(serviceClient), filters)
+  }
+
+  return fetchCachedMaterializedMonthlyCalendar(serializeMonthlyCalendarFilters(filters))
+}
+export async function getSupervisorMonthlyPdvCalendar(
+  filters: SupervisorMonthlyPdvFilters,
+  serviceClient?: TypedSupabaseClient
+): Promise<SupervisorMonthlyPdvCalendar> {
+  if (serviceClient) {
+    return loadSupervisorMonthlyPdvCalendar(createService(serviceClient), filters)
+  }
+
+  return fetchCachedSupervisorMonthlyPdvCalendar(serializeSupervisorMonthlyPdvFilters(filters))
 }

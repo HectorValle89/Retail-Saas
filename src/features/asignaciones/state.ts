@@ -4,12 +4,14 @@ export interface ActualizarEstadoAsignacionState {
   ok: boolean
   message: string | null
   issues: AssignmentIssue[]
+  redirectTo: string | null
 }
 
 export const ESTADO_ASIGNACION_INICIAL: ActualizarEstadoAsignacionState = {
   ok: false,
   message: null,
   issues: [],
+  redirectTo: null,
 }
 
 export interface ImportarCatalogoAsignacionesState {

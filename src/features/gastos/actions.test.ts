@@ -28,7 +28,8 @@ vi.mock('@/lib/files/evidenceStorage', () => ({
   storeOptimizedEvidence: storeOptimizedEvidenceMock,
 }))
 
-import { ESTADO_GASTO_INICIAL, actualizarEstatusGasto, registrarGastoOperativo } from './actions'
+import { actualizarEstatusGasto, registrarGastoOperativo } from './actions'
+import { ESTADO_GASTO_INICIAL } from './state'
 
 describe('gastos actions', () => {
   beforeEach(() => {

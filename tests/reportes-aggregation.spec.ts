@@ -225,6 +225,53 @@ test('consolida reportes, filtros y subreportes operativos', async () => {
   expect(data.nomina[0]).toMatchObject({ empleado: 'Ana Uno', percepciones: 1000, neto: 1000 })
   expect(data.campanas[0]).toMatchObject({ campana: 'Proteccion Solar', pdv: 'LIV-001 - Liverpool Norte', dc: 'Ana Uno', tareasPendientes: 1 })
   expect(data.bitacora[0]).toMatchObject({ tabla: 'venta', usuario: 'admin' })
+  expect(data.asistencias[0]?.empleadoId).toBe('e1')
+  expect(data.ventas[0]?.empleadoId).toBe('e1')
+  expect(data.nomina[0]?.empleadoId).toBe('e1')
+})
+
+test('mantiene separados a empleados sin nomina usando empleado_id como clave tecnica', async () => {
+  const client = createFakeSupabase({
+    asistencia: {
+      data: [
+        {
+          id: 'a1',
+          cuenta_cliente_id: 'c1',
+          empleado_id: 'e1',
+          pdv_id: 'p1',
+          fecha_operacion: '2026-03-10',
+          estatus: 'VALIDA',
+          cuenta_cliente: { nombre: 'ISDIN Mexico', identificador: 'isdin_mexico' },
+          empleado: { id_nomina: null, nombre_completo: 'Ana Uno', puesto: 'DERMOCONSEJERO' },
+          pdv: { zona: 'Norte', nombre: 'Liverpool Norte', clave_btl: 'LIV-001' },
+        },
+        {
+          id: 'a2',
+          cuenta_cliente_id: 'c1',
+          empleado_id: 'e2',
+          pdv_id: 'p1',
+          fecha_operacion: '2026-03-10',
+          estatus: 'VALIDA',
+          cuenta_cliente: { nombre: 'ISDIN Mexico', identificador: 'isdin_mexico' },
+          empleado: { id_nomina: null, nombre_completo: 'Ana Uno', puesto: 'DERMOCONSEJERO' },
+          pdv: { zona: 'Norte', nombre: 'Liverpool Norte', clave_btl: 'LIV-001' },
+        },
+      ],
+      error: null,
+    },
+    venta: { data: [], error: null },
+    cuota_empleado_periodo: { data: [], error: null },
+    nomina_ledger: { data: [], error: null },
+    gasto: { data: [], error: null },
+    love_isdin: { data: [], error: null },
+    audit_log: { data: [], error: null },
+  })
+
+  const data = await obtenerPanelReportes(client as never, { period: '2026-03', page: 1, pageSize: 25 })
+
+  expect(data.asistencias).toHaveLength(2)
+  expect(data.asistencias.map((item) => item.empleadoId)).toEqual(['e1', 'e2'])
+  expect(data.asistencias.every((item) => item.idNomina === null)).toBe(true)
 })
 
 test('degrada a infraestructura pendiente cuando falla una consulta fuente', async () => {

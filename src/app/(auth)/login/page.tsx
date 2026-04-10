@@ -1,6 +1,24 @@
-import { LoginForm } from '@/features/auth/components'
+import { LoginForm } from '@/features/auth/components/LoginForm'
 
-export default function LoginPage() {
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
+type LoginPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
+}
+
+function resolveError(value: string | string[] | undefined) {
+  if (Array.isArray(value)) {
+    return value[0] ?? null
+  }
+
+  return value ?? null
+}
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const params = searchParams ? await searchParams : {}
+  const error = resolveError(params.error)
+
   return (
     <div className="space-y-8">
       <div className="text-center lg:text-left">
@@ -15,7 +33,7 @@ export default function LoginPage() {
         </p>
       </div>
 
-      <LoginForm />
+      <LoginForm initialError={error} />
     </div>
   )
 }

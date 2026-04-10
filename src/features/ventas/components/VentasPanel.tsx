@@ -5,9 +5,11 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { OfflineStatusCard } from '@/components/pwa/OfflineStatusCard'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { useOfflineSync } from '@/hooks/useOfflineSync'
 import { queueOfflineVenta } from '@/lib/offline/syncQueue'
 import type { VentasPanelData } from '../services/ventaService'
+import { ExtemporaneoQueueSection } from '@/features/solicitudes/components/ExtemporaneoQueueSection'
 
 function getLocalDateValue() {
   return new Intl.DateTimeFormat('en-CA').format(new Date())
@@ -26,18 +28,6 @@ function buildPageHref(data: VentasPanelData, page: number) {
   params.set('page', String(page))
   params.set('pageSize', String(data.paginacion.pageSize))
   return `/ventas?${params.toString()}`
-}
-
-function MetricGlyph() {
-  return (
-    <span className="metric-icon-chip">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-        <path d="M5 19V9" strokeLinecap="round" />
-        <path d="M12 19V5" strokeLinecap="round" />
-        <path d="M19 19v-7" strokeLinecap="round" />
-      </svg>
-    </span>
-  )
 }
 
 export function VentasPanel({ data }: { data: VentasPanelData }) {
@@ -300,6 +290,14 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
         </p>
       </Card>
 
+      <ExtemporaneoQueueSection
+        title="Ventas tardias"
+        description="Registros comerciales fuera de ventana pendientes de aprobacion o ya consolidados en ventas."
+        emptyMessage="Todavia no hay ventas tardias visibles para esta cuenta."
+        resumen={data.resumenExtemporaneo}
+        registros={data.registrosExtemporaneos}
+      />
+
       <Card className="overflow-hidden p-0">
         <div className="border-b border-border/60 px-6 py-5">
           <h2 className="text-lg font-semibold text-slate-950">Ventas recientes</h2>
@@ -396,17 +394,7 @@ export function VentasPanel({ data }: { data: VentasPanelData }) {
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card className="bg-white">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-slate-500">{label}</p>
-          <p className="mt-3 text-3xl font-semibold text-slate-950">{value}</p>
-        </div>
-        <MetricGlyph />
-      </div>
-    </Card>
-  )
+  return <SharedMetricCard label={label} value={value} />
 }
 
 function StatusPill({ active, label }: { active: boolean; label: string }) {

@@ -367,6 +367,14 @@ export async function login(formData: FormData) {
   redirect('/dashboard')
 }
 
+export async function loginWithRedirect(formData: FormData) {
+  const result = await login(formData)
+
+  if (result?.error) {
+    redirect(`/login?error=${encodeURIComponent(result.error)}`)
+  }
+}
+
 export async function iniciarActivacionCuenta(formData: FormData) {
   const supabase = await createClient()
   const correoElectronico = String(formData.get('correo_electronico') ?? '')
@@ -453,7 +461,7 @@ export async function signout() {
   const supabase = await createClient()
   await supabase.auth.signOut()
   revalidatePath('/', 'layout')
-  redirect('/login')
+  return { ok: true as const }
 }
 
 export async function resetPassword(formData: FormData) {

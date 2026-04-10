@@ -6,6 +6,7 @@ import { NativeCameraSelfieDialog } from '@/features/asistencias/components/Nati
 import { OfflineStatusCard } from '@/components/pwa/OfflineStatusCard'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { useOfflineSync } from '@/hooks/useOfflineSync'
 import { queueOfflineAsistencia } from '@/lib/offline/syncQueue'
 import {
@@ -1380,12 +1381,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card className="border-slate-200 bg-white">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
-    </Card>
-  )
+  return <SharedMetricCard label={label} value={value} />
 }
 
 function StatusPill({ active, label }: { active: boolean; label: string }) {

@@ -43,36 +43,36 @@ export async function POST(request: Request) {
     }
 
     if (!['ADMINISTRADOR', 'RECLUTAMIENTO'].includes(actor.puesto)) {
-      return NextResponse.json({ message: 'No autorizado para preanalizar expedientes.' }, { status: 403 })
+      return NextResponse.json({ message: 'No autorizado para preanalizar curriculums.' }, { status: 403 })
     }
 
     const formData = await request.formData()
-    const expedienteFile = formData.get('expediente_pdf')
+    const curriculumFile = formData.get('curriculum_pdf') ?? formData.get('expediente_pdf')
 
-    if (!(expedienteFile instanceof File) || expedienteFile.size <= 0) {
+    if (!(curriculumFile instanceof File) || curriculumFile.size <= 0) {
       return NextResponse.json(
-        { message: 'Adjunta el expediente completo en PDF antes de analizar.' },
+        { message: 'Adjunta el curriculum en PDF antes de analizar.' },
         { status: 400 }
       )
     }
 
-    if (expedienteFile.type !== 'application/pdf') {
+    if (curriculumFile.type !== 'application/pdf') {
       return NextResponse.json(
-        { message: 'El expediente inicial debe cargarse como PDF.' },
+        { message: 'El curriculum inicial debe cargarse como PDF.' },
         { status: 400 }
       )
     }
 
-    if (exceedsOperationalDocumentUploadLimit(expedienteFile)) {
+    if (exceedsOperationalDocumentUploadLimit(curriculumFile)) {
       return NextResponse.json(
         {
-          message: buildOperationalDocumentUploadLimitMessage('expediente', expedienteFile),
+          message: buildOperationalDocumentUploadLimitMessage('curriculum', curriculumFile),
         },
         { status: 400 }
       )
     }
 
-    const originalBuffer = Buffer.from(await expedienteFile.arrayBuffer())
+    const originalBuffer = Buffer.from(await curriculumFile.arrayBuffer())
 
     const service = createServiceClient()
     const { data, error } = await service
@@ -90,9 +90,9 @@ export async function POST(request: Request) {
 
     const ocr = await performConfiguredDocumentOcr({
       buffer: originalBuffer,
-      mimeType: expedienteFile.type || 'application/octet-stream',
-      fileName: expedienteFile.name,
-      expectedDocumentType: 'EXPEDIENTE_COMPLETO',
+      mimeType: curriculumFile.type || 'application/octet-stream',
+      fileName: curriculumFile.name,
+      expectedDocumentType: 'CV',
       providerOverride: String(providerRow?.valor ?? '').trim() || null,
       modelOverride: String(modelRow?.valor ?? '').trim() || null,
     })
@@ -102,8 +102,8 @@ export async function POST(request: Request) {
       ocr.result.errorMessage ??
       ocr.result.confidenceSummary ??
       (recognizedFields > 0
-        ? `OCR detecto ${recognizedFields} campo(s) utiles del expediente.`
-        : 'OCR no detecto campos utiles en el expediente. Revisa calidad, orientacion o legibilidad del PDF.')
+        ? `Gemini detecto ${recognizedFields} campo(s) utiles del curriculum.`
+        : 'Gemini no detecto campos utiles en el curriculum. Revisa calidad, orientacion o legibilidad del PDF.')
 
     if (recognizedFields === 0 && ocr.result.status !== 'ok') {
       return NextResponse.json(
@@ -133,7 +133,7 @@ export async function POST(request: Request) {
         message:
           error instanceof Error
             ? error.message
-            : 'No fue posible analizar el expediente en este momento.',
+            : 'No fue posible analizar el curriculum en este momento.',
       },
       { status: 500 }
     )

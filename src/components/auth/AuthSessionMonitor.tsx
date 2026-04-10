@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -9,29 +9,60 @@ import {
 } from '@/lib/auth/sessionContext'
 import { isSupabaseAuthNetworkError } from '@/lib/supabase/authClientErrors'
 
+const AUTH_CONTEXT_FOCUS_CHECK_DEBOUNCE_MS = 15 * 1000
+
+function pageCanSyncSession() {
+  if (typeof document === 'undefined') {
+    return true
+  }
+
+  return document.visibilityState === 'visible' && document.hasFocus()
+}
+
 export function AuthSessionMonitor() {
   const router = useRouter()
+  const lastCheckAtRef = useRef(0)
+  const pendingCheckRef = useRef(false)
+  const pendingRefreshRef = useRef(false)
 
   useEffect(() => {
     const supabase = createClient()
     let checking = false
 
-    const sincronizarContexto = async () => {
+    const flushPendingRefresh = () => {
+      if (!pendingRefreshRef.current || !pageCanSyncSession()) {
+        return
+      }
+
+      pendingRefreshRef.current = false
+      router.refresh()
+    }
+
+    const sincronizarContexto = async (force = false) => {
       if (checking) {
+        pendingCheckRef.current = true
+        return
+      }
+
+      if (!pageCanSyncSession()) {
+        pendingCheckRef.current = true
+        return
+      }
+
+      const now = Date.now()
+      if (!force && now - lastCheckAtRef.current < AUTH_CONTEXT_FOCUS_CHECK_DEBOUNCE_MS) {
         return
       }
 
       checking = true
+      lastCheckAtRef.current = now
+      pendingCheckRef.current = false
 
       try {
-        const [
-          {
-            data: { session },
-          },
-          {
-            data: { user },
-          },
-        ] = await Promise.all([supabase.auth.getSession(), supabase.auth.getUser()])
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        const user = session?.user ?? null
 
         if (!session?.access_token || !user) {
           return
@@ -43,12 +74,13 @@ export function AuthSessionMonitor() {
         })
 
         if (!status.isStale) {
+          flushPendingRefresh()
           return
         }
 
         if (status.exceededGraceWindow) {
           await supabase.auth.signOut()
-          router.replace('/login')
+          window.location.replace('/login')
           return
         }
 
@@ -63,11 +95,15 @@ export function AuthSessionMonitor() {
 
         if (refreshed.error || !refreshedSession || !refreshedUser || refreshedStatus.isStale) {
           await supabase.auth.signOut()
-          router.replace('/login')
+          window.location.replace('/login')
           return
         }
 
-        router.refresh()
+        if (pageCanSyncSession()) {
+          router.refresh()
+        } else {
+          pendingRefreshRef.current = true
+        }
       } catch (error) {
         if (isSupabaseAuthNetworkError(error)) {
           if (process.env.NODE_ENV !== 'production') {
@@ -79,23 +115,31 @@ export function AuthSessionMonitor() {
         console.error('AuthSessionMonitor encontro un error inesperado al validar la sesion.', error)
       } finally {
         checking = false
+
+        if (pendingCheckRef.current && pageCanSyncSession()) {
+          window.setTimeout(() => {
+            void sincronizarContexto(true)
+          }, 0)
+        }
       }
     }
 
-    void sincronizarContexto()
+    void sincronizarContexto(true)
 
     const intervalId = window.setInterval(() => {
-      void sincronizarContexto()
+      void sincronizarContexto(false)
     }, AUTH_CONTEXT_POLL_INTERVAL_MS)
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        void sincronizarContexto()
+        flushPendingRefresh()
+        void sincronizarContexto(true)
       }
     }
 
     const handleWindowFocus = () => {
-      void sincronizarContexto()
+      flushPendingRefresh()
+      void sincronizarContexto(true)
     }
 
     window.addEventListener('focus', handleWindowFocus)

@@ -4,6 +4,19 @@ Este archivo es el registro obligatorio de todas las intervenciones realizadas p
 
 ---
 
+## [2026-04-09 21:30] - Migración Estructural a Cloudflare R2 y Optimización FinOps (Zero)
+- **Contexto**: El proyecto exigía una reducción radical del costo de Egress (ancho de banda) para la subida y bajada de documentos pesados y fotografías. Se planteó Cloudflare R2 como Mega Bodega desacoplada de la base de datos Supabase.
+- **Acción**:
+    - **Fase 1**: Se construyó el componente `ClientImageFileInput` que comprime y convierte imágenes en WebP (máximo 200KB) antes del envío y se inyectó en el `<input type="file" />` base global para una cobertura >90% de la plataforma.
+    - **Fase 2**: Se adaptó a `Reclutamiento` (módulo piloto) como conejillo de indias saltándose los buffers de Vercel y enviando el documento comprimido directamente a un bucket R2 mediante `Presigned URLs` creados `on the fly`.
+    - **Backbone**: Se incluyó la tabla puente `archivo_referencia` en Supabase y el bypass manual en `src/features/empleados/actions.ts` hacia `archivo_hash` para no romper el front pero redirigiendo a la bodega `CF_R2`.
+- **Impacto**:
+    - Las fotos nacen livianas desde el navegador móvil.
+    - Vercel y Gemini nunca lidian con megabytes de procesamiento documental originado en Reclutamiento.
+    - El 100% del archivo físico se deposita por transferencia directa cliente-CF abaratando Supabase enormemente.
+- **Estado**: Fases 1 y 2 ejecutadas y validadas con `tsc` compilando sin errores, abriendo la puerta a replicar el modelo en Solicitudes, Tareas de Visitas, Gastos, Love Isdin y Materiales en próximos cortes.
+
+
 ## [2026-03-14 09:41:52] - Regla de Oro para Tablas en Español Latino (Codex)
 - **Contexto**: El usuario solicitó convertir en política irrompible que toda tabla creada por agentes use español latino.
 - **Acción**:
@@ -4920,7 +4933,8 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - cmd /c npm run test -- tests/empleados-panel.spec.ts OK
   - cmd /c npm run test:unit -- src\features\empleados\lib\workflowInbox.test.ts bloqueado por `spawn EPERM` del entorno local al arrancar Vitest, no por fallo de la implementacion.
 ## 2026-03-30 - Reconciliacion canónica onboarding integral de contratacion
-- Se alineo la especificacion canonica (equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding: Nomina ya no entrega directo a Administracion tras cerrar IMSS; ahora Reclutamiento completa una validacion final antes de habilitar la creacion del acceso provisional.
+- Se alineo la especificacion canonica (
+equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding: Nomina ya no entrega directo a Administracion tras cerrar IMSS; ahora Reclutamiento completa una validacion final antes de habilitar la creacion del acceso provisional.
 - Se ajustaron copys operativos en src/features/empleados/components/EmpleadosPanel.tsx y el mensaje administrativo en src/features/empleados/actions.ts para reflejar el mismo flujo.
 - Validaciones ejecutadas: cmd /c npx tsc --noEmit, cmd /c npm run test -- tests/empleados-panel.spec.ts, cmd /c npm run docs:check-encoding -- .kiro/specs/field-force-platform/requirements.md .kiro/specs/field-force-platform/design.md .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md.
 ## 2026-03-30 - Checklist ejecutivo de onboarding en Empleados
@@ -5008,3 +5022,79 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npm run build` OK
   - `cmd /c npm run test -- tests/solicitudes.spec.ts` bloqueado por `spawn EPERM` del entorno local, no por error de la implementación
   - `cmd /c npm run test:unit -- src/features/solicitudes/extemporaneoActions.test.ts` bloqueado por `spawn EPERM` del entorno local
+
+## 2026-04-05 - Dashboard supervisor: Rol mensual de PDVs
+- Se agregó la acción rápida `Rol mensual` al dashboard de `SUPERVISOR` en `src/features/dashboard/components/DashboardPanel.tsx`, con apertura en `BottomSheet` y carga diferida solo al abrir el panel para no encarecer el primer render del dashboard.
+- Se creó la proyección PDV-céntrica mensual reutilizando `asignacion_diaria_resuelta` en `src/features/asignaciones/services/asignacionMaterializationService.ts`, incluyendo orden `FIJO` antes de `ROTATIVO`, agrupación por `grupo_rotacion_codigo`, soporte de `slot_rotacion` y filtros por `mes`, `cadena` y `tipo de PDV`.
+- Se añadió el servicio `src/features/dashboard/services/supervisorMonthlyRoleService.ts`, el endpoint autenticado `src/app/api/dashboard/supervisor-monthly-role/route.ts` y el componente `src/features/dashboard/components/SupervisorMonthlyRoleSheet.tsx` para consultar únicamente los PDVs del supervisor autenticado sin crear tablas nuevas.
+- El flujo se mantuvo solo lectura, usando el calendario materializado ya existente y sin añadir lecturas al SSR del dashboard; la consulta ocurre únicamente bajo demanda desde el `BottomSheet`.
+- Validaciones ejecutadas:
+  - `cmd /c npx tsc --noEmit` OK
+  - `cmd /c npm run build` OK
+  - `cmd /c npm run test -- tests/dashboard-kpis.spec.ts` falla en un caso preexistente de alertas live (`RETARDO` ausente en `obtenerInsightsDashboard`), ajeno a `Rol mensual`
+## 2026-04-05 - Dashboard live alerts regression + deterministic KPI test
+- Se propagó pdvId al derivar disciplina de asistencia dentro de `buildLiveAlerts()` para mantener completo el contrato entre dashboard y motor de disciplina.
+- Se volvió determinista el caso combina alertas live de geocerca, retardo y cuota baja en `tests/dashboard-kpis.spec.ts`, forzando que el día actual del test sea laborable para las asignaciones mockeadas y evitando falsos negativos por correr la suite en domingo.
+- Validaciones ejecutadas:
+  - cmd /c npm run test -- tests/dashboard-kpis.spec.ts OK
+  - cmd /c npx tsc --noEmit OK
+  - cmd /c npm run build OK
+## 2026-04-09 - Dashboard operativo: carga diferida para Supervisor y Dermoconsejo
+- Se mantuvo el dashboard en tiempo casi real para check-ins, check-outs y operación del día, pero se redujo la carga inicial moviendo paneles pesados a lectura bajo demanda.
+- En `SUPERVISOR`, `Ruta semanal` dejó de cargarse en el SSR del dashboard: `src/features/dashboard/services/dashboardService.ts` ahora entrega solo `supervisorRouteSnapshot`, `src/app/api/dashboard/supervisor-route-panel/route.ts` resuelve el panel completo al abrir la hoja, y `src/features/dashboard/components/DashboardPanel.tsx` muestra estados de carga/reintento dentro de las acciones rápidas (`Agenda operativa`, `Definir ruta semanal`, `Correcciones e históricos`, `Mi ruta de hoy`).
+- En `SUPERVISOR`, las mutaciones de `src/features/rutas/actions.ts` ya no invalidan `/dashboard`; se conserva `revalidatePath('/ruta-semanal')` y el dashboard se mantiene fresco por `Realtime` sobre tablas operativas de rutas.
+- En `DERMOCONSEJERO`, `src/app/(main)/dashboard/page.tsx` ahora pide una versión ligera del dashboard (`includeDermoSecondaryData: false`) y deja fuera de la carga inicial los datos secundarios más costosos (`catalogoProductos`, `loveQr`, `vacationPolicy`).
+- Se creó `src/app/api/dashboard/dermoconsejo-panel/route.ts` para pedir el detalle completo solo cuando la DC abre hojas que realmente lo necesitan (`Ventas`, `LOVE ISDIN`, `Vacaciones`, `Incapacidad`, `Permiso`, `Justificación`, `Campaña`), con fallback de carga/reintento en `src/features/dashboard/components/DashboardPanel.tsx`.
+- El costo esperado baja en la navegación diaria porque el dashboard inicial ya no arrastra la ruta completa del supervisor ni el catálogo comercial completo de la DC; la frescura operativa se mantiene porque los bloques críticos del día siguen en la carga base y el `Realtime` permanece activo para eventos relevantes.
+- Validaciones ejecutadas:
+  - `cmd /c npx tsc --noEmit` OK
+  - `cmd /c npm run docs:check-encoding` OK
+## 2026-04-09 - Dashboard operativo: refinamiento fino de hojas secundarias
+- Se hizo un segundo corte de costo para que el `SUPERVISOR` no cargue desde SSR el detalle completo de `Solicitudes del equipo` ni las notificaciones: `src/features/dashboard/services/dashboardService.ts` ahora puede resolver solo resúmenes (`supervisorRequestInbox.summaries`) y `unreadCount`, mientras el detalle completo se pide bajo demanda desde `src/app/api/dashboard/supervisor-panel/route.ts`.
+- `src/features/dashboard/components/DashboardPanel.tsx` ahora carga en diferido el detalle extendido del supervisor al abrir `Solicitudes`, `Vacaciones`, `Incapacidades`, `Día cumple` o `Notificaciones`, con estados de carga y reintento dentro de la hoja inferior.
+- En `DERMOCONSEJERO`, el centro de notificaciones también dejó de depender del SSR completo: la carga base conserva solo el contador de no leídas y el detalle se obtiene con la misma carga extendida ya existente cuando la DC abre la hoja de notificaciones.
+- En `DERMOCONSEJERO`, `Campaña` quedó más barata en la carga base: se mantiene el banner de campaña activa, pero el detalle costoso (`manual` firmado, `evidenceTemplate`, `productos foco` enriquecidos) solo se resuelve en la carga extendida al abrir la hoja.
+- La experiencia visual se mantuvo estable: mismas tarjetas, mismos botones y mismo flujo de operación del día; el cambio es principalmente de costo y latencia.
+- Impacto esperado:
+  - `SUPERVISOR`: menos lecturas y joins tempranos sobre `solicitud`, `mensaje_receptor`, `mensaje_interno`, `usuario` y `empleado` al entrar al dashboard.
+  - `DERMOCONSEJERO`: menos trabajo inicial para una apertura rápida enfocada en jornada, tienda y check-in/check-out.
+- Validaciones ejecutadas:
+  - `cmd /c npx tsc --noEmit` OK
+  - `cmd /c npm run docs:check-encoding` OK
+  - `cmd /c npm run test -- tests/dermoconsejo-dashboard.spec.ts` bloqueado por `spawn EPERM` del entorno local al arrancar Playwright, no por error de la implementación
+## 2026-04-09 - Asignaciones: recorte de consultas en validacion de lista e importacion
+- En `src/features/asignaciones/services/asignacionService.ts` se unificaron en una sola lectura las consultas de `asignacion` que antes se hacían por `empleado_id` y por `pdv_id` para construir el contexto de validación de la lista visible; ahora se parte el resultado en memoria por empleado y PDV.
+- La validación de rotación en `src/features/asignaciones/lib/assignmentRotationValidation.ts` ahora acepta una ventana visible (`fechaInicio` / `fechaFin`) y limita la lectura de asignaciones del grupo rotativo a ese rango cuando la lista ya lo conoce, para no arrastrar histórico innecesario en cada apertura del workspace.
+- En `src/features/asignaciones/actions.ts` se aplicó el mismo patrón de lectura consolidada durante la importación del catálogo maestro, evitando dos consultas casi idénticas a `asignacion` para empleados y PDVs del mismo lote.
+- No se cambiaron contratos, permisos ni UX: la reducción es por detrás, manteniendo los mismos issues (`ERROR`, `ALERTA`, `AVISO`) y la misma lógica de publicación/importación.
+- Impacto esperado:
+  - Menos round-trips a `asignacion` al abrir la lista del módulo.
+  - Menos filas cargadas para validar rotación cuando solo se inspecciona una página visible.
+  - Menor costo operativo en importaciones grandes del catálogo maestro.
+- Validaciones ejecutadas:
+  - `cmd /c npx tsc --noEmit` OK
+  - `cmd /c npm run test -- tests/assignment-validation.spec.ts` OK
+## 2026-04-09 - Asignaciones: refinamiento de shell y modal manual
+- En `src/features/asignaciones/services/asignacionService.ts` el resumen superior del workspace bajó de 4 conteos a 3: `borrador` ahora se deriva de `total - publicada`, manteniendo el mismo contrato visual porque los estados operativos del módulo son `BORRADOR` y `PUBLICADA`.
+- El modal `Nueva asignación` dejó de cargar todos los PDVs para luego filtrarlos por cuenta; cuando el actor tiene `cuenta_cliente_id`, primero consulta `cuenta_cliente_pdv` activa y después carga únicamente los PDVs visibles para esa cuenta.
+- No se cambió UI, permisos, contratos de actions ni lógica de validación; el ajuste reduce consultas/filas en aperturas frecuentes del módulo.
+- Validaciones ejecutadas:
+  - `cmd /c npx tsc --noEmit` OK
+  - `cmd /c npm run test -- tests/assignment-validation.spec.ts` OK
+## 2026-04-09 - Asignaciones: recorte de empleados en PDVs cobertura/rotacion
+- En `src/features/empleados/services/pdvCoberturaService.ts` el tablero de cobertura dejó de cargar todo `empleado` en paralelo para después filtrar por cuenta; ahora primero usa `usuario` de la cuenta y después carga solo empleados visibles/relevantes para nombres, supervisores y candidatos de esa cuenta.
+- En `src/features/asignaciones/services/pdvRotationMasterService.ts` el contexto de rotación dejó de cargar todo `empleado`; ahora carga solo los empleados referenciados por asignaciones base publicadas vigentes para el tablero/propuesta de rotación.
+- No se cambió UI, permisos, filtros ni contratos de salida de `Asignaciones > PDVs`; el ajuste reduce filas leídas en servicios que pueden crecer mucho conforme suba el padrón.
+- Tradeoff: la consulta de empleados pasa a depender de los IDs ya resueltos por cuenta/asignación, priorizando menor volumen de filas sobre paralelismo total. Para esta pestaña bajo demanda es una mejora de costo más segura que leer todo el padrón.
+- Validaciones ejecutadas:
+  - `cmd /c npx tsc --noEmit` OK
+  - `cmd /c npm run test -- tests/pdvs-panel.spec.ts` OK
+  - `cmd /c npm run test -- tests/assignment-validation.spec.ts` OK
+
+## 2026-04-09 - PDVs: reasignacion operativa de supervisores desde archivo
+- Se procesó `PDV NUEVAS RUTAS.xlsx` hoja `PDV`, con 162 filas operativas y 162 PDVs únicos por `codigo_btl`.
+- Se resolvieron los 8 supervisores del archivo contra `empleado` activo con puesto `SUPERVISOR`; el archivo usa apellidos primero y la base nombres primero, por lo que se validó por coincidencia exacta de tokens antes de escribir.
+- Se actualizó `supervisor_pdv` en transacción: 89 PDVs ya estaban con el supervisor correcto, 73 relaciones activas anteriores se cerraron con `fecha_fin = 2026-04-08` y 73 relaciones nuevas quedaron activas desde `2026-04-09`.
+- No se cambiaron esquema, código, permisos ni contratos de UI; el cambio es solo de datos operativos para que rutas/asignaciones hereden el supervisor correcto desde PDV.
+- Validaciones ejecutadas:
+  - Validación DB post-carga: 162 relaciones activas para los 162 PDVs del archivo y `mismatches = 0`

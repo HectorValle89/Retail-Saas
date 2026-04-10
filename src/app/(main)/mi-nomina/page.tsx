@@ -2,6 +2,7 @@ import { requerirActorActivo } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { obtenerRecibosNominaEmpleado } from '@/features/nomina/services/nominaReceiptService'
 import { Card } from '@/components/ui/card'
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 
 export const metadata = {
   title: 'Mi nomina | Field Force Platform',
@@ -111,10 +112,5 @@ export default async function MiNominaPage() {
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-4">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
-    </div>
-  )
+  return <SharedMetricCard label={label} value={value} valueClassName="text-2xl sm:text-[2rem]" />
 }

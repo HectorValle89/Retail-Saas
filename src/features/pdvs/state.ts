@@ -7,7 +7,7 @@ export type PdvCreateDraft = {
   direccion: string
   formato: string
   id_cadena: string
-  estatus: 'ACTIVO' | 'INACTIVO'
+  estatus: 'ACTIVO' | 'TEMPORAL' | 'INACTIVO'
   coordenadas: string
   radio_tolerancia_metros: string
   permite_checkin_con_justificacion: boolean

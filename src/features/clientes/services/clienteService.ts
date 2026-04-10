@@ -1,4 +1,4 @@
-﻿import type { SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CuentaCliente, CuentaClientePdv } from '@/types/database'
 
 type MaybeMany<T> = T | T[] | null

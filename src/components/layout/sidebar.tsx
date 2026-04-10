@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { List, X } from '@phosphor-icons/react'
 import type { ActorActual } from '@/lib/auth/session'
 import { lockBodyScroll } from '@/lib/ui/bodyScrollLock'
-import { createClient } from '@/lib/supabase/client'
 import { PremiumLineIcon, type PremiumIconName } from '@/components/ui/premium-icons'
 import { getModuleTheme, moduleThemeToStyle, type ModuleThemeKey } from '@/lib/ui/moduleThemes'
 import type { Puesto } from '@/types/database'
@@ -90,7 +89,7 @@ const primaryItems: NavItem[] = [
     label: 'Formaciones',
     icon: 'training',
     theme: 'formaciones',
-    allowedRoles: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'RECLUTAMIENTO', 'LOVE_IS', 'VENTAS', 'DERMOCONSEJERO'],
+    allowedRoles: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'LOVE_IS', 'VENTAS', 'DERMOCONSEJERO'],
   },
   {
     href: '/asignaciones',
@@ -105,7 +104,7 @@ const primaryItems: NavItem[] = [
     icon: 'attendance',
     theme: 'asistencias',
     prefetch: true,
-    allowedRoles: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'DERMOCONSEJERO'],
+    allowedRoles: ['ADMINISTRADOR', 'COORDINADOR', 'NOMINA'],
   },
   {
     href: '/ventas',
@@ -127,7 +126,7 @@ const primaryItems: NavItem[] = [
     label: 'Solicitudes',
     icon: 'requests',
     theme: 'solicitudes',
-    allowedRoles: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'RECLUTAMIENTO', 'NOMINA', 'DERMOCONSEJERO'],
+    allowedRoles: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'DERMOCONSEJERO'],
   },
   {
     href: '/mensajes',
@@ -141,7 +140,7 @@ const primaryItems: NavItem[] = [
 const adminItems: NavItem[] = [
   { href: '/clientes', label: 'Clientes', icon: 'clients', theme: 'clientes', allowedRoles: ['ADMINISTRADOR'] },
   { href: '/nomina', label: 'Nomina', icon: 'payroll', theme: 'nomina', allowedRoles: ['ADMINISTRADOR', 'NOMINA'] },
-  { href: '/gastos', label: 'Gastos', icon: 'expenses', theme: 'gastos', allowedRoles: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'NOMINA', 'LOGISTICA'] },
+  { href: '/gastos', label: 'Gastos', icon: 'expenses', theme: 'gastos', allowedRoles: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'LOGISTICA'] },
   { href: '/materiales', label: 'Materiales', icon: 'materials', theme: 'materiales', allowedRoles: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'LOGISTICA'] },
   { href: '/reportes', label: 'Reportes', icon: 'reports', theme: 'reportes', allowedRoles: ['ADMINISTRADOR'] },
   { href: '/offline', label: 'Offline', icon: 'offline', theme: 'offline', allowedRoles: ['ADMINISTRADOR'] },
@@ -168,7 +167,6 @@ function NavIcon({ name, className = 'h-5 w-5' }: { name: NavIconName; className
 
 export function Sidebar({ actor }: SidebarProps) {
   const pathname = usePathname()
-  const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   useEffect(() => {
@@ -184,9 +182,7 @@ export function Sidebar({ actor }: SidebarProps) {
   }, [mobileOpen])
 
   const handleLogout = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
+    window.location.assign('/logout')
   }
 
   const visiblePrimaryItems = primaryItems.filter((item) => item.allowedRoles.includes(actor.puesto))
@@ -386,3 +382,5 @@ function Section({
     </div>
   )
 }
+
+

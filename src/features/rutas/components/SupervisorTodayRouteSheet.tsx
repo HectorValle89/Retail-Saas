@@ -16,6 +16,7 @@ import {
   registrarInicioVisitaRutaSemanal,
   registrarSalidaVisitaRutaSemanal,
 } from '../actions'
+import { injectDirectR2Upload } from '@/lib/storage/directR2Client'
 import { ESTADO_RUTA_INICIAL } from '../state'
 import {
   SUPERVISOR_CHECKLIST_ITEMS,
@@ -247,6 +248,22 @@ function SupervisorVisitExecutionPanel({
       formData.set('estado_gps', startDraft.gpsState)
       formData.set('comments', comments)
 
+      try {
+        await injectDirectR2Upload(formData, startDraft.file, {
+          modulo: 'rutas',
+          removeFieldName: 'selfie_file',
+          fieldNames: {
+            objectKey: 'selfie_r2_object_key',
+            sha256: 'selfie_r2_sha256',
+            fileName: 'selfie_r2_file_name',
+            contentType: 'selfie_r2_type',
+            size: 'selfie_r2_size',
+          },
+        })
+      } catch (error) {
+        console.error('No fue posible subir la selfie de llegada a R2.', error)
+      }
+
       const result = await registrarInicioVisitaRutaSemanal(ESTADO_RUTA_INICIAL, formData)
       if (!result.ok) {
         onError(result.message ?? 'No fue posible registrar la llegada.')
@@ -297,6 +314,36 @@ function SupervisorVisitExecutionPanel({
       formData.set('distancia_metros', String(endDraft.position.distanciaMetros ?? ''))
       formData.set('estado_gps', endDraft.gpsState)
       formData.set('comments', comments)
+
+      try {
+        await injectDirectR2Upload(formData, endDraft.file, {
+          modulo: 'rutas',
+          removeFieldName: 'selfie_file',
+          fieldNames: {
+            objectKey: 'selfie_r2_object_key',
+            sha256: 'selfie_r2_sha256',
+            fileName: 'selfie_r2_file_name',
+            contentType: 'selfie_r2_type',
+            size: 'selfie_r2_size',
+          },
+        })
+
+        if (evidenceDraft) {
+          await injectDirectR2Upload(formData, evidenceDraft.file, {
+            modulo: 'rutas',
+            removeFieldName: 'evidencia_file',
+            fieldNames: {
+              objectKey: 'evidencia_r2_object_key',
+              sha256: 'evidencia_r2_sha256',
+              fileName: 'evidencia_r2_file_name',
+              contentType: 'evidencia_r2_type',
+              size: 'evidencia_r2_size',
+            },
+          })
+        }
+      } catch (error) {
+        console.error('No fue posible subir evidencia de cierre de ruta a R2.', error)
+      }
 
       const result = await registrarSalidaVisitaRutaSemanal(ESTADO_RUTA_INICIAL, formData)
       if (!result.ok) {

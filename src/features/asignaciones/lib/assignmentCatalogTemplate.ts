@@ -6,8 +6,9 @@ const TEMPLATE_FILENAME = 'isdin_plantilla_catalogo_maestro_asignaciones.xlsx'
 
 const TEMPLATE_HEADERS = [
   'BTL CVE',
-  'IDNOM',
+  'EMPLEADO_ID',
   'USUARIO',
+  'IDNOM',
   'NOMBRE DC',
   '# DC',
   'ROL',
@@ -19,8 +20,9 @@ const TEMPLATE_HEADERS = [
 
 const SAMPLE_FIXED_ROW = [
   'BTL-FAH-50SU-ME',
+  'emp_ana_ortega',
+  'ana_ortega',
   '594',
-  'btl-dc-1239',
   'ANA PATRICIA ORTEGA RAMIREZ',
   '1',
   'FIJA',
@@ -32,8 +34,9 @@ const SAMPLE_FIXED_ROW = [
 
 const SAMPLE_ROTATIVE_ROW = [
   'BTL-SPB-CUMBRES-MTY',
+  '',
+  'carmelita_sanchez',
   '542',
-  'btl-dc-1187',
   'CARMELITA SANCHEZ MARQUEZ',
   '0.5',
   'ROTATIVA',
@@ -53,9 +56,10 @@ function buildInstructionRows() {
     [''],
     ['Columnas reconocidas por el importador'],
     ['BTL CVE', 'Obligatoria. Clave BTL del PDV tal como existe en el sistema.'],
-    ['IDNOM', 'Recomendada. Nómina de la dermoconsejera.'],
-    ['USUARIO', 'Opcional. Username provisional o final de la dermoconsejera si no usas nómina.'],
-    ['NOMBRE DC', 'Opcional. Nombre completo de la dermoconsejera si no usas nómina ni usuario.'],
+    ['EMPLEADO_ID', 'Opcional. UUID interno si el archivo fue generado por el sistema.'],
+    ['USUARIO', 'Recomendada. Username operativo principal de la dermoconsejera.'],
+    ['IDNOM', 'Opcional. Alias legacy de nómina; solo se usa como compatibilidad temporal.'],
+    ['NOMBRE DC', 'Opcional. Nombre completo exacto si no cuentas con empleado_id ni usuario.'],
     ['# DC', 'Opcional de referencia. El parser lo acepta, pero la importacion actual ya no usa este valor como captura manual operativa del factor tiempo.'],
     ['ROL', 'Opcional. Valores recomendados: FIJA, ROTATIVA o COBERTURA.'],
     ['HORARIO', 'Opcional. Texto de referencia del turno esperado para esa asignacion.'],
@@ -65,7 +69,7 @@ function buildInstructionRows() {
     [''],
     ['Reglas importantes'],
     ['1.', 'Cada fila debe resolver un PDV existente por BTL CVE.'],
-    ['2.', 'Cada fila debe resolver a la dermoconsejera por IDNOM, USUARIO o NOMBRE DC.'],
+    ['2.', 'Cada fila debe resolver a la dermoconsejera por EMPLEADO_ID, USUARIO, NOMBRE DC o IDNOM legacy.'],
     ['3.', 'Si no se resuelve PDV o DC, la fila se omite y se reporta al final de la importacion.'],
     ['4.', 'El catalogo maestro inicial se trata como base general. El sistema asigna fecha de inicio al dia de la carga y deja la base sin fecha fin.'],
     ['5.', 'El archivo puede actualizar asignaciones base existentes o insertar nuevas, segun la coincidencia de DC + PDV + tipo.'],
@@ -96,8 +100,9 @@ export function buildAssignmentCatalogTemplateWorkbook() {
 
   templateSheet['!cols'] = [
     { wch: 22 },
+    { wch: 18 },
+    { wch: 18 },
     { wch: 14 },
-    { wch: 16 },
     { wch: 34 },
     { wch: 10 },
     { wch: 14 },

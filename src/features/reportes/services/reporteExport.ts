@@ -528,7 +528,7 @@ async function collectOperationalCalendarExportPayload(
   supabase: SupabaseClient,
   periodo: string
 ): Promise<ReportExportPayload> {
-  const calendar = await getMaterializedMonthlyCalendar({ month: periodo }, supabase as never)
+  const calendar = await getMaterializedMonthlyCalendar({ month: periodo })
   const headers = buildOperationalCalendarHeaders(calendar.dias)
 
   if (calendar.empleados.length === 0) {

@@ -6,12 +6,13 @@ import {
   type BusinessRuleRow,
   type SchedulePriorityRuleDefinition,
 } from '@/features/reglas/lib/businessRules'
+import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus'
 import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
 import type { Pdv } from '@/types/database'
 
 type MaybeMany<T> = T | T[] | null
 
-type PdvStatus = 'ACTIVO' | 'INACTIVO'
+type PdvStatus = 'ACTIVO' | 'TEMPORAL' | 'INACTIVO'
 type HorarioMode = 'CADENA' | 'PERSONALIZADO' | 'BASE_PDV' | 'GLOBAL' | 'SIN_HORARIO'
 type AssignmentType = 'FIJA' | 'ROTATIVA' | 'COBERTURA'
 type AssignmentState = 'BORRADOR' | 'PUBLICADA'
@@ -313,8 +314,10 @@ export interface PdvListadoItem {
 export interface PdvsPanelData {
   resumen: PdvResumen
   pdvs: PdvListadoItem[]
+  hasActiveFilters: boolean
   infraestructuraLista: boolean
   mensajeInfraestructura?: string
+  filters: PdvsPanelFilters
   cadenas: PdvCadenaOption[]
   ciudades: PdvCiudadOption[]
   estados: string[]
@@ -324,6 +327,17 @@ export interface PdvsPanelData {
   geocercaDefaultMetros: number
   permiteCheckinConJustificacionDefault: boolean
 }
+
+export interface PdvsPanelFilters {
+  search: string
+  cadenaId: string
+  ciudadId: string
+  estado: string
+  zona: string
+  supervisorId: string
+  estatus: string
+}
+
 export interface PdvsExportPayload {
   headers: string[]
   rows: Array<Array<string | number | null>>
@@ -332,6 +346,15 @@ export interface PdvsExportPayload {
 
 const SIGNED_DAY_LABELS = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado']
 const MAX_HISTORY_PER_PDV = 5
+const EMPTY_PDV_FILTERS: PdvsPanelFilters = {
+  search: '',
+  cadenaId: '',
+  ciudadId: '',
+  estado: '',
+  zona: '',
+  supervisorId: '',
+  estatus: '',
+}
 
 const obtenerPrimero = <T>(value: MaybeMany<T>): T | null => {
   if (!value) {
@@ -591,23 +614,331 @@ function groupRecentItems<T extends { pdv_id: string }>(items: T[]) {
   return grouped
 }
 
-export async function obtenerPanelPdvs(
-  supabase: SupabaseClient
+function normalizeFilterValue(value: string | null | undefined) {
+  return (value ?? '').trim().toLocaleUpperCase('es-MX')
+}
+
+function containsNormalizedValue(value: string | null | undefined, search: string) {
+  if (!search) {
+    return true
+  }
+
+  return normalizeFilterValue(value).includes(search)
+}
+
+function matchesPdvPanelFilters(
+  pdv: PdvListadoItem,
+  filters: PdvsPanelFilters,
+  omittedKeys: Array<keyof PdvsPanelFilters> = [],
+  supervisorPdvIds: Set<string> | null = null
+) {
+  const omitted = new Set<keyof PdvsPanelFilters>(omittedKeys)
+  const normalizedSearch = omitted.has('search') ? '' : normalizeFilterValue(filters.search)
+
+  if (normalizedSearch) {
+    const searchFields = [
+      pdv.nombre,
+      pdv.claveBtl,
+      pdv.idCadena,
+      pdv.cadena,
+      pdv.ciudad,
+      pdv.estado,
+      pdv.zona,
+      pdv.supervisorActual,
+    ]
+
+    if (!searchFields.some((field) => containsNormalizedValue(field, normalizedSearch))) {
+      return false
+    }
+  }
+
+  if (!omitted.has('cadenaId') && filters.cadenaId && pdv.cadenaId !== filters.cadenaId) {
+    return false
+  }
+
+  if (!omitted.has('ciudadId') && filters.ciudadId && pdv.ciudadId !== filters.ciudadId) {
+    return false
+  }
+
+  if (!omitted.has('estado')) {
+    if (filters.estado === 'SIN_ESTADO') {
+      if (pdv.estado !== null) {
+        return false
+      }
+    } else if (filters.estado && pdv.estado !== filters.estado) {
+      return false
+    }
+  }
+
+  if (!omitted.has('zona')) {
+    if (filters.zona === 'SIN_ZONA') {
+      if (pdv.zona !== null) {
+        return false
+      }
+    } else if (filters.zona && pdv.zona !== filters.zona) {
+      return false
+    }
+  }
+
+  if (!omitted.has('supervisorId')) {
+    if (filters.supervisorId === 'SIN_SUPERVISOR') {
+      if (pdv.supervisorActualId !== null) {
+        return false
+      }
+    } else if (filters.supervisorId) {
+      if (supervisorPdvIds) {
+        if (!supervisorPdvIds.has(pdv.id)) {
+          return false
+        }
+      } else if (pdv.supervisorActualId !== filters.supervisorId) {
+        return false
+      }
+    }
+  }
+
+  if (!omitted.has('estatus') && filters.estatus && pdv.estatus !== filters.estatus) {
+    return false
+  }
+
+  return true
+}
+
+function filterPdvsForPanel(
+  pdvs: PdvListadoItem[],
+  filters: PdvsPanelFilters,
+  omittedKeys: Array<keyof PdvsPanelFilters> = [],
+  supervisorPdvIds: Set<string> | null = null
+) {
+  return pdvs.filter((pdv) => matchesPdvPanelFilters(pdv, filters, omittedKeys, supervisorPdvIds))
+}
+
+function derivePdvsPanelOptions(params: {
+  pdvs: PdvListadoItem[]
+  filters: PdvsPanelFilters
+  cadenas: PdvCadenaOption[]
+  ciudades: PdvCiudadOption[]
+  supervisores: PdvSupervisorOption[]
+  supervisorPdvIds?: Set<string> | null
+}) {
+  const byDimension = {
+    cadenas: filterPdvsForPanel(params.pdvs, params.filters, ['cadenaId'], params.supervisorPdvIds ?? null),
+    ciudades: filterPdvsForPanel(params.pdvs, params.filters, ['ciudadId'], params.supervisorPdvIds ?? null),
+    estados: filterPdvsForPanel(params.pdvs, params.filters, ['estado'], params.supervisorPdvIds ?? null),
+    zonas: filterPdvsForPanel(params.pdvs, params.filters, ['zona'], params.supervisorPdvIds ?? null),
+    supervisores: filterPdvsForPanel(params.pdvs, params.filters, ['supervisorId'], params.supervisorPdvIds ?? null),
+  }
+
+  const cadenaIds = new Set(
+    byDimension.cadenas
+      .map((pdv) => pdv.cadenaId)
+      .filter((item): item is string => Boolean(item))
+  )
+  const ciudadIds = new Set(
+    byDimension.ciudades
+      .map((pdv) => pdv.ciudadId)
+      .filter((item): item is string => Boolean(item))
+  )
+  const supervisorIds = new Set(
+    byDimension.supervisores
+      .map((pdv) => pdv.supervisorActualId)
+      .filter((item): item is string => Boolean(item))
+  )
+
+  const supervisoresFiltrados = params.supervisores.filter((item) => supervisorIds.has(item.id))
+  const supervisorSeleccionado =
+    params.filters.supervisorId && params.filters.supervisorId !== 'SIN_SUPERVISOR'
+      ? params.supervisores.find((item) => item.id === params.filters.supervisorId) ?? null
+      : null
+
+  return {
+    cadenas: params.cadenas.filter((item) => cadenaIds.has(item.id)),
+    ciudades: params.ciudades.filter((item) => ciudadIds.has(item.id)),
+    estados: Array.from(
+      new Set(
+        byDimension.estados
+          .map((pdv) => pdv.estado)
+          .filter((item): item is string => Boolean(item))
+      )
+    ).sort((left, right) => left.localeCompare(right, 'es-MX')),
+    zonas: Array.from(
+      new Set(
+        byDimension.zonas
+          .map((pdv) => pdv.zona)
+          .filter((item): item is string => Boolean(item))
+      )
+    ).sort((left, right) => left.localeCompare(right, 'es-MX')),
+    supervisores:
+      supervisorSeleccionado && !supervisoresFiltrados.some((item) => item.id === supervisorSeleccionado.id)
+        ? [supervisorSeleccionado, ...supervisoresFiltrados]
+        : supervisoresFiltrados,
+  }
+}
+
+async function fetchActiveSupervisorPdvIds(
+  supabase: SupabaseClient,
+  supervisorId: string
+): Promise<{ pdvIds: Set<string>; error: { message: string } | null }> {
+  const result = await supabase
+    .from('supervisor_pdv')
+    .select('pdv_id')
+    .eq('empleado_id', supervisorId)
+    .eq('activo', true)
+    .limit(500)
+
+  const rows = Array.isArray(result.data) ? result.data : []
+  return {
+    pdvIds: new Set(
+      rows
+        .map((item) => {
+          if (!item || typeof item !== 'object') {
+            return null
+          }
+
+          return String((item as Record<string, unknown>).pdv_id ?? '').trim() || null
+        })
+        .filter((item): item is string => Boolean(item))
+    ),
+    error: result.error,
+  }
+}
+export function normalizePdvsPanelFilters(filters?: Partial<PdvsPanelFilters>): PdvsPanelFilters {
+  return {
+    search: typeof filters?.search === 'string' ? filters.search.trim() : '',
+    cadenaId: typeof filters?.cadenaId === 'string' && filters.cadenaId !== 'ALL' ? filters.cadenaId.trim() : '',
+    ciudadId: typeof filters?.ciudadId === 'string' && filters.ciudadId !== 'ALL' ? filters.ciudadId.trim() : '',
+    estado: typeof filters?.estado === 'string' && filters.estado !== 'ALL' ? filters.estado.trim() : '',
+    zona: typeof filters?.zona === 'string' && filters.zona !== 'ALL' ? filters.zona.trim() : '',
+    supervisorId:
+      typeof filters?.supervisorId === 'string' && filters.supervisorId !== 'ALL'
+        ? filters.supervisorId.trim()
+        : '',
+    estatus: typeof filters?.estatus === 'string' && filters.estatus !== 'ALL' ? filters.estatus.trim() : '',
+  }
+}
+
+export function hasActivePdvsPanelFilters(filters: PdvsPanelFilters) {
+  return Object.values(filters).some((value) => value.length > 0)
+}
+
+function buildPdvsEmptyPanelData(params: {
+  infraestructuraLista: boolean
+  mensajeInfraestructura?: string
+  cadenas: PdvCadenaOption[]
+  ciudades: PdvCiudadOption[]
+  estados: string[]
+  zonas: string[]
+  supervisores: PdvSupervisorOption[]
+  turnosCadena: PdvTurnoCatalogOption[]
+  geocercaDefaultMetros: number
+  permiteCheckinConJustificacionDefault: boolean
+  hasActiveFilters: boolean
+  filters: PdvsPanelFilters
+}): PdvsPanelData {
+  return {
+    resumen: { total: 0, activos: 0, conGeocerca: 0, conSupervisor: 0, conHorario: 0 },
+    pdvs: [],
+    hasActiveFilters: params.hasActiveFilters,
+    infraestructuraLista: params.infraestructuraLista,
+    mensajeInfraestructura: params.mensajeInfraestructura,
+    filters: params.filters,
+    cadenas: params.cadenas,
+    ciudades: params.ciudades,
+    estados: params.estados,
+    zonas: params.zonas,
+    supervisores: params.supervisores,
+    turnosCadena: params.turnosCadena,
+    geocercaDefaultMetros: params.geocercaDefaultMetros,
+    permiteCheckinConJustificacionDefault: params.permiteCheckinConJustificacionDefault,
+  }
+}
+
+export async function obtenerPdvsPanelShell(
+  supabase: SupabaseClient,
+  filters: PdvsPanelFilters = EMPTY_PDV_FILTERS
 ): Promise<PdvsPanelData> {
+  const [ciudadesResult, cadenasResult, supervisorsResult, turnCatalogResult, geocercaDefaultResult, geocercaJustificacionResult] = await Promise.all([
+    fetchCitiesWithStateCompatibility(supabase),
+    supabase.from('cadena').select('id, codigo, nombre').eq('activa', true).order('nombre', { ascending: true }),
+    supabase
+      .from('empleado')
+      .select('id, nombre_completo, zona')
+      .eq('puesto', 'SUPERVISOR')
+      .eq('estatus_laboral', 'ACTIVO')
+      .order('nombre_completo', { ascending: true }),
+    supabase.from('configuracion').select('valor').eq('clave', 'asistencias.san_pablo.catalogo_turnos').maybeSingle(),
+    supabase.from('configuracion').select('valor').eq('clave', 'geocerca.radio_default_metros').maybeSingle(),
+    supabase.from('configuracion').select('valor').eq('clave', 'geocerca.fuera_permitida_con_justificacion').maybeSingle(),
+  ])
+
+  const cadenas = (((cadenasResult.data ?? []) as CadenaRelacion[]) || []).map((item) => ({ id: item.id, codigo: item.codigo, nombre: item.nombre }))
+  const ciudades = (((ciudadesResult.data ?? []) as CiudadRelacion[]) || [])
+    .map((item) => ({
+      id: item.id,
+      nombre: item.nombre,
+      zona: item.zona,
+      estado: item.estado ?? resolveMexicoStateFromCity(item.nombre) ?? null,
+    }))
+  const supervisores = (((supervisorsResult.data ?? []) as EmpleadoRelacion[]) || [])
+    .map((item) => ({ id: item.id, nombreCompleto: item.nombre_completo, zona: item.zona }))
+  const turnosCadena = mapTurnCatalog((turnCatalogResult.data as ConfiguracionTurnoRow | null)?.valor)
+  const geocercaDefaultMetros = mapConfigNumber((geocercaDefaultResult.data as ConfiguracionTurnoRow | null)?.valor, 150)
+  const permiteCheckinConJustificacionDefault = mapConfigBoolean(
+    (geocercaJustificacionResult.data as ConfiguracionTurnoRow | null)?.valor,
+    true
+  )
+  const estados = Array.from(new Set(ciudades.map((item) => item.estado).filter((item): item is string => Boolean(item)))).sort((left, right) => left.localeCompare(right, 'es-MX'))
+  const zonas = Array.from(new Set(ciudades.map((item) => item.zona).filter((item): item is string => Boolean(item)))).sort((left, right) => left.localeCompare(right, 'es-MX'))
+  const infraErrors = [
+    ciudadesResult.error,
+    cadenasResult.error,
+    supervisorsResult.error,
+    turnCatalogResult.error,
+    geocercaDefaultResult.error,
+    geocercaJustificacionResult.error,
+  ]
+    .filter(Boolean)
+    .map((error) => error?.message)
+
+  return buildPdvsEmptyPanelData({
+    infraestructuraLista: infraErrors.length === 0,
+    mensajeInfraestructura: infraErrors.length > 0 ? infraErrors.join(' ') : undefined,
+    cadenas,
+    ciudades,
+    estados,
+    zonas,
+    supervisores,
+    turnosCadena,
+    geocercaDefaultMetros,
+    permiteCheckinConJustificacionDefault,
+    hasActiveFilters: false,
+    filters,
+  })
+}
+
+export async function obtenerPanelPdvs(
+  supabase: SupabaseClient,
+  rawFilters: PdvsPanelFilters = EMPTY_PDV_FILTERS
+): Promise<PdvsPanelData> {
+  const filters = normalizePdvsPanelFilters(rawFilters)
+  const hasActiveFilters = hasActivePdvsPanelFilters(filters)
+
+  const supervisorScope =
+    hasActiveFilters && filters.supervisorId && filters.supervisorId !== 'SIN_SUPERVISOR'
+      ? await fetchActiveSupervisorPdvIds(supabase, filters.supervisorId)
+      : { pdvIds: null, error: null }
+
   const [pdvsResult, ciudadesResult] = await Promise.all([
     fetchPdvsWithCityStateCompatibility(supabase),
     fetchCitiesWithStateCompatibility(supabase),
   ])
 
   const [
-      cadenasResult,
-      supervisorsResult,
-      turnCatalogResult,
-      geocercaDefaultResult,
+    cadenasResult,
+    supervisorsResult,
+    turnCatalogResult,
+    geocercaDefaultResult,
     geocercaJustificacionResult,
     scheduleRuleResult,
-    asignacionesResult,
-    asistenciasResult,
   ] = await Promise.all([
     supabase
       .from('cadena')
@@ -640,24 +971,6 @@ export async function obtenerPanelPdvs(
       .select('id, codigo, modulo, descripcion, severidad, prioridad, condicion, accion, activa')
       .eq('codigo', SCHEDULE_PRIORITY_RULE_CODE)
       .maybeSingle(),
-    supabase
-      .from('asignacion')
-      .select(`
-        id,
-        pdv_id,
-        fecha_inicio,
-        fecha_fin,
-        tipo,
-        estado_publicacion,
-        empleado:empleado_id(nombre_completo)
-      `)
-      .order('fecha_inicio', { ascending: false })
-      .limit(800),
-    supabase
-      .from('asistencia')
-      .select('id, pdv_id, fecha_operacion, empleado_nombre, estatus, estado_gps, check_in_utc, distancia_check_in_metros')
-      .order('fecha_operacion', { ascending: false })
-      .limit(800),
   ])
 
   const infraErrors = [
@@ -669,8 +982,7 @@ export async function obtenerPanelPdvs(
     geocercaDefaultResult.error,
     geocercaJustificacionResult.error,
     scheduleRuleResult.error,
-    asignacionesResult.error,
-    asistenciasResult.error,
+    supervisorScope.error,
   ]
     .filter(Boolean)
     .map((error) => error?.message)
@@ -679,8 +991,10 @@ export async function obtenerPanelPdvs(
     return {
       resumen: { total: 0, activos: 0, conGeocerca: 0, conSupervisor: 0, conHorario: 0 },
       pdvs: [],
+      hasActiveFilters,
       infraestructuraLista: false,
       mensajeInfraestructura: infraErrors.join(' '),
+      filters,
       cadenas: [],
       ciudades: [],
       estados: [],
@@ -704,10 +1018,8 @@ export async function obtenerPanelPdvs(
   const scheduleRule = readSchedulePriorityRule(
     (scheduleRuleResult.data as ReglaNegocioQueryRow | null) ?? null
   )
-  const asignacionesPorPdv = groupRecentItems((asignacionesResult.data ?? []) as AsignacionQueryRow[])
-  const asistenciasPorPdv = groupRecentItems((asistenciasResult.data ?? []) as AsistenciaQueryRow[])
 
-  const pdvs = ((pdvsResult.data ?? []) as PdvQueryRow[]).map((pdv) => {
+  const pdvsBase = ((pdvsResult.data ?? []) as PdvQueryRow[]).map((pdv) => {
     const cadena = obtenerPrimero(pdv.cadena)
     const ciudad = obtenerPrimero(pdv.ciudad)
     const geocerca = obtenerPrimero(pdv.geocerca_pdv)
@@ -769,23 +1081,8 @@ export async function obtenerPanelPdvs(
         geocerca &&
           (geocerca.radio_tolerancia_metros < 50 || geocerca.radio_tolerancia_metros > 300)
       ),
-      historialAsignaciones: (asignacionesPorPdv.get(pdv.id) ?? []).map((item) => ({
-        id: item.id,
-        empleado: obtenerPrimero(item.empleado)?.nombre_completo ?? null,
-        tipo: item.tipo,
-        estadoPublicacion: item.estado_publicacion,
-        fechaInicio: item.fecha_inicio,
-        fechaFin: item.fecha_fin,
-      })),
-      historialAsistencias: (asistenciasPorPdv.get(pdv.id) ?? []).map((item) => ({
-        id: item.id,
-        empleado: item.empleado_nombre,
-        fechaOperacion: item.fecha_operacion,
-        estatus: item.estatus,
-        estadoGps: item.estado_gps,
-        checkInUtc: item.check_in_utc,
-        distanciaCheckInMetros: item.distancia_check_in_metros,
-      })),
+      historialAsignaciones: [],
+      historialAsistencias: [],
       metadata: mapMetadata(pdv.metadata),
     }
   })
@@ -801,18 +1098,32 @@ export async function obtenerPanelPdvs(
     }))
   const supervisores = (((supervisorsResult.data ?? []) as EmpleadoRelacion[]) || [])
     .map((item) => ({ id: item.id, nombreCompleto: item.nombre_completo, zona: item.zona }))
-  const estados = Array.from(
+
+  const supervisorPdvIds = supervisorScope.pdvIds instanceof Set ? supervisorScope.pdvIds : null
+  const optionSets = derivePdvsPanelOptions({
+    pdvs: pdvsBase,
+    filters,
+    cadenas,
+    ciudades,
+    supervisores,
+    supervisorPdvIds,
+  })
+  const pdvs = hasActiveFilters
+    ? filterPdvsForPanel(pdvsBase, filters, [], supervisorPdvIds)
+    : pdvsBase
+
+  const allEstados = Array.from(
     new Set(
-      pdvs
+      pdvsBase
         .map((pdv) => pdv.estado)
         .concat(ciudades.map((city) => city.estado))
         .filter((item): item is string => Boolean(item))
     )
   ).sort((left, right) => left.localeCompare(right, 'es-MX'))
 
-  const zonas = Array.from(
+  const allZonas = Array.from(
     new Set(
-      pdvs
+      pdvsBase
         .map((pdv) => pdv.zona)
         .concat(ciudades.map((city) => city.zona))
         .filter((item): item is string => Boolean(item))
@@ -822,19 +1133,21 @@ export async function obtenerPanelPdvs(
   return {
     resumen: {
       total: pdvs.length,
-      activos: pdvs.filter((item) => item.estatus === 'ACTIVO').length,
+      activos: pdvs.filter((item) => isOperablePdvStatus(item.estatus)).length,
       conGeocerca: pdvs.filter((item) => item.geocercaCompleta).length,
       conSupervisor: pdvs.filter((item) => item.supervisorActual !== null).length,
       conHorario: pdvs.filter((item) => item.horarios.length > 0).length,
     },
     pdvs,
+    hasActiveFilters,
     infraestructuraLista: infraErrors.length === 0,
     mensajeInfraestructura: infraErrors.length > 0 ? infraErrors.join(' ') : undefined,
-    cadenas,
-    ciudades,
-    estados,
-    zonas,
-    supervisores,
+    filters,
+    cadenas: hasActiveFilters ? optionSets.cadenas : cadenas,
+    ciudades: hasActiveFilters ? optionSets.ciudades : ciudades,
+    estados: hasActiveFilters ? optionSets.estados : allEstados,
+    zonas: hasActiveFilters ? optionSets.zonas : allZonas,
+    supervisores: hasActiveFilters ? optionSets.supervisores : supervisores,
     turnosCadena,
     geocercaDefaultMetros,
     permiteCheckinConJustificacionDefault,

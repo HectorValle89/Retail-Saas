@@ -68,3 +68,13 @@ Thumbs.db
 # Supabase
 supabase/.branches
 supabase/.temp
+
+# Custom Logs & Temp
+*.log
+.codex-logs/
+.codex-temp/
+asistencias-stderr.log
+asistencias-stdout.log
+/exports/
+temp_subir.txt
+tmp_patch_asignaciones_cleanup.js

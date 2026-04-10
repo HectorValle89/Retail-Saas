@@ -1,9 +1,11 @@
 'use client'
 
-import { useActionState, useEffect, useState, useTransition, type ChangeEvent, type FormEvent } from 'react'
+import { useActionState, useEffect, useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { ModalPanel } from '@/components/ui/modal-panel'
 import { Input } from '@/components/ui/input'
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { Select } from '@/components/ui/select'
 import type { ActorActual } from '@/lib/auth/session'
 import {
@@ -11,10 +13,11 @@ import {
   resolveSingleTenantAccountOption,
 } from '@/lib/tenant/singleTenant'
 import {
-  actualizarCumplimientoCampanaPdv,
   ejecutarTareasCampanaPdv,
   guardarCampana,
 } from '../actions'
+import { injectDirectR2Manifest, injectDirectR2Upload, uploadFilesDirectToR2 } from '@/lib/storage/directR2Client'
+import { CampanaPublishAction } from './CampanaPublishAction'
 import { ESTADO_CAMPANA_ADMIN_INICIAL } from '../state'
 import type {
   CampanaItem,
@@ -22,7 +25,6 @@ import type {
   CampanasPanelData,
 } from '../services/campanaService'
 import {
-  CAMPAIGN_STATE_OPTIONS,
   createCampaignEvidenceRequirement,
   createVisitTaskTemplateItem,
   visitTaskRequiresPhoto,
@@ -116,12 +118,7 @@ function StateMessage({ state }: { state: { ok: boolean; message: string | null 
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card className="border-slate-200 bg-white">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
-    </Card>
-  )
+  return <SharedMetricCard label={label} value={value} />
 }
 
 function SubmitActionButton({
@@ -287,17 +284,40 @@ export function CampanasPanel({
   actor: ActorActual
   data: CampanasPanelData
 }) {
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(data.campanas[0]?.id ?? null)
-  const selectedCampaign = data.campanas.find((item) => item.id === selectedCampaignId) ?? null
   const canExecuteFieldTasks = actor.puesto === 'DERMOCONSEJERO'
   const canManageCampaigns = data.puedeGestionar
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const draftCampaigns = data.campanas.filter((campaign) => campaign.estado === 'BORRADOR')
+  const scheduledCampaigns = data.campanas.filter(
+    (campaign) => campaign.estado === 'ACTIVA' && !campaign.ventanaActiva && campaign.fechaInicio > todayIso
+  )
+  const activeCampaigns = data.campanas.filter(
+    (campaign) => campaign.estado === 'ACTIVA' && campaign.ventanaActiva
+  )
+  const finishedCampaigns = data.campanas.filter((campaign) => campaign.estado === 'CERRADA')
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(data.campanas[0]?.id ?? null)
+  const [campaignModalId, setCampaignModalId] = useState<string | null>(null)
+  const [dashboardCampaignId, setDashboardCampaignId] = useState<string | null>(
+    finishedCampaigns[0]?.id ?? null
+  )
+  const selectedCampaign = data.campanas.find((item) => item.id === selectedCampaignId) ?? null
+  const selectedModalCampaign = data.campanas.find((item) => item.id === campaignModalId) ?? null
   const [activeView, setActiveView] = useState<'CREAR' | 'KPIS'>(canManageCampaigns ? 'CREAR' : 'KPIS')
+  const [kpiSection, setKpiSection] = useState<
+    'BORRADORES' | 'PUBLICAR' | 'ACTIVAS' | 'TERMINADAS' | 'DASHBOARD'
+  >(canManageCampaigns ? 'PUBLICAR' : 'ACTIVAS')
 
   useEffect(() => {
     if (!canManageCampaigns) {
       setActiveView('KPIS')
     }
   }, [canManageCampaigns])
+
+  useEffect(() => {
+    if (!dashboardCampaignId || !finishedCampaigns.some((item) => item.id === dashboardCampaignId)) {
+      setDashboardCampaignId(finishedCampaigns[0]?.id ?? null)
+    }
+  }, [dashboardCampaignId, finishedCampaigns])
 
   return (
     <div className="space-y-6">
@@ -310,9 +330,10 @@ export function CampanasPanel({
 
       {!data.puedeGestionar && (
         <Card className="border-slate-200 bg-slate-50 text-slate-700">
-          <p className="font-medium">Vista de KPIs y seguimiento</p>
+          <p className="font-medium">Vista operativa de campanas</p>
           <p className="mt-2 text-sm">
-            Tu puesto actual es <span className="font-semibold">{actor.puesto}</span>. Solo ADMINISTRADOR y VENTAS pueden crear o editar campanas; DERMOCONSEJERO puede ejecutar tareas durante una visita activa y el resto monitorea avance y cumplimiento.
+            Tu puesto actual es <span className="font-semibold">{actor.puesto}</span>. Aqui solo
+            monitoreas avance, cumplimiento y campanas visibles para tu alcance.
           </p>
         </Card>
       )}
@@ -329,9 +350,9 @@ export function CampanasPanel({
                   : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
               }`}
             >
-              <p className="text-sm font-semibold">Crear campana</p>
+              <p className="text-sm font-semibold">Crear campanas</p>
               <p className={`mt-1 text-xs ${activeView === 'CREAR' ? 'text-slate-300' : 'text-slate-500'}`}>
-                Configura la ventana comercial, manual, PDVs y metas del nuevo esfuerzo.
+                Configura borradores, PDVs, metas y manual.
               </p>
             </button>
             <button
@@ -343,9 +364,9 @@ export function CampanasPanel({
                   : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
               }`}
             >
-              <p className="text-sm font-semibold">KPIs de campanas</p>
+              <p className="text-sm font-semibold">Operacion y KPIs</p>
               <p className={`mt-1 text-xs ${activeView === 'KPIS' ? 'text-slate-300' : 'text-slate-500'}`}>
-                Revisa campanas activas, avance por PDV y cumplimiento consolidado.
+                Borradores, publicacion, activas, terminadas y dashboard.
               </p>
             </button>
           </div>
@@ -354,27 +375,21 @@ export function CampanasPanel({
 
       {activeView === 'CREAR' && canManageCampaigns ? (
         <div className="space-y-6">
-          <CampanaEditorCard
-            key={selectedCampaign?.id ?? 'new'}
-            data={data}
-            campaign={selectedCampaign}
-          />
+          <CampanaEditorCard key={selectedCampaign?.id ?? 'new'} data={data} campaign={selectedCampaign} />
 
           <Card className="overflow-hidden p-0">
             <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
               <div>
-                <h2 className="text-lg font-semibold text-slate-950">Campanas existentes</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Selecciona una campana para editarla o parte desde una nueva configuracion.
-                </p>
+                <h2 className="text-lg font-semibold text-slate-950">Borradores y campanas existentes</h2>
+                <p className="mt-1 text-sm text-slate-500">Usa esta lista para retomar o duplicar configuraciones.</p>
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => setSelectedCampaignId(null)}>
                 Nueva campana
               </Button>
             </div>
-            <div className="space-y-3 px-4 py-4">
+            <div className="grid gap-3 px-4 py-4 md:grid-cols-2 xl:grid-cols-3">
               {data.campanas.length === 0 ? (
-                <p className="px-2 py-8 text-sm text-slate-500">
+                <p className="col-span-full px-2 py-8 text-sm text-slate-500">
                   Todavia no hay campanas registradas para el alcance actual.
                 </p>
               ) : (
@@ -383,23 +398,21 @@ export function CampanasPanel({
                     key={campaign.id}
                     type="button"
                     onClick={() => setSelectedCampaignId(campaign.id)}
-                    className={`w-full rounded-3xl border px-4 py-4 text-left transition ${
+                    className={`rounded-3xl border px-4 py-4 text-left transition ${
                       selectedCampaign?.id === campaign.id
                         ? 'border-slate-950 bg-slate-950 text-white'
                         : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
                     }`}
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold">{campaign.nombre}</p>
-                        <p className={`mt-1 text-xs ${selectedCampaign?.id === campaign.id ? 'text-slate-300' : 'text-slate-400'}`}>
-                          {campaign.cuentaCliente ?? 'Sin cuenta'} · {formatDate(campaign.fechaInicio)} - {formatDate(campaign.fechaFin)}
-                        </p>
-                      </div>
-                      <span className={`rounded-full px-3 py-1 text-xs font-medium ${selectedCampaign?.id === campaign.id ? 'bg-white/10 text-white' : getStatusTone(campaign.estado)}`}>
-                        {campaign.ventanaActiva ? 'ACTIVA' : campaign.estado}
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold">{campaign.nombre}</p>
+                      <span className={`rounded-full px-3 py-1 text-[11px] font-medium ${selectedCampaign?.id === campaign.id ? 'bg-white/10 text-white' : getStatusTone(campaign.estado)}`}>
+                        {getCampaignDisplayStatus(campaign)}
                       </span>
                     </div>
+                    <p className={`mt-2 text-xs ${selectedCampaign?.id === campaign.id ? 'text-slate-300' : 'text-slate-500'}`}>
+                      {formatDate(campaign.fechaInicio)} - {formatDate(campaign.fechaFin)}
+                    </p>
                   </button>
                 ))
               )}
@@ -408,76 +421,477 @@ export function CampanasPanel({
         </div>
       ) : (
         <div className="space-y-6">
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-            <MetricCard label="Campanas visibles" value={String(data.resumen.totalCampanas)} />
-            <MetricCard label="Activas" value={String(data.resumen.activas)} />
+          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+            <MetricCard label="Borradores" value={String(draftCampaigns.length)} />
+            <MetricCard label="Programadas" value={String(scheduledCampaigns.length)} />
+            <MetricCard label="Activas" value={String(activeCampaigns.length)} />
+            <MetricCard label="Terminadas" value={String(finishedCampaigns.length)} />
             <MetricCard label="PDVs objetivo" value={String(data.resumen.pdvsObjetivo)} />
-            <MetricCard label="PDVs cumplidos" value={String(data.resumen.pdvsCumplidos)} />
-            <MetricCard label="Avance promedio" value={formatPercent(data.resumen.avancePromedio)} />
-            <MetricCard label="Cuota adicional" value={formatCurrency(data.resumen.cuotaAdicionalTotal)} />
+            <MetricCard label="Avance" value={formatPercent(data.resumen.avancePromedio)} />
           </section>
 
-          <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-            <Card className="overflow-hidden p-0">
-              <div className="border-b border-slate-200 px-6 py-4">
-                <h2 className="text-lg font-semibold text-slate-950">Campanas activas e historicas</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Ventana comercial, cuotas adicionales y avance de cada PDV objetivo.
-                </p>
-              </div>
-              <div className="space-y-3 px-4 py-4">
-                {data.campanas.length === 0 ? (
-                  <p className="px-2 py-8 text-sm text-slate-500">
-                    Todavia no hay campanas registradas para el alcance actual.
-                  </p>
-                ) : (
-                  data.campanas.map((campaign) => (
-                    <button
-                      key={campaign.id}
-                      type="button"
-                      onClick={() => setSelectedCampaignId(campaign.id)}
-                      className={`w-full rounded-3xl border px-4 py-4 text-left transition ${
-                        selectedCampaign?.id === campaign.id
-                          ? 'border-slate-950 bg-slate-950 text-white'
-                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold">{campaign.nombre}</p>
-                          <p className={`mt-1 text-xs ${selectedCampaign?.id === campaign.id ? 'text-slate-300' : 'text-slate-400'}`}>
-                            {campaign.cuentaCliente ?? 'Sin cuenta'} · {formatDate(campaign.fechaInicio)} - {formatDate(campaign.fechaFin)}
-                          </p>
-                        </div>
-                        <span className={`rounded-full px-3 py-1 text-xs font-medium ${selectedCampaign?.id === campaign.id ? 'bg-white/10 text-white' : getStatusTone(campaign.estado)}`}>
-                          {campaign.ventanaActiva ? 'ACTIVA' : campaign.estado}
-                        </span>
-                      </div>
-                      <div className={`mt-3 text-sm ${selectedCampaign?.id === campaign.id ? 'text-slate-200' : 'text-slate-600'}`}>
-                        {campaign.pdvsCumplidos}/{campaign.totalPdvs} PDVs cumplidos · {formatPercent(campaign.avancePromedio)}
-                      </div>
-                      {campaign.descripcion && (
-                        <p className={`mt-2 text-xs ${selectedCampaign?.id === campaign.id ? 'text-slate-300' : 'text-slate-500'}`}>
-                          {campaign.descripcion}
-                        </p>
-                      )}
-                    </button>
-                  ))
-                )}
-              </div>
-            </Card>
-
-            <div className="space-y-6">
-              <CampaignDetailCard campaign={selectedCampaign} canManage={data.puedeGestionar} canExecuteFieldTasks={canExecuteFieldTasks} />
-              <ReportesCampanaCard data={data} />
+          <Card className="border-slate-200 bg-white p-3">
+            <div className="flex flex-wrap gap-2">
+              {canManageCampaigns ? (
+                <KpiSectionButton active={kpiSection === 'BORRADORES'} onClick={() => setKpiSection('BORRADORES')}>
+                  Borradores
+                </KpiSectionButton>
+              ) : null}
+              {canManageCampaigns ? (
+                <KpiSectionButton active={kpiSection === 'PUBLICAR'} onClick={() => setKpiSection('PUBLICAR')}>
+                  Publicar
+                </KpiSectionButton>
+              ) : null}
+              <KpiSectionButton active={kpiSection === 'ACTIVAS'} onClick={() => setKpiSection('ACTIVAS')}>
+                Activas
+              </KpiSectionButton>
+              <KpiSectionButton active={kpiSection === 'TERMINADAS'} onClick={() => setKpiSection('TERMINADAS')}>
+                Terminadas
+              </KpiSectionButton>
+              <KpiSectionButton active={kpiSection === 'DASHBOARD'} onClick={() => setKpiSection('DASHBOARD')}>
+                Dashboard
+              </KpiSectionButton>
             </div>
-          </section>
+          </Card>
+
+          {kpiSection === 'BORRADORES' && canManageCampaigns ? (
+            <CampaignCompactSection
+              title="Borradores"
+              items={draftCampaigns}
+              emptyLabel="Sin borradores por ahora."
+              onOpen={(campaignId) => setCampaignModalId(campaignId)}
+            />
+          ) : null}
+
+          {kpiSection === 'PUBLICAR' && canManageCampaigns ? (
+            <CampaignPublishSection
+              items={draftCampaigns}
+              onOpen={(campaignId) => setCampaignModalId(campaignId)}
+            />
+          ) : null}
+
+          {kpiSection === 'ACTIVAS' ? (
+            <div className="space-y-4">
+              <CampaignCompactSection
+                title="Campanas activas"
+                items={activeCampaigns}
+                emptyLabel="No hay campanas activas en este momento."
+                onOpen={(campaignId) => setCampaignModalId(campaignId)}
+              />
+              <CampaignCompactSection
+                title="Programadas"
+                items={scheduledCampaigns}
+                emptyLabel="No hay campanas proximas publicadas."
+                onOpen={(campaignId) => setCampaignModalId(campaignId)}
+              />
+            </div>
+          ) : null}
+
+          {kpiSection === 'TERMINADAS' ? (
+            <CampaignCompactSection
+              title="Campanas terminadas"
+              items={finishedCampaigns}
+              emptyLabel="No hay campanas terminadas para mostrar."
+              onOpen={(campaignId) => setCampaignModalId(campaignId)}
+            />
+          ) : null}
+
+          {kpiSection === 'DASHBOARD' ? (
+            <CampaignDashboardSection
+              campaigns={finishedCampaigns}
+              selectedCampaignId={dashboardCampaignId}
+              onOpen={(campaignId) => setCampaignModalId(campaignId)}
+              onSelect={(campaignId) => setDashboardCampaignId(campaignId)}
+            />
+          ) : null}
         </div>
       )}
+
+      {selectedModalCampaign ? (
+        <CampaignDetailModal
+          campaign={selectedModalCampaign}
+          canManage={data.puedeGestionar}
+          canExecuteFieldTasks={canExecuteFieldTasks}
+          onClose={() => setCampaignModalId(null)}
+        />
+      ) : null}
     </div>
   )
 }
-function CampanaEditorCard({
+
+function KpiSectionButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex min-h-11 items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition ${
+        active
+          ? 'bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.18)]'
+          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function getCampaignDisplayStatus(campaign: CampanaItem) {
+  if (campaign.estado === 'CERRADA') {
+    return 'TERMINADA'
+  }
+
+  if (campaign.ventanaActiva) {
+    return 'ACTIVA'
+  }
+
+  if (campaign.estado === 'ACTIVA' && campaign.fechaInicio > new Date().toISOString().slice(0, 10)) {
+    return 'PROGRAMADA'
+  }
+
+  return campaign.estado
+}
+
+function CampaignCompactSection({
+  title,
+  items,
+  emptyLabel,
+  onOpen,
+}: {
+  title: string
+  items: CampanaItem[]
+  emptyLabel: string
+  onOpen: (campaignId: string) => void
+}) {
+  return (
+    <Card className="space-y-4 p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold text-slate-950">{title}</h2>
+        <span className="text-xs text-slate-500">{items.length}</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-sm text-slate-500">{emptyLabel}</p>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {items.map((campaign) => (
+            <CampaignCompactButton
+              key={campaign.id}
+              campaign={campaign}
+              onClick={() => onOpen(campaign.id)}
+            />
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function CampaignPublishSection({
+  items,
+  onOpen,
+}: {
+  items: CampanaItem[]
+  onOpen: (campaignId: string) => void
+}) {
+  return (
+    <Card className="space-y-4 p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold text-slate-950">Publicar campañas</h2>
+        <span className="text-xs text-slate-500">{items.length}</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-sm text-slate-500">No hay borradores listos para publicar.</p>
+      ) : (
+        <div className="grid gap-3 xl:grid-cols-2">
+          {items.map((campaign) => (
+            <div key={campaign.id} className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <button type="button" className="min-w-0 text-left" onClick={() => onOpen(campaign.id)}>
+                  <p className="truncate text-sm font-semibold text-slate-950">{campaign.nombre}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {formatDate(campaign.fechaInicio)} - {formatDate(campaign.fechaFin)}
+                  </p>
+                </button>
+                <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${getStatusTone(campaign.estado)}`}>
+                  {campaign.estado}
+                </span>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <MiniMetric label="PDVs" value={String(campaign.totalPdvs)} />
+                <MiniMetric label="Productos" value={String(campaign.productosFoco.length)} />
+                <MiniMetric label="Evidencias" value={String(campaign.evidenciasRequeridas.length)} />
+              </div>
+              <div className="mt-4 flex justify-end">
+                <CampanaPublishAction campaignId={campaign.id} align="right" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function CampaignCompactButton({
+  campaign,
+  onClick,
+}: {
+  campaign: CampanaItem
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-[24px] border border-slate-200 bg-white px-4 py-4 text-left transition hover:border-slate-300 hover:bg-slate-50"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="line-clamp-1 text-sm font-semibold text-slate-950">{campaign.nombre}</p>
+        <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${getStatusTone(campaign.estado)}`}>
+          {getCampaignDisplayStatus(campaign)}
+        </span>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">
+        {formatDate(campaign.fechaInicio)} - {formatDate(campaign.fechaFin)}
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-600">
+        <span className="rounded-full bg-slate-100 px-2.5 py-1">{campaign.totalPdvs} PDVs</span>
+        <span className="rounded-full bg-slate-100 px-2.5 py-1">{formatPercent(campaign.avancePromedio)}</span>
+        <span className="rounded-full bg-slate-100 px-2.5 py-1">{campaign.tareasPendientes} pendientes</span>
+      </div>
+    </button>
+  )
+}
+
+function CampaignDetailModal({
+  campaign,
+  canManage,
+  canExecuteFieldTasks,
+  onClose,
+}: {
+  campaign: CampanaItem
+  canManage: boolean
+  canExecuteFieldTasks: boolean
+  onClose: () => void
+}) {
+  return (
+    <ModalPanel
+      open
+      onClose={onClose}
+      title={campaign.nombre}
+      subtitle={`${campaign.cuentaCliente ?? 'Sin cuenta'} · ${formatDate(campaign.fechaInicio)} - ${formatDate(campaign.fechaFin)}`}
+      maxWidthClassName="max-w-6xl"
+    >
+      <CampaignDetailCard
+        campaign={campaign}
+        canManage={canManage}
+        canExecuteFieldTasks={canExecuteFieldTasks}
+      />
+    </ModalPanel>
+  )
+}
+
+function CampaignDashboardSection({
+  campaigns,
+  selectedCampaignId,
+  onSelect,
+  onOpen,
+}: {
+  campaigns: CampanaItem[]
+  selectedCampaignId: string | null
+  onSelect: (campaignId: string) => void
+  onOpen: (campaignId: string) => void
+}) {
+  const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? campaigns[0] ?? null
+
+  if (!selectedCampaign) {
+    return (
+      <Card className="p-5">
+        <h2 className="text-base font-semibold text-slate-950">Dashboard de KPIs</h2>
+        <p className="mt-2 text-sm text-slate-500">No hay campanas terminadas para graficar todavia.</p>
+      </Card>
+    )
+  }
+
+  const totalEvidencias = selectedCampaign.pdvs.reduce((acc, item) => acc + item.evidenciasCargadas, 0)
+  const totalTareas = selectedCampaign.pdvs.reduce((acc, item) => acc + item.tareasCumplidas.length, 0)
+  const chartItems = selectedCampaign.pdvs
+    .slice()
+    .sort((left, right) => right.avancePorcentaje - left.avancePorcentaje)
+    .map((item) => ({
+      id: item.id,
+      label: item.claveBtl,
+      helper: item.pdv,
+      total: item.avancePorcentaje,
+      meta: `${item.evidenciasCargadas} evidencias`,
+    }))
+  const evidenceItems = selectedCampaign.pdvs
+    .slice()
+    .sort((left, right) => right.evidenciasCargadas - left.evidenciasCargadas)
+    .map((item) => ({
+      id: item.id + '-evidence',
+      label: item.claveBtl,
+      helper: item.pdv,
+      total: item.evidenciasCargadas,
+      meta: `${item.tareasCumplidas.length} tareas`,
+    }))
+
+  return (
+    <div className="space-y-5">
+      <Card className="space-y-4 p-4 sm:p-5">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-slate-950">Dashboard de KPIs por campana</h2>
+          <button
+            type="button"
+            onClick={() => onOpen(selectedCampaign.id)}
+            className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+          >
+            Abrir detalle
+          </button>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {campaigns.map((campaign) => (
+            <button
+              key={campaign.id}
+              type="button"
+              onClick={() => onSelect(campaign.id)}
+              className={`rounded-[22px] border px-4 py-3 text-left transition ${
+                selectedCampaign.id === campaign.id
+                  ? 'border-slate-950 bg-slate-950 text-white'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              <p className="line-clamp-1 text-sm font-semibold">{campaign.nombre}</p>
+              <p className={`mt-1 text-xs ${selectedCampaign.id === campaign.id ? 'text-slate-300' : 'text-slate-500'}`}>
+                {formatDate(campaign.fechaFin)}
+              </p>
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="PDVs" value={String(selectedCampaign.totalPdvs)} />
+        <MetricCard label="Cumplidos" value={String(selectedCampaign.pdvsCumplidos)} />
+        <MetricCard label="Tareas" value={String(totalTareas)} />
+        <MetricCard label="Evidencias" value={String(totalEvidencias)} />
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <CampaignBarChartCard title="Avance por PDV" items={chartItems} valueSuffix="%" />
+        <CampaignBarChartCard title="Evidencias por PDV" items={evidenceItems} />
+      </div>
+
+      <Card className="p-4 sm:p-5">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-base font-semibold text-slate-950">KPIs por PDV y fecha</h3>
+          <span className="text-xs text-slate-500">Fecha cierre {formatDate(selectedCampaign.fechaFin)}</span>
+        </div>
+        <div className="mt-4 overflow-x-auto rounded-3xl border border-slate-200">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-left text-slate-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">PDV</th>
+                <th className="px-4 py-3 font-medium">Fecha</th>
+                <th className="px-4 py-3 font-medium">Estado</th>
+                <th className="px-4 py-3 font-medium">KPIs</th>
+                <th className="px-4 py-3 font-medium">Avance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {selectedCampaign.pdvs.map((item) => (
+                <tr key={item.id} className="border-t border-slate-100">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-slate-900">{item.claveBtl}</div>
+                    <div className="text-xs text-slate-400">{item.pdv}</div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">{formatDate(selectedCampaign.fechaFin)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(item.estatus)}`}>
+                      {item.estatus}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {item.tareasCumplidas.length}/{item.tareasRequeridas.length} tareas · {item.evidenciasCargadas}/{item.evidenciasRequeridas.length} evidencias
+                  </td>
+                  <td className="px-4 py-3 font-medium text-slate-900">{formatPercent(item.avancePorcentaje)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+function CampaignBarChartCard({
+  title,
+  items,
+  valueSuffix = '',
+}: {
+  title: string
+  items: Array<{ id: string; label: string; helper: string; total: number; meta: string }>
+  valueSuffix?: string
+}) {
+  const visibleItems = items.slice(0, 8)
+  const maxValue = visibleItems.reduce((current, item) => Math.max(current, item.total), 0)
+
+  return (
+    <Card className="p-4 sm:p-5">
+      <h3 className="text-base font-semibold text-slate-950">{title}</h3>
+      {visibleItems.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-500">Sin datos para graficar.</p>
+      ) : (
+        <div className="mt-4 space-y-4">
+          {visibleItems.map((item) => (
+            <div key={item.id} className="grid gap-3 sm:grid-cols-[1fr_110px] sm:items-center">
+              <div>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-950">{item.label}</p>
+                    <p className="text-xs text-slate-500">{item.helper}</p>
+                  </div>
+                  <span className="text-sm font-semibold text-slate-950">
+                    {item.total.toFixed(0)}{valueSuffix}
+                  </span>
+                </div>
+                <div className="mt-3 h-3 rounded-full bg-slate-100">
+                  <div
+                    className="h-3 rounded-full bg-gradient-to-r from-sky-600 to-emerald-400"
+                    style={{ width: `${maxValue <= 0 ? 0 : Math.max(8, (item.total / maxValue) * 100)}%` }}
+                  />
+                </div>
+              </div>
+              <div className="text-right text-xs text-slate-500">{item.meta}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <SharedMetricCard
+      label={label}
+      value={value}
+      className="rounded-2xl px-4 py-3 shadow-none"
+      labelClassName="text-[10px] text-slate-400"
+      valueClassName="text-sm font-semibold"
+    />
+  )
+}
+
+export function CampanaEditorCard({
   data,
   campaign,
 }: {
@@ -485,6 +899,7 @@ function CampanaEditorCard({
   campaign: CampanaItem | null
 }) {
   const [state, formAction] = useActionState(guardarCampana, ESTADO_CAMPANA_ADMIN_INICIAL)
+  const [isUploadingR2, setIsUploadingR2] = useState(false)
   const fixedAccount = resolveSingleTenantAccountOption(data.cuentasDisponibles)
   const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount)
   const [accountFilter, setAccountFilter] = useState<string>(
@@ -571,6 +986,33 @@ function CampanaEditorCard({
     })
   }, [data.productosDisponibles, selectedProductIds])
 
+  const handleSubmit = async (formData: FormData) => {
+    const manual = formData.get('manual_mercadeo')
+    if (manual instanceof File && manual.size > 0) {
+      setIsUploadingR2(true)
+      try {
+        await injectDirectR2Upload(formData, manual, {
+          modulo: 'campanas',
+          removeFieldName: 'manual_mercadeo',
+          fieldNames: {
+            objectKey: 'manual_mercadeo_r2_object_key',
+            sha256: 'manual_mercadeo_r2_sha256',
+            fileName: 'manual_mercadeo_r2_file_name',
+            contentType: 'manual_mercadeo_r2_type',
+            size: 'manual_mercadeo_r2_size',
+          },
+        })
+      } catch (error) {
+        console.error('No fue posible subir el manual de campaña a R2.', error)
+      } finally {
+        setIsUploadingR2(false)
+      }
+    }
+
+    const submit = formAction as unknown as (payload: FormData) => void
+    submit(formData)
+  }
+
   return (
     <Card className="space-y-5 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -589,8 +1031,9 @@ function CampanaEditorCard({
         )}
       </div>
 
-      <form action={formAction} className="space-y-5">
+      <form action={handleSubmit} className="space-y-5">
         <input type="hidden" name="campana_id" value={campaign?.id ?? ''} />
+        <input type="hidden" name="estado" value={campaign?.estado ?? 'BORRADOR'} />
         {useSingleTenantUi ? (
           <input type="hidden" name="cuenta_cliente_id" value={accountFilter} />
         ) : data.cuentasDisponibles.length > 1 ? (
@@ -615,12 +1058,15 @@ function CampanaEditorCard({
           <Input label="Nombre" name="nombre" defaultValue={campaign?.nombre ?? ''} required />
           <Input label="Fecha inicio" name="fecha_inicio" type="date" defaultValue={campaign?.fechaInicio ?? ''} required />
           <Input label="Fecha fin" name="fecha_fin" type="date" defaultValue={campaign?.fechaFin ?? ''} required />
-          <Select
-            label="Estado"
-            name="estado"
-            defaultValue={campaign?.estado ?? 'BORRADOR'}
-            options={CAMPAIGN_STATE_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
-          />
+        </div>
+
+        <div className="rounded-3xl border border-[var(--module-border)] bg-[var(--module-soft-bg)] px-4 py-4 text-sm text-slate-700">
+          <p className="font-semibold text-slate-950">Estado operativo</p>
+          <p className="mt-1">
+            {campaign
+              ? `Esta campana conserva el estado ${campaign.estado}. La publicacion se controla desde Operacion y KPIs.`
+              : 'Toda campana nueva se guarda como BORRADOR. La publicacion se realiza despues desde Operacion y KPIs.'}
+          </p>
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
@@ -1109,7 +1555,7 @@ function CampanaEditorCard({
 
         <StateMessage state={state} />
         <SubmitActionButton
-          label={campaign ? 'Actualizar campana' : 'Crear campana'}
+          label={isUploadingR2 ? 'Subiendo manual...' : campaign ? 'Actualizar campana' : 'Crear campana'}
           pendingLabel={campaign ? 'Actualizando...' : 'Creando...'}
         />
       </form>
@@ -1117,7 +1563,7 @@ function CampanaEditorCard({
   )
 }
 
-function CampaignDetailCard({
+export function CampaignDetailCard({
   campaign,
   canManage,
   canExecuteFieldTasks,
@@ -1296,7 +1742,7 @@ function CampaignPdvRow({
 
       {item.comentarios && <p className="mt-4 text-sm text-slate-600">{item.comentarios}</p>}
       {canExecuteFieldTasks && <EjecucionCampoForm item={item} />}
-      {canManage && <CumplimientoForm item={item} />}
+      {canManage && <CumplimientoAutomaticoNotice item={item} />}
     </div>
   )
 }
@@ -1387,28 +1833,54 @@ function EjecucionCampoForm({ item }: { item: CampanaPdvItem }) {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
 
-    for (const task of activeSession?.tasks ?? []) {
-      const capture = taskCaptures[task.key]
-      if (!capture) {
-        continue
+    void (async () => {
+      try {
+        const evidenceFiles = formData
+          .getAll('evidencia')
+          .filter((item): item is File => item instanceof File && item.size > 0)
+
+        if (evidenceFiles.length > 0) {
+          await injectDirectR2Manifest(formData, evidenceFiles, {
+            modulo: 'campanas',
+            manifestFieldName: 'evidencia_r2_manifest',
+            removeFieldName: 'evidencia',
+          })
+        }
+
+        const taskEntries: Array<{ file: File; metadata: Record<string, unknown> }> = []
+        for (const task of activeSession?.tasks ?? []) {
+          const capture = taskCaptures[task.key]
+          if (!capture) {
+            continue
+          }
+
+          taskEntries.push({
+            file: capture.file,
+            metadata: {
+              taskKey: task.key,
+              capturedAt: capture.capturedAt,
+              latitude: capture.latitude,
+              longitude: capture.longitude,
+              timestampStamped: capture.timestampStamped,
+              captureSource: capture.captureSource,
+            },
+          })
+        }
+
+        if (taskEntries.length > 0) {
+          const uploadedTaskEvidence = await uploadFilesDirectToR2(taskEntries, 'campanas')
+          formData.set('task_evidence_r2_manifest', JSON.stringify(uploadedTaskEvidence))
+        }
+      } catch (error) {
+        setFeedback(
+          error instanceof Error ? error.message : 'No fue posible subir la evidencia de campaña a R2.'
+        )
       }
 
-      formData.append(`task_evidence__${task.key}`, capture.file)
-      formData.set(
-        `task_evidence_meta__${task.key}`,
-        JSON.stringify({
-          capturedAt: capture.capturedAt,
-          latitude: capture.latitude,
-          longitude: capture.longitude,
-          timestampStamped: capture.timestampStamped,
-          captureSource: capture.captureSource,
-        })
-      )
-    }
-
-    startTransition(() => {
-      formAction(formData)
-    })
+      startTransition(() => {
+        formAction(formData)
+      })
+    })()
   }
 
   return (
@@ -1562,53 +2034,45 @@ function EjecucionCampoForm({ item }: { item: CampanaPdvItem }) {
   )
 }
 
-function CumplimientoForm({ item }: { item: CampanaPdvItem }) {
-  const [state, formAction] = useActionState(actualizarCumplimientoCampanaPdv, ESTADO_CAMPANA_ADMIN_INICIAL)
-
+function CumplimientoAutomaticoNotice({ item }: { item: CampanaPdvItem }) {
   return (
-    <form action={formAction} className="mt-4 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <input type="hidden" name="campana_pdv_id" value={item.id} />
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="space-y-2">
-          <p className="text-sm font-semibold text-slate-950">Marcar tareas cumplidas</p>
-          {item.tareasRequeridas.length === 0 ? (
-            <p className="text-sm text-slate-500">Sin tareas configuradas para este PDV.</p>
-          ) : (
-            item.tareasRequeridas.map((task) => (
-              <label key={task} className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  name="tarea_cumplida"
-                  value={task}
-                  defaultChecked={item.tareasCumplidas.includes(task)}
-                  className="h-4 w-4 rounded border-slate-300"
-                />
-                {task}
-              </label>
-            ))
-          )}
+    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-950">Cumplimiento automatico</p>
+          <p className="mt-1 max-w-3xl text-sm text-slate-600">
+            Este seguimiento ya no se captura manualmente desde este panel. Las tareas resueltas, las evidencias y el
+            porcentaje de avance se actualizan automaticamente desde la ejecucion real de la campana en campo.
+          </p>
         </div>
-        <div className="space-y-4">
-          <Input
-            label="Evidencias cargadas"
-            name="evidencias_cargadas"
-            type="number"
-            min="0"
-            defaultValue={String(item.evidenciasCargadas)}
-            required
-          />
-          <FieldTextarea
-            label="Comentarios"
-            name="comentarios"
-            rows={3}
-            defaultValue={item.comentarios ?? ''}
-            placeholder="Notas de cumplimiento, observaciones o hallazgos."
-          />
+        <span className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusTone(item.estatus)}`}>
+          {item.estatus}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">
+        <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Tareas resueltas</p>
+          <p className="mt-2 text-lg font-semibold text-slate-950">
+            {item.tareasCumplidas.length}/{item.tareasRequeridas.length}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Evidencias detectadas</p>
+          <p className="mt-2 text-lg font-semibold text-slate-950">
+            {item.evidenciasCargadas}/{item.evidenciasRequeridas.length}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Origen del avance</p>
+          <p className="mt-2 text-sm font-medium text-slate-700">
+            {item.activeVisitSession
+              ? 'Sesion activa de visita y evidencia operativa'
+              : 'Consolidado automatico de ejecucion ya registrada'}
+          </p>
         </div>
       </div>
-      <StateMessage state={state} />
-      <SubmitActionButton label="Actualizar cumplimiento" pendingLabel="Actualizando..." />
-    </form>
+    </div>
   )
 }
 

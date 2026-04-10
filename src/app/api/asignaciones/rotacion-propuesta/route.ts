@@ -1,0 +1,40 @@
+import { NextResponse } from 'next/server'
+import { obtenerActorActual } from '@/lib/auth/session'
+import { createServiceClient } from '@/lib/supabase/server'
+import {
+  buildPdvRotationProposalWorkbook,
+  getPdvRotationProposalFilename,
+} from '@/features/asignaciones/lib/pdvRotationTemplate'
+import { inferPdvRotationProposalRows } from '@/features/asignaciones/services/pdvRotationMasterService'
+
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
+const ALLOWED_ROLES = ['ADMINISTRADOR'] as const
+
+export async function GET() {
+  const actor = await obtenerActorActual()
+
+  if (!actor || actor.estadoCuenta !== 'ACTIVA' || !ALLOWED_ROLES.some((role) => role === actor.puesto)) {
+    return NextResponse.json({ error: 'No autorizado.' }, { status: 401 })
+  }
+
+  try {
+    const supabase = createServiceClient()
+    const rows = await inferPdvRotationProposalRows(supabase as any, { actor })
+    const bytes = buildPdvRotationProposalWorkbook(rows)
+
+    return new Response(bytes, {
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${getPdvRotationProposalFilename()}"`,
+        'Cache-Control': 'no-store',
+      },
+    })
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'No fue posible generar la propuesta de rotación maestra.' },
+      { status: 500 }
+    )
+  }
+}

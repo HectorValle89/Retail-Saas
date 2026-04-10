@@ -36,6 +36,7 @@ export const OCR_MODEL_CONFIG_KEY = 'integraciones.ocr.preferred_model'
 export const BIOMETRY_PROVIDER_CONFIG_KEY = 'integraciones.biometria.preferred_provider'
 export const MATERIALES_STOCK_BAJO_KEY = 'materiales.stock_bajo_umbral'
 export const LOVE_DAILY_QUOTA_CONFIG_KEY = 'love_isdin.cuota_diaria_default'
+export const RECLUTAMIENTO_COVERAGE_TARGET_CONFIG_KEY = 'reclutamiento.cobertura.meta_plantilla'
 export {
   PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
   PDF_COMPRESSION_PROVIDER_OPTIONS,
@@ -123,6 +124,17 @@ export const GLOBAL_PARAMETER_DEFINITIONS: EditableConfigDefinition[] = [
     defaultValue: 2,
     min: 0,
     max: 50,
+    step: 1,
+  },
+  {
+    key: RECLUTAMIENTO_COVERAGE_TARGET_CONFIG_KEY,
+    label: 'Meta de plantilla de reclutamiento',
+    description: 'Objetivo total de dermoconsejeras contratadas usado por el dashboard de cobertura.',
+    module: 'empleados',
+    kind: 'NUMBER',
+    defaultValue: 250,
+    min: 1,
+    max: 1000,
     step: 1,
   },
   {

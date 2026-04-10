@@ -5,14 +5,15 @@ import { useFormStatus } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { Select } from '@/components/ui/select'
 import {
-  ESTADO_REGLA_ADMIN_INICIAL,
   guardarFlujoAprobacion,
   guardarReglaHorario,
   guardarReglaInventario,
   guardarReglaSupervisor,
 } from '../actions'
+import { ESTADO_REGLA_ADMIN_INICIAL } from '../state'
 import {
   type ApprovalFlowDefinition,
   APPROVAL_ACTOR_OPTIONS,
@@ -127,12 +128,7 @@ function SectionHeader({ title, description }: { title: string; description: str
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card className="border-slate-200 bg-white">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
-    </Card>
-  )
+  return <SharedMetricCard label={label} value={value} />
 }
 
 function RuleCard({
