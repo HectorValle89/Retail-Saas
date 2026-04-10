@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import Link from 'next/link'
 
 export default function CheckEmailPage() {
@@ -37,3 +38,4 @@ export default function CheckEmailPage() {
     </div>
   )
 }
+

@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { NextResponse } from 'next/server'
 import { obtenerActorActual } from '@/lib/auth/session'
 import {
@@ -33,3 +34,4 @@ export async function GET() {
     )
   }
 }
+

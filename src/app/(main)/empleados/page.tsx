@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { createServiceClient } from '@/lib/supabase/server'
 import { EmpleadosPanel } from '@/features/empleados/components/EmpleadosPanel'
@@ -61,3 +62,4 @@ export default async function EmpleadosPage({ searchParams }: EmpleadosPageProps
     </div>
   )
 }
+

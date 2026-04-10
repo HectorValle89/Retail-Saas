@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { requerirActorActivo } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { obtenerRecibosNominaEmpleado } from '@/features/nomina/services/nominaReceiptService'
@@ -45,10 +46,10 @@ export default async function MiNominaPage() {
                 <div>
                   <h2 className="text-lg font-semibold text-slate-950">{recibo.periodoClave}</h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    {recibo.empleado} · {recibo.idNomina ?? 'Sin nomina'} · {recibo.puesto ?? 'Sin puesto'}
+                    {recibo.empleado} Â· {recibo.idNomina ?? 'Sin nomina'} Â· {recibo.puesto ?? 'Sin puesto'}
                   </p>
                   <p className="mt-1 text-sm text-slate-500">
-                    {recibo.fechaInicio} a {recibo.fechaFin} · {recibo.cuentaCliente ?? 'Sin cliente'}
+                    {recibo.fechaInicio} a {recibo.fechaFin} Â· {recibo.cuentaCliente ?? 'Sin cliente'}
                   </p>
                 </div>
                 <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${recibo.estado === 'DISPERSADO' ? 'bg-emerald-100 text-emerald-800' : recibo.estado === 'APROBADO' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'}`}>

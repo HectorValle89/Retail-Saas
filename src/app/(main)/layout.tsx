@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { AppRuntime } from '@/components/app/AppRuntime'
 import { ModuleThemeLayer } from '@/components/layout/ModuleThemeLayer'
 import { Sidebar } from '@/components/layout/sidebar'
@@ -22,3 +23,4 @@ export default async function MainLayout({
     </div>
   )
 }
+

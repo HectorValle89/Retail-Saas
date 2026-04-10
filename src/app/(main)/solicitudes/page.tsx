@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { createClient } from '@/lib/supabase/server'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { SolicitudesPanel } from '@/features/solicitudes/components/SolicitudesPanel'
@@ -66,3 +67,4 @@ export default async function SolicitudesPage({ searchParams }: SolicitudesPageP
     </div>
   )
 }
+

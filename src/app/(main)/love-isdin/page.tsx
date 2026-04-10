@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { requerirActorActivo } from '@/lib/auth/session'
 import { LoveIsdinPanel } from '@/features/love-isdin/components/LoveIsdinPanel'
@@ -52,3 +53,4 @@ export default async function LoveIsdinPage({ searchParams }: LoveIsdinPageProps
     </div>
   )
 }
+

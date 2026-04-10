@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { Suspense } from 'react'
 import { requerirActorActivo } from '@/lib/auth/session'
 import {
@@ -104,3 +105,4 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     </div>
   )
 }
+

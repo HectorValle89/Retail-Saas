@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import Link from 'next/link'
 import { ForgotPasswordForm } from '@/features/auth/components'
 
@@ -30,3 +31,4 @@ export default function ForgotPasswordPage() {
     </div>
   )
 }
+

@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { NextResponse } from 'next/server'
 import { obtenerActorActual } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
@@ -34,7 +35,7 @@ export async function GET() {
   try {
     const supabase = await createClient()
     const payload = await collectPdvsExportPayload(supabase)
-    const csv = `﻿${payload.headers.join(',')}\n${payload.rows
+    const csv = `ï»¿${payload.headers.join(',')}\n${payload.rows
       .map((row) => row.map((value) => escapeCsvValue(value)).join(','))
       .join('\n')}${payload.rows.length > 0 ? '\n' : ''}`
 
@@ -52,3 +53,4 @@ export async function GET() {
     )
   }
 }
+

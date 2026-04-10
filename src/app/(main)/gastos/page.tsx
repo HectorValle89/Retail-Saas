@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { createClient } from '@/lib/supabase/server'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { GastosPanel } from '@/features/gastos/components/GastosPanel'
@@ -28,3 +29,4 @@ export default async function GastosPage() {
     </div>
   )
 }
+

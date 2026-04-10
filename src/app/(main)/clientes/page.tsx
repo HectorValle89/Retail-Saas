@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { requerirAdministradorActivo } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { ClientesPanel } from '@/features/clientes/components/ClientesPanel'
@@ -29,3 +30,4 @@ export default async function ClientesPage() {
     </div>
   )
 }
+

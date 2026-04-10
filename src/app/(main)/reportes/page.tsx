@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { requerirAdministradorActivo } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { ReportesPanel } from '@/features/reportes/components/ReportesPanel'

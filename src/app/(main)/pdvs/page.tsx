@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { createClient } from '@/lib/supabase/server'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { PdvsPanel } from '@/features/pdvs/components/PdvsPanel'
@@ -58,3 +59,4 @@ export default async function PdvsPage({ searchParams }: PdvsPageProps) {
     </div>
   )
 }
+

@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { createServiceClient } from '@/lib/supabase/server'
 import { requerirOperadorNomina } from '@/lib/auth/session'
 import { NominaWorkspacePanel } from '@/features/nomina/components/NominaWorkspacePanel'
@@ -38,3 +39,4 @@ export default async function NominaPage({ searchParams }: NominaPageProps) {
     </div>
   )
 }
+

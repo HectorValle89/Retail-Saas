@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { NextResponse } from 'next/server'
 import { obtenerActorActual } from '@/lib/auth/session'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -93,3 +94,4 @@ export async function POST(request: Request) {
     )
   }
 }
+

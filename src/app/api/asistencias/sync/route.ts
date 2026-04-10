@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildGeofencePushAlert } from '@/features/asistencias/lib/geofencePushAlert'
@@ -48,7 +49,7 @@ function ensureNativeCheckInCapture(metadata: Record<string, unknown>, selfieChe
   const timestampStamped = selfieMetadata.timestamp_stamped === true
 
   if (!selfieCheckInFile) {
-    throw new Error('El check-in requiere selfie de entrada capturada desde la cámara nativa.')
+    throw new Error('El check-in requiere selfie de entrada capturada desde la cÃ¡mara nativa.')
   }
 
   if (captureSource !== 'native-getusermedia') {
@@ -319,8 +320,8 @@ async function notifyBiometricMismatch(
     .insert({
       cuenta_cliente_id: cuentaClienteId,
       creado_por_usuario_id: actorUsuarioId,
-      titulo: 'Check-in rechazado por biometría',
-      cuerpo: `Se rechazó un check-in biométrico del empleado ${empleadoId} en el PDV ${pdvId}. Score ${score?.toFixed(4) ?? 'N/A'} vs umbral ${threshold.toFixed(2)}.`,
+      titulo: 'Check-in rechazado por biometrÃ­a',
+      cuerpo: `Se rechazÃ³ un check-in biomÃ©trico del empleado ${empleadoId} en el PDV ${pdvId}. Score ${score?.toFixed(4) ?? 'N/A'} vs umbral ${threshold.toFixed(2)}.`,
       tipo: 'MENSAJE',
       grupo_destino: 'SUPERVISOR',
       supervisor_empleado_id: supervisorEmpleadoId,
@@ -339,7 +340,7 @@ async function notifyBiometricMismatch(
     .maybeSingle()
 
   if (messageError || !createdMessage?.id) {
-    throw new Error(messageError?.message ?? 'No fue posible notificar el rechazo biométrico al supervisor.')
+    throw new Error(messageError?.message ?? 'No fue posible notificar el rechazo biomÃ©trico al supervisor.')
   }
 
   const { error: recipientError } = await service.from('mensaje_receptor').insert({
@@ -613,7 +614,7 @@ export async function POST(request: Request) {
       const checkInSelfie = selfieCheckInFile
 
       if (!checkInSelfie) {
-        throw new Error('El check-in requiere selfie de entrada capturada desde la cámara nativa.')
+        throw new Error('El check-in requiere selfie de entrada capturada desde la cÃ¡mara nativa.')
       }
 
       const biometricValidation = await validateAttendanceBiometrics({
@@ -726,7 +727,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'El check-in fue rechazado por biometría. Se registró el intento fallido y se notificó al supervisor.',
+            'El check-in fue rechazado por biometrÃ­a. Se registrÃ³ el intento fallido y se notificÃ³ al supervisor.',
         },
         { status: 409 }
       )
@@ -749,3 +750,4 @@ export async function POST(request: Request) {
     )
   }
 }
+

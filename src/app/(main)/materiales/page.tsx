@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { createClient } from '@/lib/supabase/server'
 import { requerirActorActivo } from '@/lib/auth/session'
 import { MaterialesPanel } from '@/features/materiales/components/MaterialesPanel'
@@ -29,3 +30,4 @@ export default async function MaterialesPage() {
     </div>
   )
 }
+

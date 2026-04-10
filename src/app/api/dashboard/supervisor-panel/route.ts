@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { NextResponse } from 'next/server'
 import { requerirActorActivo } from '@/lib/auth/session'
 import { obtenerPanelDashboard } from '@/features/dashboard/services/dashboardService'
@@ -38,3 +39,4 @@ export async function GET() {
     )
   }
 }
+

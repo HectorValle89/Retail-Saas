@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { requerirAdministradorActivo } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { UsuariosPanel } from '@/features/usuarios/components/UsuariosPanel'
@@ -30,3 +31,4 @@ export default async function AdminUsersPage() {
     </div>
   )
 }
+

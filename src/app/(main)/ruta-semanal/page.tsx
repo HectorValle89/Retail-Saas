@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { createClient } from '@/lib/supabase/server'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { RutaSemanalPanel } from '@/features/rutas/components/RutaSemanalPanel'
@@ -54,3 +55,4 @@ export default async function RutaSemanalPage({ searchParams }: RutaSemanalPageP
     </div>
   )
 }
+

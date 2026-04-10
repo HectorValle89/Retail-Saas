@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { requerirAdministradorActivo } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { ConfiguracionPanel } from '@/features/configuracion/components/ConfiguracionPanel'
@@ -29,4 +30,5 @@ export default async function ConfiguracionPage() {
     </div>
   )
 }
+
 

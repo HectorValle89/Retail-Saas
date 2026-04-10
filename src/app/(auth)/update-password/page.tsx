@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { UpdatePasswordForm } from '@/features/auth/components'
 
 export default function UpdatePasswordPage() {
@@ -24,3 +25,4 @@ export default function UpdatePasswordPage() {
     </div>
   )
 }
+

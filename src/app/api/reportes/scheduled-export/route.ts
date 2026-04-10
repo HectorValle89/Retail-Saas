@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { Workbook, type Worksheet } from 'exceljs'
 import { NextRequest, NextResponse } from 'next/server'
 import type { ActorActual } from '@/lib/auth/session'
@@ -214,3 +215,4 @@ export async function GET(request: NextRequest) {
     )
   }
 }
+

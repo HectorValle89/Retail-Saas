@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 export default function AuthLayout({
   children,
 }: {
@@ -35,3 +36,4 @@ export default function AuthLayout({
     </div>
   )
 }
+

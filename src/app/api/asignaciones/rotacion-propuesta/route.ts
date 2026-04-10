@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { NextResponse } from 'next/server'
 import { obtenerActorActual } from '@/lib/auth/session'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -33,8 +34,9 @@ export async function GET() {
     })
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'No fue posible generar la propuesta de rotación maestra.' },
+      { error: error instanceof Error ? error.message : 'No fue posible generar la propuesta de rotaciÃ³n maestra.' },
       { status: 500 }
     )
   }
 }
+

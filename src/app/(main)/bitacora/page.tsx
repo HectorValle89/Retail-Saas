@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { requerirAdministradorActivo } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { BitacoraPanel } from '@/features/bitacora/components/BitacoraPanel'
@@ -60,3 +61,4 @@ export default async function BitacoraPage({ searchParams }: BitacoraPageProps) 
     </div>
   )
 }
+

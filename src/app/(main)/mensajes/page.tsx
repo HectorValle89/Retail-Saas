@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { readRequestAccountScope } from '@/lib/tenant/accountScope'
 import { MensajesPanel } from '@/features/mensajes/components/MensajesPanel'
@@ -83,3 +84,4 @@ export default async function MensajesPage({ searchParams }: MensajesPageProps) 
     </div>
   )
 }
+

@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { LoginForm } from '@/features/auth/components/LoginForm'
 
 export const dynamic = 'force-dynamic'
@@ -37,3 +38,4 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     </div>
   )
 }
+

@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { createClient } from '@/lib/supabase/server'
 import { requerirActorActivo } from '@/lib/auth/session'
 import { AsignacionesPanel } from '@/features/asignaciones/components/AsignacionesPanel'

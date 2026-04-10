@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { redirect } from 'next/navigation'
 import { ActivationAccountForm } from '@/features/auth/components'
 import { obtenerActorActual } from '@/lib/auth/session'
@@ -71,3 +72,4 @@ export default async function ActivacionPage() {
     </div>
   )
 }
+

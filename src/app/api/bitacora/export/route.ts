@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { Readable, PassThrough } from 'node:stream'
 import ExcelJS from 'exceljs'
 import { NextRequest, NextResponse } from 'next/server'
@@ -121,3 +122,4 @@ export async function GET(request: NextRequest) {
     )
   }
 }
+

@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { redirect } from 'next/navigation'
 import { FirstAccessReviewForm } from '@/features/auth/components'
 import { readPrimerAccesoMetadata } from '@/lib/auth/firstAccess'
@@ -122,3 +123,4 @@ export default async function PrimerAccesoPage() {
     </div>
   )
 }
+

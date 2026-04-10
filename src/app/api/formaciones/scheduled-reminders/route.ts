@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { buildFormacionTargetingMetadata, normalizeFormacionTargetingMetadata } from '@/features/formaciones/lib/formacionTargeting'
@@ -28,7 +29,7 @@ async function publishReminder(
     .insert({
       cuenta_cliente_id: input.cuentaClienteId,
       creado_por_usuario_id: null,
-      titulo: 'Recordatorio de formación',
+      titulo: 'Recordatorio de formaciÃ³n',
       cuerpo: buildReminderMessage(input.eventoNombre, input.fechaInicio, input.reminderLabel, input.locationAddress),
       tipo: 'MENSAJE',
       grupo_destino: 'TODOS_DCS',
@@ -44,7 +45,7 @@ async function publishReminder(
     .maybeSingle()
 
   if (messageError || !message?.id) {
-    throw new Error(messageError?.message ?? 'No fue posible crear el mensaje recordatorio de formación.')
+    throw new Error(messageError?.message ?? 'No fue posible crear el mensaje recordatorio de formaciÃ³n.')
   }
 
   const { error: recipientError } = await service.from('mensaje_receptor').insert(
@@ -165,14 +166,15 @@ export async function GET(request: NextRequest) {
       ok: true,
       dispatched,
       scanned: eventos.length,
-      message: dispatched > 0 ? 'Recordatorios de formación enviados.' : 'No hubo recordatorios vencidos.',
+      message: dispatched > 0 ? 'Recordatorios de formaciÃ³n enviados.' : 'No hubo recordatorios vencidos.',
     })
   } catch (error) {
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : 'No fue posible ejecutar los recordatorios de formación.',
+        error: error instanceof Error ? error.message : 'No fue posible ejecutar los recordatorios de formaciÃ³n.',
       },
       { status: 500 }
     )
   }
 }
+

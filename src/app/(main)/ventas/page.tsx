@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { createClient } from '@/lib/supabase/server'
 import { requerirActorActivo } from '@/lib/auth/session'
 import { VentasPanel } from '@/features/ventas/components/VentasPanel'
@@ -43,7 +44,7 @@ export default async function VentasPage({ searchParams }: VentasPageProps) {
         </p>
         <h1 className="page-hero-title">Ventas</h1>
         <p className="page-hero-copy max-w-3xl">
-          Registro comercial diario ligado a jornada activa, confirmación de cierre y base para cuotas y bonos.
+          Registro comercial diario ligado a jornada activa, confirmaciÃ³n de cierre y base para cuotas y bonos.
         </p>
       </header>
 
@@ -51,3 +52,4 @@ export default async function VentasPage({ searchParams }: VentasPageProps) {
     </div>
   )
 }
+

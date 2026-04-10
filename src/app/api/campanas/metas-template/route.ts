@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { NextResponse } from 'next/server'
 import {
   buildCampaignProductQuotaTemplateWorkbook,
@@ -18,3 +19,4 @@ export async function GET() {
     },
   })
 }
+

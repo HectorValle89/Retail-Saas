@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { NextResponse } from 'next/server'
 import {
   buildOperationalDocumentUploadLimitMessage,
@@ -139,3 +140,4 @@ export async function POST(request: Request) {
     )
   }
 }
+

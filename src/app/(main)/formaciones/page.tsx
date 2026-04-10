@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { readRequestAccountScope } from '@/lib/tenant/accountScope'
 import { FormacionesPanel } from '@/features/formaciones/components/FormacionesPanel'
@@ -20,11 +21,11 @@ export default async function FormacionesPage() {
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
       <header className="mb-6">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-700">
-          Talento y formación
+          Talento y formaciÃ³n
         </p>
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">Formaciones</h1>
         <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-          Planea formaciones operativas con alcance por PDV, confirmación previa del supervisor, coordenadas completas y recordatorios automáticos a DCs y supervisión.
+          Planea formaciones operativas con alcance por PDV, confirmaciÃ³n previa del supervisor, coordenadas completas y recordatorios automÃ¡ticos a DCs y supervisiÃ³n.
         </p>
       </header>
 
@@ -32,3 +33,4 @@ export default async function FormacionesPage() {
     </div>
   )
 }
+
