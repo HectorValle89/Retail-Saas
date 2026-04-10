@@ -1,6 +1,5 @@
 // import path from 'node:path'
 import JSZip from 'jszip'
-// import sharp from 'sharp'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 import { computeSHA256 } from '@/lib/files/sha256'
@@ -672,39 +671,6 @@ export async function prepareLoveQrImport(
   return {
     rows: preparedRows,
     warnings,
-  }
-}
-
-export async function convertLoveQrImageForDashboard_orig(
-  image: LoveQrZipImageFile
-): Promise<LoveQrConvertedImage> {
-  const source = sharp(image.buffer, { failOn: 'none', pages: 1 }).rotate()
-  const metadata = await source.metadata()
-  let pipeline = sharp(image.buffer, { failOn: 'none', pages: 1 }).rotate()
-
-  if (metadata.hasAlpha) {
-    pipeline = pipeline.flatten({ background: '#ffffff' })
-  }
-
-  const convertedBuffer = await pipeline
-    .png({
-      compressionLevel: 9,
-      adaptiveFiltering: true,
-      palette: true,
-      effort: 10,
-    })
-    .toBuffer()
-
-  return {
-    buffer: convertedBuffer,
-    extension: 'png',
-    mimeType: 'image/png',
-    hash: await computeSHA256(convertedBuffer),
-    width: metadata.width ?? null,
-    height: metadata.height ?? null,
-    originalExtension: image.extension,
-    originalMimeType: image.mimeType,
-    originalBytes: image.bytes,
   }
 }
 

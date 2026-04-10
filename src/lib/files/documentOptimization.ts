@@ -1,5 +1,4 @@
 // import path from 'node:path' // Disabled for Edge
-// import sharp from 'sharp' // Disabled for Edge
 import { PDFDocument } from 'pdf-lib'
 import {
   PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
@@ -166,83 +165,6 @@ function normalizeWidthSteps(sourceWidth: number | undefined) {
   )
 }
 
-async function optimizeImageDocument_orig(
-  { buffer }: OptimizeDocumentInput,
-  targets?: OptimizationTargets
-): Promise<DocumentOptimizationResult> {
-  const image = sharp(buffer, { failOn: 'none' }).rotate()
-  const metadata = await image.metadata()
-  const widthSteps = normalizeWidthSteps(metadata.width)
-  const imageTargetBytes = targets?.imageTargetBytes ?? EXPEDIENTE_IMAGE_TARGET_BYTES
-  const thumbnailTargetBytes = targets?.thumbnailTargetBytes ?? EXPEDIENTE_THUMBNAIL_TARGET_BYTES
-
-  let bestBuffer: Buffer | null = null
-  let bestWidth = metadata.width ?? null
-  let bestQuality = IMAGE_QUALITY_STEPS[0]
-
-  for (const width of widthSteps) {
-    for (const quality of IMAGE_QUALITY_STEPS) {
-      let pipeline = sharp(buffer, { failOn: 'none' }).rotate()
-
-      if (metadata.hasAlpha) {
-        pipeline = pipeline.flatten({ background: '#ffffff' })
-      }
-
-      const candidate = await pipeline
-        .resize({ width, height: IMAGE_MAX_HEIGHT, withoutEnlargement: true, fit: 'inside' })
-        .jpeg({ quality, mozjpeg: true, chromaSubsampling: '4:4:4' })
-        .toBuffer()
-
-      if (!bestBuffer || candidate.length < bestBuffer.length) {
-        bestBuffer = candidate
-        bestWidth = width
-        bestQuality = quality
-      }
-
-      if (candidate.length <= imageTargetBytes) {
-        const thumbnail = await generateImageThumbnail(candidate, thumbnailTargetBytes)
-        return {
-          buffer: candidate,
-          mimeType: 'image/jpeg',
-          extension: 'jpg',
-          optimizationKind: 'image-jpeg',
-          optimized: true,
-          originalBytes: buffer.length,
-          optimizedBytes: candidate.length,
-          targetBytes: imageTargetBytes,
-          targetMet: true,
-          notes: [`width=${width}`, `quality=${quality}`, 'metadata_stripped', 'thumbnail_generated'],
-          thumbnail,
-          officialAssetKind: 'optimized',
-        }
-      }
-    }
-  }
-
-  const finalBuffer = bestBuffer ?? (await sharp(buffer, { failOn: 'none' }).rotate().jpeg({ quality: 84, mozjpeg: true }).toBuffer())
-  const thumbnail = await generateImageThumbnail(finalBuffer, thumbnailTargetBytes)
-  return {
-    buffer: finalBuffer,
-    mimeType: 'image/jpeg',
-    extension: 'jpg',
-    optimizationKind: 'image-jpeg',
-    optimized: true,
-    originalBytes: buffer.length,
-    optimizedBytes: finalBuffer.length,
-    targetBytes: imageTargetBytes,
-    targetMet: finalBuffer.length <= imageTargetBytes,
-    notes: [
-      bestWidth ? `width=${bestWidth}` : 'width=unknown',
-      `quality=${bestQuality}`,
-      finalBuffer.length <= imageTargetBytes ? 'target_met' : 'best_effort',
-      'metadata_stripped',
-      'thumbnail_generated',
-    ],
-    thumbnail,
-    officialAssetKind: 'optimized',
-  }
-}
-
 async function optimizePdfDocument(
   { buffer, fileName }: OptimizeDocumentInput,
   targets?: OptimizationTargets
@@ -349,43 +271,6 @@ export async function optimizeExpedienteDocument(
   }
 }
 
-async function generateImageThumbnail(buffer: Buffer, targetBytes = EXPEDIENTE_THUMBNAIL_TARGET_BYTES): Promise<DocumentThumbnailResult> {
-  let bestBuffer: Buffer | null = null
-
-  for (const quality of THUMBNAIL_QUALITY_STEPS) {
-    const candidate = await sharp(buffer, { failOn: 'none' })
-      .rotate()
-      .resize({
-        width: THUMBNAIL_WIDTH,
-        height: THUMBNAIL_HEIGHT,
-        fit: 'cover',
-        position: 'centre',
-      })
-      .jpeg({ quality, mozjpeg: true, chromaSubsampling: '4:4:4' })
-      .toBuffer()
-
-    if (!bestBuffer || candidate.length < bestBuffer.length) {
-      bestBuffer = candidate
-    }
-
-    if (candidate.length <= targetBytes) {
-      bestBuffer = candidate
-      break
-    }
-  }
-
-  return {
-    buffer: bestBuffer as Buffer,
-    mimeType: 'image/jpeg',
-    extension: 'jpg',
-    bytes: (bestBuffer as Buffer).length,
-    targetBytes,
-    targetMet: (bestBuffer as Buffer).length <= targetBytes,
-    width: THUMBNAIL_WIDTH,
-    height: THUMBNAIL_HEIGHT,
-  }
-}
-
 export async function compressImage(file: File, maxKB = 100) {
   return optimizeImageDocument(
     {
@@ -440,7 +325,7 @@ async function optimizeImageDocument(input: OptimizeDocumentInput, targets?: Opt
         optimizedBytes: input.buffer.length,
         targetBytes: null,
         targetMet: true,
-        notes: ['sharp_disabled_for_edge_runtime'],
+        notes: ['image_optimization_disabled_for_edge_runtime'],
         thumbnail: null,
         officialAssetKind: 'original'
     };

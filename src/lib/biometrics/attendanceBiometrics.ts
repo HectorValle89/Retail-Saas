@@ -1,4 +1,3 @@
-// import sharp from 'sharp' // Desactivado para compatibilidad con Cloudflare Edge
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { BIOMETRY_PROVIDER_CONFIG_KEY } from '@/features/configuracion/configuracionCatalog'
 

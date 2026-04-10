@@ -5127,3 +5127,10 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 - Esperar resultado del build en Cloudflare Pages tras el ultimo push.
 - Si el build pasa, validar el flujo de login + dashboard + exportaciones en el dominio de produccion.
 - Si quedan errores de build, seguir eliminando dependencias incompatibles hasta lograr build limpio.
+
+## 2026-04-10 - Cloudflare: regla permanente de compatibilidad Edge y limpieza de sharp residual
+- Se establecio en `AGENTS.md` una regla permanente para todo el repositorio: cualquier codigo nuevo destinado a Cloudflare Pages / Edge Runtime debe evitar dependencias Node-only en produccion, incluyendo `sharp`, `exceljs`, `node:crypto`, `node:stream`, `node:path`, `node:buffer`, `node:os`, `fs` y `child_process`.
+- Se eliminaron referencias residuales de `sharp` en produccion que aun vivian dentro de funciones huérfanas de `src/features/love-isdin/lib/loveQrImport.ts` y `src/lib/files/documentOptimization.ts`.
+- Se mantuvo la logica funcional Edge-safe como passthrough o degradacion compatible, sin cambiar interfaz ni flujo de negocio.
+- Validaciones ejecutadas:
+  - Borrado de referencias de `sharp` en `src/` de produccion mediante barrido textual

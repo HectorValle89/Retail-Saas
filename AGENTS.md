@@ -71,6 +71,17 @@ Validacion minima antes de cerrar un cambio relevante:
 - explicitar cualquier tradeoff de costo vs latencia cuando no se pueda mejorar ambos
 
 Si el agente detecta que una mejora funcional empeora claramente costo, lecturas o latencia percibida, debe pausar y advertirlo antes de continuar.
+
+## Cloudflare Edge Compatibility Rule
+
+Todo codigo nuevo o modificado que vaya a desplegarse en Cloudflare Pages o en runtime Edge debe mantenerse libre de dependencias Node-only en produccion.
+
+Reglas obligatorias:
+
+- No introducir en `src/` imports de `sharp`, `exceljs`, `node:crypto`, `node:stream`, `node:path`, `node:buffer`, `node:os`, `fs` o `child_process` en codigo de produccion que vaya al build de Cloudflare.
+- Si una funcionalidad necesita optimizacion de imagen, compresion pesada, streaming de Excel o APIs nativas de Node, debe degradarse a una ruta Edge-safe, mover la ejecucion a un servicio compatible o quedar aislada fuera del build de Cloudflare.
+- Las pruebas pueden seguir usando dependencias nativas, pero deben vivir en archivos de test o utilidades no incluidas en produccion.
+- Antes de cerrar cualquier corte destinado a Cloudflare, el agente debe verificar que el build no arrastre imports incompatibles ni funciones huérfanas que sigan referenciando esos modulos.
 ## UTF-8 Rule
 
 Los tres documentos canonicos ya estan almacenados en UTF-8 valido. Si PowerShell o la terminal muestran mojibake al leerlos, tratalo como un problema de render de consola, no como corrupcion del archivo.
