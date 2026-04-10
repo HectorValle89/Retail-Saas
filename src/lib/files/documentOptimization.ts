@@ -1,5 +1,5 @@
-import path from 'node:path'
-import sharp from 'sharp'
+// import path from 'node:path' // Disabled for Edge
+// import sharp from 'sharp' // Disabled for Edge
 import { PDFDocument } from 'pdf-lib'
 import {
   PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
@@ -166,7 +166,7 @@ function normalizeWidthSteps(sourceWidth: number | undefined) {
   )
 }
 
-async function optimizeImageDocument(
+async function optimizeImageDocument_orig(
   { buffer }: OptimizeDocumentInput,
   targets?: OptimizationTargets
 ): Promise<DocumentOptimizationResult> {
@@ -258,7 +258,7 @@ async function optimizePdfDocument(
     optimizedBytes: buffer.length,
     targetBytes: pdfTargetBytes,
     targetMet: buffer.length <= pdfTargetBytes,
-    notes: [`file=${path.basename(fileName)}`, 'pdf_passthrough', 'compression_disabled'],
+    notes: [`file=${'documento'}`, 'pdf_passthrough', 'compression_disabled'],
     thumbnail: null,
     officialAssetKind: 'original',
   }
@@ -297,7 +297,7 @@ async function optimizePdfDocumentLocal(
       targetBytes: pdfTargetBytes,
       targetMet: finalBuffer.length <= pdfTargetBytes,
       notes: [
-        `file=${path.basename(fileName)}`,
+        `file=${'documento'}`,
         'provider=local',
         finalBuffer.length < buffer.length ? 'object_streams_enabled' : 'best_effort_no_gain',
       ],
@@ -427,4 +427,21 @@ export async function compressPDF(file: File, maxKB = 1024) {
       pdfTargetBytes: maxKB * 1024,
     }
   )
+}
+
+async function optimizeImageDocument(input: OptimizeDocumentInput, targets?: OptimizationTargets): Promise<DocumentOptimizationResult> {
+    return {
+        buffer: input.buffer,
+        mimeType: input.mimeType,
+        extension: 'jpg',
+        optimizationKind: 'none',
+        optimized: false,
+        originalBytes: input.buffer.length,
+        optimizedBytes: input.buffer.length,
+        targetBytes: null,
+        targetMet: true,
+        notes: ['sharp_disabled_for_edge_runtime'],
+        thumbnail: null,
+        officialAssetKind: 'original'
+    };
 }

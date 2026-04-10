@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ActorActual } from '@/lib/auth/session'
 import { calcularHashPayload, stableSerialize } from '@/lib/audit/integrity'
@@ -316,8 +315,8 @@ function buildAuditDataQuery(supabase: SupabaseClient, actor: ActorActual, filtr
   )
 }
 
-function mapAuditRow(row: AuditLogRow): BitacoraItem {
-  const hashCalculado = calcularHashPayload(row.payload ?? {})
+async function mapAuditRow(row: AuditLogRow): Promise<BitacoraItem> {
+  const hashCalculado = await calcularHashPayload(row.payload ?? {})
   return {
     id: row.id,
     fecha: row.created_at,
@@ -388,7 +387,7 @@ export async function obtenerBitacoraPanel(
   const rows = (data ?? []) as AuditLogRow[]
   const hasNextPage = rows.length > filtros.pageSize
   const visibleRows = hasNextPage ? rows.slice(0, filtros.pageSize) : rows
-  const items = visibleRows.map(mapAuditRow)
+  const items = await Promise.all(visibleRows.map(mapAuditRow))
   const currentPage = filtros.history.length + 1
   const previousCursorToken = filtros.history.at(-1) ?? null
 
@@ -431,7 +430,7 @@ async function obtenerBitacoraLote(
     throw new Error(error.message)
   }
 
-  return ((data ?? []) as AuditLogRow[]).map(mapAuditRow)
+  return Promise.all(((data ?? []) as AuditLogRow[]).map(mapAuditRow))
 }
 
 export async function collectBitacoraExportPayload(
@@ -468,15 +467,11 @@ export async function collectBitacoraExportPayload(
     item.hashCalculado,
     item.resumen,
   ])
-  const digest = createHash('sha256')
-    .update(
-      stableSerialize({
-        filenameBase: `bitacora-${filtros.fechaDesde || 'inicio'}-${filtros.fechaHasta || 'hoy'}`,
-        headers,
-        rows: exportedRows,
-      })
-    )
-    .digest('hex')
+  const digest = await calcularHashPayload({
+    filenameBase: `bitacora-${filtros.fechaDesde || 'inicio'}-${filtros.fechaHasta || 'hoy'}`,
+    headers,
+    rows: exportedRows,
+  })
 
   return {
     filenameBase: `bitacora-${filtros.fechaDesde || 'inicio'}-${filtros.fechaHasta || 'hoy'}`,

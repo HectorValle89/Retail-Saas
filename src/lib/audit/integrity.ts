@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { computeSHA256 } from '../files/sha256'
 
 export function stableSerialize(value: unknown): string {
   if (value === null || typeof value !== 'object') {
@@ -18,8 +18,6 @@ export function stableSerialize(value: unknown): string {
     .join(',')}}`
 }
 
-export function calcularHashPayload(payload: unknown) {
-  return createHash('sha256')
-    .update(Buffer.from(stableSerialize(payload), 'utf8'))
-    .digest('hex')
+export async function calcularHashPayload(payload: unknown) {
+  return computeSHA256(stableSerialize(payload))
 }

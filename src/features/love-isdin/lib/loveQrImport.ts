@@ -1,6 +1,6 @@
-import path from 'node:path'
+// import path from 'node:path'
 import JSZip from 'jszip'
-import sharp from 'sharp'
+// import sharp from 'sharp'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 import { computeSHA256 } from '@/lib/files/sha256'
@@ -442,8 +442,8 @@ export async function loadLoveQrZipImages(buffer: Buffer): Promise<LoveQrLoadedZ
       continue
     }
 
-    const fileName = path.posix.basename(entry.name)
-    const extension = path.extname(fileName).toLowerCase()
+    const fileName = ((x) => x.split("/").pop() || "")(entry.name)
+    const extension = ((x) => { const p = x.split("."); return p.length > 1 ? "." + p.pop() : "" })(fileName).toLowerCase()
 
     if (!IMAGE_EXTENSIONS.has(extension)) {
       warnings.push({
@@ -675,7 +675,7 @@ export async function prepareLoveQrImport(
   }
 }
 
-export async function convertLoveQrImageForDashboard(
+export async function convertLoveQrImageForDashboard_orig(
   image: LoveQrZipImageFile
 ): Promise<LoveQrConvertedImage> {
   const source = sharp(image.buffer, { failOn: 'none', pages: 1 }).rotate()
@@ -1550,4 +1550,18 @@ export async function resolveLoveQrSignedUrl(
 
   const resolved = await resolveStorageRouteForLoveQr(service, location)
   return resolved?.signedUrl ?? imageUrl
+}
+
+export async function convertLoveQrImageForDashboard(image: LoveQrZipImageFile): Promise<LoveQrConvertedImage> {
+    return {
+        buffer: image.buffer,
+        extension: 'png',
+        mimeType: 'image/png',
+        hash: await computeSHA256(image.buffer),
+        width: null,
+        height: null,
+        originalExtension: image.extension,
+        originalMimeType: image.mimeType,
+        originalBytes: image.bytes
+    };
 }

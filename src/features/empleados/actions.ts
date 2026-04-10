@@ -1,6 +1,6 @@
 'use server'
 
-import crypto from 'node:crypto'
+// import crypto from 'node:crypto' // Desactivado para Edge
 import { revalidatePath } from 'next/cache'
 import { obtenerClienteAdmin } from '@/lib/auth/admin'
 import {
@@ -181,7 +181,14 @@ function buildPlaceholderEmail(username: string) {
 }
 
 function createTemporaryPassword() {
-  return `Rtl!${crypto.randomBytes(9).toString('base64url')}`
+  const bytes = new Uint8Array(9)
+  globalThis.crypto.getRandomValues(bytes)
+  // Base64url safe manual conversion or use a simple alternative
+  const base64 = btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+  return `Rtl!${base64}`
 }
 
 function normalizeUpperIdentifier(value: string | null) {

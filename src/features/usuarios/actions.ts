@@ -1,6 +1,6 @@
 'use server'
 
-import crypto from 'node:crypto'
+// import crypto from 'node:crypto' // Desactivado para Edge
 import { revalidatePath } from 'next/cache'
 import { obtenerClienteAdmin, obtenerUrlBaseAplicacion } from '@/lib/auth/admin'
 import { requerirAdministradorActivo } from '@/lib/auth/session'
@@ -74,7 +74,13 @@ function buildState(
 }
 
 function createTemporaryPassword() {
-  return `Rtl!${crypto.randomBytes(9).toString('base64url')}`
+  const bytes = new Uint8Array(9)
+  globalThis.crypto.getRandomValues(bytes)
+  const base64 = btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+  return `Rtl!${base64}`
 }
 
 function sanitizeToken(value: string) {

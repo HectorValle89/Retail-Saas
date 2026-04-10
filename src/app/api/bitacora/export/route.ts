@@ -1,6 +1,6 @@
 export const runtime = 'edge';
-import { Readable, PassThrough } from 'node:stream'
-import ExcelJS from 'exceljs'
+// import { Readable, PassThrough } from 'node:stream'
+// import ExcelJS from 'exceljs'
 import { NextRequest, NextResponse } from 'next/server'
 import { obtenerActorActual } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
@@ -30,7 +30,7 @@ function buildCsvSignaturePreamble(payload: Awaited<ReturnType<typeof collectBit
   return encoder.encode(`\uFEFF${lines.join('\n')}\n`)
 }
 
-function buildXlsxStream(payload: Awaited<ReturnType<typeof collectBitacoraExportPayload>>) {
+function buildXlsxStream_orig(payload: Awaited<ReturnType<typeof collectBitacoraExportPayload>>) {
   const output = new PassThrough()
 
   void (async () => {
@@ -123,3 +123,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
+
+function buildXlsxStream(payload: any) {
+    throw new Error('Exportacion XLSX no disponible en este entorno. Usa CSV.');
+}
