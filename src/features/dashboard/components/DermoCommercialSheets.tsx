@@ -459,6 +459,10 @@ export function DermoRegistroExtemporaneoSheet({ data, onClose, onSuccess }: { d
   const [activeTab, setActiveTab] = useState<'VENTA' | 'LOVE_ISDIN'>('VENTA');
   const [fechaOperativa, setFechaOperativa] = useState(getPreviousDateValue());
   const [motivo, setMotivo] = useState('');
+  const [catalogoProductos, setCatalogoProductos] = useState(data.catalogoProductos);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(false);
+  const catalogFetchAttempted = useRef(false);
+  const [catalogRetryNonce, setCatalogRetryNonce] = useState(0);
   const [search, setSearch] = useState('');
   const [selectedProductId, setSelectedProductId] = useState(data.catalogoProductos[0]?.id ?? '');
   const [units, setUnits] = useState('1');
@@ -469,7 +473,62 @@ export function DermoRegistroExtemporaneoSheet({ data, onClose, onSuccess }: { d
   const [loveCart, setLoveCart] = useState<LoveCartItem[]>([]);
   const [localMessage, setLocalMessage] = useState<string | null>(null);
 
-  const selectedProduct = data.catalogoProductos.find((item) => item.id === selectedProductId) ?? null;
+  useEffect(() => {
+    setCatalogoProductos(data.catalogoProductos);
+  }, [data.catalogoProductos]);
+
+  useEffect(() => {
+    if (activeTab !== 'VENTA') {
+      return;
+    }
+
+    if (catalogoProductos.length > 0 || isCatalogLoading) {
+      return;
+    }
+
+    if (catalogFetchAttempted.current) {
+      return;
+    }
+
+    catalogFetchAttempted.current = true;
+    setIsCatalogLoading(true);
+    void (async () => {
+      try {
+        const response = await fetch('/api/catalogo/productos', {
+          method: 'GET',
+          credentials: 'same-origin',
+          cache: 'no-store',
+        });
+        const payload = (await response.json()) as {
+          data?: DashboardDermoconsejoData['catalogoProductos'];
+          message?: string;
+        };
+
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.message ?? 'No fue posible cargar el catalogo de productos.');
+        }
+
+        setCatalogoProductos(payload.data);
+        if (!selectedProductId && payload.data[0]?.id) {
+          setSelectedProductId(payload.data[0].id);
+        }
+      } catch (error) {
+        setLocalMessage(error instanceof Error ? error.message : 'No fue posible cargar el catalogo de productos.');
+      } finally {
+        setIsCatalogLoading(false);
+      }
+    })();
+  }, [activeTab, catalogoProductos.length, catalogRetryNonce, isCatalogLoading, selectedProductId]);
+
+  useEffect(() => {
+    if (selectedProductId || catalogoProductos.length === 0) {
+      return;
+    }
+
+    setSelectedProductId(catalogoProductos[0]?.id ?? '');
+  }, [catalogoProductos, selectedProductId]);
+
+  const selectedProduct = catalogoProductos.find((item) => item.id === selectedProductId) ?? null;
   const parsedUnits = parsePositiveUnits(units);
   const canSubmit = Boolean(data.context.cuentaClienteId && motivo.trim() && (activeTab === 'VENTA' ? ventasCart.length > 0 : loveCart.length > 0));
 
@@ -512,7 +571,29 @@ export function DermoRegistroExtemporaneoSheet({ data, onClose, onSuccess }: { d
 
       {activeTab === 'VENTA' ? (
         <div className="space-y-4 rounded-[22px] border border-amber-200 bg-amber-50/40 p-4">
-          <ProductPicker products={data.catalogoProductos} search={search} selectedProductId={selectedProductId} onSearchChange={setSearch} onSelectProduct={setSelectedProductId} />
+          {catalogoProductos.length === 0 ? (
+            <div className="rounded-[18px] border border-dashed border-amber-200 bg-white/70 px-4 py-6 text-center text-sm text-amber-900">
+              {isCatalogLoading ? (
+                'Cargando catalogo de productos...'
+              ) : (
+                <div className="space-y-3">
+                  <p>Catalogo de productos no disponible.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      catalogFetchAttempted.current = false;
+                      setCatalogRetryNonce((current) => current + 1);
+                    }}
+                    className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-amber-200 bg-white px-4 py-2 text-sm font-semibold text-amber-900 shadow-sm transition hover:bg-amber-100"
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <ProductPicker products={catalogoProductos} search={search} selectedProductId={selectedProductId} onSearchChange={setSearch} onSelectProduct={setSelectedProductId} />
+          )}
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
             <Field label="Piezas"><input value={units} onChange={(event) => setUnits(event.target.value)} inputMode="numeric" className="mt-2 w-full rounded-[14px] border border-border bg-white px-4 py-3 text-base text-slate-900 focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-100" /></Field>
             <button type="button" onClick={() => {
