@@ -396,8 +396,9 @@ function SupervisorVisitExecutionPanel({
               setIsStartCameraOpen(true)
             }}
             disabled={!canStartVisit}
+            className="w-full sm:w-auto"
           >
-            {currentVisit.checkInAt ? 'Llegada registrada' : 'Llegue a tienda'}
+            {currentVisit.checkInAt ? 'Llegada registrada' : 'Abrir camara selfie - Llegada'}
           </Button>
           {currentVisit.checkInAt && (
             <>
@@ -423,15 +424,33 @@ function SupervisorVisitExecutionPanel({
           )}
         </div>
         {startDraft && canStartVisit && (
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 overflow-hidden rounded-[18px] border border-slate-200 bg-slate-50">
             <img
               src={startDraft.previewUrl}
               alt="Borrador de llegada"
-              className="aspect-[4/3] w-full rounded-[18px] border border-slate-200 object-cover"
+              className="aspect-[4/5] w-full object-cover"
             />
-            <Button type="button" onClick={submitStartVisit} disabled={isPending}>
-              Confirmar llegada
-            </Button>
+            <div className="space-y-3 px-4 py-4">
+              <div className="grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+                <div>
+                  <p className="font-semibold text-slate-950">Selfie lista para enviar</p>
+                  <p>Hora: {new Date(startDraft.capturedAt).toLocaleString('es-MX')}</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-950">Ubicacion GPS</p>
+                  <p>
+                    {startDraft.gpsState === 'DENTRO_GEOCERCA'
+                      ? 'Dentro del PDV'
+                      : startDraft.gpsState === 'FUERA_GEOCERCA'
+                        ? 'Fuera de geocerca'
+                        : 'Sin GPS'}
+                  </p>
+                </div>
+              </div>
+              <Button type="button" onClick={submitStartVisit} disabled={isPending} className="w-full sm:w-auto">
+                {isPending ? 'Enviando...' : 'Confirmar llegada'}
+              </Button>
+            </div>
           </div>
         )}
       </Card>
@@ -519,8 +538,9 @@ function SupervisorVisitExecutionPanel({
                 setIsEndCameraOpen(true)
               }}
               disabled={!canFinishVisit}
+              className="w-full sm:w-auto"
             >
-              {currentVisit.checkOutAt ? 'Salida registrada' : 'Registrar salida'}
+              {currentVisit.checkOutAt ? 'Salida registrada' : 'Abrir camara selfie - Salida'}
             </Button>
           {currentVisit.checkOutAt && (
               <>
@@ -546,15 +566,48 @@ function SupervisorVisitExecutionPanel({
           )}
         </div>
           {endDraft && canFinishVisit && (
-            <div className="space-y-3">
+            <div className="overflow-hidden rounded-[18px] border border-slate-200 bg-slate-50">
               <img
                 src={endDraft.previewUrl}
                 alt="Borrador de salida"
-                className="aspect-[4/3] w-full rounded-[18px] border border-slate-200 object-cover"
+                className="aspect-[4/5] w-full object-cover"
               />
-              <Button type="button" onClick={submitFinishVisit} disabled={isPending || !checklistDone}>
-                Confirmar salida
-              </Button>
+              <div className="space-y-3 px-4 py-4">
+                <div className="grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+                  <div>
+                    <p className="font-semibold text-slate-950">Selfie de salida lista</p>
+                    <p>Hora: {new Date(endDraft.capturedAt).toLocaleString('es-MX')}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-950">Ubicacion GPS</p>
+                    <p>
+                      {endDraft.gpsState === 'DENTRO_GEOCERCA'
+                        ? 'Dentro del PDV'
+                        : endDraft.gpsState === 'FUERA_GEOCERCA'
+                          ? 'Fuera de geocerca'
+                          : 'Sin GPS'}
+                    </p>
+                  </div>
+                </div>
+                {!checklistDone && (
+                  <p className="rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                    Completa el checklist al 100% para poder confirmar la salida.
+                  </p>
+                )}
+                {!comments.trim() && (
+                  <p className="rounded-[14px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                    Agrega comentarios finales para confirmar la salida.
+                  </p>
+                )}
+                <Button
+                  type="button"
+                  onClick={submitFinishVisit}
+                  disabled={isPending || !checklistDone || !comments.trim()}
+                  className="w-full sm:w-auto"
+                >
+                  {isPending ? 'Enviando...' : 'Confirmar salida'}
+                </Button>
+              </div>
             </div>
           )}
         </div>
@@ -572,7 +625,6 @@ function SupervisorVisitExecutionPanel({
         description="Toma la selfie de entrada mientras el sistema calcula GPS y geocerca."
         onClose={() => setIsStartCameraOpen(false)}
         onCapture={(file) => handleCapture(file, 'Check-in', setStartDraft)}
-        facingMode="environment"
         captureLabel="Capturar llegada"
       />
 
@@ -582,7 +634,6 @@ function SupervisorVisitExecutionPanel({
         description="Toma la selfie final para cerrar la visita de supervision."
         onClose={() => setIsEndCameraOpen(false)}
         onCapture={(file) => handleCapture(file, 'Check-out', setEndDraft)}
-        facingMode="environment"
         captureLabel="Capturar salida"
       />
 
