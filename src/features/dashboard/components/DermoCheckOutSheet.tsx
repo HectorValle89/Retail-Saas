@@ -145,7 +145,7 @@ export function DermoCheckOutSheet({
         URL.revokeObjectURL(selfieCapture.previewUrl)
       }
 
-      const newSelfieCapture = {
+      const newSelfieCapture: SelfieCapture = {
         file: stampedResult.file,
         previewUrl: URL.createObjectURL(stampedResult.file),
         hash,
@@ -156,7 +156,7 @@ export function DermoCheckOutSheet({
         latitud: gpsCapture.position.latitud,
         longitud: gpsCapture.position.longitud,
         timestampStamped: true,
-        captureSource: 'native-getusermedia',
+        captureSource: 'native-getusermedia' as const,
         originalBytes: file.size,
         targetBytes: stampedResult.targetBytes,
         targetMet: stampedResult.targetMet,
