@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, beforeEach, vi } from 'vitest'
 import type { ActorActual } from '@/lib/auth/session'
 import { obtenerInicioCampanas } from './campanaService'
 
@@ -117,6 +117,11 @@ const actorAdmin: ActorActual = {
 }
 
 describe('obtenerInicioCampanas', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-12T10:00:00.000Z'))
+  })
+
   it('evita cargar PDVs y productos antes de abrir el editor', async () => {
     const calls: string[] = []
     const client = createFakeCampaignServiceClient(
