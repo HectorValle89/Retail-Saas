@@ -1,9 +1,11 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { requerirActorActivo } from '@/lib/auth/session'
 import type { ActorActual } from '@/lib/auth/session'
 import { createServiceClient } from '@/lib/supabase/server'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
 import {
   enqueueAndProcessMaterializedAssignments,
   resolveMaterializationImpactRange,
@@ -181,9 +183,50 @@ async function requerirVistaFormaciones() {
   return actor
 }
 
-function revalidateFormacionPaths() {
-  revalidatePath('/formaciones')
-  revalidatePath('/dashboard')
+async function publishFormacionUiChanges(
+  service: TypedSupabaseClient,
+  actor: ActorActual,
+  input: {
+    eventType: string
+    cuentaClienteId: string
+    empleadoId?: string | null
+    supervisorEmpleadoId?: string | null
+    operationDate?: string | null
+    includeNomina?: boolean
+    includeAsistencias?: boolean
+    metadata?: Record<string, unknown> | null
+  }
+) {
+  const period = input.operationDate?.slice(0, 7) ?? null
+  const modules = [
+    'formaciones',
+    'dashboard',
+    ...(input.includeAsistencias ? ['asistencias', 'nomina', 'reportes'] : []),
+  ] as const
+
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType: input.eventType,
+      modules: [...modules],
+      surfaces: ['panel', 'insights', 'tabla'],
+      scopes: [
+        buildUiChangeScope('global'),
+        buildUiChangeScope('cuenta', input.cuentaClienteId),
+        buildUiChangeScope('empleado', input.empleadoId ?? actor.empleadoId),
+        buildUiChangeScope('supervisor', input.supervisorEmpleadoId ?? (actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null)),
+        buildUiChangeScope('periodo', period),
+      ],
+      cuentaClienteId: input.cuentaClienteId,
+      empleadoId: input.empleadoId ?? actor.empleadoId,
+      supervisorEmpleadoId: input.supervisorEmpleadoId ?? (actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null),
+      roleTargets: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'RECLUTAMIENTO', 'LOVE_IS', 'VENTAS', 'DERMOCONSEJERO'],
+      metadata: {
+        ...(input.metadata ?? {}),
+        periodo: period,
+      },
+    }),
+    { service }
+  )
 }
 
 async function registrarEventoAudit(
@@ -672,7 +715,7 @@ async function resolveSupervisorFormationScope(
           id,
           nombre,
           zona,
-          ciudad:ciudad_id(nombre, estado),
+          ciudad:ciudad_id(nombre),
           supervisor_pdv!inner(empleado_id, activo, fecha_inicio, fecha_fin)
         `
       )
@@ -685,8 +728,8 @@ async function resolveSupervisorFormationScope(
     nombre: string
     zona: string | null
     ciudad:
-      | { nombre: string | null; estado: string | null }
-      | Array<{ nombre: string | null; estado: string | null }>
+      | { nombre: string | null }
+      | Array<{ nombre: string | null }>
       | null
     supervisor_pdv:
       | { empleado_id: string; activo: boolean; fecha_inicio: string; fecha_fin: string | null }
@@ -748,6 +791,7 @@ async function resolveSupervisorFormationScope(
   const pdvById = new Map(
     scopedPdvs.map((pdv) => {
       const ciudad = Array.isArray(pdv.ciudad) ? pdv.ciudad[0] : pdv.ciudad
+      const ciudadEstado = resolveMexicoStateFromCity(ciudad?.nombre ?? null)
       return [
         pdv.id,
         {
@@ -757,7 +801,7 @@ async function resolveSupervisorFormationScope(
           estado:
             resolveFormacionPdvState({
               ciudadNombre: ciudad?.nombre ?? null,
-              ciudadEstado: ciudad?.estado ?? null,
+              ciudadEstado,
             }) ?? 'Sin estado',
         },
       ] as const
@@ -810,14 +854,14 @@ async function resolveScopedPdvIds(
 
   const { data, error } = await service
     .from('pdv')
-    .select(
-      `
+      .select(
+        `
         id,
         zona,
-        ciudad:ciudad_id(nombre, zona, estado),
+        ciudad:ciudad_id(nombre, zona),
         supervisor_pdv(empleado_id, activo, fecha_fin)
       `
-    )
+      )
     .eq('estatus', 'ACTIVO')
 
   if (error) {
@@ -828,8 +872,8 @@ async function resolveScopedPdvIds(
     id: string
     zona: string | null
     ciudad:
-      | { nombre: string | null; zona: string | null; estado: string | null }
-      | Array<{ nombre: string | null; zona: string | null; estado: string | null }>
+      | { nombre: string | null; zona: string | null }
+      | Array<{ nombre: string | null; zona: string | null }>
       | null
     supervisor_pdv:
       | { empleado_id: string; activo: boolean; fecha_fin: string | null }
@@ -840,10 +884,11 @@ async function resolveScopedPdvIds(
   return rows
     .filter((row) => {
       const ciudad = Array.isArray(row.ciudad) ? row.ciudad[0] : row.ciudad
+      const ciudadEstado = resolveMexicoStateFromCity(ciudad?.nombre ?? null)
       const stateName =
         resolveFormacionPdvState({
           ciudadNombre: ciudad?.nombre ?? null,
-          ciudadEstado: ciudad?.estado ?? null,
+          ciudadEstado,
         }) ?? 'Sin estado'
       const supervisorRelations = Array.isArray(row.supervisor_pdv)
         ? row.supervisor_pdv
@@ -1305,7 +1350,18 @@ export async function guardarFormacion(
       throw new Error(metadataUpdateError.message)
     }
 
-    revalidateFormacionPaths()
+    await publishFormacionUiChanges(service, actor, {
+      eventType: eventoId ? 'formacion_actualizada' : 'formacion_creada',
+      cuentaClienteId: cuentaCliente.id,
+      empleadoId: resolvedScope.supervisor.id,
+      supervisorEmpleadoId: resolvedScope.supervisor.id,
+      operationDate: fechaInicio,
+      includeAsistencias: true,
+      metadata: {
+        formacion_id: resolvedEventoId,
+        tipo_evento: tipoEvento,
+      },
+    })
 
     return buildState({ ok: true, message: 'Formación guardada correctamente y con notificaciones automáticas activadas.' })
   } catch (error) {
@@ -1410,7 +1466,18 @@ export async function confirmarAvisoPdvFormacion(
       throw new Error(updateError.message)
     }
 
-    revalidateFormacionPaths()
+    await publishFormacionUiChanges(service, actor, {
+      eventType: 'formacion_aviso_pdv_actualizado',
+      cuentaClienteId: targetAccountId ?? actor.cuentaClienteId ?? '',
+      empleadoId: actor.empleadoId,
+      supervisorEmpleadoId: actor.empleadoId,
+      operationDate: targeting.operationDate,
+      metadata: {
+        formacion_id: eventoId,
+        pdv_id: pdvId,
+        confirmado: confirmed,
+      },
+    })
 
     return buildState({
       ok: true,
@@ -1466,7 +1533,21 @@ export async function registrarAsistenciaFormacion(
       payload: { accion: 'actualizar_asistencia', estado },
     })
 
-    revalidateFormacionPaths()
+    await publishFormacionUiChanges(service, actor, {
+      eventType: 'formacion_asistencia_actualizada',
+      cuentaClienteId: asistencia.cuenta_cliente_id,
+      empleadoId: asistencia.empleado_id,
+      supervisorEmpleadoId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+      operationDate: asistencia.metadata
+        ? normalizeFormacionTargetingMetadata(asistencia.metadata).operationDate
+        : null,
+      includeAsistencias: true,
+      metadata: {
+        evento_id: asistencia.evento_id,
+        asistencia_id: asistencia.id,
+        estado,
+      },
+    })
 
     return buildState({ ok: true, message: 'Asistencia actualizada.' })
   } catch (error) {
@@ -1649,7 +1730,19 @@ async function registrarMovimientoAsistenciaFormacion(
       },
     })
 
-    revalidateFormacionPaths()
+    await publishFormacionUiChanges(service, actor, {
+      eventType: 'formacion_llegada_registrada',
+      cuentaClienteId: asistencia.cuenta_cliente_id,
+      empleadoId: asistencia.empleado_id,
+      supervisorEmpleadoId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+      operationDate: targeting.operationDate,
+      includeAsistencias: true,
+      metadata: {
+        evento_id: eventoId,
+        asistencia_id: asistencia.id,
+        geofence_status: geofence.status,
+      },
+    })
 
     return buildState({
       ok: true,
@@ -1722,7 +1815,17 @@ export async function registrarGastoFormacion(
       payload: { accion: 'registrar_gasto', tipo, monto },
     })
 
-    revalidateFormacionPaths()
+    await publishFormacionUiChanges(service, actor, {
+      eventType: 'formacion_gasto_registrado',
+      cuentaClienteId: evento.cuenta_cliente_id,
+      empleadoId: actor.empleadoId,
+      supervisorEmpleadoId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+      operationDate: normalizeFormacionTargetingMetadata(evento.metadata ?? {}).operationDate,
+      metadata: {
+        evento_id: eventoId,
+        tipo,
+      },
+    })
 
     return buildState({ ok: true, message: 'Gasto registrado.' })
   } catch (error) {
@@ -1777,7 +1880,17 @@ export async function registrarNotificacionFormacion(
       payload: { accion: 'registrar_notificacion', canal },
     })
 
-    revalidateFormacionPaths()
+    await publishFormacionUiChanges(service, actor, {
+      eventType: 'formacion_notificacion_registrada',
+      cuentaClienteId: evento.cuenta_cliente_id,
+      empleadoId: actor.empleadoId,
+      supervisorEmpleadoId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+      operationDate: normalizeFormacionTargetingMetadata(evento.metadata ?? {}).operationDate,
+      metadata: {
+        evento_id: eventoId,
+        canal,
+      },
+    })
 
     return buildState({ ok: true, message: 'Notificación registrada.' })
   } catch (error) {

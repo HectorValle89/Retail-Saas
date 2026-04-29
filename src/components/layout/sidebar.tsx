@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { List, X } from '@phosphor-icons/react'
 import type { ActorActual } from '@/lib/auth/session'
 import { lockBodyScroll } from '@/lib/ui/bodyScrollLock'
@@ -41,6 +41,7 @@ type NavIconName =
   | 'settings'
   | 'rules'
   | 'users'
+  | 'recruitment'
 
 interface SidebarProps {
   actor: ActorActual
@@ -52,7 +53,6 @@ const primaryItems: NavItem[] = [
     label: 'Dashboard',
     icon: 'dashboard',
     theme: 'dashboard',
-    prefetch: true,
     allowedRoles: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'RECLUTAMIENTO', 'NOMINA', 'LOGISTICA', 'LOVE_IS', 'VENTAS', 'DERMOCONSEJERO', 'CLIENTE'],
   },
   {
@@ -60,8 +60,14 @@ const primaryItems: NavItem[] = [
     label: 'Empleados',
     icon: 'employees',
     theme: 'empleados',
-    prefetch: true,
-    allowedRoles: ['ADMINISTRADOR', 'RECLUTAMIENTO'],
+    allowedRoles: ['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR'],
+  },
+  {
+    href: '/reclutamiento',
+    label: 'Reclutamiento',
+    icon: 'recruitment',
+    theme: 'reclutamiento',
+    allowedRoles: ['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR'],
   },
   {
     href: '/pdvs',
@@ -103,7 +109,6 @@ const primaryItems: NavItem[] = [
     label: 'Asistencias',
     icon: 'attendance',
     theme: 'asistencias',
-    prefetch: true,
     allowedRoles: ['ADMINISTRADOR', 'COORDINADOR', 'NOMINA'],
   },
   {
@@ -111,7 +116,6 @@ const primaryItems: NavItem[] = [
     label: 'Ventas',
     icon: 'sales',
     theme: 'ventas',
-    prefetch: true,
     allowedRoles: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'VENTAS', 'DERMOCONSEJERO'],
   },
   {
@@ -142,7 +146,7 @@ const adminItems: NavItem[] = [
   { href: '/nomina', label: 'Nomina', icon: 'payroll', theme: 'nomina', allowedRoles: ['ADMINISTRADOR', 'NOMINA'] },
   { href: '/gastos', label: 'Gastos', icon: 'expenses', theme: 'gastos', allowedRoles: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'LOGISTICA'] },
   { href: '/materiales', label: 'Materiales', icon: 'materials', theme: 'materiales', allowedRoles: ['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'LOGISTICA'] },
-  { href: '/reportes', label: 'Reportes', icon: 'reports', theme: 'reportes', allowedRoles: ['ADMINISTRADOR'] },
+  { href: '/reportes', label: 'Reportes', icon: 'reports', theme: 'reportes', allowedRoles: ['ADMINISTRADOR', 'COORDINADOR'] },
   { href: '/offline', label: 'Offline', icon: 'offline', theme: 'offline', allowedRoles: ['ADMINISTRADOR'] },
   { href: '/configuracion', label: 'Configuracion', icon: 'settings', theme: 'configuracion', allowedRoles: ['ADMINISTRADOR'] },
   { href: '/reglas', label: 'Reglas', icon: 'rules', theme: 'reglas', allowedRoles: ['ADMINISTRADOR'] },
@@ -162,7 +166,8 @@ function CloseIcon() {
 }
 
 function NavIcon({ name, className = 'h-5 w-5' }: { name: NavIconName; className?: string }) {
-  return <PremiumLineIcon name={name as PremiumIconName} className={className} strokeWidth={1.85} />
+  const iconName = name === 'recruitment' ? 'target' : name
+  return <PremiumLineIcon name={iconName as PremiumIconName} className={className} strokeWidth={1.85} />
 }
 
 export function Sidebar({ actor }: SidebarProps) {
@@ -255,6 +260,7 @@ export function Sidebar({ actor }: SidebarProps) {
               primaryItems={visiblePrimaryItems}
               adminItems={visibleAdminItems}
               onNavigate={() => setMobileOpen(false)}
+              mobile
             />
           </aside>
         </>
@@ -270,6 +276,7 @@ function SidebarContent({
   primaryItems,
   adminItems,
   onNavigate,
+  mobile = false,
 }: {
   actor: ActorActual
   pathname: string
@@ -277,7 +284,39 @@ function SidebarContent({
   primaryItems: NavItem[]
   adminItems: NavItem[]
   onNavigate?: () => void
+  mobile?: boolean
 }) {
+  const router = useRouter()
+  const fallbackTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (fallbackTimerRef.current !== null) {
+      window.clearTimeout(fallbackTimerRef.current)
+      fallbackTimerRef.current = null
+    }
+  }, [pathname])
+
+  const safeNavigate = (href: string) => {
+    if (href === pathname) {
+      onNavigate?.()
+      return
+    }
+
+    // Try SPA navigation first; if it doesn't complete, fallback to hard navigation.
+    router.push(href)
+    onNavigate?.()
+
+    if (fallbackTimerRef.current !== null) {
+      window.clearTimeout(fallbackTimerRef.current)
+    }
+
+    fallbackTimerRef.current = window.setTimeout(() => {
+      if (window.location.pathname !== href) {
+        window.location.assign(href)
+      }
+    }, 4000)
+  }
+
   const initials = actor.nombreCompleto
     .split(' ')
     .slice(0, 2)
@@ -289,7 +328,11 @@ function SidebarContent({
     <div className="flex h-full flex-col">
       <div className="border-b border-border/70 px-6 py-5">
         <div className="flex items-start gap-3">
-          <Link href="/dashboard" className="block min-w-0 flex-1" onClick={onNavigate}>
+          <button
+            type="button"
+            onClick={() => safeNavigate('/dashboard')}
+            className="block min-w-0 flex-1 text-left"
+          >
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-primary-700">
               Beteele One
             </p>
@@ -297,7 +340,7 @@ function SidebarContent({
               <h1 className="font-heading text-lg font-semibold text-slate-950">ISDIN</h1>
               <p className="mt-1 truncate text-xs text-slate-500">Operacion central</p>
             </div>
-          </Link>
+          </button>
         </div>
 
         <div className="mt-3 flex items-center gap-3">
@@ -311,7 +354,7 @@ function SidebarContent({
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-4 py-6">
+      <nav className={`flex-1 overflow-y-auto px-4 py-6 ${mobile ? 'pb-28' : ''}`}>
         {primaryItems.length > 0 && (
           <Section title="Modulos" items={primaryItems} pathname={pathname} onNavigate={onNavigate} />
         )}
@@ -320,7 +363,13 @@ function SidebarContent({
         )}
       </nav>
 
-      <div className="border-t border-border/70 p-4">
+      <div
+        className={`border-t border-border/70 bg-white p-4 ${
+          mobile
+            ? 'sticky bottom-0 z-10 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] shadow-[0_-12px_30px_rgba(15,23,42,0.08)]'
+            : ''
+        }`}
+      >
         <button
           onClick={() => void onLogout()}
           className="w-full rounded-[16px] border border-border bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-primary-200 hover:bg-primary-50"
@@ -343,6 +392,16 @@ function Section({
   pathname: string
   onNavigate?: () => void
 }) {
+  const router = useRouter()
+  const fallbackTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (fallbackTimerRef.current !== null) {
+      window.clearTimeout(fallbackTimerRef.current)
+      fallbackTimerRef.current = null
+    }
+  }, [pathname])
+
   return (
     <div className="mb-8">
       <p className="px-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
@@ -353,13 +412,30 @@ function Section({
           const isActive = pathname === item.href
           const theme = getModuleTheme(item.theme)
           return (
-            <Link
+            <button
               key={item.href}
-              href={item.href}
-              prefetch={item.prefetch ?? false}
-          onClick={onNavigate}
-          style={moduleThemeToStyle(theme)}
-          className={`flex items-center gap-3 rounded-[16px] px-3.5 py-3 text-sm font-medium transition ${
+              type="button"
+              onClick={() => {
+                if (item.href === pathname) {
+                  onNavigate?.()
+                  return
+                }
+
+                router.push(item.href)
+                onNavigate?.()
+
+                if (fallbackTimerRef.current !== null) {
+                  window.clearTimeout(fallbackTimerRef.current)
+                }
+
+                fallbackTimerRef.current = window.setTimeout(() => {
+                  if (window.location.pathname !== item.href) {
+                    window.location.assign(item.href)
+                  }
+                }, 4000)
+              }}
+              style={moduleThemeToStyle(theme)}
+              className={`flex w-full items-center gap-3 rounded-[16px] px-3.5 py-3 text-left text-sm font-medium transition ${
                 isActive
                   ? 'bg-[var(--module-soft-bg)] text-[var(--module-text)] shadow-[inset_0_0_0_1px_var(--module-border)]'
                   : 'text-slate-600 hover:bg-surface-subtle hover:text-slate-950'
@@ -375,12 +451,10 @@ function Section({
                 <NavIcon name={item.icon} />
               </span>
               <span className="truncate">{item.label}</span>
-            </Link>
+            </button>
           )
         })}
       </div>
     </div>
   )
 }
-
-

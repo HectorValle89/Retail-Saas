@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSupabaseAuthNetworkError } from './authClientErrors'
+import { getSupabaseAuthFriendlyErrorMessage, isSupabaseAuthNetworkError } from './authClientErrors'
 
 describe('isSupabaseAuthNetworkError', () => {
   it('detecta fallos de fetch del navegador', () => {
@@ -17,5 +17,13 @@ describe('isSupabaseAuthNetworkError', () => {
     expect(isSupabaseAuthNetworkError(new Error('Invalid Refresh Token: Already Used'))).toBe(false)
     expect(isSupabaseAuthNetworkError(new Error('JWT expired'))).toBe(false)
     expect(isSupabaseAuthNetworkError(null)).toBe(false)
+  })
+
+  it('convierte respuestas HTML o de Cloudflare en un mensaje amigable', () => {
+    expect(
+      getSupabaseAuthFriendlyErrorMessage(
+        new Error(`Unexpected token 'e', "error code: 1016" is not valid JSON`)
+      )
+    ).toBe('No fue posible conectar con el servicio de autenticacion. Reintenta en unos minutos.')
   })
 })

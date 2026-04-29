@@ -1,6 +1,4 @@
 'use server'
-
-import { revalidatePath } from 'next/cache'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import {
   buildOperationalDocumentUploadLimitMessage,
@@ -9,6 +7,11 @@ import {
 } from '@/lib/files/documentOptimization'
 import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
 import { sendOperationalPushNotification } from '@/lib/push/pushFanout'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import {
+  buildUiChangeScope,
+  buildUiChangeTargetsFromBusinessEvent,
+} from '@/lib/ui-change/types'
 import { createServiceClient } from '@/lib/supabase/server'
 import {
   enqueueAndProcessMaterializedAssignments,
@@ -30,6 +33,17 @@ import {
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CuentaCliente, Empleado, Puesto, Solicitud } from '@/types/database'
 import { ESTADO_SOLICITUD_INICIAL, type SolicitudActionState } from './state'
+import {
+  notificarSolicitudCreada,
+  notificarSolicitudResuelta,
+} from '@/lib/notifications/workflows/solicitudesEmail'
+
+function buildState(partial: Partial<SolicitudActionState>): SolicitudActionState {
+  return {
+    ...ESTADO_SOLICITUD_INICIAL,
+    ...partial,
+  }
+}
 
 const SOLICITUD_WRITE_ROLES = [
   'DERMOCONSEJERO',
@@ -69,11 +83,50 @@ type SolicitudApprovalRow = Pick<
   | 'metadata'
 >
 
-function buildState(partial: Partial<SolicitudActionState>): SolicitudActionState {
-  return {
-    ...ESTADO_SOLICITUD_INICIAL,
-    ...partial,
+async function publishSolicitudUiChanges(
+  service: TypedSupabaseClient,
+  {
+    cuentaClienteId,
+    empleadoId,
+    supervisorEmpleadoId,
+    fechaInicio,
+    fechaFin,
+    eventType,
+  }: {
+    cuentaClienteId: string
+    empleadoId: string
+    supervisorEmpleadoId: string | null
+    fechaInicio: string
+    fechaFin: string
+    eventType: string
   }
+) {
+  const monthKeys = Array.from(
+    new Set([fechaInicio.slice(0, 7), fechaFin.slice(0, 7)].filter(Boolean))
+  )
+
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType,
+      modules: ['solicitudes', 'dashboard', 'asistencias', 'nomina'],
+      surfaces: ['panel', 'inbox', 'tabla', 'shell'],
+      scopes: [
+        buildUiChangeScope('cuenta', cuentaClienteId),
+        buildUiChangeScope('empleado', empleadoId),
+        buildUiChangeScope('supervisor', supervisorEmpleadoId),
+        ...monthKeys.map((monthKey) => buildUiChangeScope('periodo', monthKey)),
+      ],
+      cuentaClienteId,
+      empleadoId,
+      supervisorEmpleadoId,
+      metadata: {
+        periodo: fechaInicio.slice(0, 7),
+        fechaInicio,
+        fechaFin,
+      },
+    }),
+    { service }
+  )
 }
 
 function normalizeRequiredText(value: FormDataEntryValue | null, label: string) {
@@ -1179,10 +1232,32 @@ export async function registrarSolicitudOperativa(
       cuenta_cliente_id: cuentaClienteId,
     })
 
-    revalidatePath('/solicitudes')
-    revalidatePath('/asistencias')
-    revalidatePath('/nomina')
-    revalidatePath('/dashboard')
+    await publishSolicitudUiChanges(service, {
+      cuentaClienteId,
+      empleadoId,
+      supervisorEmpleadoId,
+      fechaInicio,
+      fechaFin,
+      eventType: 'solicitud_registrada',
+    })
+
+    // Notificacion asincrona a coordinadores
+    if (initialStatus === 'ENVIADA') {
+      service
+        .from('empleado')
+        .select('nombre_completo, puesto')
+        .eq('id', empleadoId)
+        .maybeSingle()
+        .then(({ data: empData }) => {
+          notificarSolicitudCreada(service, {
+            empleadoNombre: empData?.nombre_completo ?? 'Colaborador',
+            puesto: empData?.puesto ?? 'Puesto no especificado',
+            tipo,
+            resumen: motivo || comentarios || 'Sin detalle',
+            cuentaClienteId,
+          }).catch(console.error)
+        })
+    }
 
     return buildState({
       ok: true,
@@ -1590,10 +1665,27 @@ async function resolverEstatusSolicitud(
     cuenta_cliente_id: cuentaClienteId,
   })
 
-  revalidatePath('/solicitudes')
-  revalidatePath('/asistencias')
-  revalidatePath('/dashboard')
-  revalidatePath('/nomina')
+  await publishSolicitudUiChanges(service, {
+    cuentaClienteId,
+    empleadoId: solicitud.empleado_id,
+    supervisorEmpleadoId: solicitud.supervisor_empleado_id,
+    fechaInicio: solicitud.fecha_inicio,
+    fechaFin: solicitud.fecha_fin,
+    eventType: `solicitud_estatus_${estatus.toLowerCase()}`,
+  })
+
+  // Notificacion asincrona al empleado
+  const finalStates = ['REGISTRADA', 'REGISTRADA_RH', 'RECHAZADA', 'CORRECCION_SOLICITADA']
+  if (finalStates.includes(estatus)) {
+    notificarSolicitudResuelta(service, {
+      empleadoId: solicitud.empleado_id,
+      adminNombre: actor.nombreCompleto ?? 'Administrador',
+      tipo: solicitud.tipo,
+      fecha: solicitud.fecha_inicio,
+      aprobado: estatus === 'REGISTRADA' || estatus === 'REGISTRADA_RH',
+      nota: comentariosResolucion ?? undefined,
+    }).catch(console.error)
+  }
 
   return buildState({
     ok: true,

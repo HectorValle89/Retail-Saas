@@ -1,10 +1,12 @@
 'use client'
-
-import { useActionState, useRef, useState } from 'react'
+import { useActionState, useCallback, useMemo, useRef, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { Button, Card, EvidencePreview, MetricCard as SharedMetricCard } from '@/components/ui'
 import { ClientImageFileInput } from '@/components/ui/client-image-file-input'
 import { getSingleTenantAccountLabel, isSingleTenantUiEnabled, resolveSingleTenantAccountOption } from '@/lib/tenant/singleTenant'
+import type { ActorActual } from '@/lib/auth/session'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import { actualizarEstatusGasto, registrarGastoOperativo } from '../actions'
 import { injectDirectR2Upload } from '@/lib/storage/directR2Client'
 import { ESTADO_GASTO_INICIAL } from '../state'
@@ -26,7 +28,39 @@ function formatApprovalStage(value: string) {
   return value.replace(/_/g, ' ')
 }
 
-export function GastosPanel({ data }: { data: GastosPanelData }) {
+export function GastosPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: GastosPanelData
+}) {
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    const response = await fetch('/api/gastos/panel', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    })
+    const payload = (await response.json()) as { data?: GastosPanelData; message?: string }
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de gastos.')
+    }
+
+    return payload.data
+  }, [])
+
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'gastos',
+    surfaces: ['panel', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 650,
+  })
+
   const [state, formAction] = useActionState(registrarGastoOperativo, ESTADO_GASTO_INICIAL)
   const [isUploadingR2, setIsUploadingR2] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)

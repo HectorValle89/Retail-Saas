@@ -7,8 +7,8 @@ import type {
 } from './types'
 
 const DB_NAME = 'retail-offline-db'
-const DB_VERSION = 1
-const DRAFT_STORES = ['asistencia_local', 'venta_local', 'love_local'] as const
+const DB_VERSION = 2
+const DRAFT_STORES = ['asistencia_local', 'venta_local', 'love_local', 'asignacion_resuelta_local'] as const
 
 interface OfflineDbSchema extends DBSchema {
   asistencia_local: {
@@ -23,6 +23,13 @@ interface OfflineDbSchema extends DBSchema {
     key: string
     value: OfflineDraftRecord<unknown>
   }
+  asignacion_resuelta_local: {
+    key: string
+    value: import('@/types/database').AsignacionDiariaResuelta
+    indexes: {
+      fecha: string
+    }
+  }
   sync_queue: {
     key: string
     value: OfflineSyncQueueItem<unknown>
@@ -33,7 +40,7 @@ interface OfflineDbSchema extends DBSchema {
   }
   meta: {
     key: string
-    value: Record<string, unknown>
+    value: { key: string; value: any }
   }
 }
 
@@ -47,33 +54,32 @@ async function createDatabase(): Promise<IDBPDatabase<OfflineDbSchema>> {
   const { openDB } = await import('idb')
 
   return openDB<OfflineDbSchema>(DB_NAME, DB_VERSION, {
-    upgrade(database) {
-      if (!database.objectStoreNames.contains('asistencia_local')) {
+    upgrade(database, oldVersion) {
+      if (oldVersion < 1) {
         database.createObjectStore('asistencia_local', { keyPath: 'id' })
-      }
-
-      if (!database.objectStoreNames.contains('venta_local')) {
         database.createObjectStore('venta_local', { keyPath: 'id' })
-      }
-
-      if (!database.objectStoreNames.contains('love_local')) {
         database.createObjectStore('love_local', { keyPath: 'id' })
-      }
-
-      if (!database.objectStoreNames.contains('sync_queue')) {
+        
         const syncStore = database.createObjectStore('sync_queue', { keyPath: 'id' })
         syncStore.createIndex('status', 'status', { unique: false })
         syncStore.createIndex('created_at', 'created_at', { unique: false })
+        
+        database.createObjectStore('meta', { keyPath: 'key' })
       }
 
-      if (!database.objectStoreNames.contains('meta')) {
-        database.createObjectStore('meta', { keyPath: 'key' })
+      if (oldVersion < 2) {
+        if (!database.objectStoreNames.contains('asignacion_resuelta_local')) {
+          const store = database.createObjectStore('asignacion_resuelta_local', { 
+            keyPath: ['empleado_id', 'fecha'] 
+          })
+          store.createIndex('fecha', 'fecha', { unique: false })
+        }
       }
     },
   })
 }
 
-function getDb() {
+export function getDb() {
   if (!dbPromise) {
     dbPromise = createDatabase()
   }

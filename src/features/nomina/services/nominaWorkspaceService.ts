@@ -1,5 +1,7 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
 import type {
   DocumentoExpedienteItem,
   EmpleadoListadoItem,
@@ -11,10 +13,20 @@ import {
   buildPayrollInbox,
   type EmployeePayrollInboxData,
 } from '@/features/empleados/lib/workflowInbox'
+import { createServiceClient } from '@/lib/supabase/server'
 import { getIncapacidadNextActor } from '@/features/solicitudes/lib/incapacidadWorkflow'
 import type { Puesto } from '@/types/database'
 
 type MaybeMany<T> = T | T[] | null
+
+function isSupabaseClient(value: unknown): value is SupabaseClient {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'from' in value &&
+      typeof (value as { from?: unknown }).from === 'function'
+  )
+}
 
 const SIGNED_URL_EXPIRY_SECONDS = 60 * 60 * 6
 
@@ -352,6 +364,8 @@ function mapEmpleadoListadoItem(
     workflowCancelAt: mapString(metadata.alta_cancelada_at),
     workflowCancelFromStage: mapString(metadata.alta_cancelada_desde_stage),
     adminAccessPending: metadata.admin_access_pending === true,
+    recruitmentSource: mapString(metadata.source),
+    candidateProfileSource: mapString(metadata.candidate_profile_source),
     onboarding: mapOnboardingSummary(metadata),
     username: null,
     estadoCuenta: null,
@@ -382,10 +396,10 @@ export interface NominaIncapacidadPendienteItem {
 
 export interface NominaWorkspaceSummary {
   totalMovimientos: number
-  altasImssPendientes: number
-  altasEnProceso: number
-  altasObservadas: number
+  altasPendientes: number
   bajasPendientes: number
+  bajasDevueltas: number
+  devueltasAReclutamiento: number
   movimientosCerrados: number
   incapacidadesPendientes: number
 }
@@ -399,7 +413,26 @@ export interface NominaWorkspaceData {
   mensajeInfraestructura?: string
 }
 
-export async function obtenerWorkspaceNomina(
+const NOMINA_PANEL_REVALIDATE_SECONDS = 60
+
+function buildNominaCacheKey(actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>) {
+  return JSON.stringify({
+    cuentaClienteId: actor.cuentaClienteId ?? null,
+    empleadoId: actor.empleadoId,
+    puesto: actor.puesto,
+  })
+}
+
+function buildNominaCacheTags(actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>) {
+  return buildModuleCacheTags({
+    module: 'nomina',
+    accountId: actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+  })
+}
+
+async function obtenerWorkspaceNominaUncached(
   supabase: SupabaseClient,
   actor: ActorActual
 ): Promise<NominaWorkspaceData> {
@@ -483,16 +516,16 @@ export async function obtenerWorkspaceNomina(
   ])
 
   if (employeesResult.error) {
-    return {
-      summary: {
-        totalMovimientos: 0,
-        altasImssPendientes: 0,
-        altasEnProceso: 0,
-        altasObservadas: 0,
-        bajasPendientes: 0,
-        movimientosCerrados: 0,
-        incapacidadesPendientes: 0,
-      },
+      return {
+        summary: {
+          totalMovimientos: 0,
+          altasPendientes: 0,
+          bajasPendientes: 0,
+          bajasDevueltas: 0,
+          devueltasAReclutamiento: 0,
+          movimientosCerrados: 0,
+          incapacidadesPendientes: 0,
+        },
       payrollInbox: [],
       incapacidadesPendientes: [],
       attendanceMonth: month,
@@ -553,10 +586,11 @@ export async function obtenerWorkspaceNomina(
   return {
     summary: {
       totalMovimientos: payrollInbox.reduce((total, lane) => total + lane.items.length, 0),
-      altasImssPendientes: payrollInbox.find((lane) => lane.key === 'altas-imss')?.items.length ?? 0,
-      altasEnProceso: payrollInbox.find((lane) => lane.key === 'altas-en-proceso')?.items.length ?? 0,
-      altasObservadas: payrollInbox.find((lane) => lane.key === 'altas-observadas')?.items.length ?? 0,
+      altasPendientes: payrollInbox.find((lane) => lane.key === 'altas-imss')?.items.length ?? 0,
       bajasPendientes: payrollInbox.find((lane) => lane.key === 'bajas-pendientes')?.items.length ?? 0,
+      bajasDevueltas: payrollInbox.find((lane) => lane.key === 'bajas-devueltas')?.items.length ?? 0,
+      devueltasAReclutamiento:
+        payrollInbox.find((lane) => lane.key === 'devueltas-a-reclutamiento')?.items.length ?? 0,
       movimientosCerrados: payrollInbox.find((lane) => lane.key === 'cerradas')?.items.length ?? 0,
       incapacidadesPendientes: incapacidadesPendientes.length,
     },
@@ -566,6 +600,38 @@ export async function obtenerWorkspaceNomina(
     infraestructuraLista: !incapacidadesResult.error,
     mensajeInfraestructura: incapacidadesResult.error?.message,
   }
+}
+
+export async function obtenerWorkspaceNomina(
+  actorOrSupabase: ActorActual | SupabaseClient,
+  actorOrCustomSupabase?: ActorActual | SupabaseClient
+): Promise<NominaWorkspaceData> {
+  if (isSupabaseClient(actorOrSupabase)) {
+    return obtenerWorkspaceNominaUncached(actorOrSupabase, actorOrCustomSupabase as ActorActual)
+  }
+
+  const actor = actorOrSupabase
+  const customSupabase = actorOrCustomSupabase && isSupabaseClient(actorOrCustomSupabase)
+    ? actorOrCustomSupabase
+    : undefined
+
+  if (customSupabase) {
+    return obtenerWorkspaceNominaUncached(customSupabase, actor)
+  }
+
+  const cacheKey = buildNominaCacheKey(actor)
+
+  return unstable_cache(
+    async () => {
+      const service = createServiceClient() as unknown as SupabaseClient
+      return obtenerWorkspaceNominaUncached(service, actor)
+    },
+    ['nomina:panel', cacheKey],
+    {
+      tags: buildNominaCacheTags(actor),
+      revalidate: NOMINA_PANEL_REVALIDATE_SECONDS,
+    }
+  )()
 }
 
 

@@ -1,18 +1,16 @@
-export const runtime = 'edge';
 import { requerirAdministradorActivo } from '@/lib/auth/session'
-import { createClient } from '@/lib/supabase/server'
 import { UsuariosPanel } from '@/features/usuarios/components/UsuariosPanel'
 import { obtenerPanelUsuarios } from '@/features/usuarios/services/usuarioService'
+import { readRuntimeEnv } from '@/lib/runtime/env'
 
 export const metadata = {
   title: 'Usuarios | Field Force Platform',
 }
 
 export default async function AdminUsersPage() {
-  await requerirAdministradorActivo()
-  const supabase = await createClient()
-  const data = await obtenerPanelUsuarios(supabase, {
-    backendAdminConfigurado: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+  const actor = await requerirAdministradorActivo()
+  const data = await obtenerPanelUsuarios(actor, {
+    backendAdminConfigurado: Boolean(readRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY')),
   })
 
   return (
@@ -27,8 +25,7 @@ export default async function AdminUsersPage() {
         </p>
       </header>
 
-      <UsuariosPanel data={data} />
+      <UsuariosPanel actor={actor} data={data} />
     </div>
   )
 }
-

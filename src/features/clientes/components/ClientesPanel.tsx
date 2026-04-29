@@ -1,8 +1,46 @@
+'use client'
+
 import { Card } from '@/components/ui/card'
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
+import type { ActorActual } from '@/lib/auth/session'
+import { useCallback, useMemo } from 'react'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import type { ClientesPanelData } from '../services/clienteService'
 
-export function ClientesPanel({ data }: { data: ClientesPanelData }) {
+export function ClientesPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: ClientesPanelData
+}) {
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    const response = await fetch('/api/clientes/panel', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    })
+    const payload = (await response.json()) as { data?: ClientesPanelData; message?: string }
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de clientes.')
+    }
+
+    return payload.data
+  }, [])
+
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'clientes',
+    surfaces: ['panel', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 650,
+  })
+
   return (
     <div className="space-y-6">
       {!data.infraestructuraLista && (

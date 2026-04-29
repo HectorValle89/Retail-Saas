@@ -1,3 +1,5 @@
+import { readRuntimeEnv } from '@/lib/runtime/env'
+
 export interface OperationalPushPayload {
   employeeIds: string[]
   title: string
@@ -14,7 +16,7 @@ export interface OperationalPushPayload {
 }
 
 function getPushFunctionUrl() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseUrl = readRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL')
 
   if (!supabaseUrl) {
     throw new Error('Push fanout no configurado: falta NEXT_PUBLIC_SUPABASE_URL.')
@@ -24,7 +26,7 @@ function getPushFunctionUrl() {
 }
 
 function getServiceRoleKey() {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const serviceRoleKey = readRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY')
 
   if (!serviceRoleKey) {
     throw new Error('Push fanout no configurado: falta SUPABASE_SERVICE_ROLE_KEY.')

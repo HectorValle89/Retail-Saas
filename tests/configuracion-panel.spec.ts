@@ -97,7 +97,7 @@ test('consolida catalogos, parametros y OCR centralizado para configuracion', as
           {
             id: 'cfg-ocr-model',
             clave: OCR_MODEL_CONFIG_KEY,
-            valor: 'gemini-2.5-flash',
+            valor: 'gemini-2.5-flash-lite',
             descripcion: 'Modelo OCR',
             modulo: 'integraciones',
           },
@@ -232,7 +232,7 @@ test('consolida catalogos, parametros y OCR centralizado para configuracion', as
     expect(data.ocr).toMatchObject({
       source: 'CONFIGURACION',
       effectiveProvider: 'gemini',
-      effectiveModel: 'gemini-2.5-flash',
+      effectiveModel: 'gemini-2.5-flash-lite',
       status: 'LISTO',
       available: true,
     })

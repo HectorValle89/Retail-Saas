@@ -1,7 +1,13 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { requerirActorActivo } from '@/lib/auth/session'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import {
+  buildUiChangeScope,
+  buildUiChangeTargetsFromBusinessEvent,
+  type UiChangeScope,
+  type UiChangeTarget,
+} from '@/lib/ui-change/types'
 import {
   buildOperationalDocumentUploadLimitMessage,
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES,
@@ -10,10 +16,13 @@ import {
 import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { getIsoDateInMexicoCity } from '@/lib/geo/mexicoStateTimezone'
 import {
+  getWeekDateIso,
   getWeekDayLabel,
   getWeekEndIso,
   getNextWeekStartIso,
+  getWeekStartIso,
   isAssignmentActiveForWeek,
   normalizeWeekStart,
 } from './lib/weeklyRoute'
@@ -26,7 +35,6 @@ import {
   type RutaChangeRequestType,
 } from './lib/routeWorkflow'
 import {
-  agendaEventNeedsCoordination,
   normalizeAgendaEventType,
   normalizeAgendaImpactMode,
   parseRutaAgendaEventMetadata,
@@ -36,6 +44,24 @@ import { SUPERVISOR_CHECKLIST_ITEMS } from './lib/supervisorVisitChecklist'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ESTADO_RUTA_INICIAL, type RutaActionState } from './state'
 import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
+import {
+  notificarRutaEnviada,
+  notificarRutaAprobada,
+  notificarRutaRechazada,
+  notificarCambioRutaSolicitado,
+  notificarCambioRutaResuelto,
+  notificarAgendaEventoCreado,
+  notificarAgendaEventoResuelto,
+} from '@/lib/notifications/workflows/rutaSemanalEmail'
+import {
+  isRouteDuplicateError,
+} from './lib/routeSaveErrors'
+import {
+  buildWeeklyRouteVisitSyncPlan,
+  type RouteWeeklyPlanDraftVisit,
+  type RouteWeeklyPlanExistingVisit,
+} from './lib/routeWeeklyPlan'
+
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TypedSupabaseClient = SupabaseClient<any>
@@ -43,11 +69,176 @@ type TypedSupabaseClient = SupabaseClient<any>
 const RUTA_EVIDENCIAS_BUCKET = 'operacion-evidencias'
 const RUTA_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 
+const RUTA_OPERATIONAL_DASHBOARD_EVENTS = new Set([
+  'ruta_visita_checkin',
+  'ruta_visita_checkout',
+  'ruta_visita_completada',
+  'ruta_agenda_evento_checkin',
+  'ruta_agenda_evento_checkout',
+  'ruta_agenda_evento_evidencia_unica',
+])
+
+const RUTA_SOLICITUD_EVENTS = new Set(['ruta_cambio_solicitado', 'ruta_cambio_resuelto'])
+
+function compactUiScopes(scopes: Array<UiChangeScope | null | undefined>) {
+  return Array.from(new Set(scopes.filter((scope): scope is UiChangeScope => Boolean(scope))))
+}
+
+function buildRutaScopedTargets({
+  eventType,
+  cuentaClienteId,
+  empleadoId,
+  supervisorEmpleadoId,
+  metadata,
+  supervisorScopes,
+  managerScopes,
+  modules,
+}: {
+  eventType: string
+  cuentaClienteId: string | null
+  empleadoId: string
+  supervisorEmpleadoId: string | null
+  metadata: Record<string, unknown>
+  supervisorScopes: UiChangeScope[]
+  managerScopes: UiChangeScope[]
+  modules: string[]
+}) {
+  const targets: UiChangeTarget[] = []
+
+  if (supervisorScopes.length > 0) {
+    targets.push(
+      ...buildUiChangeTargetsFromBusinessEvent({
+        eventType,
+        modules,
+        surfaces: ['panel'],
+        scopes: supervisorScopes,
+        cuentaClienteId,
+        empleadoId,
+        supervisorEmpleadoId,
+        roleTargets: ['SUPERVISOR'],
+        metadata,
+      })
+    )
+  }
+
+  if (managerScopes.length > 0) {
+    targets.push(
+      ...buildUiChangeTargetsFromBusinessEvent({
+        eventType,
+        modules,
+        surfaces: ['panel'],
+        scopes: managerScopes,
+        cuentaClienteId,
+        empleadoId,
+        supervisorEmpleadoId,
+        roleTargets: ['COORDINADOR', 'ADMINISTRADOR'],
+        metadata,
+      })
+    )
+  }
+
+  return targets
+}
+
+async function publishRutaSemanalUiChanges(
+  actor: Awaited<ReturnType<typeof requerirActorActivo>>,
+  service: TypedSupabaseClient,
+  {
+    cuentaClienteId,
+    supervisorEmpleadoId,
+    pdvId,
+    routeId,
+    visitId,
+    eventType,
+    weekStart,
+  }: {
+    cuentaClienteId?: string | null
+    supervisorEmpleadoId?: string | null
+    pdvId?: string | null
+    routeId?: string | null
+    visitId?: string | null
+    eventType: string
+    weekStart?: string | null
+  }
+) {
+  const resolvedSupervisorId =
+    supervisorEmpleadoId ?? (actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null)
+  const resolvedAccountId = cuentaClienteId ?? actor.cuentaClienteId ?? null
+  const supervisorScopes = compactUiScopes([
+    buildUiChangeScope('empleado', actor.empleadoId),
+    buildUiChangeScope('supervisor', resolvedSupervisorId),
+  ])
+  const managerScopes = compactUiScopes([
+    buildUiChangeScope('cuenta', resolvedAccountId),
+    buildUiChangeScope('periodo', weekStart ?? null),
+  ])
+  const metadata = {
+    routeId: routeId ?? null,
+    visitId: visitId ?? null,
+    pdvId: pdvId ?? null,
+    periodo: weekStart ?? null,
+  }
+  const targets = buildRutaScopedTargets({
+    eventType,
+    cuentaClienteId: resolvedAccountId,
+    empleadoId: actor.empleadoId,
+    supervisorEmpleadoId: resolvedSupervisorId,
+    metadata,
+    supervisorScopes,
+    managerScopes,
+    modules: ['ruta-semanal'],
+  })
+
+  if (RUTA_OPERATIONAL_DASHBOARD_EVENTS.has(eventType)) {
+    targets.push(
+      ...buildRutaScopedTargets({
+        eventType,
+        cuentaClienteId: resolvedAccountId,
+        empleadoId: actor.empleadoId,
+        supervisorEmpleadoId: resolvedSupervisorId,
+        metadata,
+        supervisorScopes,
+        managerScopes: compactUiScopes([buildUiChangeScope('cuenta', resolvedAccountId)]),
+        modules: ['dashboard', 'asistencias'],
+      })
+    )
+  }
+
+  if (RUTA_SOLICITUD_EVENTS.has(eventType)) {
+    targets.push(
+      ...buildRutaScopedTargets({
+        eventType,
+        cuentaClienteId: resolvedAccountId,
+        empleadoId: actor.empleadoId,
+        supervisorEmpleadoId: resolvedSupervisorId,
+        metadata,
+        supervisorScopes,
+        managerScopes,
+        modules: ['solicitudes'],
+      })
+    )
+  }
+
+  await publishUiChanges(targets, { service })
+}
+
 function buildState(partial: Partial<RutaActionState>): RutaActionState {
   return {
     ...ESTADO_RUTA_INICIAL,
     ...partial,
   }
+}
+
+function buildRouteSaveErrorState(error: unknown, fallbackMessage: string) {
+  // Si la ruta ya existe o la visita quedó materializada antes del reenvio,
+  // tratamos el duplicado como un guardado idempotente y seguimos el flujo normal.
+  if (isRouteDuplicateError(error)) {
+    return null
+  }
+
+  return buildState({
+    message: error instanceof Error ? error.message : fallbackMessage,
+  })
 }
 
 async function requerirSupervisorRutaEditable() {
@@ -94,6 +285,7 @@ async function uploadRutaEvidence(
     file,
     evidenceKind,
     directReference,
+    directThumbnailReference,
   }: {
     actorUsuarioId: string
     cuentaClienteId: string
@@ -101,6 +293,7 @@ async function uploadRutaEvidence(
     file: File | null
     evidenceKind: 'selfie' | 'evidencia'
     directReference?: ReturnType<typeof readDirectR2Reference>
+    directThumbnailReference?: ReturnType<typeof readDirectR2Reference>
   }
 ) {
   if (directReference && hasDirectR2Reference(directReference)) {
@@ -111,12 +304,27 @@ async function uploadRutaEvidence(
       reference: directReference,
     })
 
+    const registeredThumbnail =
+      directThumbnailReference && hasDirectR2Reference(directThumbnailReference)
+        ? await registerDirectR2Evidence(service, {
+            actorUsuarioId,
+            modulo: `ruta_semanal_${evidenceKind}_thumbnail`,
+            referenciaEntidadId: supervisorEmpleadoId,
+            reference: directThumbnailReference,
+          })
+        : null
+
     return {
       archivo: {
         url: registered.url,
         hash: registered.hash,
       },
-      miniatura: null,
+      miniatura: registeredThumbnail
+        ? {
+            url: registeredThumbnail.url,
+            hash: registeredThumbnail.hash,
+          }
+        : null,
       deduplicated: false,
       optimization: {
         optimizationKind: 'r2_direct',
@@ -170,6 +378,19 @@ function buildChecklist(formData: FormData) {
   )
 }
 
+function buildChecklistComments(formData: FormData) {
+  return Object.fromEntries(
+    SUPERVISOR_CHECKLIST_ITEMS.flatMap((item) => {
+      if (!('commentKey' in item)) {
+        return []
+      }
+
+      const value = normalizeText(formData.get(`checklist_comment_${item.commentKey}`))
+      return value ? [[item.commentKey, value]] : []
+    })
+  )
+}
+
 function normalizeOptionalNonNegativeInt(value: FormDataEntryValue | null) {
   const raw = String(value ?? '').trim()
   if (!raw) {
@@ -202,6 +423,18 @@ function normalizeGpsState(value: FormDataEntryValue | null) {
   }
 
   return 'PENDIENTE'
+}
+
+function normalizeGpsCaptureStatus(gpsState: ReturnType<typeof normalizeGpsState>) {
+  if (gpsState === 'SIN_GPS') {
+    return 'SIN_GPS'
+  }
+
+  if (gpsState === 'PENDIENTE') {
+    return 'PENDIENTE'
+  }
+
+  return 'OK'
 }
 
 function resolveRouteStatusFromApprovalState(approvalState: RutaApprovalState) {
@@ -435,6 +668,8 @@ export async function agregarVisitaRutaSemanal(
       .select('id, cuenta_cliente_id, estatus')
       .eq('supervisor_empleado_id', actor.empleadoId)
       .eq('semana_inicio', semanaInicio)
+      .order('updated_at', { ascending: false })
+      .limit(1)
       .maybeSingle()
 
     let rutaId = rutaExistente?.id ?? null
@@ -506,7 +741,14 @@ export async function agregarVisitaRutaSemanal(
       },
     })
 
-    revalidatePath('/ruta-semanal')
+    await publishRutaSemanalUiChanges(actor, supabase, {
+      cuentaClienteId: asignacionActiva.cuenta_cliente_id,
+      pdvId,
+      routeId: rutaId,
+      visitId: visita.id,
+      eventType: 'ruta_visita_programada',
+      weekStart: semanaInicio,
+    })
 
     return buildState({
       ok: true,
@@ -738,6 +980,18 @@ async function resolveSupervisorWeekAssignmentsAndPdvs(
   }
 }
 
+function resolveDayNumberWithinRouteWeek(weekStart: string, operationDate: string) {
+  const normalizedDate = operationDate.slice(0, 10)
+
+  for (let dayNumber = 1; dayNumber <= 7; dayNumber += 1) {
+    if (getWeekDateIso(weekStart, dayNumber) === normalizedDate) {
+      return dayNumber
+    }
+  }
+
+  return null
+}
+
 async function applyRouteChangeToDay({
   supabase,
   rutaId,
@@ -801,10 +1055,14 @@ async function applyRouteChangeToDay({
     }
   }
 
+  const occupiedOrders = new Set((currentDayVisits ?? []).map((v) => v.orden))
+  const processedVisits: any[] = []
+
   for (const proposal of proposedVisits) {
     const existing = currentVisitsByPdv.get(proposal.pdvId)
     const assignment = activeAssignments.get(proposal.pdvId)
 
+    // Si ya existe y es la misma, la actualizamos
     if (existing) {
       const { error: updateError } = await supabase
         .from('ruta_semanal_visita')
@@ -816,10 +1074,34 @@ async function applyRouteChangeToDay({
         .eq('id', existing.id)
 
       if (updateError) {
-        throw new Error(updateError.message)
+        // Si falla por duplicado de orden, intentamos buscar el siguiente disponible
+        if (isRouteDuplicateError(updateError)) {
+          let nextOrder = proposal.order
+          while (occupiedOrders.has(nextOrder)) {
+            nextOrder++
+          }
+          await supabase
+            .from('ruta_semanal_visita')
+            .update({
+              orden: nextOrder,
+              asignacion_id: assignment?.id ?? null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existing.id)
+          occupiedOrders.add(nextOrder)
+        } else {
+          throw new Error(updateError.message)
+        }
+      } else {
+        occupiedOrders.add(proposal.order)
       }
-
       continue
+    }
+
+    // Si es nueva, intentamos insertar
+    let orderToUse = proposal.order
+    while (occupiedOrders.has(orderToUse)) {
+      orderToUse++
     }
 
     const { error: insertError } = await supabase.from('ruta_semanal_visita').insert({
@@ -829,12 +1111,16 @@ async function applyRouteChangeToDay({
       pdv_id: proposal.pdvId,
       asignacion_id: assignment?.id ?? null,
       dia_semana: targetDayNumber,
-      orden: proposal.order,
+      orden: orderToUse,
       estatus: 'PLANIFICADA',
     })
 
     if (insertError) {
-      throw new Error(insertError.message)
+      if (!isRouteDuplicateError(insertError)) {
+        throw new Error(insertError.message)
+      }
+    } else {
+      occupiedOrders.add(orderToUse)
     }
   }
 }
@@ -850,7 +1136,7 @@ export async function guardarPlaneacionRutaSemanalCanvas(
     const rawPlan = String(formData.get('route_plan_json') ?? '[]').trim()
     const visits = parseRouteCanvasPayload(rawPlan)
     const semanaFin = getWeekEndIso(semanaInicio)
-    const editableWeekStart = getNextWeekStartIso()
+    const editableWeekStart = getWeekStartIso()
 
     if (semanaInicio < editableWeekStart) {
       return buildState({
@@ -863,6 +1149,8 @@ export async function guardarPlaneacionRutaSemanalCanvas(
       .select('id, cuenta_cliente_id, estatus, metadata')
       .eq('supervisor_empleado_id', actor.empleadoId)
       .eq('semana_inicio', semanaInicio)
+      .order('updated_at', { ascending: false })
+      .limit(1)
       .maybeSingle()
 
     const metadataColumnAvailable = !isRutaMetadataMissingError(rutaLookupWithMetadata.error?.message)
@@ -874,6 +1162,8 @@ export async function guardarPlaneacionRutaSemanalCanvas(
             .select('id, cuenta_cliente_id, estatus')
             .eq('supervisor_empleado_id', actor.empleadoId)
             .eq('semana_inicio', semanaInicio)
+            .order('updated_at', { ascending: false })
+            .limit(1)
             .maybeSingle()
 
     const rutaExistente = metadataColumnAvailable
@@ -884,7 +1174,7 @@ export async function guardarPlaneacionRutaSemanalCanvas(
       : rutaLookupFallback?.error ?? null
 
     if (rutaError) {
-      return buildState({ message: rutaError.message })
+      console.error('[Ruta] Error buscando ruta existente:', rutaError)
     }
 
     if (visits.length === 0 && !rutaExistente) {
@@ -892,6 +1182,7 @@ export async function guardarPlaneacionRutaSemanalCanvas(
     }
 
     const pdvIds = Array.from(new Set(visits.map((item) => item.pdvId)))
+    const submittedDays = Array.from(new Set(visits.map((item) => item.day)))
     const { data: asignaciones, error: asignacionError } = await supabase
       .from('asignacion')
       .select(
@@ -1008,138 +1299,157 @@ export async function guardarPlaneacionRutaSemanalCanvas(
         .select('id')
         .maybeSingle()
 
-      if (createRouteError || !nuevaRuta) {
-        return buildState({
-          message: createRouteError?.message ?? 'No fue posible crear la ruta semanal.',
-        })
-      }
+      if (createRouteError) {
+        if (isRouteDuplicateError(createRouteError)) {
+          const duplicateLookup = await supabase
+            .from('ruta_semanal')
+            .select('id')
+            .eq('supervisor_empleado_id', actor.empleadoId)
+            .eq('semana_inicio', semanaInicio)
+            .maybeSingle()
 
-      rutaId = nuevaRuta.id
-    } else {
-      const metadata = metadataColumnAvailable
-        ? (() => {
-            const currentMetadata = parseRutaSemanalWorkflowMetadata(
-              metadataColumnAvailable &&
-                rutaExistente &&
-                'metadata' in rutaExistente
-                ? (rutaExistente as unknown as RutaSemanalLookupRow).metadata
-                : null
-            )
-            currentMetadata.approval = {
-              state: 'PENDIENTE_COORDINACION',
-              note: 'Ruta actualizada por supervisor y reenviada a coordinacion.',
-              reviewedAt: null,
-              reviewedByUsuarioId: null,
-            }
-            return serializeRutaSemanalWorkflowMetadata(currentMetadata)
-          })()
-        : null
-
-      const { error: updateRouteError } = await supabase
-        .from('ruta_semanal')
-        .update({
-          estatus: 'BORRADOR',
-          notas: 'Ruta semanal reenviada por supervisor para aprobacion de coordinacion.',
-          updated_by_usuario_id: actor.usuarioId,
-          updated_at: new Date().toISOString(),
-          ...(metadataColumnAvailable ? { metadata } : {}),
-        })
-        .eq('id', rutaId)
-
-      if (updateRouteError) {
-        return buildState({ message: updateRouteError.message })
+          if (duplicateLookup.data?.id) {
+            rutaId = duplicateLookup.data.id
+          } else {
+            return buildState({
+              message: 'Ya existe una ruta para esta semana pero no fue posible recuperarla para actualizarla.',
+            })
+          }
+        } else {
+          return buildState({
+            message: createRouteError.message ?? 'No fue posible crear la ruta semanal.',
+          })
+        }
+      } else {
+        rutaId = nuevaRuta?.id ?? null
       }
     }
 
-    const { data: existingVisits, error: existingVisitsError } = await supabase
+    if (!rutaId) {
+      return buildState({ message: 'No fue posible resolver el identificador de la ruta semanal.' })
+    }
+
+    const { error: updateRouteHeaderError } = await supabase
+      .from('ruta_semanal')
+      .update({
+        estatus: 'BORRADOR',
+        notas: 'Ruta enviada o actualizada desde el canvas del supervisor.',
+        updated_by_usuario_id: actor.usuarioId,
+        updated_at: new Date().toISOString(),
+        ...(metadataColumnAvailable
+          ? {
+              metadata: serializeRutaSemanalWorkflowMetadata({
+                ...parseRutaSemanalWorkflowMetadata((rutaExistente as any)?.metadata ?? null),
+                approval: {
+                  state: 'PENDIENTE_COORDINACION',
+                  note: 'Ruta enviada o actualizada desde el canvas del supervisor.',
+                  reviewedAt: null,
+                  reviewedByUsuarioId: null,
+                },
+              }),
+            }
+          : {}),
+      })
+      .eq('id', rutaId)
+
+    if (updateRouteHeaderError) {
+      const updateErrorState = buildRouteSaveErrorState(
+        updateRouteHeaderError,
+        'No fue posible actualizar el estado de la ruta semanal.'
+      )
+
+      if (updateErrorState) {
+        return updateErrorState
+      }
+    }
+
+    const { data: existingRouteVisits, error: existingRouteVisitsError } = await supabase
       .from('ruta_semanal_visita')
-      .select('id, estatus, dia_semana, pdv_id')
+      .select('dia_semana, orden, pdv_id, estatus')
       .eq('ruta_semanal_id', rutaId)
       .limit(400)
 
-    if (existingVisitsError) {
-      return buildState({ message: existingVisitsError.message })
+    if (existingRouteVisitsError) {
+      return buildState({ message: existingRouteVisitsError.message })
     }
 
-    const submittedIds = new Set(visits.map((item) => item.visitId).filter((item): item is string => Boolean(item)))
-    const submittedCompositeKeys = new Set(
-      visits.map((item) => buildRouteVisitUniqueKey(item.day, item.pdvId))
-    )
-    const existingVisitByCompositeKey = new Map(
-      (existingVisits ?? []).map((item) => [buildRouteVisitUniqueKey(item.dia_semana, item.pdv_id), item])
-    )
-    const removableIds = (existingVisits ?? [])
-      .filter(
-        (item) =>
-          item.estatus === 'PLANIFICADA' &&
-          !submittedIds.has(item.id) &&
-          !submittedCompositeKeys.has(buildRouteVisitUniqueKey(item.dia_semana, item.pdv_id))
-      )
-      .map((item) => item.id)
+    let deleteQuery = supabase
+      .from('ruta_semanal_visita')
+      .delete()
+      .eq('ruta_semanal_id', rutaId)
+      .in('estatus', ['PLANIFICADA', 'CANCELADA'])
 
-    if (removableIds.length > 0) {
-      const { error: deleteError } = await supabase
-        .from('ruta_semanal_visita')
-        .delete()
-        .in('id', removableIds)
-
-      if (deleteError) {
-        return buildState({ message: deleteError.message })
-      }
+    if (submittedDays.length > 0) {
+      deleteQuery = deleteQuery.in('dia_semana', submittedDays)
     }
 
-    const groupedByDay = new Map<number, RouteCanvasVisitPayload[]>()
-    for (const visit of visits) {
-      const current = groupedByDay.get(visit.day) ?? []
-      current.push(visit)
-      groupedByDay.set(visit.day, current)
+    const { error: deleteError } = await deleteQuery
+
+    if (deleteError) {
+      return buildState({ message: deleteError.message })
     }
+
+    const plannedRouteVisits: RouteWeeklyPlanDraftVisit[] = []
 
     for (const day of [1, 2, 3, 4, 5, 6, 7]) {
-      const dayItems = groupedByDay.get(day) ?? []
+      const dayItems = (visits ?? []).filter((v) => v.day === day)
 
-      for (let index = 0; index < dayItems.length; index += 1) {
-        const visit = dayItems[index]
+      for (const visit of dayItems) {
         const assignment = activeAssignments.get(visit.pdvId)
-        const existingVisitForSlot = existingVisitByCompositeKey.get(buildRouteVisitUniqueKey(day, visit.pdvId))
-        const effectiveVisitId = visit.visitId ?? existingVisitForSlot?.id ?? null
 
         if (!assignment && !supervisorOwnedPdvs.has(visit.pdvId)) {
           continue
         }
 
-        if (effectiveVisitId) {
-          const { error: updateError } = await supabase
-            .from('ruta_semanal_visita')
-            .update({
-              pdv_id: visit.pdvId,
-              asignacion_id: assignment?.id ?? null,
-              cuenta_cliente_id: assignment?.cuenta_cliente_id ?? cuentaClienteId,
-              dia_semana: day,
-              orden: index + 1,
-              comentarios: visit.notes,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', effectiveVisitId)
+        plannedRouteVisits.push({
+          day,
+          pdvId: visit.pdvId,
+          notes: visit.notes ?? null,
+        })
+      }
+    }
 
-          if (updateError) {
-            return buildState({ message: updateError.message })
-          }
-        } else {
-          const { error: insertError } = await supabase.from('ruta_semanal_visita').insert({
+    const { insertVisits, skippedLockedVisits } = buildWeeklyRouteVisitSyncPlan(
+      (existingRouteVisits ?? []).map((visit) => ({
+        diaSemana: visit.dia_semana,
+        orden: visit.orden,
+        pdvId: visit.pdv_id,
+        estatus: visit.estatus,
+      })),
+      plannedRouteVisits
+    )
+
+    if (insertVisits.length > 0) {
+      const { error: insertError } = await supabase.from('ruta_semanal_visita').upsert(
+        insertVisits.map((v) => {
+          const assignment = activeAssignments.get(v.pdvId)
+
+          return {
             ruta_semanal_id: rutaId,
             cuenta_cliente_id: assignment?.cuenta_cliente_id ?? cuentaClienteId,
             supervisor_empleado_id: actor.empleadoId,
-            pdv_id: visit.pdvId,
+            pdv_id: v.pdvId,
             asignacion_id: assignment?.id ?? null,
-            dia_semana: day,
-            orden: index + 1,
-            comentarios: visit.notes,
-          })
-
-          if (insertError) {
-            return buildState({ message: insertError.message })
+            dia_semana: v.day,
+            orden: v.orden,
+            comentarios: v.notes,
+            estatus: 'PLANIFICADA',
           }
+        }),
+        {
+          onConflict: 'ruta_semanal_id,dia_semana,pdv_id',
+          ignoreDuplicates: false,
+        }
+      )
+
+      if (insertError) {
+        const insertErrorState = buildRouteSaveErrorState(
+          insertError,
+          'No fue posible programar la visita en la ruta semanal.'
+        )
+
+        if (insertErrorState) {
+          return insertErrorState
         }
       }
     }
@@ -1154,11 +1464,26 @@ export async function guardarPlaneacionRutaSemanalCanvas(
         semana_inicio: semanaInicio,
         total_visitas: visits.length,
         total_pdvs: pdvIds.length,
+        visitas_completadas_preservadas: skippedLockedVisits.length,
         approval_state: 'PENDIENTE_COORDINACION',
       },
     })
 
-    revalidatePath('/ruta-semanal')
+    await publishRutaSemanalUiChanges(actor, supabase, {
+      cuentaClienteId,
+      routeId: rutaId,
+      eventType: 'ruta_canvas_enviado_coordinacion',
+      weekStart: semanaInicio,
+    })
+
+    await notificarRutaEnviada(supabase, {
+      supervisorNombre: actor.nombreCompleto,
+      supervisorId: actor.empleadoId,
+      semana: semanaInicio,
+      cuentaClienteId,
+      totalTiendas: visits.length,
+      totalDias: new Set(visits.map((v) => v.day)).size,
+    })
 
     return buildState({
       ok: true,
@@ -1196,7 +1521,7 @@ export async function completarVisitaRutaSemanal(
 
     const { data: visita, error: visitaError } = await supabase
       .from('ruta_semanal_visita')
-      .select('id, ruta_semanal_id, cuenta_cliente_id, supervisor_empleado_id, estatus, selfie_url, evidencia_url')
+      .select('id, ruta_semanal_id, cuenta_cliente_id, supervisor_empleado_id, pdv_id, estatus, selfie_url, evidencia_url')
       .eq('id', visitaId)
       .maybeSingle()
 
@@ -1299,7 +1624,13 @@ export async function completarVisitaRutaSemanal(
       },
     })
 
-    revalidatePath('/ruta-semanal')
+    await publishRutaSemanalUiChanges(actor, supabase, {
+      cuentaClienteId: visita.cuenta_cliente_id,
+      pdvId: visita.pdv_id,
+      routeId: visita.ruta_semanal_id,
+      visitId: visitaId,
+      eventType: 'ruta_visita_completada',
+    })
 
     return buildState({
       ok: true,
@@ -1591,7 +1922,13 @@ export async function actualizarControlRutaSemanal(
         },
       })
 
-      revalidatePath('/ruta-semanal')
+      await publishRutaSemanalUiChanges(actor, service, {
+        cuentaClienteId: finalRutaCreada.cuenta_cliente_id,
+        supervisorEmpleadoId,
+        routeId: finalRutaCreada.id,
+        eventType: 'ruta_quota_creada',
+        weekStart: semanaInicio,
+      })
 
       return buildState({
         ok: true,
@@ -1687,7 +2024,29 @@ export async function actualizarControlRutaSemanal(
       },
     })
 
-    revalidatePath('/ruta-semanal')
+    await publishRutaSemanalUiChanges(actor, service, {
+      cuentaClienteId: ruta.cuenta_cliente_id,
+      supervisorEmpleadoId: ruta.supervisor_empleado_id,
+      routeId: resolvedRutaId,
+      eventType: 'ruta_control_actualizado',
+      weekStart: ruta.semana_inicio,
+    })
+
+    // Notificacion asincrona al supervisor
+    if (approvalState === 'APROBADA') {
+      await notificarRutaAprobada(service, {
+        supervisorId: targetSupervisorEmpleadoId,
+        coordinadorNombre: actor.nombreCompleto,
+        semana: targetWeekStart,
+      })
+    } else if (approvalState === 'CAMBIOS_SOLICITADOS') {
+      await notificarRutaRechazada(service, {
+        supervisorId: targetSupervisorEmpleadoId,
+        coordinadorNombre: actor.nombreCompleto,
+        semana: targetWeekStart,
+        nota: approvalNote ?? 'Tu ruta requiere cambios para ser aprobada.',
+      })
+    }
 
     return buildState({
       ok: true,
@@ -1750,6 +2109,29 @@ export async function solicitarCambioRutaSemanal(
 
     if (ruta.supervisor_empleado_id !== actor.empleadoId) {
       return buildState({ message: 'La ruta no pertenece al supervisor autenticado.' })
+    }
+
+    const metadata = parseRutaSemanalWorkflowMetadata(ruta.metadata)
+
+    if (metadata.approval.state !== 'APROBADA') {
+      return buildState({
+        message: 'Solo puedes solicitar cambios sobre rutas ya aprobadas.',
+      })
+    }
+
+    if (ruta.estatus !== 'PUBLICADA' && ruta.estatus !== 'EN_PROGRESO') {
+      return buildState({
+        message: 'La ruta ya no admite modificaciones desde correcciones.',
+      })
+    }
+
+    const targetOperationDate = getWeekDateIso(ruta.semana_inicio, targetDayNumber)
+    const todayIso = getIsoDateInMexicoCity()
+
+    if (targetOperationDate < todayIso) {
+      return buildState({
+        message: 'Solo puedes modificar dias actuales o futuros dentro de la ruta.',
+      })
     }
 
     const { data: dayVisits, error: dayVisitsError } = await supabase
@@ -1825,7 +2207,6 @@ export async function solicitarCambioRutaSemanal(
       }
     }
 
-    const metadata = parseRutaSemanalWorkflowMetadata(ruta.metadata)
     metadata.changeRequest = {
       status: 'PENDIENTE',
       note,
@@ -1883,7 +2264,21 @@ export async function solicitarCambioRutaSemanal(
       },
     })
 
-    revalidatePath('/ruta-semanal')
+    await publishRutaSemanalUiChanges(actor, supabase, {
+      cuentaClienteId: ruta.cuenta_cliente_id,
+      routeId: rutaId,
+      eventType: 'ruta_cambio_solicitado',
+      weekStart: ruta.semana_inicio,
+    })
+
+    // Notificacion asincrona a coordinadores
+    await notificarCambioRutaSolicitado(supabase, {
+      rutaId,
+      supervisorNombre: actor.nombreCompleto,
+      dia: resolvedTargetDayLabel,
+      nota: note,
+      cuentaClienteId: ruta.cuenta_cliente_id,
+    })
 
     return buildState({
       ok: true,
@@ -2007,7 +2402,22 @@ export async function resolverSolicitudCambioRutaSemanal(
       },
     })
 
-    revalidatePath('/ruta-semanal')
+    await publishRutaSemanalUiChanges(actor, service, {
+      cuentaClienteId: ruta.cuenta_cliente_id,
+      supervisorEmpleadoId: ruta.supervisor_empleado_id,
+      routeId: rutaId,
+      eventType: 'ruta_cambio_resuelto',
+      weekStart: ruta.semana_inicio,
+    })
+
+    // Notificacion asincrona al supervisor
+    await notificarCambioRutaResuelto(service, {
+      supervisorId: ruta.supervisor_empleado_id,
+      coordinadorNombre: actor.nombreCompleto,
+      dia: metadata.changeRequest.targetDayLabel || 'Sin dia especificado',
+      aprobado: decision === 'APROBAR',
+      nota: resolutionNote ?? undefined,
+    })
 
     return buildState({
       ok: true,
@@ -2081,9 +2491,110 @@ export async function registrarEventoAgendaRutaSemanal(
       return buildState({ message: 'La ruta no pertenece al supervisor autenticado.' })
     }
 
-    const approvalState = agendaEventNeedsCoordination(modoImpacto)
-      ? 'PENDIENTE_COORDINACION'
-      : 'NO_REQUIERE'
+    const approvalState = 'NO_REQUIERE'
+    let linkedVisitId: string | null = null
+
+    if (tipoEvento === 'VISITA_ADICIONAL') {
+      if (!pdvId) {
+        return buildState({ message: 'La visita adicional / cambio de tienda debe indicar un PDV.' })
+      }
+
+      const diaSemana = resolveDayNumberWithinRouteWeek(ruta.semana_inicio, fechaOperacion)
+
+      if (diaSemana === null) {
+        return buildState({
+          message: 'La fecha del evento debe caer dentro de la semana de la ruta aprobada.',
+        })
+      }
+
+      const semanaFin = getWeekEndIso(ruta.semana_inicio)
+      const { activeAssignments, supervisorOwnedPdvs } = await resolveSupervisorWeekAssignmentsAndPdvs(
+        supabase,
+        {
+          supervisorEmpleadoId: actor.empleadoId,
+          semanaInicio: ruta.semana_inicio,
+          semanaFin,
+          pdvIds: [pdvId],
+        }
+      )
+
+      if (!activeAssignments.has(pdvId) && !supervisorOwnedPdvs.has(pdvId)) {
+        return buildState({
+          message: 'Ese PDV no esta disponible para la supervisora dentro de esta semana operativa.',
+        })
+      }
+
+      const { data: existingVisits, error: existingVisitsError } = await supabase
+        .from('ruta_semanal_visita')
+        .select('id, pdv_id, orden')
+        .eq('ruta_semanal_id', ruta.id)
+        .eq('dia_semana', diaSemana)
+        .order('orden', { ascending: true })
+        .limit(120)
+
+      if (existingVisitsError) {
+        return buildState({
+          message: existingVisitsError.message || 'No fue posible validar las visitas actuales del dia.',
+        })
+      }
+
+      if ((existingVisits ?? []).some((visit) => visit.pdv_id === pdvId)) {
+        return buildState({
+          message: 'Ese PDV ya existe como visita en Mi ruta de hoy para la fecha seleccionada.',
+        })
+      }
+
+      const nextOrder =
+        (existingVisits ?? []).reduce((maxOrder, visit) => Math.max(maxOrder, visit.orden ?? 0), 0) + 1
+      const assignment = activeAssignments.get(pdvId) ?? null
+
+      const { data: insertedVisit, error: insertVisitError } = await supabase
+        .from('ruta_semanal_visita')
+        .insert({
+          ruta_semanal_id: ruta.id,
+          cuenta_cliente_id: assignment?.cuenta_cliente_id ?? ruta.cuenta_cliente_id,
+          supervisor_empleado_id: actor.empleadoId,
+          pdv_id: pdvId,
+          asignacion_id: assignment?.id ?? null,
+          dia_semana: diaSemana,
+          orden: nextOrder,
+          estatus: 'PLANIFICADA',
+          comentarios: descripcion,
+          metadata: {
+            source: 'ruta_agenda_evento',
+            source_type: tipoEvento,
+            operation_date: fechaOperacion,
+            source_title: titulo,
+          },
+        })
+        .select('id')
+        .maybeSingle()
+
+      if (insertVisitError || !insertedVisit) {
+        return buildState({
+          message: insertVisitError?.message ?? 'No fue posible agregar la visita adicional a Mi ruta de hoy.',
+        })
+      }
+
+      linkedVisitId = insertedVisit.id
+
+      await registrarEventoAudit(supabase, {
+        tabla: 'ruta_semanal_visita',
+        registroId: insertedVisit.id,
+        cuentaClienteId: assignment?.cuenta_cliente_id ?? ruta.cuenta_cliente_id,
+        usuarioId: actor.usuarioId,
+        payload: {
+          evento: 'ruta_visita_adicional_creada_desde_agenda',
+          ruta_semanal_id: ruta.id,
+          agenda_tipo_evento: tipoEvento,
+          pdv_id: pdvId,
+          fecha_operacion: fechaOperacion,
+          dia_semana: diaSemana,
+          orden: nextOrder,
+          modo_impacto: modoImpacto,
+        },
+      })
+    }
 
     const metadata = serializeRutaAgendaEventMetadata({
       displacedVisitIds,
@@ -2119,6 +2630,7 @@ export async function registrarEventoAgendaRutaSemanal(
       .insert({
         cuenta_cliente_id: ruta.cuenta_cliente_id,
         ruta_semanal_id: ruta.id,
+        ruta_semanal_visita_id: linkedVisitId,
         supervisor_empleado_id: actor.empleadoId,
         pdv_id: pdvId,
         fecha_operacion: fechaOperacion,
@@ -2138,6 +2650,10 @@ export async function registrarEventoAgendaRutaSemanal(
       .maybeSingle()
 
     if (insertError || !inserted) {
+      if (linkedVisitId) {
+        await supabase.from('ruta_semanal_visita').delete().eq('id', linkedVisitId)
+      }
+
       if (isRutaAgendaInfrastructureMissingError(insertError?.message)) {
         return buildAgendaInfrastructureState()
       }
@@ -2160,14 +2676,29 @@ export async function registrarEventoAgendaRutaSemanal(
       },
     })
 
-    revalidatePath('/ruta-semanal')
+    await publishRutaSemanalUiChanges(actor, supabase, {
+      cuentaClienteId: ruta.cuenta_cliente_id,
+      supervisorEmpleadoId: ruta.supervisor_empleado_id,
+      pdvId,
+      routeId: rutaId,
+      eventType: 'ruta_agenda_evento_creado',
+      weekStart: ruta.semana_inicio,
+    })
+
+    await notificarAgendaEventoCreado(supabase, {
+      eventoId: inserted.id,
+      supervisorNombre: actor.nombreCompleto,
+      tipo: tipoEvento,
+      fecha: fechaOperacion,
+      cuentaClienteId: ruta.cuenta_cliente_id,
+    })
 
     return buildState({
       ok: true,
       message:
-        approvalState === 'PENDIENTE_COORDINACION'
-          ? 'Evento registrado y enviado a coordinacion para aprobacion.'
-          : 'Evento registrado en la agenda operativa.',
+        tipoEvento === 'VISITA_ADICIONAL'
+          ? 'La visita adicional / cambio de tienda ya se agrego a Mi ruta de hoy.'
+          : 'Evento registrado en la agenda operativa. Coordinacion fue notificada.',
     })
   } catch (error) {
     if (error instanceof Error && isRutaAgendaInfrastructureMissingError(error.message)) {
@@ -2199,7 +2730,7 @@ export async function resolverEventoAgendaRutaSemanal(
     const { data: agendaEvento, error: eventError } = await service
       .from('ruta_agenda_evento')
       .select(
-        'id, cuenta_cliente_id, ruta_semanal_id, supervisor_empleado_id, fecha_operacion, modo_impacto, estatus_aprobacion, metadata'
+        'id, cuenta_cliente_id, ruta_semanal_id, supervisor_empleado_id, pdv_id, fecha_operacion, modo_impacto, estatus_aprobacion, metadata, titulo'
       )
       .eq('id', agendaEventoId)
       .maybeSingle()
@@ -2265,7 +2796,24 @@ export async function resolverEventoAgendaRutaSemanal(
       },
     })
 
-    revalidatePath('/ruta-semanal')
+    await publishRutaSemanalUiChanges(actor, supabase, {
+      cuentaClienteId: agendaEvento.cuenta_cliente_id,
+      supervisorEmpleadoId: agendaEvento.supervisor_empleado_id,
+      pdvId: agendaEvento.pdv_id,
+      routeId: agendaEvento.ruta_semanal_id,
+      eventType: 'ruta_agenda_evento_resuelto',
+      weekStart: agendaEvento.fecha_operacion,
+    })
+
+    // Notificacion asincrona al supervisor
+    await notificarAgendaEventoResuelto(service, {
+      supervisorId: agendaEvento.supervisor_empleado_id,
+      coordinadorNombre: actor.nombreCompleto,
+      titulo: agendaEvento.titulo,
+      fecha: agendaEvento.fecha_operacion,
+      aprobado: approved,
+      nota: resolutionNote ?? undefined,
+    })
 
     return buildState({
       ok: true,
@@ -2298,6 +2846,7 @@ export async function registrarInicioVisitaRutaSemanal(
     const longitud = normalizeFloat(formData.get('longitud'))
     const distanciaMetros = normalizeFloat(formData.get('distancia_metros'))
     const gpsState = normalizeGpsState(formData.get('estado_gps'))
+    const gpsCaptureStatus = normalizeGpsCaptureStatus(gpsState)
 
     if (!visitaId) {
       return buildState({ message: 'La visita es obligatoria.' })
@@ -2309,7 +2858,7 @@ export async function registrarInicioVisitaRutaSemanal(
 
     const { data: visita, error: visitaError } = await supabase
       .from('ruta_semanal_visita')
-      .select('id, ruta_semanal_id, cuenta_cliente_id, supervisor_empleado_id, metadata')
+      .select('id, ruta_semanal_id, cuenta_cliente_id, supervisor_empleado_id, pdv_id, metadata')
       .eq('id', visitaId)
       .maybeSingle()
 
@@ -2328,59 +2877,57 @@ export async function registrarInicioVisitaRutaSemanal(
       file: selfieFile,
       evidenceKind: 'selfie',
       directReference: selfieR2,
+      directThumbnailReference: readDirectR2Reference(formData, 'selfie_thumbnail'),
     })
 
     const metadata = parseRutaVisitaWorkflowMetadata(visita.metadata)
-    metadata.checkIn = {
+    const checkInPayload = {
       at: new Date().toISOString(),
       latitud,
       longitud,
       distanciaMetros,
       gpsState,
+      gpsCaptureStatus,
       selfieUrl: selfieUpload.archivo.url,
       selfieHash: selfieUpload.archivo.hash,
+      selfieThumbnailUrl: selfieUpload.miniatura?.url ?? null,
+      selfieThumbnailHash: selfieUpload.miniatura?.hash ?? null,
       evidenciaUrl: null,
       evidenciaHash: null,
+      evidenciaThumbnailUrl: null,
+      evidenciaThumbnailHash: null,
       comments,
     }
+    metadata.checkIn = checkInPayload
 
-    const { error: updateError } = await supabase
-      .from('ruta_semanal_visita')
-      .update({
-        metadata: serializeRutaVisitaWorkflowMetadata(metadata),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', visitaId)
-
-    if (updateError) {
-      return buildState({ message: updateError.message })
+    const rpcPayload = {
+      id: visitaId,
+      entidad_tipo: 'VISITA',
+      accion: 'CHECKIN',
+      usuario_id: actor.usuarioId,
+      cuenta_cliente_id: visita.cuenta_cliente_id,
+      selfie_url: selfieUpload.archivo.url,
+      selfie_thumbnail_url: selfieUpload.miniatura?.url ?? null,
+      metadata_delta: {
+        checkIn: checkInPayload,
+      },
     }
 
-    await supabase
-      .from('ruta_semanal')
-      .update({
-        estatus: 'EN_PROGRESO',
-        updated_by_usuario_id: actor.usuarioId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', visita.ruta_semanal_id)
-
-    await registrarEventoAudit(supabase, {
-      tabla: 'ruta_semanal_visita',
-      registroId: visitaId,
-      cuentaClienteId: visita.cuenta_cliente_id,
-      usuarioId: actor.usuarioId,
-      payload: {
-        evento: 'ruta_visita_checkin',
-        gps_state: gpsState,
-        latitud,
-        longitud,
-        distancia_metros: distanciaMetros,
-        selfie_hash: selfieUpload.archivo.hash,
-      },
+    const { data: rpcResult, error: rpcError } = await service.rpc('rpc_registrar_accion_ruta_supervisor', {
+      p_datos: rpcPayload,
     })
 
-    revalidatePath('/ruta-semanal')
+    if (rpcError || !rpcResult?.ok) {
+      throw new Error(rpcError?.message ?? 'No fue posible registrar el inicio de visita mediante RPC.')
+    }
+
+    await publishRutaSemanalUiChanges(actor, service, {
+      cuentaClienteId: visita.cuenta_cliente_id,
+      pdvId: visita.pdv_id,
+      routeId: visita.ruta_semanal_id,
+      visitId: visitaId,
+      eventType: 'ruta_visita_checkin',
+    })
 
     return buildState({
       ok: true,
@@ -2408,11 +2955,13 @@ export async function registrarSalidaVisitaRutaSemanal(
     const evidenciaR2 = readDirectR2Reference(formData, 'evidencia')
     const comments = normalizeText(formData.get('comments'))
     const checklist = buildChecklist(formData)
+    const checklistComments = buildChecklistComments(formData)
     const loveIsdinRecordsCount = normalizeOptionalNonNegativeInt(formData.get('love_isdin_records_count'))
     const latitud = normalizeFloat(formData.get('latitud'))
     const longitud = normalizeFloat(formData.get('longitud'))
     const distanciaMetros = normalizeFloat(formData.get('distancia_metros'))
     const gpsState = normalizeGpsState(formData.get('estado_gps'))
+    const gpsCaptureStatus = normalizeGpsCaptureStatus(gpsState)
 
     if (!visitaId) {
       return buildState({ message: 'La visita es obligatoria.' })
@@ -2420,10 +2969,6 @@ export async function registrarSalidaVisitaRutaSemanal(
 
     if (!selfieFile && !hasDirectR2Reference(selfieR2)) {
       return buildState({ message: 'La selfie de salida es obligatoria.' })
-    }
-
-    if (!Object.values(checklist).every(Boolean)) {
-      return buildState({ message: 'Debes completar el checklist al 100% antes de cerrar la visita.' })
     }
 
     if (!comments) {
@@ -2434,7 +2979,7 @@ export async function registrarSalidaVisitaRutaSemanal(
 
     const { data: visita, error: visitaError } = await supabase
       .from('ruta_semanal_visita')
-      .select('id, ruta_semanal_id, cuenta_cliente_id, supervisor_empleado_id, metadata')
+      .select('id, ruta_semanal_id, cuenta_cliente_id, supervisor_empleado_id, pdv_id, metadata')
       .eq('id', visitaId)
       .maybeSingle()
 
@@ -2458,6 +3003,7 @@ export async function registrarSalidaVisitaRutaSemanal(
       file: selfieFile,
       evidenceKind: 'selfie',
       directReference: selfieR2,
+      directThumbnailReference: readDirectR2Reference(formData, 'selfie_thumbnail'),
     })
 
     const evidenciaUpload = evidenciaFile || hasDirectR2Reference(evidenciaR2)
@@ -2468,81 +3014,66 @@ export async function registrarSalidaVisitaRutaSemanal(
           file: evidenciaFile,
           evidenceKind: 'evidencia',
           directReference: evidenciaR2,
+          directThumbnailReference: readDirectR2Reference(formData, 'evidencia_thumbnail'),
         })
       : null
 
     const metadata = parseRutaVisitaWorkflowMetadata(visita.metadata)
-    metadata.checklistComments = {}
+    metadata.checklistComments = checklistComments
     metadata.loveIsdinRecordsCount = loveIsdinRecordsCount
-    metadata.checkOut = {
+    const checkOutPayload = {
       at: new Date().toISOString(),
       latitud,
       longitud,
       distanciaMetros,
       gpsState,
+      gpsCaptureStatus,
       selfieUrl: selfieUpload.archivo.url,
       selfieHash: selfieUpload.archivo.hash,
+      selfieThumbnailUrl: selfieUpload.miniatura?.url ?? null,
+      selfieThumbnailHash: selfieUpload.miniatura?.hash ?? null,
       evidenciaUrl: evidenciaUpload?.archivo.url ?? null,
       evidenciaHash: evidenciaUpload?.archivo.hash ?? null,
+      evidenciaThumbnailUrl: evidenciaUpload?.miniatura?.url ?? null,
+      evidenciaThumbnailHash: evidenciaUpload?.miniatura?.hash ?? null,
       comments,
     }
+    metadata.checkOut = checkOutPayload
 
-    const completadaEn = new Date().toISOString()
-
-    const { error: updateError } = await supabase
-      .from('ruta_semanal_visita')
-      .update({
-        estatus: 'COMPLETADA',
-        selfie_url: selfieUpload.archivo.url,
-        evidencia_url: evidenciaUpload?.archivo.url ?? null,
-        checklist_calidad: checklist,
-        comentarios: comments,
-        completada_en: completadaEn,
-        metadata: serializeRutaVisitaWorkflowMetadata(metadata),
-        updated_at: completadaEn,
-      })
-      .eq('id', visitaId)
-
-    if (updateError) {
-      return buildState({ message: updateError.message })
+    const rpcPayload = {
+      id: visitaId,
+      entidad_tipo: 'VISITA',
+      accion: 'CHECKOUT',
+      usuario_id: actor.usuarioId,
+      cuenta_cliente_id: visita.cuenta_cliente_id,
+      selfie_url: selfieUpload.archivo.url,
+      selfie_thumbnail_url: selfieUpload.miniatura?.url ?? null,
+      evidencia_url: evidenciaUpload?.archivo.url ?? null,
+      evidencia_thumbnail_url: evidenciaUpload?.miniatura?.url ?? null,
+      checklist: checklist,
+      comments: comments,
+      metadata_delta: {
+        checklistComments,
+        loveIsdinRecordsCount,
+        checkOut: checkOutPayload,
+      },
     }
 
-    const { data: visitasRuta } = await supabase
-      .from('ruta_semanal_visita')
-      .select('id, estatus')
-      .eq('ruta_semanal_id', visita.ruta_semanal_id)
-      .limit(200)
-
-    const todasCompletadas = (visitasRuta ?? []).every((item) => item.estatus === 'COMPLETADA')
-
-    await supabase
-      .from('ruta_semanal')
-      .update({
-        estatus: todasCompletadas ? 'CERRADA' : 'EN_PROGRESO',
-        updated_by_usuario_id: actor.usuarioId,
-        updated_at: completadaEn,
-      })
-      .eq('id', visita.ruta_semanal_id)
-
-    await registrarEventoAudit(supabase, {
-      tabla: 'ruta_semanal_visita',
-      registroId: visitaId,
-      cuentaClienteId: visita.cuenta_cliente_id,
-      usuarioId: actor.usuarioId,
-      payload: {
-        evento: 'ruta_visita_checkout',
-        gps_state: gpsState,
-        latitud,
-        longitud,
-        distancia_metros: distanciaMetros,
-        checklist,
-        love_isdin_records_count: loveIsdinRecordsCount,
-        selfie_hash: selfieUpload.archivo.hash,
-        evidencia_hash: evidenciaUpload?.archivo.hash ?? null,
-      },
+    const { data: rpcResult, error: rpcError } = await service.rpc('rpc_registrar_accion_ruta_supervisor', {
+      p_datos: rpcPayload,
     })
 
-    revalidatePath('/ruta-semanal')
+    if (rpcError || !rpcResult?.ok) {
+      throw new Error(rpcError?.message ?? 'No fue posible cerrar la visita mediante RPC.')
+    }
+
+    await publishRutaSemanalUiChanges(actor, service, {
+      cuentaClienteId: visita.cuenta_cliente_id,
+      pdvId: visita.pdv_id,
+      routeId: visita.ruta_semanal_id,
+      visitId: visitaId,
+      eventType: 'ruta_visita_checkout',
+    })
 
     return buildState({
       ok: true,
@@ -2565,6 +3096,7 @@ export async function registrarInicioEventoAgendaRutaSemanal(
     const service = createServiceClient() as TypedSupabaseClient
     const agendaEventoId = String(formData.get('agenda_evento_id') ?? '').trim()
     const selfieFile = asUploadedFile(formData.get('selfie_file'))
+    const selfieR2 = readDirectR2Reference(formData, 'selfie')
     const comments = normalizeText(formData.get('comments'))
     const latitud = normalizeFloat(formData.get('latitud'))
     const longitud = normalizeFloat(formData.get('longitud'))
@@ -2581,7 +3113,7 @@ export async function registrarInicioEventoAgendaRutaSemanal(
 
     const { data: agendaEvento, error: eventError } = await supabase
       .from('ruta_agenda_evento')
-      .select('id, cuenta_cliente_id, supervisor_empleado_id, metadata')
+      .select('id, cuenta_cliente_id, ruta_semanal_id, supervisor_empleado_id, pdv_id, fecha_operacion, metadata')
       .eq('id', agendaEventoId)
       .maybeSingle()
 
@@ -2606,7 +3138,7 @@ export async function registrarInicioEventoAgendaRutaSemanal(
     })
 
     const metadata = parseRutaAgendaEventMetadata(agendaEvento.metadata)
-    metadata.checkIn = {
+    const checkInPayload = {
       at: new Date().toISOString(),
       latitud,
       longitud,
@@ -2614,31 +3146,48 @@ export async function registrarInicioEventoAgendaRutaSemanal(
       gpsState,
       selfieUrl: selfieUpload.archivo.url,
       selfieHash: selfieUpload.archivo.hash,
+      selfieThumbnailUrl: selfieUpload.miniatura?.url ?? null,
+      selfieThumbnailHash: selfieUpload.miniatura?.hash ?? null,
       evidenciaUrl: null,
       evidenciaHash: null,
+      evidenciaThumbnailUrl: null,
+      evidenciaThumbnailHash: null,
       comments,
     }
+    metadata.checkIn = checkInPayload
 
-    const { error: updateError } = await supabase
-      .from('ruta_agenda_evento')
-      .update({
-        estatus_ejecucion: 'EN_CURSO',
-        check_in_en: metadata.checkIn.at,
-        selfie_url: selfieUpload.archivo.url,
-        selfie_hash: selfieUpload.archivo.hash,
-        metadata: serializeRutaAgendaEventMetadata(metadata),
-      })
-      .eq('id', agendaEventoId)
-
-    if (updateError) {
-      if (isRutaAgendaInfrastructureMissingError(updateError.message)) {
-        return buildAgendaInfrastructureState()
-      }
-
-      return buildState({ message: updateError.message })
+    const rpcPayload = {
+      id: agendaEventoId,
+      entidad_tipo: 'EVENTO',
+      accion: 'CHECKIN',
+      usuario_id: actor.usuarioId,
+      cuenta_cliente_id: agendaEvento.cuenta_cliente_id,
+      selfie_url: selfieUpload.archivo.url,
+      selfie_thumbnail_url: selfieUpload.miniatura?.url ?? null,
+      metadata_delta: {
+        checkIn: checkInPayload,
+      },
     }
 
-    revalidatePath('/ruta-semanal')
+    const { data: rpcResult, error: rpcError } = await service.rpc('rpc_registrar_accion_ruta_supervisor', {
+      p_datos: rpcPayload,
+    })
+
+    if (rpcError || !rpcResult?.ok) {
+      if (isRutaAgendaInfrastructureMissingError(rpcError?.message)) {
+        return buildAgendaInfrastructureState()
+      }
+      throw new Error(rpcError?.message ?? 'No fue posible iniciar el evento operativo mediante RPC.')
+    }
+
+    await publishRutaSemanalUiChanges(actor, supabase, {
+      cuentaClienteId: agendaEvento.cuenta_cliente_id,
+      supervisorEmpleadoId: agendaEvento.supervisor_empleado_id,
+      pdvId: agendaEvento.pdv_id,
+      routeId: agendaEvento.ruta_semanal_id,
+      eventType: 'ruta_agenda_evento_checkin',
+      weekStart: agendaEvento.fecha_operacion,
+    })
 
     return buildState({
       ok: true,
@@ -2651,6 +3200,140 @@ export async function registrarInicioEventoAgendaRutaSemanal(
 
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible iniciar el evento operativo.',
+    })
+  }
+}
+
+export async function registrarEvidenciaEventoAgendaRutaSemanal(
+  _prevState: RutaActionState,
+  formData: FormData
+): Promise<RutaActionState> {
+  try {
+    const actor = await requerirSupervisorRutaEditable()
+    const supabase = await createClient()
+    const service = createServiceClient() as TypedSupabaseClient
+    const agendaEventoId = String(formData.get('agenda_evento_id') ?? '').trim()
+    const selfieFile = asUploadedFile(formData.get('selfie_file'))
+    const selfieR2 = readDirectR2Reference(formData, 'selfie')
+    const comments = normalizeText(formData.get('comments'))
+    const latitud = normalizeFloat(formData.get('latitud'))
+    const longitud = normalizeFloat(formData.get('longitud'))
+    const distanciaMetros = normalizeFloat(formData.get('distancia_metros'))
+    const gpsState = normalizeGpsState(formData.get('estado_gps'))
+
+    if (!agendaEventoId) {
+      return buildState({ message: 'El evento de agenda es obligatorio.' })
+    }
+
+    if (!selfieFile && !hasDirectR2Reference(selfieR2)) {
+      return buildState({ message: 'La selfie del evento es obligatoria.' })
+    }
+
+    if (!comments) {
+      return buildState({ message: 'El motivo o comentario del evento es obligatorio.' })
+    }
+
+    const { data: agendaEvento, error: eventError } = await supabase
+      .from('ruta_agenda_evento')
+      .select('id, cuenta_cliente_id, ruta_semanal_id, supervisor_empleado_id, pdv_id, fecha_operacion, metadata')
+      .eq('id', agendaEventoId)
+      .maybeSingle()
+
+    if (eventError || !agendaEvento) {
+      if (isRutaAgendaInfrastructureMissingError(eventError?.message)) {
+        return buildAgendaInfrastructureState()
+      }
+
+      return buildState({ message: eventError?.message ?? 'No fue posible encontrar el evento operativo.' })
+    }
+
+    if (agendaEvento.supervisor_empleado_id !== actor.empleadoId) {
+      return buildState({ message: 'El evento no pertenece al supervisor autenticado.' })
+    }
+
+    const selfieUpload = await uploadRutaEvidence(service, {
+      actorUsuarioId: actor.usuarioId,
+      cuentaClienteId: agendaEvento.cuenta_cliente_id,
+      supervisorEmpleadoId: actor.empleadoId,
+      file: selfieFile,
+      evidenceKind: 'selfie',
+      directReference: selfieR2,
+      directThumbnailReference: readDirectR2Reference(formData, 'selfie_thumbnail'),
+    })
+
+    const capturedAt = new Date().toISOString()
+    const metadata = parseRutaAgendaEventMetadata(agendaEvento.metadata)
+    const evidencePayload = {
+      at: capturedAt,
+      latitud,
+      longitud,
+      distanciaMetros,
+      gpsState,
+      selfieUrl: selfieUpload.archivo.url,
+      selfieHash: selfieUpload.archivo.hash,
+      selfieThumbnailUrl: selfieUpload.miniatura?.url ?? null,
+      selfieThumbnailHash: selfieUpload.miniatura?.hash ?? null,
+      evidenciaUrl: null,
+      evidenciaHash: null,
+      evidenciaThumbnailUrl: null,
+      evidenciaThumbnailHash: null,
+      comments,
+    }
+
+    metadata.checkIn = evidencePayload
+    metadata.checkOut = evidencePayload
+
+    const { error: updateError } = await service
+      .from('ruta_agenda_evento')
+      .update({
+        estatus_ejecucion: 'COMPLETADO',
+        check_in_en: capturedAt,
+        check_out_en: capturedAt,
+        selfie_url: selfieUpload.archivo.url,
+        metadata: serializeRutaAgendaEventMetadata(metadata),
+      })
+      .eq('id', agendaEventoId)
+
+    if (updateError) {
+      if (isRutaAgendaInfrastructureMissingError(updateError.message)) {
+        return buildAgendaInfrastructureState()
+      }
+
+      return buildState({ message: updateError.message })
+    }
+
+    await registrarEventoAudit(supabase, {
+      tabla: 'ruta_agenda_evento',
+      registroId: agendaEventoId,
+      cuentaClienteId: agendaEvento.cuenta_cliente_id,
+      usuarioId: actor.usuarioId,
+      payload: {
+        evento: 'ruta_agenda_evento_evidencia_unica',
+        fecha_operacion: agendaEvento.fecha_operacion,
+        estado_gps: gpsState,
+      },
+    })
+
+    await publishRutaSemanalUiChanges(actor, supabase, {
+      cuentaClienteId: agendaEvento.cuenta_cliente_id,
+      supervisorEmpleadoId: agendaEvento.supervisor_empleado_id,
+      pdvId: agendaEvento.pdv_id,
+      routeId: agendaEvento.ruta_semanal_id,
+      eventType: 'ruta_agenda_evento_evidencia_unica',
+      weekStart: agendaEvento.fecha_operacion,
+    })
+
+    return buildState({
+      ok: true,
+      message: 'Evidencia del evento registrada.',
+    })
+  } catch (error) {
+    if (error instanceof Error && isRutaAgendaInfrastructureMissingError(error.message)) {
+      return buildAgendaInfrastructureState()
+    }
+
+    return buildState({
+      message: error instanceof Error ? error.message : 'No fue posible registrar la evidencia del evento.',
     })
   }
 }
@@ -2682,7 +3365,7 @@ export async function registrarSalidaEventoAgendaRutaSemanal(
 
     const { data: agendaEvento, error: eventError } = await supabase
       .from('ruta_agenda_evento')
-      .select('id, cuenta_cliente_id, supervisor_empleado_id, metadata')
+      .select('id, cuenta_cliente_id, ruta_semanal_id, supervisor_empleado_id, pdv_id, fecha_operacion, metadata')
       .eq('id', agendaEventoId)
       .maybeSingle()
 
@@ -2720,8 +3403,7 @@ export async function registrarSalidaEventoAgendaRutaSemanal(
           evidenceKind: 'evidencia',
         })
       : null
-
-    metadata.checkOut = {
+    const checkOutPayload = {
       at: new Date().toISOString(),
       latitud,
       longitud,
@@ -2729,33 +3411,50 @@ export async function registrarSalidaEventoAgendaRutaSemanal(
       gpsState,
       selfieUrl: selfieUpload.archivo.url,
       selfieHash: selfieUpload.archivo.hash,
+      selfieThumbnailUrl: selfieUpload.miniatura?.url ?? null,
+      selfieThumbnailHash: selfieUpload.miniatura?.hash ?? null,
       evidenciaUrl: evidenciaUpload?.archivo.url ?? null,
       evidenciaHash: evidenciaUpload?.archivo.hash ?? null,
+      evidenciaThumbnailUrl: evidenciaUpload?.miniatura?.url ?? null,
+      evidenciaThumbnailHash: evidenciaUpload?.miniatura?.hash ?? null,
       comments,
     }
+    metadata.checkOut = checkOutPayload
 
-    const { error: updateError } = await supabase
-      .from('ruta_agenda_evento')
-      .update({
-        estatus_ejecucion: 'COMPLETADO',
-        check_out_en: metadata.checkOut.at,
-        selfie_url: selfieUpload.archivo.url,
-        selfie_hash: selfieUpload.archivo.hash,
-        evidencia_url: evidenciaUpload?.archivo.url ?? null,
-        evidencia_hash: evidenciaUpload?.archivo.hash ?? null,
-        metadata: serializeRutaAgendaEventMetadata(metadata),
-      })
-      .eq('id', agendaEventoId)
-
-    if (updateError) {
-      if (isRutaAgendaInfrastructureMissingError(updateError.message)) {
-        return buildAgendaInfrastructureState()
-      }
-
-      return buildState({ message: updateError.message })
+    const rpcPayload = {
+      id: agendaEventoId,
+      entidad_tipo: 'EVENTO',
+      accion: 'CHECKOUT',
+      usuario_id: actor.usuarioId,
+      cuenta_cliente_id: agendaEvento.cuenta_cliente_id,
+      selfie_url: selfieUpload.archivo.url,
+      selfie_thumbnail_url: selfieUpload.miniatura?.url ?? null,
+      evidencia_url: evidenciaUpload?.archivo.url ?? null,
+      evidencia_thumbnail_url: evidenciaUpload?.miniatura?.url ?? null,
+      metadata_delta: {
+        checkOut: checkOutPayload,
+      },
     }
 
-    revalidatePath('/ruta-semanal')
+    const { data: rpcResult, error: rpcError } = await service.rpc('rpc_registrar_accion_ruta_supervisor', {
+      p_datos: rpcPayload,
+    })
+
+    if (rpcError || !rpcResult?.ok) {
+      if (isRutaAgendaInfrastructureMissingError(rpcError?.message)) {
+        return buildAgendaInfrastructureState()
+      }
+      throw new Error(rpcError?.message ?? 'No fue posible cerrar el evento operativo mediante RPC.')
+    }
+
+    await publishRutaSemanalUiChanges(actor, supabase, {
+      cuentaClienteId: agendaEvento.cuenta_cliente_id,
+      supervisorEmpleadoId: agendaEvento.supervisor_empleado_id,
+      pdvId: agendaEvento.pdv_id,
+      routeId: agendaEvento.ruta_semanal_id,
+      eventType: 'ruta_agenda_evento_checkout',
+      weekStart: agendaEvento.fecha_operacion,
+    })
 
     return buildState({
       ok: true,

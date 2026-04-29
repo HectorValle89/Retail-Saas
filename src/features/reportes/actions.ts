@@ -1,8 +1,12 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase/server'
 import { requerirAdministradorActivo } from '@/lib/auth/session'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import {
+  buildUiChangeScope,
+  buildUiChangeTargetsFromBusinessEvent,
+} from '@/lib/ui-change/types'
 import { isExportFormat, isExportSectionKey } from './services/reporteExport'
 import { computeNextScheduledRun, type ReporteProgramadoFrecuencia } from './services/reporteScheduleService'
 import { ESTADO_REPORTE_PROGRAMADO_INICIAL, type ReporteProgramadoActionState } from './state'
@@ -69,6 +73,31 @@ async function registrarEventoAudit(service: ReturnType<typeof createServiceClie
     usuario_id: actorUsuarioId,
     cuenta_cliente_id: payload.cuenta_cliente_id ?? null,
   })
+}
+
+async function publishReportesScheduleChange(
+  service: ReturnType<typeof createServiceClient>,
+  input: {
+    eventType: string
+    cuentaClienteId?: string | null
+    metadata?: Record<string, unknown> | null
+  }
+) {
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType: input.eventType,
+      modules: ['reportes'],
+      surfaces: ['schedule'],
+      scopes: [
+        buildUiChangeScope('global'),
+        buildUiChangeScope('cuenta', input.cuentaClienteId ?? null),
+      ],
+      cuentaClienteId: input.cuentaClienteId ?? null,
+      roleTargets: ['ADMINISTRADOR'],
+      metadata: input.metadata ?? null,
+    }),
+    { service }
+  )
 }
 
 export async function programarReporteAutomatico(
@@ -143,7 +172,16 @@ export async function programarReporteAutomatico(
       proxima_ejecucion_en: proximaEjecucionEn,
     })
 
-    revalidatePath('/reportes')
+    await publishReportesScheduleChange(service, {
+      eventType: 'reporte_programado_creado',
+      cuentaClienteId: actor.cuentaClienteId,
+      metadata: {
+        scheduleId: data.id,
+        seccion,
+        formato,
+        periodicidad,
+      },
+    })
     return buildState({ ok: true, message: 'Reporte automatico programado.' })
   } catch (error) {
     return buildState({ message: error instanceof Error ? error.message : 'No fue posible programar el reporte.' })
@@ -165,5 +203,11 @@ export async function desactivarReporteProgramado(formData: FormData) {
     cuenta_cliente_id: actor.cuentaClienteId,
   })
 
-  revalidatePath('/reportes')
+  await publishReportesScheduleChange(service, {
+    eventType: 'reporte_programado_desactivado',
+    cuentaClienteId: actor.cuentaClienteId,
+    metadata: {
+      scheduleId,
+    },
+  })
 }

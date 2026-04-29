@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CuentaCliente } from '@/types/database'
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
 import { buildReportWindowMetadata, resolveReportWindow, resolveTimestampAgainstReportWindow } from '@/lib/operations/reportWindow'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -23,8 +24,8 @@ interface VentaPdvRow {
   clave_btl: string | null
   nombre: string | null
   ciudad:
-    | { nombre: string | null; estado: string | null }
-    | Array<{ nombre: string | null; estado: string | null }>
+    | { nombre: string | null }
+    | Array<{ nombre: string | null }>
     | null
 }
 
@@ -146,7 +147,7 @@ async function resolveVentaAttendanceContext(
       .maybeSingle(),
     service
       .from('pdv')
-      .select('id, clave_btl, nombre, ciudad:ciudad_id(nombre, estado)')
+      .select('id, clave_btl, nombre, ciudad:ciudad_id(nombre)')
       .eq('id', pdvId)
       .maybeSingle(),
   ])
@@ -179,9 +180,10 @@ async function resolveVentaAttendanceContext(
   }
 
   const pdvCity = getFirst(pdv.ciudad)
+  const pdvState = resolveMexicoStateFromCity(pdvCity?.nombre ?? null)
   const reportWindow = resolveReportWindow({
     operationDate: attendance.fecha_operacion,
-    pdvState: pdvCity?.estado ?? null,
+    pdvState,
     checkInUtc: attendance.check_in_utc,
     checkOutUtc: attendance.check_out_utc,
     nowUtc: fechaUtc,
@@ -198,7 +200,7 @@ async function resolveVentaAttendanceContext(
   return {
     attendance,
     pdv,
-    pdvState: pdvCity?.estado ?? null,
+    pdvState,
     timezone: reportWindow.timezone,
   }
 }
@@ -271,53 +273,8 @@ export async function registerVentaWithService(
     pdv_nombre: context.pdv.nombre,
   }
 
-  if (input.id) {
-    const existingById = await service
-      .from('venta')
-      .select('id')
-      .eq('id', input.id)
-      .maybeSingle()
-
-    if (existingById.error) {
-      throw new Error(existingById.error.message)
-    }
-
-    if (existingById.data?.id) {
-      return {
-        id: existingById.data.id as string,
-        inserted: false,
-        replacedExisting: true,
-        context: {
-          cuentaClienteId: cuenta.id,
-          cuentaClienteNombre: cuenta.nombre ?? null,
-          cuentaClienteIdentificador: cuenta.identificador ?? null,
-          empleadoId: input.empleadoId,
-          pdvId: input.pdvId,
-          attendanceId: context.attendance.id,
-          fechaOperacion: context.attendance.fecha_operacion,
-          timezone: context.timezone,
-          pdvEstado: context.pdvState,
-          pdvClaveBtl: context.pdv.clave_btl,
-          pdvNombre: context.pdv.nombre,
-        },
-      }
-    }
-  }
-
-  const existingRows = await findExistingVentaForReplacement(service, {
-    empleadoId: input.empleadoId,
-    pdvId: input.pdvId,
-    productoId: input.productoId,
-  })
-  const existingSameDay = existingRows.find((item) => {
-    const metadataRecord =
-      item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
-        ? item.metadata
-        : {}
-    return String(metadataRecord.fecha_operativa ?? '') === context.attendance.fecha_operacion
-  })
-
-  const payload = {
+  const rpcPayload = {
+    id: input.id ?? null,
     cuenta_cliente_id: cuenta.id,
     asistencia_id: context.attendance.id,
     empleado_id: input.empleadoId,
@@ -337,25 +294,18 @@ export async function registerVentaWithService(
     metadata,
   }
 
-  const mutation = existingSameDay?.id
-    ? await service.from('venta').update(payload).eq('id', existingSameDay.id).select('id').maybeSingle()
-    : await service
-        .from('venta')
-        .insert({
-          id: input.id ?? undefined,
-          ...payload,
-        })
-        .select('id')
-        .maybeSingle()
+  const { data, error } = await service.rpc('rpc_registrar_venta', {
+    p_datos: rpcPayload,
+  })
 
-  if (mutation.error || !mutation.data?.id) {
-    throw new Error(mutation.error?.message ?? 'No fue posible registrar la venta.')
+  if (error || !data?.ok) {
+    throw new Error(error?.message ?? 'No fue posible registrar la venta mediante RPC.')
   }
 
   return {
-    id: mutation.data.id as string,
-    inserted: !existingSameDay?.id,
-    replacedExisting: Boolean(existingSameDay?.id),
+    id: data.id,
+    inserted: data.inserted,
+    replacedExisting: data.replacedExisting,
     context: {
       cuentaClienteId: cuenta.id,
       cuentaClienteNombre: cuenta.nombre ?? null,

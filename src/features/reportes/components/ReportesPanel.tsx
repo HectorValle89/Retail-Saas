@@ -1,12 +1,16 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useCallback, useMemo, type ReactNode } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
-import type { ReportesPanelData } from '../services/reporteService'
+import type { ActorActual } from '@/lib/auth/session'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
+import type { AsistenciaReporteItem, ReportesPanelData } from '../services/reporteService'
 import type { ExportFormat, ExportSectionKey } from '../services/reporteExport'
 
 function formatCurrency(value: number) {
@@ -37,7 +41,45 @@ function buildExportHref(section: ExportSectionKey, periodo: string, format: Exp
   return `/api/reportes/export?${params.toString()}`
 }
 
-export function ReportesPanel({ data }: { data: ReportesPanelData }) {
+export function ReportesPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: ReportesPanelData
+}) {
+  const searchParams = useSearchParams()
+  const queryString = searchParams.toString()
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(
+    async (signal: AbortSignal) => {
+      const target = queryString ? `/api/reportes/panel?${queryString}` : '/api/reportes/panel'
+      const response = await fetch(target, {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal,
+      })
+      const payload = (await response.json()) as { data?: ReportesPanelData; message?: string }
+
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.message ?? 'No fue posible refrescar el panel de reportes.')
+      }
+
+      return payload.data
+    },
+    [queryString]
+  )
+
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'reportes',
+    surfaces: ['panel'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 650,
+  })
+
   return (
     <div className="space-y-6">
       <Card className="border-slate-200 bg-slate-50">
@@ -101,9 +143,70 @@ export function ReportesPanel({ data }: { data: ReportesPanelData }) {
         </div>
       </Card>
 
-      <ReportSection title="Reporte de asistencias" description="Consolidado por empleado, PDV y periodo con desglose de validadas, retardos, justificadas y faltas." summary={`Mostrando ${data.asistencias.length} de ${data.paginacion.totalAsistencias}`} exportSection="asistencias" periodo={data.filtros.periodo} headers={['Periodo', 'Empleado', 'Cliente', 'PDV', 'Totales']} emptyMessage="Sin asistencias visibles todavia." columnCount={5} rows={data.asistencias.map((item) => ({ key: `${item.periodo}-${item.empleadoId ?? item.idNomina ?? item.empleado}-${item.pdv}`, cells: [<span key="periodo" className="text-slate-600">{item.periodo}</span>, <div key="empleado" className="text-slate-600"><div className="font-medium text-slate-900">{item.empleado}</div><div className="mt-1 text-xs text-slate-400">{item.idNomina ?? 'sin nomina'} / {item.puesto ?? 'sin puesto'}</div></div>, <span key="cliente" className="text-slate-600">{item.cuentaCliente ?? 'Sin cliente'}</span>, <span key="pdv" className="text-slate-600">{item.pdv}</span>, <div key="totales" className="text-slate-600"><div>{item.totalJornadas} jornadas</div><div className="mt-1 text-xs text-emerald-700">{item.jornadasValidas} validas</div><div className="mt-1 text-xs text-slate-400">{item.jornadasCerradas} cerradas</div><div className="mt-1 text-xs text-amber-700">{item.jornadasPendientes} pendientes</div><div className="mt-1 text-xs text-sky-700">{item.retardos} retardos</div><div className="mt-1 text-xs text-violet-700">{item.ausenciasJustificadas} justificadas</div><div className="mt-1 text-xs text-rose-700">{item.faltas} faltas</div></div>] }))} />
+      <ReportSection
+        title="Reporte de asistencias"
+        description="Consolidado por empleado, PDV y periodo con desglose de validadas, retardos, justificadas y faltas."
+        summary={`Mostrando ${data.asistencias.length} de ${data.paginacion.totalAsistencias}`}
+        exportSection="asistencias"
+        periodo={data.filtros.periodo}
+        headers={['Periodo', 'Empleado', 'Cliente', 'PDV', 'Totales']}
+        emptyMessage="Sin asistencias visibles todavia."
+        columnCount={5}
+        rows={data.asistencias.map((item) => ({
+          key: `${item.periodo}-${item.empleadoId ?? item.idNomina ?? item.empleado}-${item.pdv}`,
+          cells: [
+            <span key="periodo" className="text-slate-600">
+              {item.periodo}
+            </span>,
+            <div key="empleado" className="text-slate-600">
+              <div className="font-medium text-slate-900">{item.empleado}</div>
+              <div className="mt-1 text-xs text-slate-400">
+                {item.idNomina ?? 'sin nomina'} / {item.puesto ?? 'sin puesto'}
+              </div>
+            </div>,
+            <span key="cliente" className="text-slate-600">{item.cuentaCliente ?? 'Sin cliente'}</span>,
+            <span key="pdv" className="text-slate-600">{item.pdv}</span>,
+            <AttendanceTotals item={item} />,
+          ],
+        }))}
+      />
       <ReportSection title="Reporte de ventas" description="Consolidado por producto, PDV, DC y periodo para exportacion operativa inmediata." summary={`Mostrando ${data.ventas.length} de ${data.paginacion.totalVentas}`} exportSection="ventas" periodo={data.filtros.periodo} headers={['Periodo', 'DC', 'Cliente', 'PDV / Producto', 'Cierres']} emptyMessage="Sin ventas confirmadas visibles todavia." columnCount={5} rows={data.ventas.map((item) => ({ key: `${item.periodo}-${item.empleadoId ?? item.idNomina ?? item.dc}-${item.pdv}-${item.producto}`, cells: [<span key="periodo" className="text-slate-600">{item.periodo}</span>, <div key="dc" className="text-slate-600"><div className="font-medium text-slate-900">{item.dc}</div><div className="mt-1 text-xs text-slate-400">{item.idNomina ?? 'sin nomina'} / {item.puesto ?? 'sin puesto'}</div></div>, <span key="cliente" className="text-slate-600">{item.cuentaCliente ?? 'Sin cliente'}</span>, <div key="producto" className="text-slate-600"><div>{item.pdv}</div><div className="mt-1 text-xs text-slate-400">{item.producto}</div></div>, <div key="cierres" className="text-slate-600"><div>{item.ventasConfirmadas} confirmadas</div><div className="mt-1 text-xs text-slate-400">{item.unidadesConfirmadas} uds</div><div className="mt-1 text-xs font-medium text-emerald-700">{formatCurrency(item.montoConfirmado)}</div></div>] }))} />
-      <ReportSection title="Reporte de cumplimiento de campanas" description="Seguimiento por campana y PDV dentro del periodo filtrado." summary={`Mostrando ${data.campanas.length} de ${data.paginacion.totalCampanas}`} exportSection="campanas" periodo={data.filtros.periodo} headers={['Periodo', 'Campana', 'PDV', 'DC', 'Pendientes', 'Avance']} emptyMessage="Sin campanas visibles en el periodo seleccionado." columnCount={6} rows={data.campanas.map((item) => ({ key: `${item.periodo}-${item.campana}-${item.pdv}`, cells: [<span key="periodo" className="text-slate-600">{item.periodo}</span>, <span key="campana" className="font-medium text-slate-900">{item.campana}</span>, <span key="pdv" className="text-slate-600">{item.pdv}</span>, <div key="dc" className="text-slate-600"><div>{item.dc ?? 'Sin DC visible'}</div><div className="mt-1 text-xs text-slate-400">{item.estatus}</div></div>, <span key="pendientes" className="text-slate-600">{item.tareasPendientes} tareas / {item.evidenciasPendientes} evidencias</span>, <span key="avance" className="font-medium text-slate-900">{item.avancePorcentaje.toFixed(2)}%</span>] }))} />
+      <ReportSection
+        title="Reporte de cumplimiento de campanas"
+        description="Seguimiento por campana y PDV dentro del periodo filtrado."
+        summary={
+          `Mostrando ${data.campanas.length} de ${data.paginacion.totalCampanas}`
+        }
+        exportSection="campanas"
+        periodo={data.filtros.periodo}
+        headers={['Periodo', 'Campana', 'PDV', 'DC', 'Pendientes', 'Avance']}
+        emptyMessage="Sin campanas visibles en el periodo seleccionado."
+        columnCount={6}
+        rows={data.campanas.map((item) => ({
+          key: `${item.periodo}-${item.campana}-${item.pdv}`,
+          cells: [
+            <span key="periodo" className="text-slate-600">
+              {item.periodo}
+            </span>,
+            <span key="campana" className="font-medium text-slate-900">
+              {item.campana}
+            </span>,
+            <span key="pdv" className="text-slate-600">
+              {item.pdv}
+            </span>,
+            <div key="dc" className="text-slate-600">
+              <div>{item.dc ?? 'Sin DC visible'}</div>
+              <div className="mt-1 text-xs text-slate-400">{item.estatus}</div>
+            </div>,
+            <span key="pendientes" className="text-slate-600">
+              {item.tareasPendientes} tareas / {item.evidenciasPendientes} evidencias
+            </span>,
+            <span key="avance" className="font-medium text-slate-900">
+              {item.avancePorcentaje.toFixed(2)}%
+            </span>,
+          ],
+        }))}
+      />
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card className="overflow-hidden p-0"><SectionHeader title="Ranking comercial" description="Top de colaboradoras por monto confirmado y unidades cerradas." summary={`Mostrando ${data.rankingVentas.length} de ${data.paginacion.totalRankingVentas}`} exportAction={<ExportActions section="ranking_ventas" periodo={data.filtros.periodo} />} /><SimpleTable headers={['Colaborador', 'Cliente', 'Volumen', 'Monto']} emptyMessage="Sin ventas confirmadas visibles todavia." columnCount={4} rows={data.rankingVentas.map((item) => ({ key: `${item.empleadoId ?? item.idNomina ?? item.empleado}-${item.cuentaCliente ?? 'sin-cuenta'}`, cells: [<div key="colaborador" className="text-slate-600"><div className="font-medium text-slate-900">{item.empleado}</div><div className="mt-1 text-xs text-slate-400">{item.idNomina ?? 'sin nomina'} / {item.puesto ?? 'sin puesto'}</div></div>, <span key="cliente" className="text-slate-600">{item.cuentaCliente ?? 'Sin cliente'}</span>, <div key="volumen" className="text-slate-600"><div>{item.ventasConfirmadas} cierres</div><div className="mt-1 text-xs text-slate-400">{item.unidadesConfirmadas} uds</div></div>, <span key="monto" className="font-medium text-emerald-700">{formatCurrency(item.montoConfirmado)}</span>] }))} /></Card>
@@ -122,6 +225,45 @@ export function ReportesPanel({ data }: { data: ReportesPanelData }) {
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return <SharedMetricCard label={label} value={value} />
+}
+
+function AttendanceTotals({ item }: { item: AsistenciaReporteItem }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      <InlineStat label="Total" value={String(item.totalJornadas)} tone="slate" />
+      <InlineStat label="Validas" value={String(item.jornadasValidas)} tone="emerald" />
+      <InlineStat label="Cerradas" value={String(item.jornadasCerradas)} tone="sky" />
+      <InlineStat label="Pendientes" value={String(item.jornadasPendientes)} tone="amber" />
+      <InlineStat label="Retardos" value={String(item.retardos)} tone="violet" />
+      <InlineStat label="Faltas" value={String(item.faltas)} tone="rose" />
+    </div>
+  )
+}
+
+function InlineStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: string
+  tone: 'slate' | 'emerald' | 'sky' | 'amber' | 'violet' | 'rose'
+}) {
+  const toneClasses: Record<'slate' | 'emerald' | 'sky' | 'amber' | 'violet' | 'rose', string> = {
+    slate: 'border-slate-200 bg-slate-50 text-slate-700',
+    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    sky: 'border-sky-200 bg-sky-50 text-sky-700',
+    amber: 'border-amber-200 bg-amber-50 text-amber-700',
+    violet: 'border-violet-200 bg-violet-50 text-violet-700',
+    rose: 'border-rose-200 bg-rose-50 text-rose-700',
+  }
+
+  return (
+    <div className={`rounded-2xl border px-3 py-2 ${toneClasses[tone]}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{label}</p>
+      <p className="mt-1 text-base font-semibold text-slate-950">{value}</p>
+    </div>
+  )
 }
 
 function ExportLink({ href, label }: { href: string; label: string }) {

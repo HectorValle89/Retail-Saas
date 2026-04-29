@@ -1,5 +1,3 @@
-export const runtime = 'edge';
-import { AppRuntime } from '@/components/app/AppRuntime'
 import { ModuleThemeLayer } from '@/components/layout/ModuleThemeLayer'
 import { Sidebar } from '@/components/layout/sidebar'
 import { requerirActorActivo } from '@/lib/auth/session'
@@ -18,9 +16,7 @@ export default async function MainLayout({
       {!usesFieldShell && <Sidebar actor={actor} />}
       <main className={usesFieldShell ? 'min-h-screen' : 'min-h-screen lg:ml-72'}>
         <ModuleThemeLayer>{children}</ModuleThemeLayer>
-        <AppRuntime />
       </main>
     </div>
   )
 }
-

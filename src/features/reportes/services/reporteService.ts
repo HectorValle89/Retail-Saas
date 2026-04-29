@@ -1,5 +1,7 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
 import {
   deriveAttendanceDiscipline,
   type AttendanceDisciplineAssignment,
@@ -7,14 +9,10 @@ import {
 } from '@/features/asistencias/lib/attendanceDiscipline'
 import { formacionTargetsEmployee } from '@/features/formaciones/lib/formacionTargeting'
 import {
-  obtenerPanelCampanas,
-  type CampanaItem,
-  type CampanasPanelData,
-} from '@/features/campanas/services/campanaService'
-import {
   computeLoveQuotaProgress,
   fetchLoveQuotaTargetRows,
 } from '@/features/love-isdin/lib/loveQuota'
+import { createServiceClient } from '@/lib/supabase/server'
 import type {
   Asignacion,
   Asistencia,
@@ -449,12 +447,12 @@ interface NominaAcumulado {
 }
 
 interface ObtenerPanelReportesOptions {
-  actor?: ActorActual
   period?: string
   page?: number
   pageSize?: number
-  campaignData?: Pick<CampanasPanelData, 'campanas'> | null
 }
+
+const REPORTES_PANEL_REVALIDATE_SECONDS = 60
 
 function getDefaultPeriod() {
   const now = new Date()
@@ -478,6 +476,33 @@ function normalizePageSize(value?: number) {
   return Math.min(100, Math.max(10, Math.floor(value)))
 }
 
+function buildReportesCacheKey(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
+  options: ObtenerPanelReportesOptions
+) {
+  return JSON.stringify({
+    cuentaClienteId: actor.cuentaClienteId ?? null,
+    empleadoId: actor.empleadoId,
+    puesto: actor.puesto,
+    period: options.period ?? null,
+    page: normalizePage(options.page),
+    pageSize: normalizePageSize(options.pageSize),
+  })
+}
+
+function buildReportesCacheTags(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
+  options: ObtenerPanelReportesOptions
+) {
+  return buildModuleCacheTags({
+    module: 'reportes',
+    accountId: actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+    period: options.period ?? null,
+  })
+}
+
 function buildMonthRange(period: string) {
   const [yearRaw, monthRaw] = period.split('-')
   const year = Number(yearRaw)
@@ -499,10 +524,6 @@ function buildMonthRange(period: string) {
     startDateTime: start.toISOString(),
     endDateTimeExclusive: end.toISOString(),
   }
-}
-
-function overlapsSelectedMonth(campaign: CampanaItem, range: ReturnType<typeof buildMonthRange>) {
-  return campaign.fechaInicio < range.endDateExclusive && campaign.fechaFin >= range.startDate
 }
 
 function paginateItems<T>(items: T[], page: number, pageSize: number) {
@@ -698,7 +719,8 @@ export function obtenerPanelReportesShell(
   }
 }
 
-export async function obtenerPanelReportes(
+async function obtenerPanelReportesUncached(
+  actor: ActorActual,
   supabase: SupabaseClient,
   options: ObtenerPanelReportesOptions = {}
 ): Promise<ReportesPanelData> {
@@ -709,7 +731,7 @@ export async function obtenerPanelReportes(
     pageSize: normalizePageSize(options.pageSize),
   }
 
-  const asistenciasQuery = supabase
+  let asistenciasQuery = supabase
     .from('asistencia')
     .select(`
       id,
@@ -724,10 +746,14 @@ export async function obtenerPanelReportes(
     `)
     .gte('fecha_operacion', range.startDate)
     .lt('fecha_operacion', range.endDateExclusive)
-    .order('created_at', { ascending: false })
+    .order('fecha_operacion', { ascending: false })
     .limit(400)
 
-  const ventasQuery = supabase
+  if (actor.cuentaClienteId) {
+    asistenciasQuery = asistenciasQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+
+  let ventasQuery = supabase
     .from('venta')
     .select(`
       id,
@@ -748,7 +774,11 @@ export async function obtenerPanelReportes(
     .order('fecha_utc', { ascending: false })
     .limit(400)
 
-  const cuotasQuery = supabase
+  if (actor.cuentaClienteId) {
+    ventasQuery = ventasQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+
+  let cuotasQuery = supabase
     .from('cuota_empleado_periodo')
     .select(`
       id,
@@ -763,7 +793,11 @@ export async function obtenerPanelReportes(
     .order('created_at', { ascending: false })
     .limit(120)
 
-  const ledgerQuery = supabase
+  if (actor.cuentaClienteId) {
+    cuotasQuery = cuotasQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+
+  let ledgerQuery = supabase
     .from('nomina_ledger')
     .select(`
       id,
@@ -780,7 +814,11 @@ export async function obtenerPanelReportes(
     .order('created_at', { ascending: false })
     .limit(300)
 
-  const gastosQuery = supabase
+  if (actor.cuentaClienteId) {
+    ledgerQuery = ledgerQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+
+  let gastosQuery = supabase
     .from('gasto')
     .select(`
       id,
@@ -798,7 +836,11 @@ export async function obtenerPanelReportes(
     .order('fecha_gasto', { ascending: false })
     .limit(400)
 
-  const loveQuery = supabase
+  if (actor.cuentaClienteId) {
+    gastosQuery = gastosQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+
+  let loveQuery = supabase
     .from('love_isdin')
     .select(`
       id,
@@ -816,7 +858,11 @@ export async function obtenerPanelReportes(
     .order('fecha_utc', { ascending: false })
     .limit(400)
 
-  const auditQuery = supabase
+  if (actor.cuentaClienteId) {
+    loveQuery = loveQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+
+  let auditQuery = supabase
     .from('audit_log')
     .select(`
       id,
@@ -830,6 +876,10 @@ export async function obtenerPanelReportes(
     `)
     .order('created_at', { ascending: false })
     .limit(60)
+
+  if (actor.cuentaClienteId) {
+    auditQuery = auditQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
 
   const asignacionesQuery = supabase
     .from('asignacion')
@@ -1136,22 +1186,7 @@ export async function obtenerPanelReportes(
     }
   }
 
-  const campaignSource = options.campaignData ?? (options.actor ? await obtenerPanelCampanas(options.actor) : null)
-  const campaignRows = (campaignSource?.campanas ?? [])
-    .filter((campaign) => overlapsSelectedMonth(campaign, range))
-    .flatMap((campaign) =>
-      campaign.pdvs.map((item) => ({
-        periodo: range.period,
-        campana: campaign.nombre,
-        pdv: `${item.claveBtl} - ${item.pdv}`,
-        dc: item.dcNombre,
-        estatus: item.estatus,
-        avancePorcentaje: item.avancePorcentaje,
-        tareasPendientes: item.tareasPendientes,
-        evidenciasPendientes: Math.max(0, item.evidenciasRequeridas.length - item.evidenciasCargadas),
-      }))
-    )
-    .sort((left, right) => right.avancePorcentaje - left.avancePorcentaje)
+  const campaignRows: CampanaReporteItem[] = []
 
   const clientes = new Map<string, ClienteAcumulado>()
   const asistenciasReportadas = new Map<string, AsistenciaAcumulado>()
@@ -1698,4 +1733,28 @@ export async function obtenerPanelReportes(
     bitacora: paginateItems(bitacoraItems, safePage, filtros.pageSize),
     infraestructuraLista: true,
   }
+}
+
+export async function obtenerPanelReportes(
+  actor: ActorActual,
+  options: ObtenerPanelReportesOptions = {},
+  customSupabase?: SupabaseClient
+): Promise<ReportesPanelData> {
+  if (customSupabase) {
+    return obtenerPanelReportesUncached(actor, customSupabase, options)
+  }
+
+  const cacheKey = buildReportesCacheKey(actor, options)
+
+  return unstable_cache(
+    async () => {
+      const service = createServiceClient() as unknown as SupabaseClient
+      return obtenerPanelReportesUncached(actor, service, options)
+    },
+    ['reportes:panel', cacheKey],
+    {
+      tags: buildReportesCacheTags(actor, options),
+      revalidate: REPORTES_PANEL_REVALIDATE_SECONDS,
+    }
+  )()
 }

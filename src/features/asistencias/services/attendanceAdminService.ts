@@ -28,7 +28,7 @@ type PdvWithRelations = Pick<
   'id' | 'nombre' | 'clave_btl' | 'zona' | 'estatus' | 'horario_entrada' | 'horario_salida'
 > & {
   cadena: MaybeMany<Pick<Cadena, 'id' | 'nombre'>>
-  ciudad: MaybeMany<Pick<Ciudad, 'id' | 'nombre' | 'estado'>>
+  ciudad: MaybeMany<Pick<Ciudad, 'id' | 'nombre'>>
 }
 
 type EmployeeMonthRow = Pick<
@@ -128,6 +128,8 @@ export interface AttendanceAdminEvidenceItem {
   url: string
   kind: 'SELFIE_IN' | 'SELFIE_OUT' | 'JUSTIFICANTE'
   hash: string | null
+  attendanceId: string | null
+  requestId: string | null
 }
 
 export interface AttendanceAdminDayDetail {
@@ -345,6 +347,14 @@ function isWorkday(assignment: AssignmentMonthRow, date: string) {
   const parsed = parseDiasLaborales(assignment.dias_laborales)
   if (parsed.dias.length === 0) return true
   return parsed.dias.includes(code)
+}
+
+function hasPersistentRestOverride(day: MaterializedCalendarDay) {
+  const flags = day.flags && typeof day.flags === 'object' && !Array.isArray(day.flags)
+    ? (day.flags as Record<string, unknown>)
+    : {}
+
+  return Boolean(flags.descanso_override ?? flags.descanso_override_id)
 }
 
 function resolveNumericConfigValue(value: unknown, fallback: number) {
@@ -620,7 +630,7 @@ async function loadAttendanceAdminContext(
 
   const [pdvsResult, supervisorsResult] = await Promise.all([
     pdvIds.length > 0
-      ? supabase.from('pdv').select('id, nombre, clave_btl, zona, estatus, horario_entrada, horario_salida, cadena:cadena_id(id, nombre), ciudad:ciudad_id(id, nombre, estado)').in('id', pdvIds)
+    ? supabase.from('pdv').select('id, nombre, clave_btl, zona, estatus, horario_entrada, horario_salida, cadena:cadena_id(id, nombre), ciudad:ciudad_id(id, nombre, zona)').in('id', pdvIds)
       : Promise.resolve({ data: [], error: null }),
     supervisorIds.length > 0
       ? supabase.from('empleado').select('id, nombre_completo').in('id', supervisorIds)
@@ -797,7 +807,9 @@ function buildCellDraft(
   const sourceId = attendance?.id ?? null
   const activeAssignments = assignments.filter((item) => overlapsDate(item.fecha_inicio, item.fecha_fin, day.fecha))
   const hasAssignment = activeAssignments.length > 0
-  const scheduledWorkday = activeAssignments.some((item) => isWorkday(item, day.fecha)) || (day.laborable && day.estadoOperativo === 'ASIGNADA_PDV')
+  const scheduledWorkday = hasPersistentRestOverride(day)
+    ? false
+    : activeAssignments.some((item) => isWorkday(item, day.fecha)) || (day.laborable && day.estadoOperativo === 'ASIGNADA_PDV')
 
   if (employee?.fecha_baja && day.fecha >= employee.fecha_baja) {
     return { fecha: day.fecha, codigo: 'B', label: labelForCode('B'), tone: toneForCode('B'), description: 'Empleado dado de baja en este tramo.', detailRef, hasDetail: true, sourceType: 'SISTEMA', sourceId: employee.id, isTardy: false }
@@ -1048,9 +1060,9 @@ export async function obtenerDetalleAdministrativoAsistencia(
   const pdv = day.pdvId ? context.pdvs.get(day.pdvId) ?? null : null
   const requestSource = draft.sourceType === 'SOLICITUD' ? requests.find((item) => item.id === draft.sourceId) ?? null : null
   const evidencias: AttendanceAdminEvidenceItem[] = []
-  if (attendance?.selfie_check_in_url) evidencias.push({ label: 'Selfie de entrada', url: attendance.selfie_check_in_url, kind: 'SELFIE_IN', hash: attendance.selfie_check_in_hash })
-  if (attendance?.selfie_check_out_url) evidencias.push({ label: 'Selfie de salida', url: attendance.selfie_check_out_url, kind: 'SELFIE_OUT', hash: attendance.selfie_check_out_hash })
-  if (requestSource?.justificante_url) evidencias.push({ label: 'Justificante', url: requestSource.justificante_url, kind: 'JUSTIFICANTE', hash: requestSource.justificante_hash })
+  if (attendance?.selfie_check_in_url) evidencias.push({ label: 'Selfie de entrada', url: attendance.selfie_check_in_url, kind: 'SELFIE_IN', hash: attendance.selfie_check_in_hash, attendanceId: attendance.id, requestId: null })
+  if (attendance?.selfie_check_out_url) evidencias.push({ label: 'Selfie de salida', url: attendance.selfie_check_out_url, kind: 'SELFIE_OUT', hash: attendance.selfie_check_out_hash, attendanceId: attendance.id, requestId: null })
+  if (requestSource?.justificante_url) evidencias.push({ label: 'Justificante', url: requestSource.justificante_url, kind: 'JUSTIFICANTE', hash: requestSource.justificante_hash, attendanceId: null, requestId: requestSource.id })
 
   return {
     fecha,

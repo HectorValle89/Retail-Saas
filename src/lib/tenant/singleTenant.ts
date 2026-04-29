@@ -30,6 +30,10 @@ export function getSingleTenantAccountId() {
   return SINGLE_TENANT_ACCOUNT_ID
 }
 
+export function resolveSingleTenantAccountId(_accountId: string | null | undefined) {
+  return SINGLE_TENANT_ACCOUNT_ID
+}
+
 export function resolveSingleTenantAccountOption<T extends AccountOptionLike>(options: T[]) {
   return (
     options.find((item) => normalizeAccountText(item.identificador) === SINGLE_TENANT_ACCOUNT_IDENTIFIER) ??

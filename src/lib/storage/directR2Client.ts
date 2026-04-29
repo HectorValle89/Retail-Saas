@@ -14,6 +14,8 @@ interface DirectR2UploadOptions {
   modulo: string
   removeFieldName?: string
   fieldNames?: Partial<DirectR2FieldNames>
+  thumbnailFieldNames?: Partial<DirectR2FieldNames>
+  thumbnailFileSuffix?: string
 }
 
 export interface DirectR2UploadedFile {
@@ -132,6 +134,85 @@ function computeSha256Fallback(bytes: Uint8Array) {
   return hash.map((value) => (value >>> 0).toString(16).padStart(8, '0')).join('')
 }
 
+async function loadImageSource(file: File) {
+  if (typeof window === 'undefined') {
+    throw new Error('La generacion de miniaturas directas requiere navegador.')
+  }
+
+  if ('createImageBitmap' in window) {
+    return await createImageBitmap(file)
+  }
+
+  const image = document.createElement('img')
+  const objectUrl = URL.createObjectURL(file)
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error('No fue posible cargar la imagen para generar la miniatura.'))
+      image.src = objectUrl
+    })
+
+    return image
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
+async function canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number) {
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((value) => {
+      if (!value) {
+        reject(new Error('No fue posible generar la miniatura.'))
+        return
+      }
+
+      resolve(value)
+    }, 'image/jpeg', quality)
+  })
+}
+
+async function buildThumbnailFile(file: File, fileSuffix = '-thumb') {
+  if (!file.type.startsWith('image/')) {
+    return null
+  }
+
+  const source = await loadImageSource(file)
+  const sourceWidth = source instanceof ImageBitmap ? source.width : source.naturalWidth
+  const sourceHeight = source instanceof ImageBitmap ? source.height : source.naturalHeight
+  const maxDimension = 320
+  const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight))
+  const width = Math.max(1, Math.round(sourceWidth * scale))
+  const height = Math.max(1, Math.round(sourceHeight * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+
+  const context = canvas.getContext('2d')
+  if (!context) {
+    throw new Error('No fue posible inicializar el lienzo de miniatura.')
+  }
+
+  context.drawImage(source as CanvasImageSource, 0, 0, width, height)
+
+  const qualitySteps = [0.76, 0.68, 0.6, 0.54, 0.48]
+  let blob = await canvasToJpegBlob(canvas, qualitySteps[0] ?? 0.7)
+
+  for (const quality of qualitySteps.slice(1)) {
+    if (blob.size <= 20 * 1024) {
+      break
+    }
+
+    blob = await canvasToJpegBlob(canvas, quality)
+  }
+
+  const baseName = file.name.replace(/\.[^.]+$/, '') || 'thumbnail'
+  return new File([blob], `${baseName}${fileSuffix}.jpg`, {
+    type: 'image/jpeg',
+    lastModified: Date.now(),
+  })
+}
+
 export async function computeFileSha256(file: File) {
   const buffer = await file.arrayBuffer()
   if (typeof window !== 'undefined' && window.crypto?.subtle) {
@@ -186,6 +267,21 @@ export async function injectDirectR2Upload(
   formData.set(fieldNames.fileName, uploaded.fileName)
   formData.set(fieldNames.contentType, uploaded.contentType)
   formData.set(fieldNames.size, String(uploaded.size))
+
+  if (options.thumbnailFieldNames) {
+    const thumbnailFile = await buildThumbnailFile(file, options.thumbnailFileSuffix)
+
+    if (thumbnailFile) {
+      const thumbnailUploaded = await uploadFileDirectToR2(thumbnailFile, options.modulo)
+      const thumbnailFieldNames = resolveFieldNames(options.thumbnailFieldNames)
+
+      formData.set(thumbnailFieldNames.objectKey, thumbnailUploaded.objectKey)
+      formData.set(thumbnailFieldNames.sha256, thumbnailUploaded.sha256)
+      formData.set(thumbnailFieldNames.fileName, thumbnailUploaded.fileName)
+      formData.set(thumbnailFieldNames.contentType, thumbnailUploaded.contentType)
+      formData.set(thumbnailFieldNames.size, String(thumbnailUploaded.size))
+    }
+  }
 
   return uploaded
 }

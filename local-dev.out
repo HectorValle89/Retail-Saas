@@ -1,0 +1,44 @@
+
+> saas-factory-app@0.1.0 dev
+> next dev --turbopack -p 3000
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.10.186:3000
+- Environments: .env.local, .env
+- Experiments (use with caution):
+  · proxyClientMaxBodySize: "15mb"
+  · serverActions
+
+✓ Starting...
+Using secrets defined in .dev.vars
+✓ Ready in 2.1s
+ GET /ruta-semanal 307 in 2.9s (compile: 2.5s, render: 391ms)
+ GET /login 200 in 380ms (compile: 151ms, render: 229ms)
+ GET /ruta-semanal 307 in 70ms (compile: 4ms, render: 66ms)
+ GET /login 200 in 38ms (compile: 3ms, render: 35ms)
+ GET / 307 in 86ms (compile: 51ms, render: 35ms)
+ GET /login 200 in 36ms (compile: 3ms, render: 33ms)
+ GET /dashboard 200 in 3.1s (compile: 362ms, render: 2.8s)
+ POST /login 303 in 7.1s (compile: 3ms, render: 7.1s)
+ GET /api/dashboard/supervisor-today-route 200 in 2.3s (compile: 329ms, render: 2.0s)
+ GET /api/dashboard/supervisor-route-panel?focus=ruta-agenda 200 in 1896ms (compile: 162ms, render: 1734ms)
+ GET /dashboard 200 in 1287ms (compile: 3ms, render: 1284ms)
+ GET / 307 in 183ms (compile: 87ms, render: 96ms)
+ GET /login 200 in 54ms (compile: 10ms, render: 44ms)
+ GET / 307 in 40ms (compile: 4ms, render: 37ms)
+ GET /login 200 in 35ms (compile: 2ms, render: 32ms)
+ GET / 307 in 33ms (compile: 3ms, render: 30ms)
+ GET /login 200 in 33ms (compile: 2ms, render: 31ms)
+ GET / 307 in 57ms (compile: 3ms, render: 55ms)
+ GET /login 200 in 64ms (compile: 4ms, render: 60ms)
+ GET / 307 in 63ms (compile: 3ms, render: 60ms)
+ GET /login 200 in 59ms (compile: 5ms, render: 54ms)
+ GET /manifest.webmanifest 200 in 130ms (compile: 123ms, render: 7ms)
+ GET /apple-icon 404 in 278ms (compile: 214ms, render: 64ms)
+ GET /dashboard 200 in 2.4s (compile: 33ms, render: 2.4s)
+ POST /login 303 in 6.6s (compile: 6ms, render: 6.6s)
+ GET /manifest.webmanifest 200 in 9ms (compile: 4ms, render: 5ms)
+ GET /apple-icon 404 in 88ms (compile: 12ms, render: 76ms)
+ GET /api/dashboard/supervisor-route-panel?focus=ruta-agenda 200 in 1278ms (compile: 7ms, render: 1270ms)
+ GET /api/dashboard/supervisor-today-route 200 in 605ms (compile: 15ms, render: 589ms)

@@ -1,4 +1,4 @@
-export const runtime = 'edge';
+import Image from 'next/image'
 import { LoginForm } from '@/features/auth/components/LoginForm'
 
 export const dynamic = 'force-dynamic'
@@ -19,23 +19,46 @@ function resolveError(value: string | string[] | undefined) {
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = searchParams ? await searchParams : {}
   const error = resolveError(params.error)
+  const notice = resolveError(params.notice)
 
   return (
-    <div className="space-y-8">
-      <div className="text-center lg:text-left">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
-          Beteele One
-        </p>
-        <h1 className="mt-3 text-3xl font-semibold text-slate-950">
-          Iniciar sesion
-        </h1>
-        <p className="mt-2 text-slate-600">
-          Accede con tus credenciales corporativas.
+    <div className="space-y-5">
+      <div className="space-y-3 text-left">
+        <div className="flex items-center gap-3 lg:hidden">
+          <div className="relative h-12 w-12 overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-sm">
+            <Image
+              src="/beteele-app-icon.png"
+              alt="Beteele One"
+              fill
+              className="object-cover"
+              priority
+            />
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.34em] text-[#1a7fd4]">
+              Beteele One
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              Acceso corporativo
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-[#1a7fd4]">
+            Inicio seguro
+          </p>
+          <h1 className="max-w-md text-[clamp(2.2rem,4vw,3.2rem)] font-semibold leading-[0.98] tracking-[-0.05em] text-slate-950">
+            Iniciar sesion
+          </h1>
+        </div>
+
+        <p className="max-w-md text-[15px] leading-7 text-slate-600">
+          Entra con tus credenciales corporativas para continuar tu operacion.
         </p>
       </div>
 
-      <LoginForm initialError={error} />
+      <LoginForm initialError={error} initialNotice={notice} />
     </div>
   )
 }
-

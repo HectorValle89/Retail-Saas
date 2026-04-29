@@ -2,7 +2,11 @@
 
 import { useEffect } from 'react'
 import dynamic from 'next/dynamic'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
+import {
+  recoverFromChunkLoadError,
+  shouldRecoverFromChunkLoadError,
+} from '@/lib/runtime/chunkRecovery'
 
 const AuthSessionMonitor = dynamic(
   () => import('@/components/auth/AuthSessionMonitor').then((module) => module.AuthSessionMonitor),
@@ -22,12 +26,12 @@ const PUBLIC_PATHS = new Set([
   '/check-email',
   '/update-password',
   '/activacion',
+  '/enlace-caducado',
   '/primer-acceso',
 ])
 
 export function AppRuntime() {
   const pathname = usePathname()
-  const router = useRouter()
 
   useEffect(() => {
     if (!pathname || PUBLIC_PATHS.has(pathname)) {
@@ -44,11 +48,8 @@ export function AppRuntime() {
       return
     }
 
-    let cancelled = false
-
     const clearDevelopmentPwaState = async () => {
       const registrations = await navigator.serviceWorker.getRegistrations()
-      const hadRegistrations = registrations.length > 0
 
       await Promise.all(registrations.map((registration) => registration.unregister()))
 
@@ -60,18 +61,53 @@ export function AppRuntime() {
             .map((key) => caches.delete(key))
         )
       }
-
-      if (!cancelled && hadRegistrations) {
-        router.refresh()
-      }
     }
 
     void clearDevelopmentPwaState()
 
-    return () => {
-      cancelled = true
+    return undefined
+  }, [pathname])
+
+  useEffect(() => {
+    if (!pathname) {
+      return
     }
-  }, [pathname, router])
+
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const handleError = (event: ErrorEvent) => {
+      const message = String(event?.message ?? '')
+      if (!message || !shouldRecoverFromChunkLoadError(message)) {
+        return
+      }
+      void recoverFromChunkLoadError()
+    }
+
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      const reason = event?.reason as unknown
+      const message =
+        reason instanceof Error
+          ? reason.message
+          : typeof reason === 'string'
+            ? reason
+            : ''
+
+      if (!message || !shouldRecoverFromChunkLoadError(message)) {
+        return
+      }
+      void recoverFromChunkLoadError()
+    }
+
+    window.addEventListener('error', handleError)
+    window.addEventListener('unhandledrejection', handleRejection)
+
+    return () => {
+      window.removeEventListener('error', handleError)
+      window.removeEventListener('unhandledrejection', handleRejection)
+    }
+  }, [pathname])
 
   if (!pathname || PUBLIC_PATHS.has(pathname)) {
     return null

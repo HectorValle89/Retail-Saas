@@ -1,5 +1,5 @@
-export const runtime = 'edge';
-import * as XLSX from 'xlsx'
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const XLSX = require('xlsx') as typeof import('xlsx')
 import { NextRequest, NextResponse } from 'next/server'
 import type { ActorActual } from '@/lib/auth/session'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -173,4 +173,3 @@ export async function GET(request: NextRequest) {
     )
   }
 }
-

@@ -307,7 +307,7 @@ test('acepta proveedor configurado por override aunque el entorno este deshabili
       expectedDocumentType: 'CURP',
       employeeName: 'Luis DC',
       providerOverride: 'gemini',
-      modelOverride: 'gemini-2.5-flash',
+      modelOverride: 'gemini-2.5-flash-lite',
     })
 
     expect(result.provider).toBe('gemini')

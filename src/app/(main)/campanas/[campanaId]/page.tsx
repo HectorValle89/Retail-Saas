@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Card } from '@/components/ui/card'
@@ -49,13 +48,12 @@ export default async function CampanaDetallePage({
                 Campaña no disponible
               </h1>
             </div>
-            <Link
+            <a
               href="/campanas"
-              prefetch={false}
               className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-[var(--module-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--module-text)] transition hover:bg-[var(--module-soft-bg)]"
             >
               Volver a operación
-            </Link>
+            </a>
           </div>
         </header>
 
@@ -95,13 +93,12 @@ export default async function CampanaDetallePage({
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <Link
+            <a
               href="/campanas"
-              prefetch={false}
               className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-[var(--module-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--module-text)] transition hover:bg-[var(--module-soft-bg)]"
             >
               Volver a operación
-            </Link>
+            </a>
             {canEditCampaign ? (
               <Link
                 href={isEditing ? `/campanas/${campaign.id}` : `/campanas/${campaign.id}?editar=1`}

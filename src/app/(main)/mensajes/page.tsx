@@ -1,9 +1,7 @@
-export const runtime = 'edge';
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { readRequestAccountScope } from '@/lib/tenant/accountScope'
 import { MensajesPanel } from '@/features/mensajes/components/MensajesPanel'
-import { MensajesRealtimeBridge } from '@/features/mensajes/components/MensajesRealtimeBridge'
-import { obtenerPanelMensajes } from '@/features/mensajes/services/mensajeService'
+import { obtenerPanelMensajesCacheado } from '@/features/mensajes/services/mensajeService'
 import Link from 'next/link'
 
 export const metadata = {
@@ -47,7 +45,7 @@ export default async function MensajesPage({ searchParams }: MensajesPageProps) 
   const pageSize = parsePositiveInt(pickString(params.pageSize), 20)
   const direction = pickString(params.direction)
   const tab = pickString(params.tab)
-  const data = await obtenerPanelMensajes(actor, {
+  const data = await obtenerPanelMensajesCacheado(actor, {
     scopeAccountId: accountScope.accountId,
     page,
     pageSize,
@@ -75,13 +73,7 @@ export default async function MensajesPage({ searchParams }: MensajesPageProps) 
         </p>
       </header>
 
-      <MensajesRealtimeBridge
-        cuentaClienteId={accountScope.accountId}
-        empleadoId={actor.empleadoId}
-        allowManagerScope={['ADMINISTRADOR', 'COORDINADOR'].includes(actor.puesto)}
-      />
-      <MensajesPanel data={data} />
+      <MensajesPanel actor={actor} data={data} />
     </div>
   )
 }
-

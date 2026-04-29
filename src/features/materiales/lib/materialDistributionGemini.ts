@@ -1,6 +1,6 @@
 import type { MaterialDistributionPreview, MaterialRulePreview } from './materialDistributionImport'
 
-const GEMINI_MODEL = process.env.GEMINI_MATERIALS_MODEL?.trim() || process.env.GEMINI_OCR_MODEL?.trim() || 'gemini-2.5-flash'
+const GEMINI_MODEL = process.env.GEMINI_MATERIALS_MODEL?.trim() || process.env.GEMINI_OCR_MODEL?.trim() || 'gemini-2.5-flash-lite'
 
 export type MaterialGeminiStatus = 'ok' | 'warning' | 'error' | 'no_configurado'
 

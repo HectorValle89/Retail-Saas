@@ -1,4 +1,5 @@
-import * as XLSX from 'xlsx'
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const XLSX = require('xlsx') as typeof import('xlsx')
 
 const TEMPLATE_SHEET_NAME = 'Metas_PDV_Producto'
 const INSTRUCTIONS_SHEET_NAME = 'Instrucciones'

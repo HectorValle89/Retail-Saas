@@ -1,4 +1,8 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
+import { createServiceClient } from '@/lib/supabase/server'
 import type {
   Asistencia,
   CuentaCliente,
@@ -14,6 +18,16 @@ import {
 } from '@/features/solicitudes/extemporaneoService'
 
 type MaybeMany<T> = T | T[] | null
+type TypedSupabaseClient = ReturnType<typeof createServiceClient>
+
+function isSupabaseClient(value: unknown): value is SupabaseClient {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'from' in value &&
+      typeof (value as { from?: unknown }).from === 'function'
+  )
+}
 
 type CuentaClienteRelacion = Pick<CuentaCliente, 'nombre'>
 
@@ -166,7 +180,11 @@ interface ObtenerVentasOptions {
   pageSize?: number
   actorPuesto?: Puesto | null
   actorEmpleadoId?: string | null
+  actor?: ActorActual | null
+  serviceClient?: TypedSupabaseClient
 }
+
+const VENTAS_PANEL_REVALIDATE_SECONDS = 60
 
 const obtenerPrimero = <T>(value: MaybeMany<T>): T | null => {
   if (!value) {
@@ -223,7 +241,26 @@ function buildQuotaKey(empleadoId: string, cuentaClienteId: string) {
   return `${empleadoId}::${cuentaClienteId}`
 }
 
-export async function obtenerPanelVentas(
+function buildVentasCacheKey(actor: ActorActual, options?: ObtenerVentasOptions) {
+  return [
+    actor.cuentaClienteId ?? 'sin-cuenta',
+    actor.empleadoId,
+    actor.puesto,
+    String(normalizePage(options?.page)),
+    String(normalizePageSize(options?.pageSize)),
+  ].join(':')
+}
+
+function buildVentasCacheTags(actor: ActorActual) {
+  return buildModuleCacheTags({
+    module: 'ventas',
+    accountId: actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId ?? null,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId ?? null : null,
+  })
+}
+
+async function obtenerPanelVentasUncached(
   supabase: SupabaseClient,
   options?: ObtenerVentasOptions
 ): Promise<VentasPanelData> {
@@ -478,8 +515,8 @@ export async function obtenerPanelVentas(
   })
 
   const extemporaneosPanel = await obtenerRegistrosExtemporaneosPanel(supabase, {
-    actorPuesto: options?.actorPuesto ?? null,
-    actorEmpleadoId: options?.actorEmpleadoId ?? null,
+    actorPuesto: options?.actor?.puesto ?? options?.actorPuesto ?? null,
+    actorEmpleadoId: options?.actor?.empleadoId ?? options?.actorEmpleadoId ?? null,
     tiposRegistro: ['VENTA', 'AMBAS'],
   })
 
@@ -507,4 +544,36 @@ export async function obtenerPanelVentas(
       ? 'El catalogo de productos no esta disponible para ventas. Revisa Configuracion.'
       : undefined,
   }
+}
+
+export async function obtenerPanelVentas(
+  actorOrSupabase: ActorActual | TypedSupabaseClient,
+  options?: ObtenerVentasOptions,
+  customSupabase?: TypedSupabaseClient
+): Promise<VentasPanelData> {
+  if (isSupabaseClient(actorOrSupabase)) {
+    return obtenerPanelVentasUncached(actorOrSupabase, options)
+  }
+
+  const actor = actorOrSupabase
+  const resolvedOptions: ObtenerVentasOptions = {
+    ...options,
+    actor,
+    actorPuesto: actor.puesto,
+    actorEmpleadoId: actor.empleadoId ?? null,
+  }
+
+  if (customSupabase) {
+    return obtenerPanelVentasUncached(customSupabase, resolvedOptions)
+  }
+
+  const service = options?.serviceClient ?? createServiceClient()
+  return unstable_cache(
+    async () => obtenerPanelVentasUncached(service, { ...resolvedOptions, serviceClient: service }),
+    ['ventas-panel', buildVentasCacheKey(actor, resolvedOptions)],
+    {
+      revalidate: VENTAS_PANEL_REVALIDATE_SECONDS,
+      tags: buildVentasCacheTags(actor),
+    }
+  )()
 }

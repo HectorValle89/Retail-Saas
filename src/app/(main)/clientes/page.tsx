@@ -1,6 +1,4 @@
-export const runtime = 'edge';
 import { requerirAdministradorActivo } from '@/lib/auth/session'
-import { createClient } from '@/lib/supabase/server'
 import { ClientesPanel } from '@/features/clientes/components/ClientesPanel'
 import { obtenerPanelClientes } from '@/features/clientes/services/clienteService'
 
@@ -10,8 +8,7 @@ export const metadata = {
 
 export default async function ClientesPage() {
   const actor = await requerirAdministradorActivo()
-  const supabase = await createClient()
-  const data = await obtenerPanelClientes(supabase, actor.cuentaClienteId)
+  const data = await obtenerPanelClientes(actor)
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -26,8 +23,7 @@ export default async function ClientesPage() {
         </p>
       </header>
 
-      <ClientesPanel data={data} />
+      <ClientesPanel actor={actor} data={data} />
     </div>
   )
 }
-

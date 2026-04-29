@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import Link from 'next/link'
 import { ForgotPasswordForm } from '@/features/auth/components'
 
@@ -10,10 +9,10 @@ export default function ForgotPasswordPage() {
           Recuperacion de acceso
         </p>
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">
-          Restablece tu contrasena
+          Recupera tu acceso paso a paso
         </h1>
         <p className="mt-2 text-slate-600">
-          Ingresa tu correo y te enviaremos un enlace para actualizar tu acceso.
+          Ingresa el correo que ya usas para entrar. Si la cuenta esta activa, te mandaremos un enlace temporal para crear una contrasena nueva.
         </p>
       </div>
 
@@ -31,4 +30,3 @@ export default function ForgotPasswordPage() {
     </div>
   )
 }
-

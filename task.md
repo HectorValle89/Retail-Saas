@@ -18,6 +18,13 @@ Documento derivado para seguimiento ejecutivo. La fuente de verdad del producto 
 - Estado de esta bitacora: derivada y secundaria.
 - Regla: si hay conflicto con .kiro/specs/field-force-platform/{design,requirements,tasks}.md, prevalece .kiro.
 
+## Cierre actual (2026-04-28)
+
+- Se finalizó el desacoplamiento del módulo de Empleados, purgando restos de reclutamiento y consolidando formularios de administración operativa (IMSS, Bajas, Creación).
+- Se corrigieron pruebas unitarias críticas en Empleados y Campañas, logrando 257/257 tests exitosos.
+- Se verificó la construcción exitosa del proyecto (`npm run build`), aunque el despliegue automático a Cloudflare se encuentra bloqueado por permisos de archivos en el entorno Windows.
+- Validaciones recientes: `npm run build` OK, `npm run test:unit` OK (100% pasados).
+
 ## Cierre actual (2026-04-01)
 
 - Asistencias ya tiene calendario administrativo mensual para ADMINISTRADOR, COORDINADOR y NOMINA, con detalle lazy por celda y exportación mensual.
@@ -220,7 +227,7 @@ Documento derivado para seguimiento ejecutivo. La fuente de verdad del producto 
 ### 2026-03-15 02:20
 - Se agrega `scripts/provision-auth-users.cjs` y el script npm `auth:provision` para crear usuarios reales en `auth.users`, enlazarlos con `public.usuario` y registrar password temporal con expiracion operativa.
 - Se ejecuta la provision real en Supabase: `261` usuarios quedan vinculados a `auth_user_id`, con resumen operativo de `254` cuentas `PROVISIONAL` y `7` `ACTIVA`.
-- Se ajusta `src/actions/auth.ts` para resolver `emailRedirectTo` hacia `/update-password` tanto en activacion como en recuperacion, incluso si falta `NEXT_PUBLIC_SITE_URL` y hay que derivar origen desde headers.
+- Se ajusta `src/actions/auth.ts` para resolver `emailRedirectTo` y `redirectTo` hacia `/api/auth/confirm?next=/update-password` tanto en activacion como en recuperacion, incluso si falta `NEXT_PUBLIC_SITE_URL` y hay que derivar origen desde headers.
 - Se corrige `package.json` para restaurar JSON valido y se valida el bloque completo con login real de cuentas provisionadas, `npm run lint` y `npm run build`.
 - Estado: en progreso, auth extremo a extremo operativo en provisionamiento, login y activacion; sigue pendiente la invalidacion de sesion con SLA <= 5 minutos cuando cambie `puesto`.
 

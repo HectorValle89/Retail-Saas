@@ -12,6 +12,8 @@ const {
 
 vi.mock('next/cache', () => ({
   revalidatePath: revalidatePathMock,
+  revalidateTag: vi.fn(),
+  unstable_cache: vi.fn((fn) => fn),
 }))
 
 vi.mock('@/lib/auth/session', () => ({
@@ -38,6 +40,9 @@ function createIntegratedClient(results: Record<string, QueryResult>) {
   const updates = new Map<string, Array<Record<string, unknown>>>()
 
   return {
+    rpc() {
+      return Promise.resolve({ data: null, error: null })
+    },
     from(table: string) {
       const entry = results[table] ?? { data: [], error: null }
       const state = {
@@ -135,6 +140,22 @@ function createIntegratedClient(results: Record<string, QueryResult>) {
             data: Array.isArray(filtered) ? filtered[0] ?? null : filtered,
             error: entry.error,
           })
+        },
+        single() {
+          return this.maybeSingle()
+        },
+        or() {
+          return chain
+        },
+        insert(payload: Record<string, unknown> | Record<string, unknown>[]) {
+          const current = updates.get(table) ?? []
+          if (Array.isArray(payload)) {
+            current.push(...payload)
+          } else {
+            current.push(payload)
+          }
+          updates.set(table, current)
+          return Promise.resolve({ error: null })
         },
         update(payload: Record<string, unknown>) {
           const current = updates.get(table) ?? []
@@ -345,6 +366,8 @@ describe('nomina end-to-end flow', () => {
         error: null,
       },
       audit_log: { data: [], error: null },
+      cuenta_cliente: { data: [{ id: 'c1', nombre: 'ISDIN Mexico', activa: true }], error: null },
+      usuario: { data: [{ id: 'user-1', email: 'admin@example.com' }], error: null },
     })
 
     createClientMock.mockResolvedValue(client)

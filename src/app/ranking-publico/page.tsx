@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import type { ActorActual } from '@/lib/auth/session'
 import { obtenerClienteAdmin } from '@/lib/auth/admin'
 import { PublicRankingsPanel } from '@/features/rankings/components/PublicRankingsPanel'

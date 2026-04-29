@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
 import { RankingsPanel } from '@/features/rankings/components/RankingsPanel'
@@ -50,7 +49,7 @@ export default async function RankingPage({ searchParams }: RankingPageProps) {
         </p>
       </header>
 
-      <RankingsPanel data={data} />
+      <RankingsPanel actor={actor} data={data} />
     </div>
   )
 }

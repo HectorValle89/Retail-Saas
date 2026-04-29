@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test'
 import type { ActorActual } from '../src/lib/auth/session'
 import { getWeekEndIso, getWeekStartIso, sortWeeklyVisits } from '../src/features/rutas/lib/weeklyRoute'
-import { parseRutaSemanalWorkflowMetadata } from '../src/features/rutas/lib/routeWorkflow'
+import {
+  parseRutaSemanalWorkflowMetadata,
+  parseRutaVisitaWorkflowMetadata,
+} from '../src/features/rutas/lib/routeWorkflow'
+import { SUPERVISOR_CHECKLIST_ITEMS } from '../src/features/rutas/lib/supervisorVisitChecklist'
 import { obtenerPanelRutaSemanal } from '../src/features/rutas/services/rutaSemanalService'
 
 type QueryResult = {
@@ -750,4 +754,57 @@ test('normaliza solicitudes de cambio de ruta por dia con propuesta nueva o canc
     targetDayLabel: 'Viernes',
     proposedVisits: [],
   })
+})
+
+test('define checklist opcional de visita con ausencia de DC antes del saludo y campos extendidos', async () => {
+  const keys = SUPERVISOR_CHECKLIST_ITEMS.map((item) => item.key)
+
+  expect(keys).not.toContain('selfie_con_dc')
+  expect(keys).not.toContain('feedback_gerente_registrado')
+  expect(keys.indexOf('dc_no_se_encuentra_en_pdv')).toBe(keys.indexOf('saludo_personalizado_dc') - 1)
+
+  expect(SUPERVISOR_CHECKLIST_ITEMS.find((item) => item.key === 'horario_dc_registrado')).toMatchObject({
+    commentKey: 'horario_entrada_dc',
+    commentInputType: 'time',
+  })
+  expect(SUPERVISOR_CHECKLIST_ITEMS.find((item) => item.key === 'feedback_dc_solicitada')).toMatchObject({
+    commentKey: 'feedback_dc_solicitada',
+    commentInputType: 'textarea',
+  })
+})
+
+test('normaliza metadata extendida de visita con estado GPS tecnico, textos y contador LOVE', async () => {
+  const metadata = parseRutaVisitaWorkflowMetadata({
+    checkIn: {
+      at: '2026-04-25T14:00:00.000Z',
+      gpsState: 'SIN_GPS',
+      gpsCaptureStatus: 'SIN_GPS',
+      latitud: null,
+      longitud: null,
+    },
+    checkOut: {
+      at: '2026-04-25T16:00:00.000Z',
+      gpsState: 'DENTRO_GEOCERCA',
+      gpsCaptureStatus: 'OK',
+      latitud: 19.4326,
+      longitud: -99.1332,
+      distanciaMetros: 24,
+    },
+    checklistComments: {
+      feedback_dc_solicitada: 'El gerente reporto buena ejecucion.',
+      horario_entrada_dc: '10:15',
+      observaciones_operativas_registradas: 'Sin faltantes visibles.',
+    },
+    loveIsdinRecordsCount: 4,
+  })
+
+  expect(metadata.checkIn.gpsCaptureStatus).toBe('SIN_GPS')
+  expect(metadata.checkOut.gpsCaptureStatus).toBe('OK')
+  expect(metadata.checkOut.distanciaMetros).toBe(24)
+  expect(metadata.checklistComments).toMatchObject({
+    feedback_dc_solicitada: 'El gerente reporto buena ejecucion.',
+    horario_entrada_dc: '10:15',
+    observaciones_operativas_registradas: 'Sin faltantes visibles.',
+  })
+  expect(metadata.loveIsdinRecordsCount).toBe(4)
 })

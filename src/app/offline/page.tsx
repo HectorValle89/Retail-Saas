@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import Link from 'next/link'
 import { OfflinePageStatus } from '@/components/app/OfflinePageStatus'
 import { Card } from '@/components/ui/card'

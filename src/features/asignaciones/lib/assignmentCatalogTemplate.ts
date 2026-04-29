@@ -1,4 +1,5 @@
-import * as XLSX from 'xlsx'
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const XLSX = require('xlsx') as typeof import('xlsx')
 
 const TEMPLATE_SHEET_NAME = 'Catalogo_Maestro'
 const INSTRUCTIONS_SHEET_NAME = 'Instrucciones'
@@ -6,44 +7,35 @@ const TEMPLATE_FILENAME = 'isdin_plantilla_catalogo_maestro_asignaciones.xlsx'
 
 const TEMPLATE_HEADERS = [
   'BTL CVE',
-  'EMPLEADO_ID',
   'USUARIO',
   'IDNOM',
   'NOMBRE DC',
-  '# DC',
-  'ROL',
   'HORARIO',
-  'DÍAS',
+  'DÍAS laborales',
   'DESCANSO',
-  'OBSERVACIONES',
+  'fecha de inicio',
 ] as const
 
 const SAMPLE_FIXED_ROW = [
   'BTL-FAH-50SU-ME',
-  'emp_ana_ortega',
   'ana_ortega',
   '594',
   'ANA PATRICIA ORTEGA RAMIREZ',
-  '1',
-  'FIJA',
   '11:00 a 19:00',
   'L-M-X-J-V-S',
   'DOM',
-  'Asignacion base mensual en sucursal principal.',
+  '2026-04-01',
 ]
 
 const SAMPLE_ROTATIVE_ROW = [
   'BTL-SPB-CUMBRES-MTY',
-  '',
   'carmelita_sanchez',
   '542',
   'CARMELITA SANCHEZ MARQUEZ',
-  '0.5',
-  'ROTATIVA',
   '12:00 a 20:00',
   'L-X-V-S',
   'MAR',
-  'Cobertura parcial por rotacion del bloque.',
+  '2026-04-15',
 ]
 
 function buildInstructionRows() {
@@ -54,24 +46,27 @@ function buildInstructionRows() {
     ['1.', 'Puebla o actualiza la base viva inicial de asignaciones del mes.'],
     ['2.', 'Se usa para la importacion del catalogo maestro; despues la operacion diaria debe continuar con movimientos puntuales y cambios controlados.'],
     [''],
-    ['Columnas reconocidas por el importador'],
+    ['Columnas de la plantilla oficial'],
     ['BTL CVE', 'Obligatoria. Clave BTL del PDV tal como existe en el sistema.'],
+    ['USUARIO', 'Campo de referencia de la plantilla oficial. El importador también puede resolver por NOMBRE DC, IDNOM o EMPLEADO_ID legacy si hace falta.'],
+    ['IDNOM', 'Campo de referencia de la plantilla oficial. Mantiene compatibilidad con alias legacy de nómina.'],
+    ['NOMBRE DC', 'Campo de referencia de la plantilla oficial. Nombre completo exacto de la dermoconsejera.'],
+    ['HORARIO', 'Campo de referencia de la plantilla oficial. Texto del turno esperado para esa asignacion.'],
+    ['DÍAS laborales', 'Campo de referencia de la plantilla oficial. Se aceptan nombres completos, codigos clasicos o nomenclatura compacta como L-M-X-J-V, LUN-SAB o JUE-MAR.'],
+    ['DESCANSO', 'Campo de referencia de la plantilla oficial. Día de descanso semanal, por ejemplo DOM.'],
+    ['fecha de inicio', 'Inclúyela siempre. Si viene vacía, el importador usará la fecha de carga como inicio.'],
+    [''],
+    ['Compatibilidad al importar archivos antiguos'],
     ['EMPLEADO_ID', 'Opcional. UUID interno si el archivo fue generado por el sistema.'],
-    ['USUARIO', 'Recomendada. Username operativo principal de la dermoconsejera.'],
-    ['IDNOM', 'Opcional. Alias legacy de nómina; solo se usa como compatibilidad temporal.'],
-    ['NOMBRE DC', 'Opcional. Nombre completo exacto si no cuentas con empleado_id ni usuario.'],
-    ['# DC', 'Opcional de referencia. El parser lo acepta, pero la importacion actual ya no usa este valor como captura manual operativa del factor tiempo.'],
+    ['# DC', 'Opcional de referencia. El parser lo acepta para compatibilidad temporal.'],
     ['ROL', 'Opcional. Valores recomendados: FIJA, ROTATIVA o COBERTURA.'],
-    ['HORARIO', 'Opcional. Texto de referencia del turno esperado para esa asignacion.'],
-    ['DÍAS', 'Opcional. Dias laborales. Se aceptan nombres completos, codigos clasicos o nomenclatura compacta como L-M-X-J-V, LUN-SAB o JUE-MAR.'],
-    ['DESCANSO', 'Opcional. Día de descanso semanal, por ejemplo DOM.'],
     ['OBSERVACIONES', 'Opcional. Notas de cobertura, adopción, bloque o contexto operativo.'],
     [''],
     ['Reglas importantes'],
     ['1.', 'Cada fila debe resolver un PDV existente por BTL CVE.'],
-    ['2.', 'Cada fila debe resolver a la dermoconsejera por EMPLEADO_ID, USUARIO, NOMBRE DC o IDNOM legacy.'],
+    ['2.', 'Cada fila debe resolver a la dermoconsejera por USUARIO, NOMBRE DC, IDNOM o EMPLEADO_ID legacy.'],
     ['3.', 'Si no se resuelve PDV o DC, la fila se omite y se reporta al final de la importacion.'],
-    ['4.', 'El catalogo maestro inicial se trata como base general. El sistema asigna fecha de inicio al dia de la carga y deja la base sin fecha fin.'],
+    ['4.', 'El catalogo maestro inicial se trata como base general. El sistema usa la fecha de inicio indicada en el archivo y, si viene vacía, cae a la fecha de carga.'],
     ['5.', 'El archivo puede actualizar asignaciones base existentes o insertar nuevas, segun la coincidencia de DC + PDV + tipo.'],
     ['6.', 'Las vigencias temporales o permanentes posteriores se gestionan desde Nueva asignacion, no desde esta carga inicial.'],
     ['7.', 'El formato soportado por la carga actual es XLSX.'],
@@ -101,15 +96,12 @@ export function buildAssignmentCatalogTemplateWorkbook() {
   templateSheet['!cols'] = [
     { wch: 22 },
     { wch: 18 },
-    { wch: 18 },
     { wch: 14 },
     { wch: 34 },
-    { wch: 10 },
-    { wch: 14 },
     { wch: 18 },
     { wch: 28 },
     { wch: 14 },
-    { wch: 48 },
+    { wch: 18 },
   ]
 
   const instructionsSheet = XLSX.utils.aoa_to_sheet(buildInstructionRows())

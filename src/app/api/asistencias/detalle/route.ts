@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import { NextRequest, NextResponse } from 'next/server'
 import { obtenerActorActual } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'

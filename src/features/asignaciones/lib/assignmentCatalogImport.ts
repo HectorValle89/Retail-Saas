@@ -1,4 +1,5 @@
-import * as XLSX from 'xlsx'
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const XLSX = require('xlsx') as typeof import('xlsx')
 import {
   normalizeDiaLaboralCode,
   parseDiasLaborales,
@@ -218,7 +219,7 @@ export function parseAssignmentCatalogWorkbook(
       lookupValue(normalizedRow, ['horario', 'horario_referencia'])
     )
     const fechaInicio = normalizeDate(
-      lookupValue(normalizedRow, ['inicio', 'fecha_inicio'])
+      lookupValue(normalizedRow, ['inicio', 'fecha_inicio', 'fecha_de_inicio'])
     )
     const observaciones = normalizeText(lookupValue(normalizedRow, ['observaciones']))
 

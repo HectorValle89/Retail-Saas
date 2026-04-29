@@ -1,10 +1,13 @@
 import type { NextRequest } from 'next/server'
 import { updateSession } from '@/lib/supabase/proxy'
 
-export const runtime = 'edge'
-
 export async function middleware(request: NextRequest) {
-  return updateSession(request)
+  try {
+    return await updateSession(request)
+  } catch (error) {
+    console.error('[middleware] updateSession failed', error)
+    throw error
+  }
 }
 
 export const config = {

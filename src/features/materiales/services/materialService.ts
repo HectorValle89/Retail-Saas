@@ -1,5 +1,8 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
+import { createServiceClient } from '@/lib/supabase/server'
 import type {
   Cadena,
   CuentaCliente,
@@ -16,6 +19,15 @@ import type {
 import type { MaterialDistributionPreview } from '../lib/materialDistributionImport'
 
 type MaybeMany<T> = T | T[] | null
+
+function isSupabaseClient(value: unknown): value is SupabaseClient {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'from' in value &&
+      typeof (value as { from?: unknown }).from === 'function'
+  )
+}
 
 type CuentaClienteRelacion = Pick<CuentaCliente, 'id' | 'nombre' | 'identificador'>
 type PdvRelacion = Pick<Pdv, 'id' | 'clave_btl' | 'nombre' | 'zona' | 'cadena_id' | 'id_cadena'>
@@ -381,7 +393,31 @@ async function cancelActorPreviewLots(client: SupabaseClient, actorUsuarioId: st
     .eq('estado', 'BORRADOR_PREVIEW')
 }
 
-export async function obtenerPanelMateriales(
+const MATERIALES_PANEL_REVALIDATE_SECONDS = 60
+
+function buildMaterialesCacheKey(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>
+) {
+  return JSON.stringify({
+    cuentaClienteId: actor.cuentaClienteId ?? null,
+    empleadoId: actor.empleadoId,
+    puesto: actor.puesto,
+  })
+}
+
+function buildMaterialesCacheTags(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>
+) {
+  return buildModuleCacheTags({
+    module: 'materiales',
+    accountId: actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+    period: getCurrentMonth(),
+  })
+}
+
+async function obtenerPanelMaterialesUncached(
   supabase: SupabaseClient,
   actor: ActorActual
 ): Promise<MaterialesPanelData> {
@@ -841,4 +877,37 @@ export async function obtenerPanelMateriales(
     pdvOptions,
     monthOptions: monthOptions.length > 0 ? monthOptions : [currentMonth],
   }
+}
+
+export async function obtenerPanelMateriales(
+  actorOrSupabase: ActorActual | SupabaseClient,
+  actorOrCustomSupabase?: ActorActual | SupabaseClient
+): Promise<MaterialesPanelData> {
+  if (isSupabaseClient(actorOrSupabase)) {
+    return obtenerPanelMaterialesUncached(actorOrSupabase, actorOrCustomSupabase as ActorActual)
+  }
+
+  const actor = actorOrSupabase
+  const customSupabase =
+    actorOrCustomSupabase && isSupabaseClient(actorOrCustomSupabase)
+      ? actorOrCustomSupabase
+      : undefined
+
+  if (customSupabase) {
+    return obtenerPanelMaterialesUncached(customSupabase, actor)
+  }
+
+  const cacheKey = buildMaterialesCacheKey(actor)
+
+  return unstable_cache(
+    async () => {
+      const service = createServiceClient() as unknown as SupabaseClient
+      return obtenerPanelMaterialesUncached(service, actor)
+    },
+    ['materiales:panel', cacheKey],
+    {
+      tags: buildMaterialesCacheTags(actor),
+      revalidate: MATERIALES_PANEL_REVALIDATE_SECONDS,
+    }
+  )()
 }

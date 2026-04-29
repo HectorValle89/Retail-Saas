@@ -87,6 +87,7 @@ export type Database = {
           generado_automaticamente: boolean
           horario_referencia: string | null
           id: string
+          metadata: Json
           motivo_movimiento: string | null
           naturaleza: string
           observaciones: string | null
@@ -113,6 +114,7 @@ export type Database = {
           generado_automaticamente?: boolean
           horario_referencia?: string | null
           id?: string
+          metadata?: Json
           motivo_movimiento?: string | null
           naturaleza?: string
           observaciones?: string | null
@@ -139,6 +141,7 @@ export type Database = {
           generado_automaticamente?: boolean
           horario_referencia?: string | null
           id?: string
+          metadata?: Json
           motivo_movimiento?: string | null
           naturaleza?: string
           observaciones?: string | null
@@ -183,6 +186,120 @@ export type Database = {
             columns: ["supervisor_empleado_id"]
             isOneToOne: false
             referencedRelation: "empleado"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      asignacion_baja_historial: {
+        Row: {
+          accion_aplicada: string
+          asignacion_id: string
+          created_at: string
+          cuenta_cliente_id: string
+          empleado_id: string
+          fecha_baja_efectiva: string
+          fecha_fin_original: string | null
+          fecha_inicio_original: string
+          id: string
+          metadata: Json
+          motivo: string | null
+          pdv_destino_id: string | null
+          pdv_origen_id: string | null
+          updated_at: string
+          usuario_actor_id: string | null
+          vacante_operativa_futura_id: string | null
+        }
+        Insert: {
+          accion_aplicada: string
+          asignacion_id: string
+          created_at?: string
+          cuenta_cliente_id: string
+          empleado_id: string
+          fecha_baja_efectiva: string
+          fecha_fin_original?: string | null
+          fecha_inicio_original: string
+          id?: string
+          metadata?: Json
+          motivo?: string | null
+          pdv_destino_id?: string | null
+          pdv_origen_id?: string | null
+          updated_at?: string
+          usuario_actor_id?: string | null
+          vacante_operativa_futura_id?: string | null
+        }
+        Update: {
+          accion_aplicada?: string
+          asignacion_id?: string
+          created_at?: string
+          cuenta_cliente_id?: string
+          empleado_id?: string
+          fecha_baja_efectiva?: string
+          fecha_fin_original?: string | null
+          fecha_inicio_original?: string
+          id?: string
+          metadata?: Json
+          motivo?: string | null
+          pdv_destino_id?: string | null
+          pdv_origen_id?: string | null
+          updated_at?: string
+          usuario_actor_id?: string | null
+          vacante_operativa_futura_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "asignacion_baja_historial_asignacion_id_fkey"
+            columns: ["asignacion_id"]
+            isOneToOne: false
+            referencedRelation: "asignacion"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "asignacion_baja_historial_cuenta_cliente_id_fkey"
+            columns: ["cuenta_cliente_id"]
+            isOneToOne: false
+            referencedRelation: "cuenta_cliente"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "asignacion_baja_historial_cuenta_cliente_id_fkey"
+            columns: ["cuenta_cliente_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_kpis"
+            referencedColumns: ["cuenta_cliente_id"]
+          },
+          {
+            foreignKeyName: "asignacion_baja_historial_empleado_id_fkey"
+            columns: ["empleado_id"]
+            isOneToOne: false
+            referencedRelation: "empleado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "asignacion_baja_historial_pdv_destino_id_fkey"
+            columns: ["pdv_destino_id"]
+            isOneToOne: false
+            referencedRelation: "pdv"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "asignacion_baja_historial_pdv_origen_id_fkey"
+            columns: ["pdv_origen_id"]
+            isOneToOne: false
+            referencedRelation: "pdv"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "asignacion_baja_historial_usuario_actor_id_fkey"
+            columns: ["usuario_actor_id"]
+            isOneToOne: false
+            referencedRelation: "usuario"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "asignacion_baja_historial_vacante_operativa_futura_id_fkey"
+            columns: ["vacante_operativa_futura_id"]
+            isOneToOne: false
+            referencedRelation: "vacante_operativa_futura"
             referencedColumns: ["id"]
           },
         ]
@@ -1675,6 +1792,103 @@ export type Database = {
           },
         ]
       }
+      vacante_operativa_futura: {
+        Row: {
+          accion_recomendada: string | null
+          asignacion_cancelada_id: string | null
+          asignacion_origen_id: string | null
+          created_at: string
+          cuenta_cliente_id: string
+          empleado_origen_id: string
+          estado_seguimiento: string
+          fecha_baja_efectiva: string
+          fecha_vacante_desde: string
+          id: string
+          metadata: Json
+          motivo: string | null
+          pdv_id: string
+          tipo_vacante: string
+          updated_at: string
+        }
+        Insert: {
+          accion_recomendada?: string | null
+          asignacion_cancelada_id?: string | null
+          asignacion_origen_id?: string | null
+          created_at?: string
+          cuenta_cliente_id: string
+          empleado_origen_id: string
+          estado_seguimiento?: string
+          fecha_baja_efectiva: string
+          fecha_vacante_desde: string
+          id?: string
+          metadata?: Json
+          motivo?: string | null
+          pdv_id: string
+          tipo_vacante: string
+          updated_at?: string
+        }
+        Update: {
+          accion_recomendada?: string | null
+          asignacion_cancelada_id?: string | null
+          asignacion_origen_id?: string | null
+          created_at?: string
+          cuenta_cliente_id?: string
+          empleado_origen_id?: string
+          estado_seguimiento?: string
+          fecha_baja_efectiva?: string
+          fecha_vacante_desde?: string
+          id?: string
+          metadata?: Json
+          motivo?: string | null
+          pdv_id?: string
+          tipo_vacante?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vacante_operativa_futura_asignacion_cancelada_id_fkey"
+            columns: ["asignacion_cancelada_id"]
+            isOneToOne: false
+            referencedRelation: "asignacion"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vacante_operativa_futura_asignacion_origen_id_fkey"
+            columns: ["asignacion_origen_id"]
+            isOneToOne: false
+            referencedRelation: "asignacion"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vacante_operativa_futura_cuenta_cliente_id_fkey"
+            columns: ["cuenta_cliente_id"]
+            isOneToOne: false
+            referencedRelation: "cuenta_cliente"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vacante_operativa_futura_cuenta_cliente_id_fkey"
+            columns: ["cuenta_cliente_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_kpis"
+            referencedColumns: ["cuenta_cliente_id"]
+          },
+          {
+            foreignKeyName: "vacante_operativa_futura_empleado_origen_id_fkey"
+            columns: ["empleado_origen_id"]
+            isOneToOne: false
+            referencedRelation: "empleado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vacante_operativa_futura_pdv_id_fkey"
+            columns: ["pdv_id"]
+            isOneToOne: false
+            referencedRelation: "pdv"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pdv_rotacion_maestra: {
         Row: {
           clasificacion_maestra: string
@@ -1913,6 +2127,8 @@ export type Database = {
           estatus: string
           evidencia_hash: string | null
           evidencia_url: string | null
+          evidencia_thumbnail_hash: string | null
+          evidencia_thumbnail_url: string | null
           id: string
           metadata: Json
           orden: number
@@ -1920,6 +2136,8 @@ export type Database = {
           ruta_semanal_id: string
           selfie_hash: string | null
           selfie_url: string | null
+          selfie_thumbnail_hash: string | null
+          selfie_thumbnail_url: string | null
           supervisor_empleado_id: string
           updated_at: string
         }
@@ -1934,6 +2152,8 @@ export type Database = {
           estatus?: string
           evidencia_hash?: string | null
           evidencia_url?: string | null
+          evidencia_thumbnail_hash?: string | null
+          evidencia_thumbnail_url?: string | null
           id?: string
           metadata?: Json
           orden: number
@@ -1941,6 +2161,8 @@ export type Database = {
           ruta_semanal_id: string
           selfie_hash?: string | null
           selfie_url?: string | null
+          selfie_thumbnail_hash?: string | null
+          selfie_thumbnail_url?: string | null
           supervisor_empleado_id: string
           updated_at?: string
         }
@@ -1955,6 +2177,8 @@ export type Database = {
           estatus?: string
           evidencia_hash?: string | null
           evidencia_url?: string | null
+          evidencia_thumbnail_hash?: string | null
+          evidencia_thumbnail_url?: string | null
           id?: string
           metadata?: Json
           orden?: number
@@ -1962,6 +2186,8 @@ export type Database = {
           ruta_semanal_id?: string
           selfie_hash?: string | null
           selfie_url?: string | null
+          selfie_thumbnail_hash?: string | null
+          selfie_thumbnail_url?: string | null
           supervisor_empleado_id?: string
           updated_at?: string
         }

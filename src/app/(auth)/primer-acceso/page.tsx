@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import { redirect } from 'next/navigation'
 import { FirstAccessReviewForm } from '@/features/auth/components'
 import { readPrimerAccesoMetadata } from '@/lib/auth/firstAccess'
@@ -34,7 +33,10 @@ export default async function PrimerAccesoPage() {
     redirect('/login')
   }
 
-  if (actor.estadoCuenta !== 'ACTIVA') {
+  if (
+    actor.estadoCuenta !== 'ACTIVA' &&
+    actor.estadoCuenta !== 'PENDIENTE_PRIMER_LOGIN'
+  ) {
     redirect('/activacion')
   }
 
@@ -57,12 +59,9 @@ export default async function PrimerAccesoPage() {
       domicilio_completo,
       codigo_postal,
       edad,
-      anios_laborando,
       sexo,
       estado_civil,
       originario,
-      sueldo_base_mensual,
-      sbc_diario,
       metadata
     `)
     .eq('id', actor.empleadoId)
@@ -73,15 +72,21 @@ export default async function PrimerAccesoPage() {
   }
 
   const primerAcceso = readPrimerAccesoMetadata(empleado.metadata)
-  if (!primerAcceso.required || primerAcceso.estado !== 'PENDIENTE') {
+  const requierePrimerAcceso =
+    actor.estadoCuenta === 'PENDIENTE_PRIMER_LOGIN' ||
+    (primerAcceso.required && primerAcceso.estado === 'PENDIENTE')
+
+  if (!requierePrimerAcceso) {
     redirect('/dashboard')
   }
+
+  const correoVisible = actor.correoElectronico ?? empleado.correo_electronico
 
   const fields = [
     { label: 'Clave / nomina', value: formatValue(empleado.id_nomina) },
     { label: 'Nombre completo', value: formatValue(empleado.nombre_completo) },
     { label: 'Rol', value: formatValue(empleado.puesto) },
-    { label: 'Correo actual', value: formatValue(empleado.correo_electronico) },
+    { label: 'Correo actual', value: formatValue(correoVisible) },
     { label: 'Telefono celular', value: formatValue(empleado.telefono) },
     { label: 'CURP', value: formatValue(empleado.curp) },
     { label: 'RFC', value: formatValue(empleado.rfc) },
@@ -94,9 +99,6 @@ export default async function PrimerAccesoPage() {
     { label: 'Sexo', value: formatValue(empleado.sexo) },
     { label: 'Estado civil', value: formatValue(empleado.estado_civil) },
     { label: 'Originario', value: formatValue(empleado.originario) },
-    { label: 'Sueldo base mensual', value: formatValue(empleado.sueldo_base_mensual) },
-    { label: 'SDI', value: formatValue(empleado.sbc_diario) },
-    { label: 'Anios laborando', value: formatValue(empleado.anios_laborando) },
     { label: 'Zona', value: formatValue(empleado.zona) },
   ]
 
@@ -111,7 +113,7 @@ export default async function PrimerAccesoPage() {
         </h1>
         <p className="mt-2 text-slate-600">
           Esta informacion proviene de la base actual del equipo ISDIN. Confirma si esta correcta
-          o solicita una correccion antes de continuar.
+          o solicita una correccion antes de continuar. Este paso es obligatorio y mantendra bloqueado el acceso al dashboard hasta que tomes una decision.
         </p>
       </div>
 
@@ -123,4 +125,3 @@ export default async function PrimerAccesoPage() {
     </div>
   )
 }
-

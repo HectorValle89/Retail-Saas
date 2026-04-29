@@ -1,8 +1,9 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextResponse, type NextRequest } from 'next/server'
 import { isPrimerAccesoPendiente } from '@/lib/auth/firstAccess'
-import { getAuthSessionContextStatus } from '@/lib/auth/sessionContext'
+import { getAuthSessionContextStatusFromClaims } from '@/lib/auth/sessionContext'
+import { requireRuntimeEnv } from '@/lib/runtime/env'
 import { getSingleTenantAccountId, isSingleTenantBackendEnabled } from '@/lib/tenant/singleTenant'
 import {
   ACTIVE_ACCOUNT_COOKIE,
@@ -11,6 +12,8 @@ import {
   normalizeRequestedAccountId,
 } from '@/lib/tenant/accountScope'
 
+export const ACTOR_CONTEXT_HEADER = 'x-retail-actor-context'
+
 type CookieToSet = {
   name: string
   value: string
@@ -18,15 +21,20 @@ type CookieToSet = {
 }
 
 type UsuarioSesionRow = {
+  id: string
+  empleado_id: string
+  username: string | null
+  correo_electronico: string | null
+  correo_verificado: boolean | null
   estado_cuenta: string | null
   cuenta_cliente_id: string | null
   empleado:
-    | { puesto: string | null; metadata?: Record<string, unknown> | null }
-    | Array<{ puesto: string | null; metadata?: Record<string, unknown> | null }>
+    | { nombre_completo: string | null; puesto: string | null; metadata?: Record<string, unknown> | null }
+    | Array<{ nombre_completo: string | null; puesto: string | null; metadata?: Record<string, unknown> | null }>
     | null
 }
 
-const publicRoutes = ['/', '/offline', '/login', '/logout', '/forgot-password', '/check-email', '/update-password', '/activacion']
+const publicRoutes = ['/', '/offline', '/login', '/logout', '/forgot-password', '/check-email', '/update-password', '/activacion', '/enlace-caducado', '/api/auth/confirm']
 
 function esRutaProtegida(pathname: string) {
   return !publicRoutes.includes(pathname) && !pathname.startsWith('/_next')
@@ -100,43 +108,79 @@ function obtenerMetadataEmpleado(value: UsuarioSesionRow['empleado']) {
   return value.metadata ?? null
 }
 
+function obtenerNombreEmpleado(value: UsuarioSesionRow['empleado']) {
+  if (!value) {
+    return null
+  }
+
+  if (Array.isArray(value)) {
+    return value[0]?.nombre_completo ?? null
+  }
+
+  return value.nombre_completo ?? null
+}
+
+function serializeActorContextHeader(input: {
+  authUserId: string
+  usuarioId: string
+  empleadoId: string
+  cuentaClienteId: string | null
+  username: string | null
+  correoElectronico: string | null
+  correoVerificado: boolean
+  estadoCuenta: string | null
+  nombreCompleto: string | null
+  puesto: string | null
+  primerAccesoPendiente: boolean
+}) {
+  return encodeURIComponent(JSON.stringify(input))
+}
+
+type AuthClaims = {
+  sub?: string
+  app_metadata?: Record<string, unknown> | null
+}
+
 async function asegurarSesionActualizada(
   supabase: SupabaseClient,
-  user: User
+  claims: AuthClaims | null
 ) {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  const initialStatus = getAuthSessionContextStatus({
-    accessToken: session?.access_token,
-    appMetadata: user.app_metadata,
+  const authUserId = typeof claims?.sub === 'string' ? claims.sub : null
+  const initialStatus = getAuthSessionContextStatusFromClaims({
+    claims,
   })
 
   if (!initialStatus.isStale) {
-    return { user, session, invalidated: false }
+    return { authUserId, invalidated: false }
   }
 
   if (initialStatus.exceededGraceWindow) {
     await supabase.auth.signOut()
-    return { user: null, session: null, invalidated: true }
+    return { authUserId: null, invalidated: true }
   }
 
   const refreshed = await supabase.auth.refreshSession()
   const refreshedSession = refreshed.data.session ?? null
   const refreshedUser = refreshedSession?.user ?? null
 
-  const refreshedStatus = getAuthSessionContextStatus({
-    accessToken: refreshedSession?.access_token,
-    appMetadata: refreshedUser?.app_metadata,
-  })
-
-  if (refreshed.error || !refreshedSession || !refreshedUser || refreshedStatus.isStale) {
+  if (refreshed.error || !refreshedSession || !refreshedUser) {
     await supabase.auth.signOut()
-    return { user: null, session: null, invalidated: true }
+    return { authUserId: null, invalidated: true }
   }
 
-  return { user: refreshedUser, session: refreshedSession, invalidated: false }
+  const refreshedStatus = getAuthSessionContextStatusFromClaims({
+    claims: {
+      sub: refreshedUser.id,
+      app_metadata: refreshedUser.app_metadata,
+    },
+  })
+
+  if (refreshedStatus.isStale) {
+    await supabase.auth.signOut()
+    return { authUserId: null, invalidated: true }
+  }
+
+  return { authUserId: refreshedUser.id, invalidated: false }
 }
 
 export async function updateSession(request: NextRequest) {
@@ -160,8 +204,8 @@ export async function updateSession(request: NextRequest) {
   }
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    requireRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL'),
+    requireRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
     {
       cookies: {
         getAll() {
@@ -178,15 +222,23 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
   const pathname = request.nextUrl.pathname
   const isProtectedRoute = esRutaProtegida(pathname)
   const isAuthRoute = pathname === '/login'
 
-  if (!user && isProtectedRoute) {
+  if (!isProtectedRoute || isAuthRoute) {
+    return aplicarHeadersLocalNoStore(request, supabaseResponse, pathname)
+  }
+
+  const {
+    data: claimsData,
+    error: claimsError,
+  } = await supabase.auth.getClaims()
+
+  const authClaims = ((claimsData?.claims ?? null) as AuthClaims | null)
+  const authUserId = typeof authClaims?.sub === 'string' ? authClaims.sub : null
+
+  if (claimsError || !authUserId) {
     return aplicarHeadersLocalNoStore(
       request,
       NextResponse.redirect(new URL('/login', request.url)),
@@ -194,21 +246,8 @@ export async function updateSession(request: NextRequest) {
     )
   }
 
-  if (!user) {
-    return aplicarHeadersLocalNoStore(request, supabaseResponse, pathname)
-  }
-
-  const sessionState = await asegurarSesionActualizada(supabase, user)
+  const sessionState = await asegurarSesionActualizada(supabase, authClaims)
   if (sessionState.invalidated) {
-    return aplicarHeadersLocalNoStore(
-      request,
-      NextResponse.redirect(new URL('/login', request.url)),
-      pathname
-    )
-  }
-
-  const currentUser = sessionState.user
-  if (!currentUser) {
     return aplicarHeadersLocalNoStore(
       request,
       NextResponse.redirect(new URL('/login', request.url)),
@@ -218,14 +257,19 @@ export async function updateSession(request: NextRequest) {
 
   const { data: usuario } = await supabase
     .from('usuario')
-    .select('estado_cuenta, cuenta_cliente_id, empleado:empleado_id(puesto, metadata)')
-    .eq('auth_user_id', currentUser.id)
+    .select(
+      'id, empleado_id, username, correo_electronico, correo_verificado, estado_cuenta, cuenta_cliente_id, empleado:empleado_id(nombre_completo, puesto, metadata)'
+    )
+    .eq('auth_user_id', sessionState.authUserId ?? authUserId)
     .maybeSingle()
 
   const usuarioActual = (usuario ?? null) as UsuarioSesionRow | null
   const puesto = obtenerPuestoEmpleado(usuarioActual?.empleado ?? null)
   const metadataEmpleado = obtenerMetadataEmpleado(usuarioActual?.empleado ?? null)
-  const primerAccesoPendiente = isPrimerAccesoPendiente(metadataEmpleado)
+  const estadoCuenta = usuarioActual?.estado_cuenta ?? null
+  const primerAccesoPendiente =
+    estadoCuenta === 'PENDIENTE_PRIMER_LOGIN' || isPrimerAccesoPendiente(metadataEmpleado)
+  const nombreCompleto = obtenerNombreEmpleado(usuarioActual?.empleado ?? null)
   const requestedAccountId = normalizeRequestedAccountId(request.cookies.get(ACTIVE_ACCOUNT_COOKIE)?.value)
   const effectiveAccountId =
     isSingleTenantBackendEnabled()
@@ -242,12 +286,44 @@ export async function updateSession(request: NextRequest) {
     requestHeaders.set(ACTIVE_ACCOUNT_SCOPE_HEADER, 'global')
   }
 
+  if (usuarioActual?.id && usuarioActual.empleado_id) {
+    requestHeaders.set(
+      ACTOR_CONTEXT_HEADER,
+      serializeActorContextHeader({
+        authUserId: sessionState.authUserId ?? authUserId,
+        usuarioId: usuarioActual.id,
+        empleadoId: usuarioActual.empleado_id,
+        cuentaClienteId: effectiveAccountId ?? usuarioActual.cuenta_cliente_id ?? null,
+        username: usuarioActual.username,
+        correoElectronico: usuarioActual.correo_electronico,
+        correoVerificado: Boolean(usuarioActual.correo_verificado),
+        estadoCuenta: usuarioActual.estado_cuenta,
+        nombreCompleto,
+        puesto,
+        primerAccesoPendiente,
+      })
+    )
+  } else {
+    requestHeaders.delete(ACTOR_CONTEXT_HEADER)
+  }
+
   supabaseResponse = rebuildResponse()
 
-  const estadoCuenta = usuarioActual?.estado_cuenta ?? null
+  if (estadoCuenta === 'PENDIENTE_PRIMER_LOGIN' && pathname !== '/primer-acceso') {
+    return aplicarHeadersLocalNoStore(
+      request,
+      NextResponse.redirect(new URL('/primer-acceso', request.url)),
+      pathname
+    )
+  }
 
   if (estadoCuenta === 'PROVISIONAL' || estadoCuenta === 'PENDIENTE_VERIFICACION_EMAIL') {
-    if (pathname !== '/activacion' && pathname !== '/check-email' && pathname !== '/update-password') {
+    if (
+      pathname !== '/activacion' &&
+      pathname !== '/check-email' &&
+      pathname !== '/update-password' &&
+      pathname !== '/enlace-caducado'
+    ) {
       return NextResponse.redirect(new URL('/activacion', request.url))
     }
   }
@@ -263,7 +339,7 @@ export async function updateSession(request: NextRequest) {
   if (
     estadoCuenta === 'ACTIVA' &&
     !primerAccesoPendiente &&
-    (isAuthRoute || pathname === '/activacion' || pathname === '/check-email' || pathname === '/primer-acceso')
+      (isAuthRoute || pathname === '/activacion' || pathname === '/check-email' || pathname === '/primer-acceso' || pathname === '/enlace-caducado')
   ) {
     return aplicarHeadersLocalNoStore(
       request,

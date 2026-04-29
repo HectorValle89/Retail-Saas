@@ -1,8 +1,9 @@
 'use server'
 
 // import crypto from 'node:crypto' // Desactivado para Edge
-import { revalidatePath } from 'next/cache'
-import { obtenerClienteAdmin } from '@/lib/auth/admin'
+import { obtenerClienteAdmin, obtenerUrlBaseAplicacion } from '@/lib/auth/admin'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
 import {
   EXPEDIENTE_PDF_UPLOAD_MAX_BYTES,
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES,
@@ -13,8 +14,15 @@ import type { GeminiOcrExtractionResult } from '@/lib/ocr/gemini'
 import { sendOperationalPushNotification } from '@/lib/push/pushFanout'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus'
-import { getSingleTenantAccountId } from '@/lib/tenant/singleTenant'
+import { procesarImpactoBajaEnAsignaciones } from './services/bajaAsignacionImpactService'
+import { isSupervisorPuesto } from './lib/onboardingRules'
+import { getSingleTenantAccountId, resolveSingleTenantAccountId } from '@/lib/tenant/singleTenant'
 import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
+import { sendWorkflowTransitionEmail } from '@/lib/notifications/workflowTransitionEmail'
+import { sendWorkflowNotification } from '@/lib/notifications/workflows/workflowFanout'
+import {
+  buildNuevoCandidatoCoordinacionNotification,
+} from './lib/recruitmentNotifications'
 import type {
   CoberturaPdvOperativaActionState,
   EmpleadoActionState,
@@ -56,6 +64,10 @@ type OnboardingExternalAccessStatus = 'PENDIENTE' | 'SOLICITADO_A_VIRIDIANA' | '
 type OnboardingContractStatus = 'PENDIENTE' | 'AGENDADO' | 'FIRMADO'
 
 interface OnboardingOperativoPayload {
+  pdvSugeridoId: string | null
+  pdvSugeridoLabel: string | null
+  pdvDefinitivoId: string | null
+  pdvDefinitivoLabel: string | null
   pdvObjetivoId: string | null
   pdvObjetivoLabel: string | null
   coordinadorEmpleadoId: string | null
@@ -75,6 +87,7 @@ interface EmpleadoBaseRow {
   nombre_completo: string
   puesto: Puesto
   correo_electronico: string | null
+  metadata: Record<string, unknown> | null
 }
 
 const EMPLEADOS_BUCKET = 'empleados-expediente'
@@ -104,10 +117,17 @@ const IMSS_ESTADOS: ImssEstado[] = [
   'ERROR',
 ]
 const CANCELABLE_ALTA_WORKFLOW_STAGES = [
+  'NUEVOS',
+  'EXPEDIENTE',
+  'EN_GESTION',
+  'ONBOARDING',
   'PENDIENTE_IMSS_NOMINA',
   'EN_FLUJO_IMSS',
   'RECLUTAMIENTO_CORRECCION_ALTA',
   'PENDIENTE_ACCESO_ADMIN',
+  'PENDIENTE_COORDINACION',
+  'SELECCION_APROBADA',
+  'PENDIENTE_VALIDACION_FINAL',
 ] as const
 const DOCUMENT_CATEGORIES: CategoriaDocumento[] = ['EXPEDIENTE', 'IMSS', 'BAJA']
 const DOCUMENT_TYPES: TipoDocumento[] = [
@@ -181,14 +201,7 @@ function buildPlaceholderEmail(username: string) {
 }
 
 function createTemporaryPassword() {
-  const bytes = new Uint8Array(9)
-  globalThis.crypto.getRandomValues(bytes)
-  // Base64url safe manual conversion or use a simple alternative
-  const base64 = btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
-  return `Rtl!${base64}`
+  return 'BTL2026'
 }
 
 function normalizeUpperIdentifier(value: string | null) {
@@ -245,11 +258,13 @@ async function registrarEventoAudit(
     registroId,
     payload,
     usuarioId,
+    cuentaClienteId,
   }: {
     tabla: string
     registroId: string
     payload: Record<string, unknown>
     usuarioId: string
+    cuentaClienteId?: string | null
   }
 ) {
   await service.from('audit_log').insert({
@@ -258,8 +273,88 @@ async function registrarEventoAudit(
     accion: 'EVENTO',
     payload,
     usuario_id: usuarioId,
-    cuenta_cliente_id: null,
+    cuenta_cliente_id: cuentaClienteId ?? null,
   })
+}
+
+async function publishEmpleadosPanelChange(
+  service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
+  actor: Awaited<ReturnType<typeof requerirPuestosActivos>>,
+  input: {
+    eventType: string
+    cuentaClienteId?: string | null
+    empleadoId?: string | null
+    supervisorEmpleadoId?: string | null
+    period?: string | null
+    includeNomina?: boolean
+    includeUsuarios?: boolean
+    includeDashboard?: boolean
+    includeMensajes?: boolean
+    metadata?: Record<string, unknown> | null
+  }
+) {
+  const modules = ['empleados']
+  if (input.includeNomina) modules.push('nomina')
+  if (input.includeUsuarios) modules.push('usuarios')
+  if (input.includeDashboard) modules.push('dashboard')
+  if (input.includeMensajes) modules.push('mensajes')
+
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType: input.eventType,
+      modules,
+      surfaces: ['panel', 'insights'],
+      scopes: [
+        buildUiChangeScope('global'),
+        buildUiChangeScope('cuenta', input.cuentaClienteId ?? actor.cuentaClienteId ?? null),
+        buildUiChangeScope('empleado', input.empleadoId ?? null),
+        buildUiChangeScope('empleado', actor.empleadoId),
+        buildUiChangeScope('supervisor', input.supervisorEmpleadoId ?? null),
+        buildUiChangeScope('periodo', input.period ?? null),
+      ],
+      cuentaClienteId: input.cuentaClienteId ?? actor.cuentaClienteId ?? null,
+      empleadoId: input.empleadoId ?? null,
+      supervisorEmpleadoId: input.supervisorEmpleadoId ?? null,
+      roleTargets: ['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR', 'NOMINA', 'SUPERVISOR', 'LOGISTICA'],
+      metadata: {
+        ...(input.metadata ?? {}),
+        periodo: input.period ?? null,
+      },
+    }),
+    { service }
+  )
+}
+
+async function publishAsignacionesVacantesChange(
+  service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
+  actor: Awaited<ReturnType<typeof requerirPuestosActivos>>,
+  input: {
+    eventType: string
+    empleadoId?: string | null
+    metadata?: Record<string, unknown> | null
+  }
+) {
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType: input.eventType,
+      modules: ['asignaciones', 'empleados', 'dashboard', 'pdvs', 'reportes'],
+      surfaces: ['panel', 'tabla', 'insights', 'all'],
+      scopes: [
+        buildUiChangeScope('global'),
+        buildUiChangeScope('cuenta', actor.cuentaClienteId ?? null),
+        buildUiChangeScope('empleado', input.empleadoId ?? null),
+        buildUiChangeScope('empleado', actor.empleadoId),
+      ],
+      cuentaClienteId: actor.cuentaClienteId ?? null,
+      empleadoId: input.empleadoId ?? null,
+      roleTargets: ['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR', 'SUPERVISOR'],
+      metadata: {
+        ...(input.metadata ?? {}),
+        source: 'empleados_baja_asignaciones',
+      },
+    }),
+    { service }
+  )
 }
 
 async function provisionarAccesoProvisional(
@@ -269,6 +364,7 @@ async function provisionarAccesoProvisional(
   usernameInput: string
 ) {
   const username = buildPreferredUsername(usernameInput, empleado)
+  const cuentaClienteId = resolveSingleTenantAccountId(null)
 
   const { data: usernameExistente } = await service
     .from('usuario')
@@ -306,7 +402,7 @@ async function provisionarAccesoProvisional(
     .insert({
       auth_user_id: createdAuth.user.id,
       empleado_id: empleado.id,
-      cuenta_cliente_id: null,
+      cuenta_cliente_id: cuentaClienteId,
       username,
       estado_cuenta: 'PROVISIONAL',
       correo_electronico: empleado.correo_electronico ?? null,
@@ -332,9 +428,54 @@ async function provisionarAccesoProvisional(
       empleado: empleado.nombre_completo,
       username,
       puesto: empleado.puesto,
+      cuenta_cliente_id: cuentaClienteId,
     },
     usuarioId: actorUsuarioId,
+    cuentaClienteId,
   })
+
+  const metadataActual = mapMetadataRecord(empleado.metadata)
+  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null
+  const shouldCloseRecruitingFlow =
+    workflowStageActual === 'ONBOARDING' ||
+    workflowStageActual === 'PENDIENTE_ACCESO_ADMIN' ||
+    metadataActual.admin_access_pending === true
+
+  if (shouldCloseRecruitingFlow) {
+    const closedAt = generatedAt.toISOString()
+    const { error: employeeUpdateError } = await service
+      .from('empleado')
+      .update({
+        metadata: {
+          ...metadataActual,
+          workflow_stage: 'ALTA_IMSS_CERRADA',
+          admin_access_pending: false,
+          admin_access_cerrado_at: closedAt,
+        },
+        updated_at: closedAt,
+      })
+      .eq('id', empleado.id)
+
+    if (employeeUpdateError) {
+      await service.from('usuario').delete().eq('id', insertedUsuario.id)
+      await service.auth.admin.deleteUser(createdAuth.user.id, true)
+      throw employeeUpdateError
+    }
+
+    await registrarEventoAudit(service, {
+      tabla: 'empleado',
+      registroId: empleado.id,
+      payload: {
+        evento: 'empleado_acceso_administrativo_cerrado',
+        workflow_stage_anterior: workflowStageActual,
+        workflow_stage_nuevo: 'ALTA_IMSS_CERRADA',
+        admin_access_pending: false,
+        cuenta_cliente_id: cuentaClienteId,
+      },
+      usuarioId: actorUsuarioId,
+      cuentaClienteId,
+    })
+  }
 
   return {
     username,
@@ -357,9 +498,10 @@ async function registrarNotificacionAdminAltaImss(
     correoElectronico: string | null
   }
 ) {
+  const cuentaClienteId = getSingleTenantAccountId()
   const { data: admins, error } = await service
     .from('empleado')
-    .select('id, nombre_completo')
+    .select('id, nombre_completo, correo_electronico')
     .eq('puesto', 'ADMINISTRADOR')
     .eq('estatus_laboral', 'ACTIVO')
     .order('nombre_completo', { ascending: true })
@@ -376,7 +518,7 @@ async function registrarNotificacionAdminAltaImss(
   const { data: mensaje, error: mensajeError } = await service
     .from('mensaje_interno')
     .insert({
-      cuenta_cliente_id: null,
+      cuenta_cliente_id: cuentaClienteId,
       creado_por_usuario_id: actorUsuarioId,
       titulo: title,
       cuerpo: body,
@@ -397,7 +539,7 @@ async function registrarNotificacionAdminAltaImss(
     await service.from('mensaje_receptor').insert(
       admins.map((admin) => ({
         mensaje_id: mensaje.id,
-        cuenta_cliente_id: null,
+        cuenta_cliente_id: cuentaClienteId,
         empleado_id: admin.id,
         estado: 'PENDIENTE',
         metadata: {
@@ -415,7 +557,7 @@ async function registrarNotificacionAdminAltaImss(
       body,
       path: '/admin/users',
       tag: `empleado-admin-access-${empleadoId}`,
-      cuentaClienteId: null,
+      cuentaClienteId,
       audit: {
         tabla: 'empleado',
         registroId: empleadoId,
@@ -429,35 +571,60 @@ async function registrarNotificacionAdminAltaImss(
   } catch {
     // La notificacion in-app y el audit log cubren el flujo si push falla.
   }
+
+  const appUrl = await obtenerUrlBaseAplicacion()
+  await sendWorkflowTransitionEmail({
+    recipients: admins
+      .map((admin) => ({
+        email: mapRecipientEmail(admin.correo_electronico),
+        name: admin.nombre_completo,
+      }))
+      .filter((recipient): recipient is { email: string; name: string } => Boolean(recipient.email)),
+    subject: title,
+    body,
+    ctaLabel: 'Abrir expediente',
+    ctaUrl: `${appUrl}/admin/users`,
+  })
 }
 
-async function registrarNotificacionWorkflowEmpleados(
-  service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
-  {
-    actorUsuarioId,
-    puestosDestino,
+  async function registrarNotificacionWorkflowEmpleados(
+    service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
+    {
+      actorUsuarioId,
+      puestosDestino,
     empleadoId,
     workflow,
     title,
-    body,
-    path,
-    tag,
-    auditAction,
-  }: {
-    actorUsuarioId: string
-    puestosDestino: Puesto[]
-    empleadoId: string
-    workflow: string
-    title: string
-    body: string
-    path: string
-    tag: string
-    auditAction: string
-  }
-) {
+      body,
+      path,
+      tag,
+      auditAction,
+      pushTitle,
+      pushBody,
+      pushPath,
+      pushTag,
+      data,
+    }: {
+      actorUsuarioId: string
+      puestosDestino: Puesto[]
+      empleadoId: string
+      workflow: string
+      title: string
+      body: string
+      path: string
+      tag: string
+      auditAction: string
+      pushTitle?: string
+      pushBody?: string
+      pushPath?: string
+      pushTag?: string
+      data?: Record<string, unknown>
+    }
+  ) {
+  const cuentaClienteId = getSingleTenantAccountId()
   const { data: recipients, error } = await service
     .from('empleado')
-    .select('id, nombre_completo')
+    .select('id, nombre_completo, correo_electronico')
     .in('puesto', puestosDestino)
     .eq('estatus_laboral', 'ACTIVO')
     .order('nombre_completo', { ascending: true })
@@ -469,7 +636,7 @@ async function registrarNotificacionWorkflowEmpleados(
   const { data: mensaje, error: mensajeError } = await service
     .from('mensaje_interno')
     .insert({
-      cuenta_cliente_id: null,
+      cuenta_cliente_id: cuentaClienteId,
       creado_por_usuario_id: actorUsuarioId,
       titulo: title,
       cuerpo: body,
@@ -490,7 +657,7 @@ async function registrarNotificacionWorkflowEmpleados(
     await service.from('mensaje_receptor').insert(
       recipients.map((recipient) => ({
         mensaje_id: mensaje.id,
-        cuenta_cliente_id: null,
+        cuenta_cliente_id: cuentaClienteId,
         empleado_id: recipient.id,
         estado: 'PENDIENTE',
         metadata: {
@@ -501,28 +668,35 @@ async function registrarNotificacionWorkflowEmpleados(
     )
   }
 
-  try {
-    await sendOperationalPushNotification({
-      employeeIds: recipients.map((recipient) => recipient.id),
+  const appUrl = await obtenerUrlBaseAplicacion()
+  await sendWorkflowNotification(
+    recipients
+      .map((recipient) => ({
+        email: mapRecipientEmail(recipient.correo_electronico),
+        name: recipient.nombre_completo,
+        empleadoId: recipient.id,
+      }))
+      .filter((recipient): recipient is { email: string; name: string; empleadoId: string } =>
+        Boolean(recipient.email)
+      ),
+    {
+      workflow,
       title,
       body,
-      path,
-      tag,
-      cuentaClienteId: null,
-      audit: {
-        tabla: 'empleado',
-        registroId: empleadoId,
-        accion: auditAction,
-      },
+      ctaLabel: 'Abrir expediente',
+      ctaUrl: `${appUrl}${path}`,
+      pushTitle,
+      pushBody,
+      pushPath: pushPath ?? path,
+      pushTag: pushTag ?? tag,
       data: {
         empleadoId,
         workflow,
+        ...(data ?? {}),
       },
-    })
-  } catch {
-    // El mensaje interno cubre el flujo si push falla.
+    }
+  )
   }
-}
 
 async function prepararDocumentoEmpleado(
   service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
@@ -950,13 +1124,20 @@ async function buildOnboardingOperativoPayload(
     fallbackFechaIngresoOficial?: string | null
     current?: Record<string, unknown>
   } = {}
-): Promise<OnboardingOperativoPayload> {
-  const currentRecord = mapMetadataRecord(current)
-  const currentOnboarding = mapMetadataRecord(currentRecord.onboarding_operativo)
-  const currentPdvObjetivoId = String(currentOnboarding.pdv_objetivo_id ?? '').trim() || null
-  const pdvObjetivoId = normalizeOptionalText(formData.get('pdv_objetivo_id')) ?? currentPdvObjetivoId
-  const currentCoordinadorEmpleadoId = String(currentOnboarding.coordinador_empleado_id ?? '').trim() || null
-  const coordinadorEmpleadoId = normalizeOptionalText(formData.get('coordinador_empleado_id')) ?? currentCoordinadorEmpleadoId
+  ): Promise<OnboardingOperativoPayload> {
+    const currentRecord = mapMetadataRecord(current)
+    const currentOnboarding = mapMetadataRecord(currentRecord.onboarding_operativo)
+    const currentPdvSugeridoId =
+      String(currentOnboarding.pdv_sugerido_id ?? currentOnboarding.pdv_objetivo_id ?? '').trim() || null
+    const currentPdvDefinitivoId = String(currentOnboarding.pdv_definitivo_id ?? '').trim() || null
+    const pdvSugeridoId =
+      normalizeOptionalText(formData.get('pdv_sugerido_id')) ??
+      normalizeOptionalText(formData.get('pdv_objetivo_id')) ??
+      currentPdvSugeridoId
+    const pdvDefinitivoId =
+      normalizeOptionalText(formData.get('pdv_definitivo_id')) ?? currentPdvDefinitivoId
+    const currentCoordinadorEmpleadoId = String(currentOnboarding.coordinador_empleado_id ?? '').trim() || null
+    const coordinadorEmpleadoId = normalizeOptionalText(formData.get('coordinador_empleado_id')) ?? currentCoordinadorEmpleadoId
   const fechaIngresoOficial =
     normalizeDateOrNull(normalizeDate(formData.get('fecha_ingreso_oficial'))) ??
     normalizeDateOrNull(String(currentOnboarding.fecha_ingreso_oficial ?? '').trim()) ??
@@ -981,11 +1162,18 @@ async function buildOnboardingOperativoPayload(
     normalizeDateOrNull(normalizeDate(formData.get('contrato_firmado_en'))) ??
     normalizeDateOrNull(String(currentOnboarding.contrato_firmado_en ?? '').trim())
 
-  return {
-    pdvObjetivoId,
-    pdvObjetivoLabel: await resolvePdvLabel(service, pdvObjetivoId),
-    coordinadorEmpleadoId,
-    coordinadorNombre: await resolveCoordinadorLabel(service, coordinadorEmpleadoId),
+    const pdvSugeridoLabel = await resolvePdvLabel(service, pdvSugeridoId)
+    const pdvDefinitivoLabel = await resolvePdvLabel(service, pdvDefinitivoId)
+
+    return {
+      pdvSugeridoId,
+      pdvSugeridoLabel,
+      pdvDefinitivoId,
+      pdvDefinitivoLabel,
+      pdvObjetivoId: pdvDefinitivoId ?? pdvSugeridoId,
+      pdvObjetivoLabel: pdvDefinitivoLabel ?? pdvSugeridoLabel,
+      coordinadorEmpleadoId,
+      coordinadorNombre: await resolveCoordinadorLabel(service, coordinadorEmpleadoId),
     fechaIngresoOficial,
     fechaIsdinizacion,
     accesosExternosStatus,
@@ -1018,21 +1206,22 @@ function mergeEmpleadoMetadata(
   }
 }
 
-function validateOnboardingForPayroll(onboarding: OnboardingOperativoPayload) {
-  if (!onboarding.pdvObjetivoId) {
-    throw new Error('Define el PDV objetivo antes de enviar a Nomina.')
+function mapRecipientEmail(value: string | null | undefined) {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  return normalized.length > 0 ? normalized : null
+}
+
+function validateOnboardingForPayroll(onboarding: OnboardingOperativoPayload, puesto: Puesto) {
+  if (!onboarding.pdvSugeridoId) {
+    throw new Error('El PDV sugerido es obligatorio antes de pasar a gestion dual.')
   }
 
-  if (!onboarding.coordinadorEmpleadoId) {
-    throw new Error('Selecciona el coordinador responsable antes de enviar a Nomina.')
+  if (!isSupervisorPuesto(puesto) && !onboarding.coordinadorEmpleadoId) {
+    throw new Error('Selecciona el coordinador responsable antes de pasar a gestion dual.')
   }
 
   if (!onboarding.fechaIngresoOficial) {
-    throw new Error('La fecha oficial de ingreso es obligatoria antes de enviar a Nomina.')
-  }
-
-  if (!onboarding.fechaIsdinizacion) {
-    throw new Error('La fecha de ISDINIZACION es obligatoria antes de enviar a Nomina.')
+    throw new Error('La fecha oficial de ingreso es obligatoria antes de pasar a gestion dual.')
   }
 }
 
@@ -1197,6 +1386,13 @@ export async function crearEmpleado(
       fallbackFechaIngresoOficial: fechaAlta,
     })
 
+    if (!onboardingOperativo.pdvSugeridoId) {
+      return buildState({
+        message: 'El PDV sugerido es obligatorio para registrar un nuevo candidato.',
+        ocrSnapshot,
+      })
+    }
+
     if (!nombreCompleto || !curp || !nss || !rfc) {
       return buildState({
         message:
@@ -1247,11 +1443,11 @@ export async function crearEmpleado(
         expediente_estado: 'EN_REVISION',
         expediente_validado_en: null,
         expediente_validado_por_usuario_id: null,
-        expediente_observaciones: documentoPreparado.ocr.result.confidenceSummary,
+        expediente_observaciones: null,
         imss_estado: 'NO_INICIADO',
         metadata: {
           source: 'modulo_empleados_reclutamiento',
-          workflow_stage: 'PENDIENTE_COORDINACION',
+          workflow_stage: 'NUEVOS',
           admin_access_pending: false,
           curriculum_pdf_sha256: documentoPreparado.archivoHash.sha256,
           curriculum_pdf_path: documentoPreparado.archivoHash.ruta_archivo,
@@ -1379,18 +1575,37 @@ export async function crearEmpleado(
         puesto,
         zona,
         fecha_alta: fechaAlta,
-        workflow_stage: 'PENDIENTE_COORDINACION',
+        workflow_stage: 'NUEVOS',
       },
       usuarioId: actor.usuarioId,
     })
 
-    revalidatePath('/empleados')
-    revalidatePath('/nomina')
-    revalidatePath('/admin/users')
+    await publishEmpleadosPanelChange(service, actor, {
+      eventType: 'empleado_creado_desde_cv_ocr',
+      empleadoId: insertedEmpleado.id,
+      includeNomina: true,
+      includeUsuarios: true,
+      metadata: {
+        workflow_stage: 'NUEVOS',
+        puesto,
+      },
+    })
+
+    await registrarNotificacionWorkflowEmpleados(
+      service,
+      {
+        actorUsuarioId: actor.usuarioId,
+        empleadoId: insertedEmpleado.id,
+        ...buildNuevoCandidatoCoordinacionNotification({
+          empleadoId: insertedEmpleado.id,
+          nombreCompleto,
+        }),
+      }
+    )
     return buildState({
       ok: true,
       message:
-        'Candidato creado desde CV y enviado a Coordinacion para entrevista y aprobacion.',
+        'Candidato creado desde CV y enviado a Coordinacion como Nuevo pendiente de aprobacion.',
       duplicatedUpload: documentoRegistrado.storedEvidence.deduplicated,
       ocrSnapshot,
     })  } catch (error) {
@@ -1450,8 +1665,170 @@ export async function actualizarEstadoExpedienteEmpleado(
     usuarioId: actor.usuarioId,
   })
 
-  revalidatePath('/empleados')
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_expediente_actualizado',
+    empleadoId,
+    metadata: {
+      expediente_estado: expedienteEstado,
+    },
+  })
   return buildState({ ok: true, message: 'Estado de expediente actualizado.' })
+}
+
+export async function actualizarExpedienteEmpleadoConDocumento(
+  _prevState: EmpleadoActionState,
+  formData: FormData
+): Promise<EmpleadoActionState> {
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO'])
+  const { service, error: adminError } = obtenerClienteAdmin()
+
+  if (!service) {
+    return buildState({ message: adminError })
+  }
+
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
+  const expedienteObservaciones = normalizeOptionalText(formData.get('expediente_observaciones'))
+  const expedientePdf = formData.get('expediente_pdf')
+
+  if (!empleadoId) {
+    return buildState({ message: 'Selecciona un empleado valido.' })
+  }
+
+  if (!(expedientePdf instanceof File) || expedientePdf.size <= 0) {
+    return buildState({ message: 'Adjunta un PDF de expediente para actualizarlo.' })
+  }
+
+  if (expedientePdf.type !== 'application/pdf') {
+    return buildState({ message: 'El expediente actualizado debe cargarse como PDF.' })
+  }
+
+  if (exceedsOperationalUploadLimit(expedientePdf)) {
+    return buildState({
+      message: buildUploadLimitMessage('expediente actualizado', expedientePdf),
+    })
+  }
+
+  const { data: empleado, error: empleadoError } = await service
+    .from('empleado')
+    .select('id, nombre_completo, nss, expediente_estado, metadata')
+    .eq('id', empleadoId)
+    .maybeSingle()
+
+  if (empleadoError || !empleado) {
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+  }
+
+  try {
+    const documentoPreparado = await prepararDocumentoEmpleado(service, {
+      actorUsuarioId: actor.usuarioId,
+      empleadoId,
+      categoria: 'EXPEDIENTE',
+      tipoDocumento: 'OTRO',
+      file: expedientePdf,
+      expectedDocumentType: 'EXPEDIENTE',
+      employeeName: empleado.nombre_completo,
+      employeeNss: empleado.nss,
+      skipOcr: true,
+      metadataExtra: {
+        expediente_update: true,
+        expediente_observaciones: expedienteObservaciones,
+      },
+    })
+
+    const documentoRegistrado = await registrarDocumentoEmpleado(service, documentoPreparado, {
+      actorUsuarioId: actor.usuarioId,
+      empleadoId,
+      categoria: 'EXPEDIENTE',
+      tipoDocumento: 'OTRO',
+      file: expedientePdf,
+      metadataExtra: {
+        expediente_update: true,
+        expediente_observaciones: expedienteObservaciones,
+        ocr_skipped: true,
+      },
+    })
+
+    const now = new Date().toISOString()
+    const { error } = await service
+      .from('empleado')
+      .update({
+        expediente_estado: 'VALIDADO',
+        expediente_validado_en: now,
+        expediente_validado_por_usuario_id: actor.usuarioId,
+        expediente_observaciones: expedienteObservaciones,
+        metadata: {
+          ...mapMetadataRecord(empleado.metadata),
+          workflow_stage: 'EN_GESTION',
+          admin_access_pending: false,
+        },
+        updated_at: now,
+      })
+      .eq('id', empleadoId)
+
+    if (error) {
+      return buildState({ message: error.message })
+    }
+
+    await registrarEventoAudit(service, {
+      tabla: 'empleado',
+      registroId: empleadoId,
+      payload: {
+        evento: 'empleado_expediente_revalidado_con_documento',
+        expediente_estado: 'VALIDADO',
+        expediente_observaciones: expedienteObservaciones,
+        workflow_stage_nuevo: 'EN_GESTION',
+        documento_id: documentoRegistrado.documentoId,
+        sha256: documentoRegistrado.archivoHash.sha256,
+      },
+      usuarioId: actor.usuarioId,
+    })
+
+    await publishEmpleadosPanelChange(service, actor, {
+      eventType: 'empleado_expediente_actualizado',
+      empleadoId,
+      metadata: {
+        expediente_estado: 'VALIDADO',
+        workflow_stage: 'EN_GESTION',
+      },
+    })
+
+    await registrarNotificacionWorkflowEmpleados(service, {
+      actorUsuarioId: actor.usuarioId,
+      puestosDestino: ['NOMINA'],
+      empleadoId,
+      workflow: 'empleados_expediente_completo_gestion_dual',
+      title: 'Expediente completo listo para gestion dual',
+      body: `${empleado.nombre_completo} ya tiene el expediente completo y puede entrar a gestion con Nomina y Coordinacion en paralelo.`,
+      path: '/nomina?inbox=altas-imss',
+      tag: `empleado-expediente-gestion-${empleadoId}`,
+      auditAction: 'notificar_nomina_expediente_completo',
+    })
+
+    await registrarNotificacionWorkflowEmpleados(service, {
+      actorUsuarioId: actor.usuarioId,
+      puestosDestino: ['COORDINADOR'],
+      empleadoId,
+      workflow: 'empleados_expediente_completo_gestion_dual',
+      title: 'Expediente completo listo para gestion dual',
+      body: `${empleado.nombre_completo} ya tiene el expediente completo y Coordinacion puede registrar la capacitacion mientras Nomina sube el alta.`,
+      path: '/empleados',
+      tag: `empleado-expediente-coordinacion-${empleadoId}`,
+      auditAction: 'notificar_coordinacion_expediente_completo',
+    })
+
+    return buildState({
+      ok: true,
+      duplicatedUpload: documentoRegistrado.storedEvidence.deduplicated || documentoRegistrado.documentoExistente,
+      message:
+        documentoRegistrado.storedEvidence.deduplicated || documentoRegistrado.documentoExistente
+          ? 'Expediente actualizado y documento reutilizado.'
+          : 'Expediente actualizado con el nuevo documento.',
+    })
+  } catch (error) {
+    return buildState({
+      message: error instanceof Error ? error.message : 'No fue posible actualizar el expediente.',
+    })
+  }
 }
 
 export async function actualizarFichaEmpleadoReclutamiento(
@@ -1555,7 +1932,7 @@ export async function actualizarFichaEmpleadoReclutamiento(
   if (reenviarAltaANomina) {
     updatePayload.expediente_estado = 'EN_REVISION'
     updatePayload.metadata = mergeEmpleadoMetadata(metadataActual, {
-      workflowStage: 'SELECCION_APROBADA',
+      workflowStage: 'EXPEDIENTE',
       adminAccessPending: false,
       onboarding: onboardingOperativo,
     })
@@ -1585,7 +1962,14 @@ export async function actualizarFichaEmpleadoReclutamiento(
     usuarioId: actor.usuarioId,
   })
 
-  revalidatePath('/empleados')
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_ficha_laboral_actualizada',
+    empleadoId,
+    includeNomina: reenviarAltaANomina,
+    metadata: {
+      reenviar_alta_nomina: reenviarAltaANomina,
+    },
+  })
   if (reenviarAltaANomina) {
     await registrarNotificacionWorkflowEmpleados(service, {
       actorUsuarioId: actor.usuarioId,
@@ -1598,7 +1982,6 @@ export async function actualizarFichaEmpleadoReclutamiento(
       tag: `empleado-alta-corregida-${empleadoId}`,
       auditAction: 'notificar_nomina_alta_corregida',
     })
-    revalidatePath('/nomina')
   }
   return buildState({ ok: true, message: 'Ficha laboral actualizada. Ya puedes reenviar soportes corregidos.' })
 }
@@ -1621,7 +2004,7 @@ export async function enviarAltaANominaDesdeReclutamiento(
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
-    .select('id, nombre_completo, fecha_alta, metadata')
+    .select('id, nombre_completo, fecha_alta, puesto, metadata')
     .eq('id', empleadoId)
     .maybeSingle()
 
@@ -1636,19 +2019,19 @@ export async function enviarAltaANominaDesdeReclutamiento(
   })
 
   try {
-    validateOnboardingForPayroll(onboardingOperativo)
+    validateOnboardingForPayroll(onboardingOperativo, empleado.puesto)
   } catch (error) {
     return buildState({ message: error instanceof Error ? error.message : 'Paquete operativo incompleto.' })
   }
 
   const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null
-  const nextStage = 'PENDIENTE_IMSS_NOMINA'
+  const nextStage = 'EN_GESTION'
   const now = new Date().toISOString()
 
   const { error: updateError } = await service
     .from('empleado')
     .update({
-      expediente_estado: 'EN_REVISION',
+      expediente_estado: 'VALIDADO',
       metadata: mergeEmpleadoMetadata(metadataActual, {
         workflowStage: nextStage,
         adminAccessPending: false,
@@ -1662,18 +2045,23 @@ export async function enviarAltaANominaDesdeReclutamiento(
     return buildState({ message: updateError.message })
   }
 
-  await registrarEventoAudit(service, {
-    tabla: 'empleado',
-    registroId: empleadoId,
+    await registrarEventoAudit(service, {
+      tabla: 'empleado',
+      registroId: empleadoId,
     payload: {
       evento: 'empleado_enviado_a_nomina_desde_reclutamiento',
       workflow_stage_anterior: workflowStageActual,
       workflow_stage_nuevo: nextStage,
-      pdv_objetivo_id: onboardingOperativo.pdvObjetivoId,
-      coordinador_empleado_id: onboardingOperativo.coordinadorEmpleadoId,
-      fecha_ingreso_oficial: onboardingOperativo.fechaIngresoOficial,
-      fecha_isdinizacion: onboardingOperativo.fechaIsdinizacion,
-    },
+      pdv_sugerido_id: onboardingOperativo.pdvSugeridoId,
+      pdv_sugerido_label: onboardingOperativo.pdvSugeridoLabel,
+        pdv_definitivo_id: onboardingOperativo.pdvDefinitivoId,
+        pdv_definitivo_label: onboardingOperativo.pdvDefinitivoLabel,
+        pdv_objetivo_id: onboardingOperativo.pdvObjetivoId,
+        pdv_objetivo_label: onboardingOperativo.pdvObjetivoLabel,
+        coordinador_empleado_id: onboardingOperativo.coordinadorEmpleadoId,
+        fecha_ingreso_oficial: onboardingOperativo.fechaIngresoOficial,
+        fecha_isdinizacion: onboardingOperativo.fechaIsdinizacion,
+      },
     usuarioId: actor.usuarioId,
   })
 
@@ -1681,19 +2069,25 @@ export async function enviarAltaANominaDesdeReclutamiento(
     actorUsuarioId: actor.usuarioId,
     puestosDestino: ['NOMINA'],
     empleadoId,
-    workflow: 'empleados_alta_pendiente_imss',
-    title: 'Alta nueva pendiente de IMSS',
-    body: `${empleado.nombre_completo} ya quedo listo para que Nomina inicie el alta IMSS.`,
+    workflow: 'empleados_gestion_dual_iniciada',
+    title: 'Expediente listo para gestion dual',
+    body: `${empleado.nombre_completo} ya quedo listo para que Nomina y Coordinacion trabajen en paralelo.`,
     path: '/nomina?inbox=altas-imss',
-    tag: `empleado-alta-imss-${empleadoId}`,
-    auditAction: 'notificar_nomina_alta_pendiente',
+    tag: `empleado-gestion-dual-${empleadoId}`,
+    auditAction: 'notificar_nomina_gestion_dual',
   })
-  revalidatePath('/empleados')
-  revalidatePath('/nomina')
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_enviado_a_nomina',
+    empleadoId,
+    includeNomina: true,
+    metadata: {
+      workflow_stage: 'EN_GESTION',
+    },
+  })
 
   return buildState({
     ok: true,
-    message: 'Paquete validado y enviado a Nomina para alta IMSS.',
+    message: 'Paquete validado y enviado a gestion dual.',
   })
 }
 
@@ -1715,7 +2109,7 @@ export async function aprobarCandidatoCoordinacion(
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
-    .select('id, nombre_completo, fecha_alta, metadata')
+    .select('id, nombre_completo, fecha_alta, puesto, metadata')
     .eq('id', empleadoId)
     .maybeSingle()
 
@@ -1725,8 +2119,8 @@ export async function aprobarCandidatoCoordinacion(
 
   const metadataActual = mapMetadataRecord(empleado.metadata)
   const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null
-  if (workflowStageActual !== 'PENDIENTE_COORDINACION') {
-    return buildState({ message: 'Este candidato ya no esta pendiente de Coordinacion.' })
+  if (workflowStageActual !== 'NUEVOS' && workflowStageActual !== 'PENDIENTE_COORDINACION') {
+    return buildState({ message: 'Este candidato ya no esta en la bandeja de aprobacion de Coordinacion.' })
   }
 
   let onboardingOperativo = await buildOnboardingOperativoPayload(service, formData, {
@@ -1734,8 +2128,8 @@ export async function aprobarCandidatoCoordinacion(
     current: metadataActual,
   })
 
-  if (!onboardingOperativo.pdvObjetivoId) {
-    return buildState({ message: 'Coordinacion debe confirmar el PDV objetivo antes de aprobar.' })
+  if (!onboardingOperativo.fechaIngresoOficial) {
+    return buildState({ message: 'Coordinacion debe registrar la fecha de ingreso antes de aprobar.' })
   }
 
   if (!onboardingOperativo.coordinadorEmpleadoId && actor.puesto === 'COORDINADOR' && actor.empleadoId) {
@@ -1750,9 +2144,9 @@ export async function aprobarCandidatoCoordinacion(
   const { error: updateError } = await service
     .from('empleado')
     .update({
-      expediente_estado: 'EN_REVISION',
+      expediente_estado: 'PENDIENTE_DOCUMENTOS',
       metadata: mergeEmpleadoMetadata(metadataActual, {
-        workflowStage: 'SELECCION_APROBADA',
+        workflowStage: 'EXPEDIENTE',
         adminAccessPending: false,
         onboarding: onboardingOperativo,
       }),
@@ -1767,21 +2161,231 @@ export async function aprobarCandidatoCoordinacion(
   await registrarEventoAudit(service, {
     tabla: 'empleado',
     registroId: empleadoId,
+      payload: {
+        evento: 'candidato_aprobado_por_coordinacion',
+        workflow_stage_anterior: workflowStageActual,
+        workflow_stage_nuevo: 'EXPEDIENTE',
+        pdv_sugerido_id: onboardingOperativo.pdvSugeridoId,
+        pdv_sugerido_label: onboardingOperativo.pdvSugeridoLabel,
+        fecha_ingreso_oficial: onboardingOperativo.fechaIngresoOficial,
+        coordinador_empleado_id: onboardingOperativo.coordinadorEmpleadoId,
+      },
+    usuarioId: actor.usuarioId,
+  })
+
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'candidato_aprobado_coordinacion',
+    empleadoId,
+    metadata: {
+      workflow_stage: 'EXPEDIENTE',
+    },
+  })
+
+  await registrarNotificacionWorkflowEmpleados(service, {
+    actorUsuarioId: actor.usuarioId,
+    puestosDestino: ['RECLUTAMIENTO'],
+    empleadoId,
+    workflow: 'empleados_candidato_aprobado_coordinacion',
+    title: 'Candidato aprobado por Coordinacion',
+    body: `${empleado.nombre_completo} regreso a Reclutamiento para carga del expediente final en un solo PDF.`,
+    path: '/empleados',
+    tag: `empleado-candidato-aprobado-${empleadoId}`,
+    auditAction: 'notificar_reclutamiento_candidato_aprobado',
+  })
+
+  return buildState({
+    ok: true,
+    message: 'Candidato aprobado por Coordinacion. Reclutamiento ya puede subir el expediente unico para pasar a gestion dual.',
+  })
+}
+
+export async function rechazarCandidatoCoordinacion(
+  _prevState: EmpleadoActionState,
+  formData: FormData
+): Promise<EmpleadoActionState> {
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR'])
+  const { service, error: adminError } = obtenerClienteAdmin()
+
+  if (!service) {
+    return buildState({ message: adminError })
+  }
+
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
+  const motivoRechazo = normalizeOptionalText(formData.get('motivo_rechazo_coordinacion'))
+
+  if (!empleadoId) {
+    return buildState({ message: 'Selecciona un candidato valido.' })
+  }
+
+  if (!motivoRechazo) {
+    return buildState({ message: 'Coordinacion debe explicar el motivo del rechazo.' })
+  }
+
+  const { data: empleado, error: empleadoError } = await service
+    .from('empleado')
+    .select('id, nombre_completo, metadata, estatus_laboral')
+    .eq('id', empleadoId)
+    .maybeSingle()
+
+  if (empleadoError || !empleado) {
+    return buildState({ message: empleadoError?.message ?? 'Candidato no encontrado.' })
+  }
+
+  const metadataActual =
+    empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
+      ? (empleado.metadata as Record<string, unknown>)
+      : {}
+  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null
+
+  if (workflowStageActual !== 'NUEVOS' && workflowStageActual !== 'PENDIENTE_COORDINACION') {
+    return buildState({ message: 'Este candidato ya no puede rechazarse desde Coordinacion.' })
+  }
+
+  const now = new Date().toISOString()
+  const { error } = await service
+    .from('empleado')
+    .update({
+      estatus_laboral: empleado.estatus_laboral === 'BAJA' ? 'BAJA' : 'SUSPENDIDO',
+      expediente_observaciones: motivoRechazo,
+      metadata: {
+        ...metadataActual,
+        workflow_stage: 'ALTA_CANCELADA',
+        admin_access_pending: false,
+        alta_cancelada_at: now,
+        alta_cancelada_por_puesto: actor.puesto,
+        alta_cancelada_motivo: motivoRechazo,
+        alta_cancelada_desde_stage: workflowStageActual,
+      },
+      updated_at: now,
+    })
+    .eq('id', empleadoId)
+
+  if (error) {
+    return buildState({ message: error.message })
+  }
+
+  await registrarEventoAudit(service, {
+    tabla: 'empleado',
+    registroId: empleadoId,
     payload: {
-      evento: 'candidato_aprobado_por_coordinacion',
+      evento: 'candidato_rechazado_por_coordinacion',
       workflow_stage_anterior: workflowStageActual,
-      workflow_stage_nuevo: 'SELECCION_APROBADA',
-      pdv_objetivo_id: onboardingOperativo.pdvObjetivoId,
-      coordinador_empleado_id: onboardingOperativo.coordinadorEmpleadoId,
+      workflow_stage_nuevo: 'ALTA_CANCELADA',
+      motivo_rechazo: motivoRechazo,
     },
     usuarioId: actor.usuarioId,
   })
 
-  revalidatePath('/empleados')
+  await registrarNotificacionWorkflowEmpleados(service, {
+    actorUsuarioId: actor.usuarioId,
+    puestosDestino: ['RECLUTAMIENTO'],
+    empleadoId,
+    workflow: 'empleados_candidato_rechazado_coordinacion',
+    title: 'Candidato rechazado por Coordinacion',
+    body: `${empleado.nombre_completo} regreso a Reclutamiento como cancelado/devuelto. Motivo: ${motivoRechazo}`,
+    path: '/empleados',
+    tag: `empleado-candidato-rechazado-${empleadoId}`,
+    auditAction: 'notificar_reclutamiento_candidato_rechazado',
+  })
+
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'candidato_rechazado_coordinacion',
+    empleadoId,
+    includeDashboard: true,
+    metadata: {
+      workflow_stage: 'ALTA_CANCELADA',
+    },
+  })
 
   return buildState({
     ok: true,
-    message: 'Candidato aprobado por Coordinacion. Reclutamiento ya puede continuar con el expediente y el paquete operativo.',
+    message: 'Candidato rechazado por Coordinacion y movido a Cancelados / devueltos.',
+  })
+}
+
+export async function registrarCapacitacionCoordinacion(
+  _prevState: EmpleadoActionState,
+  formData: FormData
+): Promise<EmpleadoActionState> {
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR'])
+  const { service, error: adminError } = obtenerClienteAdmin()
+
+  if (!service) {
+    return buildState({ message: adminError })
+  }
+
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
+
+  if (!empleadoId) {
+    return buildState({ message: 'Selecciona un empleado valido.' })
+  }
+
+  const { data: empleado, error: empleadoError } = await service
+    .from('empleado')
+    .select('id, nombre_completo, imss_estado, metadata')
+    .eq('id', empleadoId)
+    .maybeSingle()
+
+  if (empleadoError || !empleado) {
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+  }
+
+  const metadataActual = mapMetadataRecord(empleado.metadata)
+  const onboardingOperativo = await buildOnboardingOperativoPayload(service, formData, {
+    current: metadataActual,
+  })
+
+  if (!onboardingOperativo.fechaIsdinizacion) {
+    return buildState({ message: 'La fecha de capacitacion es obligatoria.' })
+  }
+
+  const nextStage = empleado.imss_estado === 'ALTA_IMSS' ? 'ONBOARDING' : 'EN_GESTION'
+  const now = new Date().toISOString()
+
+  const { error } = await service
+    .from('empleado')
+    .update({
+      metadata: mergeEmpleadoMetadata(metadataActual, {
+        workflowStage: nextStage,
+        adminAccessPending: nextStage === 'ONBOARDING',
+        onboarding: onboardingOperativo,
+      }),
+      updated_at: now,
+    })
+    .eq('id', empleadoId)
+
+  if (error) {
+    return buildState({ message: error.message })
+  }
+
+  await registrarEventoAudit(service, {
+    tabla: 'empleado',
+    registroId: empleadoId,
+    payload: {
+      evento: 'capacitacion_coordinacion_registrada',
+      workflow_stage_nuevo: nextStage,
+      fecha_isdinizacion: onboardingOperativo.fechaIsdinizacion,
+    },
+    usuarioId: actor.usuarioId,
+  })
+
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'capacitacion_coordinacion_registrada',
+    empleadoId,
+    includeNomina: true,
+    includeUsuarios: true,
+    metadata: {
+      workflow_stage: nextStage,
+      fecha_isdinizacion: onboardingOperativo.fechaIsdinizacion,
+    },
+  })
+
+  return buildState({
+    ok: true,
+    message:
+      nextStage === 'ONBOARDING'
+        ? 'Capacitacion registrada. El expediente ya puede pasar a Administracion.'
+        : 'Capacitacion registrada. El expediente permanece en gestion hasta que Nomina suba el alta.',
   })
 }
 export async function validarCierreOnboardingReclutamiento(
@@ -1835,7 +2439,7 @@ export async function validarCierreOnboardingReclutamiento(
     .from('empleado')
     .update({
       metadata: mergeEmpleadoMetadata(metadataActual, {
-        workflowStage: 'PENDIENTE_ACCESO_ADMIN',
+        workflowStage: 'ONBOARDING',
         adminAccessPending: true,
         onboarding: nextOnboarding,
       }),
@@ -1852,7 +2456,7 @@ export async function validarCierreOnboardingReclutamiento(
     registroId: empleadoId,
     payload: {
       evento: 'empleado_validacion_final_reclutamiento',
-      workflow_stage_nuevo: 'PENDIENTE_ACCESO_ADMIN',
+      workflow_stage_nuevo: 'ONBOARDING',
       contrato_status: nextOnboarding.contratoStatus,
       contrato_firmado_en: nextOnboarding.contratoFirmadoEn,
       expediente_completo_recibido: nextOnboarding.expedienteCompletoRecibido,
@@ -1875,12 +2479,18 @@ export async function validarCierreOnboardingReclutamiento(
     })
   }
 
-  revalidatePath('/empleados')
-  revalidatePath('/admin/users')
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_validacion_final_reclutamiento',
+    empleadoId,
+    includeUsuarios: true,
+    metadata: {
+      workflow_stage: 'ONBOARDING',
+    },
+  })
 
   return buildState({
     ok: true,
-    message: 'Validacion final completada. Administracion ya puede generar acceso, QR y asignacion inicial.',
+    message: 'Validacion final completada. El candidato ya paso a Onboarding para el cierre administrativo.',
   })
 }
 export async function cancelarProcesoAltaEmpleado(
@@ -2007,10 +2617,13 @@ export async function cancelarProcesoAltaEmpleado(
     })
   }
 
-  revalidatePath('/empleados')
-  revalidatePath('/nomina')
-  revalidatePath('/dashboard')
-  revalidatePath('/admin/users')
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_alta_cancelada',
+    empleadoId,
+    includeNomina: true,
+    includeDashboard: true,
+    includeUsuarios: true,
+  })
 
   return buildState({
     ok: true,
@@ -2069,7 +2682,8 @@ export async function reactivarProcesoAltaEmpleado(
   const estatusLaboralPrevio = String(
     metadataActual.alta_cancelada_estatus_laboral_previo ?? 'ACTIVO'
   ).trim()
-  const adminAccessPending = workflowStageRestaurado === 'PENDIENTE_ACCESO_ADMIN'
+  const adminAccessPending =
+    workflowStageRestaurado === 'ONBOARDING' || workflowStageRestaurado === 'PENDIENTE_ACCESO_ADMIN'
   const now = new Date().toISOString()
   const nextMetadata = {
     ...metadataActual,
@@ -2116,10 +2730,7 @@ export async function reactivarProcesoAltaEmpleado(
     usuarioId: actor.usuarioId,
   })
 
-  if (
-    workflowStageRestaurado === 'PENDIENTE_IMSS_NOMINA' ||
-    workflowStageRestaurado === 'EN_FLUJO_IMSS'
-  ) {
+  if (workflowStageRestaurado === 'EN_GESTION' || workflowStageRestaurado === 'ONBOARDING') {
     await registrarNotificacionWorkflowEmpleados(service, {
       actorUsuarioId: actor.usuarioId,
       puestosDestino: ['NOMINA'],
@@ -2133,10 +2744,16 @@ export async function reactivarProcesoAltaEmpleado(
     })
   }
 
-  revalidatePath('/empleados')
-  revalidatePath('/nomina')
-  revalidatePath('/dashboard')
-  revalidatePath('/admin/users')
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_alta_reactivada',
+    empleadoId,
+    includeNomina: true,
+    includeDashboard: true,
+    includeUsuarios: true,
+    metadata: {
+      workflow_stage: workflowStageRestaurado,
+    },
+  })
 
   return buildState({
     ok: true,
@@ -2218,6 +2835,12 @@ export async function actualizarEstadoImssEmpleado(
     empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
       ? (empleado.metadata as Record<string, unknown>)
       : {}
+  const onboardingOperativo = await buildOnboardingOperativoPayload(service, formData, {
+    current: metadataActual,
+  })
+
+  const nextWorkflowStage =
+    imssEstado === 'ALTA_IMSS' && onboardingOperativo.fechaIsdinizacion ? 'ONBOARDING' : 'EN_GESTION'
 
   const nowIso = new Date().toISOString()
 
@@ -2232,9 +2855,9 @@ export async function actualizarEstadoImssEmpleado(
       sueldo_base_mensual: sueldoBaseMensual,
       metadata: {
         ...metadataActual,
-        workflow_stage:
-          imssEstado === 'ALTA_IMSS' ? 'PENDIENTE_ACCESO_ADMIN' : 'EN_FLUJO_IMSS',
-        admin_access_pending: imssEstado === 'ALTA_IMSS',
+        workflow_stage: nextWorkflowStage,
+        admin_access_pending: nextWorkflowStage === 'ONBOARDING',
+        onboarding_operativo: onboardingOperativo,
       },
       updated_at: nowIso,
     })
@@ -2254,20 +2877,26 @@ export async function actualizarEstadoImssEmpleado(
       imss_fecha_alta: imssFechaAlta,
       sbc_diario: sbcDiario,
       sueldo_base_mensual: sueldoBaseMensual,
-      workflow_stage: imssEstado === 'ALTA_IMSS' ? 'PENDIENTE_VALIDACION_FINAL' : 'EN_FLUJO_IMSS',
+      workflow_stage: nextWorkflowStage,
     },
     usuarioId: actor.usuarioId,
   })
 
-  revalidatePath('/empleados')
-  revalidatePath('/nomina')
-  revalidatePath('/admin/users')
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_imss_actualizado',
+    empleadoId,
+    includeNomina: true,
+    includeUsuarios: true,
+    metadata: {
+      imss_estado: imssEstado,
+    },
+  })
   return buildState({
     ok: true,
     message:
-      imssEstado === 'ALTA_IMSS'
-        ? 'Alta IMSS confirmada. Reclutamiento debe hacer la validacion final antes de entregar a Administracion.'
-        : 'Flujo IMSS actualizado.',
+      nextWorkflowStage === 'ONBOARDING'
+        ? 'Alta IMSS confirmada y capacitacion lista. El expediente pasa a Onboarding para el cierre administrativo.'
+        : 'Flujo IMSS actualizado. El expediente permanece en gestion.',
   })
 }
 
@@ -2354,9 +2983,12 @@ export async function rechazarAltaImssEmpleadoNomina(
     auditAction: 'notificar_reclutamiento_alta_rechazada',
   })
 
-  revalidatePath('/empleados')
-  revalidatePath('/nomina')
-  revalidatePath('/dashboard')
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_alta_rechazada_nomina',
+    empleadoId,
+    includeNomina: true,
+    includeDashboard: true,
+  })
   return buildState({ ok: true, message: 'Alta regresada a Reclutamiento con motivo de rechazo.' })
 }
 
@@ -2440,8 +3072,11 @@ export async function actualizarDatosAdministrativosEmpleado(
     usuarioId: actor.usuarioId,
   })
 
-  revalidatePath('/empleados')
-  revalidatePath('/admin/users')
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_datos_administrativos_actualizados',
+    empleadoId,
+    includeUsuarios: true,
+  })
   return buildState({ ok: true, message: 'Datos administrativos actualizados.' })
 }
 
@@ -2614,10 +3249,13 @@ export async function registrarBajaEmpleado(
     auditAction: 'notificar_logistica_baja_pendiente',
   })
 
-  revalidatePath('/empleados')
-  revalidatePath('/nomina')
-  revalidatePath('/admin/users')
-  revalidatePath('/dashboard')
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_baja_registrada',
+    empleadoId,
+    includeNomina: true,
+    includeUsuarios: true,
+    includeDashboard: true,
+  })
 
   return buildState({
     ok: true,
@@ -2672,17 +3310,26 @@ export async function cerrarBajaEmpleadoNomina(
     return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
   }
 
-  if (empleado.estatus_laboral === 'BAJA') {
-    return buildState({ ok: true, message: 'La baja del empleado ya estaba cerrada.' })
-  }
-
   const metadataActual =
     empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
       ? (empleado.metadata as Record<string, unknown>)
       : {}
   const workflowStage = String(metadataActual.workflow_stage ?? '').trim()
+  const bajaAssignmentImpactProcessedAt =
+    typeof metadataActual.baja_assignment_impact_processed_at === 'string'
+      ? metadataActual.baja_assignment_impact_processed_at
+      : null
 
-  if (workflowStage !== 'PENDIENTE_BAJA_IMSS') {
+  if (empleado.estatus_laboral === 'BAJA' && workflowStage === 'BAJA_IMSS_CERRADA' && bajaAssignmentImpactProcessedAt) {
+    return buildState({ ok: true, message: 'La baja del empleado ya estaba cerrada.' })
+  }
+
+  const isRetryingAssignmentImpact =
+    empleado.estatus_laboral === 'BAJA' &&
+    workflowStage === 'BAJA_IMSS_CERRADA' &&
+    !bajaAssignmentImpactProcessedAt
+
+  if (workflowStage !== 'PENDIENTE_BAJA_IMSS' && !isRetryingAssignmentImpact) {
     return buildState({
       message:
         'Este expediente no esta en baja pendiente para Nomina. Reclutamiento debe registrar primero la solicitud de baja.',
@@ -2782,6 +3429,66 @@ export async function cerrarBajaEmpleadoNomina(
     })
     .eq('empleado_id', empleadoId)
 
+  const impactoBaja = await procesarImpactoBajaEnAsignaciones(service, {
+    empleadoId,
+    fechaBajaEfectiva: fechaBaja,
+    usuarioActorId: actor.usuarioId,
+    motivoBaja: empleado.motivo_baja,
+    observacionesNomina,
+  })
+
+  const impactProcessedAt = new Date().toISOString()
+  await service
+    .from('empleado')
+    .update({
+      metadata: {
+        ...metadataActual,
+        workflow_stage: 'BAJA_IMSS_CERRADA',
+        baja_pending: false,
+        baja_closed_at: now,
+        baja_closed_by_puesto: actor.puesto,
+        baja_assignment_impact_processed_at: impactProcessedAt,
+        baja_assignment_impact_summary: {
+          vacante_actual_id: impactoBaja.vacanteActual?.id ?? null,
+          vacantes_futuras_ids: impactoBaja.vacantesFuturas.map((item) => item.id),
+          movimientos_cancelados: impactoBaja.movimientosCancelados.length,
+        },
+      },
+      updated_at: impactProcessedAt,
+    })
+    .eq('id', empleadoId)
+
+  const pdvIds = Array.from(
+    new Set([
+      impactoBaja.vacanteActual?.pdvId ?? null,
+      ...impactoBaja.vacantesFuturas.map((item) => item.pdvId),
+    ].filter((value): value is string => Boolean(value)))
+  )
+  const { data: pdvContextRows } =
+    pdvIds.length > 0
+      ? await service.from('pdv').select('id, nombre, clave_btl, zona').in('id', pdvIds)
+      : { data: [] }
+  const pdvContext = new Map(
+    (pdvContextRows ?? []).map((item) => [
+      item.id,
+      {
+        nombre: item.nombre,
+        claveBtl: item.clave_btl,
+        zona: item.zona,
+      },
+    ])
+  )
+  const vacanteActualLabel = impactoBaja.vacanteActual
+    ? (() => {
+        const pdvInfo = pdvContext.get(impactoBaja.vacanteActual!.pdvId)
+        return `${pdvInfo?.nombre ?? 'PDV actual'} (${pdvInfo?.claveBtl ?? impactoBaja.vacanteActual!.pdvId}) desde ${impactoBaja.vacanteActual!.fechaVacanteDesde}`
+      })()
+    : null
+  const vacantesFuturasLabels = impactoBaja.vacantesFuturas.map((item) => {
+    const pdvInfo = pdvContext.get(item.pdvId)
+    return `${pdvInfo?.nombre ?? 'PDV destino'} (${pdvInfo?.claveBtl ?? item.pdvId}) desde ${item.fechaVacanteDesde}`
+  })
+
   await registrarEventoAudit(service, {
     tabla: 'empleado',
     registroId: empleadoId,
@@ -2792,18 +3499,68 @@ export async function cerrarBajaEmpleadoNomina(
       motivo_baja: empleado.motivo_baja,
       observaciones_nomina: observacionesNomina,
       workflow_stage: 'BAJA_IMSS_CERRADA',
+      vacante_actual_id: impactoBaja.vacanteActual?.id ?? null,
+      vacantes_futuras_ids: impactoBaja.vacantesFuturas.map((item) => item.id),
+      movimientos_cancelados: impactoBaja.movimientosCancelados.map((item) => item.asignacionId),
     },
     usuarioId: actor.usuarioId,
   })
 
-  revalidatePath('/empleados')
-  revalidatePath('/nomina')
-  revalidatePath('/admin/users')
-  revalidatePath('/dashboard')
+  if (impactoBaja.vacanteActual || impactoBaja.vacantesFuturas.length > 0) {
+    const detalleActual = vacanteActualLabel ? `PDV actual vacante: ${vacanteActualLabel}.` : null
+    const detalleFuturo =
+      vacantesFuturasLabels.length > 0
+        ? `Vacantes futuras detectadas: ${vacantesFuturasLabels.join('; ')}.`
+        : null
+
+    await registrarNotificacionWorkflowEmpleados(service, {
+      actorUsuarioId: actor.usuarioId,
+      puestosDestino: ['ADMINISTRADOR'],
+      empleadoId,
+      workflow: 'empleados_baja_vacante_futura_admin',
+      title: 'Baja con vacantes futuras por cubrir',
+      body: [
+        `${empleado.nombre_completo} fue dado de baja con impacto en asignaciones.`,
+        detalleActual,
+        detalleFuturo,
+        `Motivo: ${empleado.motivo_baja ?? 'Sin motivo especificado'}.`,
+        'Revisa Asignaciones > Vacantes futuras para accionar la cobertura.',
+      ]
+        .filter(Boolean)
+        .join(' '),
+      path: '/asignaciones/vacantes-futuras',
+      tag: `empleado-baja-vacantes-futuras-${empleadoId}`,
+      auditAction: 'notificar_admin_baja_vacantes_futuras',
+    })
+  }
+
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_baja_cerrada',
+    empleadoId,
+    includeNomina: true,
+    includeUsuarios: true,
+    includeDashboard: true,
+  })
+
+  await publishAsignacionesVacantesChange(service, actor, {
+    eventType: 'empleado_baja_vacantes_actualizadas',
+    empleadoId,
+    metadata: {
+      vacante_actual_id: impactoBaja.vacanteActual?.id ?? null,
+      vacantes_futuras_ids: impactoBaja.vacantesFuturas.map((item) => item.id),
+      movimientos_cancelados: impactoBaja.movimientosCancelados.length,
+    },
+  })
 
   return buildState({
     ok: true,
-    message: 'Baja institucional cerrada. El empleado ya quedo en estatus BAJA.',
+    message:
+      impactoBaja.vacantesFuturas.length > 0
+        ? `Baja institucional cerrada. Se detectaron ${impactoBaja.vacantesFuturas.length} vacante(s) futura(s) accionable(s).`
+        : 'Baja institucional cerrada. El empleado ya quedo en estatus BAJA.',
+    vacanteActual: impactoBaja.vacanteActual,
+    vacantesFuturas: impactoBaja.vacantesFuturas,
+    movimientosCancelados: impactoBaja.movimientosCancelados,
   })
 }
 
@@ -2893,9 +3650,12 @@ export async function rechazarBajaEmpleadoNomina(
     auditAction: 'notificar_reclutamiento_baja_rechazada',
   })
 
-  revalidatePath('/empleados')
-  revalidatePath('/nomina')
-  revalidatePath('/dashboard')
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_baja_rechazada_nomina',
+    empleadoId,
+    includeNomina: true,
+    includeDashboard: true,
+  })
   return buildState({ ok: true, message: 'Baja regresada a Reclutamiento con motivo de rechazo.' })
 }
 
@@ -2947,7 +3707,10 @@ export async function subirDocumentoEmpleado(
       creado_por_usuario_id: actor.usuarioId
     })
 
-    revalidatePath('/empleados')
+    await publishEmpleadosPanelChange(service, actor, {
+      eventType: 'empleado_documento_r2_inyectado',
+      empleadoId,
+    })
     return buildState({ ok: true, message: 'Archivo inyectado a la Bodega R2 (Cero Egress).' })
   }
 
@@ -3069,7 +3832,10 @@ export async function subirDocumentoEmpleado(
       })
     }
 
-    revalidatePath('/empleados')
+    await publishEmpleadosPanelChange(service, actor, {
+      eventType: 'empleado_documento_subido',
+      empleadoId,
+    })
 
     return buildState({
       ok: true,
@@ -3377,9 +4143,12 @@ export async function actualizarCoberturaPdvOperativa(
     usuarioId: actor.usuarioId,
   })
 
-  revalidatePath('/empleados')
-  revalidatePath('/dashboard')
-  revalidatePath('/mensajes')
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_cobertura_pdv_actualizada',
+    empleadoId: effectiveEmployeeId,
+    includeDashboard: true,
+    includeMensajes: true,
+  })
 
   return {
     ok: true,

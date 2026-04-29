@@ -1,5 +1,3 @@
-export const runtime = 'edge';
-import * as XLSX from 'xlsx'
 import { NextRequest, NextResponse } from 'next/server'
 import { obtenerActorActual } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
@@ -46,7 +44,8 @@ function buildCsvStream(payload: ReportExportPayload) {
   })
 }
 
-function buildXlsxBytes(payload: ReportExportPayload) {
+async function buildXlsxBytes(payload: ReportExportPayload) {
+  const XLSX = await import('xlsx')
   const wb = XLSX.utils.book_new()
 
   const populateSheet = (p: Partial<ReportExportPayload>) => {
@@ -85,7 +84,11 @@ function buildXlsxBytes(payload: ReportExportPayload) {
 export async function GET(request: NextRequest) {
   const actor = await obtenerActorActual()
 
-  if (!actor || actor.estadoCuenta !== 'ACTIVA' || actor.puesto !== 'ADMINISTRADOR') {
+  if (
+    !actor ||
+    actor.estadoCuenta !== 'ACTIVA' ||
+    (actor.puesto !== 'ADMINISTRADOR' && actor.puesto !== 'COORDINADOR')
+  ) {
     return NextResponse.json({ error: 'No autorizado.' }, { status: 401 })
   }
 
@@ -145,4 +148,3 @@ export async function GET(request: NextRequest) {
     )
   }
 }
-

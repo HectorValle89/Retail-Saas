@@ -1,6 +1,4 @@
 'use server'
-
-import { revalidatePath } from 'next/cache'
 import { requerirActorActivo } from '@/lib/auth/session'
 import { obtenerUrlBaseAplicacion } from '@/lib/auth/admin'
 import {
@@ -9,6 +7,11 @@ import {
   exceedsOperationalDocumentUploadLimit,
 } from '@/lib/files/documentOptimization'
 import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import {
+  buildUiChangeScope,
+  buildUiChangeTargetsFromBusinessEvent,
+} from '@/lib/ui-change/types'
 import { createClient } from '@/lib/supabase/server'
 import { sendOperationalPushNotification } from '@/lib/push/pushFanout'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -201,9 +204,39 @@ async function ensureMensajesBucket(service: TypedSupabaseClient) {
   }
 }
 
-function revalidateMensajesPaths() {
-  revalidatePath('/mensajes')
-  revalidatePath('/dashboard')
+async function publishMensajesUiChanges(
+  service: TypedSupabaseClient,
+  {
+    cuentaClienteId,
+    employeeIds,
+    eventType,
+    metadata,
+  }: {
+    cuentaClienteId: string
+    employeeIds?: Array<string | null | undefined>
+    eventType: string
+    metadata?: Record<string, unknown>
+  }
+) {
+  const employeeScopes = Array.from(
+    new Set(
+      (employeeIds ?? [])
+        .map((employeeId) => buildUiChangeScope('empleado', employeeId ?? null))
+        .filter((scope): scope is string => Boolean(scope))
+    )
+  )
+
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType,
+      modules: ['mensajes', 'dashboard'],
+      surfaces: ['panel', 'inbox', 'tabla', 'shell'],
+      scopes: [buildUiChangeScope('cuenta', cuentaClienteId), ...employeeScopes],
+      cuentaClienteId,
+      metadata,
+    }),
+    { service }
+  )
 }
 
 async function resolveCuentaCliente(
@@ -663,7 +696,16 @@ export async function publicarMensajeInterno(
       },
     })
 
-    revalidateMensajesPaths()
+    await publishMensajesUiChanges(service, {
+      cuentaClienteId: cuenta.id,
+      employeeIds: recipientRows.map((item) => item.empleado_id),
+      eventType: 'mensaje_publicado',
+      metadata: {
+        mensajeId: createdRaw.id,
+        grupoDestino,
+        tipo,
+      },
+    })
     return buildState({
       ok: true,
       message: pushFanoutState === 'ENVIADO' ? 'Mensaje publicado correctamente.' : 'Mensaje publicado. El envio push quedo pendiente.',
@@ -813,24 +855,6 @@ function buildCorrectionBody(
         : 'domicilio'
 
   return `${actorNombre} solicito corregir ${fieldLabel}. Actual: ${currentValue ?? 'sin dato'}. Nuevo: ${nextValue}.`
-}
-
-async function triggerEmailVerificationChange(nextEmail: string) {
-  const authClient = await createClient({ bypassTenantScope: true })
-  const siteUrl = await obtenerUrlBaseAplicacion()
-
-  const { error } = await authClient.auth.updateUser(
-    {
-      email: nextEmail,
-    },
-    {
-      emailRedirectTo: `${siteUrl}/update-password`,
-    }
-  )
-
-  if (error) {
-    throw new Error(error.message)
-  }
 }
 
 async function resolveSupportRecipients(
@@ -1000,7 +1024,16 @@ export async function registrarIncidenciaOperativa(
       },
     })
 
-    revalidateMensajesPaths()
+    await publishMensajesUiChanges(service, {
+      cuentaClienteId,
+      employeeIds: [supervisorEmpleadoId, empleadoId],
+      eventType: 'mensaje_incidencia_publicada',
+      metadata: {
+        mensajeId: createdRaw.id,
+        incidenciaTipo,
+        pdvId,
+      },
+    })
     return buildState({
       ok: true,
       message:
@@ -1131,7 +1164,16 @@ export async function enviarMensajeSoporteDermoconsejo(
       },
     })
 
-    revalidateMensajesPaths()
+    await publishMensajesUiChanges(service, {
+      cuentaClienteId,
+      employeeIds: recipientRows.map((item) => item.empleado_id).concat(empleadoId),
+      eventType: 'mensaje_soporte_publicado',
+      metadata: {
+        mensajeId: createdRaw.id,
+        categoria: category,
+        pdvId,
+      },
+    })
     return buildState({
       ok: true,
       message:
@@ -1164,10 +1206,6 @@ export async function solicitarCorreccionPerfilDermoconsejo(
 
     if (field !== 'CORREO_ELECTRONICO' && evidenceFiles.length === 0 && evidenceR2Manifest.length === 0) {
       throw new Error('Adjunta una evidencia para solicitar esta correccion.')
-    }
-
-    if (field === 'CORREO_ELECTRONICO') {
-      await triggerEmailVerificationChange(nextValue.trim().toLowerCase())
     }
 
     const recipientDrafts = await resolveSupportRecipients(service, cuentaClienteId)
@@ -1284,12 +1322,20 @@ export async function solicitarCorreccionPerfilDermoconsejo(
       },
     })
 
-    revalidateMensajesPaths()
+    await publishMensajesUiChanges(service, {
+      cuentaClienteId,
+      employeeIds: recipientRows.map((item) => item.empleado_id).concat(empleadoId),
+      eventType: 'mensaje_correccion_perfil_publicado',
+      metadata: {
+        mensajeId: createdRaw.id,
+        correctionField: field,
+      },
+    })
     return buildState({
       ok: true,
       message:
         field === 'CORREO_ELECTRONICO'
-          ? 'Solicitud enviada. Revisa tu nuevo correo para continuar la verificacion.'
+          ? 'Solicitud enviada. El equipo revisara el cambio de correo antes de actualizar tu perfil.'
           : 'Solicitud de correccion enviada correctamente.',
     })
   } catch (error) {
@@ -1332,7 +1378,15 @@ export async function marcarMensajeLeido(
       }
     }
 
-    revalidateMensajesPaths()
+    await publishMensajesUiChanges(service, {
+      cuentaClienteId: receptor.cuenta_cliente_id,
+      employeeIds: [receptor.empleado_id],
+      eventType: 'mensaje_marcado_leido',
+      metadata: {
+        mensajeId: receptor.mensaje_id,
+        receptorId: receptor.id,
+      },
+    })
     return buildState({ ok: true, message: 'Mensaje marcado como leido.' })
   } catch (error) {
     return buildState({ message: error instanceof Error ? error.message : 'Error desconocido.' })
@@ -1489,7 +1543,15 @@ export async function responderEncuesta(
       })
     }
 
-    revalidateMensajesPaths()
+    await publishMensajesUiChanges(service, {
+      cuentaClienteId: receptor.cuenta_cliente_id,
+      employeeIds: [receptor.empleado_id],
+      eventType: 'mensaje_encuesta_respondida',
+      metadata: {
+        mensajeId: receptor.mensaje_id,
+        receptorId: receptor.id,
+      },
+    })
     return buildState({ ok: true, message: 'Respuesta registrada.' })
   } catch (error) {
     return buildState({ message: error instanceof Error ? error.message : 'Error desconocido.' })

@@ -1,11 +1,39 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
 import { resolveConfiguredOcrConfiguration } from '@/lib/ocr/gemini'
 import { OCR_MODEL_CONFIG_KEY, OCR_PROVIDER_CONFIG_KEY } from '@/features/configuracion/configuracionCatalog'
 import { buildRecruitingInbox, type EmployeeRecruitingInboxData } from '../lib/workflowInbox'
+import {
+  isRecruitingAltaPipelineEmployee,
+  isRecruitingOriginEmployee,
+  resolveRecruitingAltaPipelineStage,
+} from '../lib/recruitingPipeline'
 import { buildRecruitmentCoverageBoard, type PdvCoberturaBoardItem, type RecruitmentCoverageSummary } from './pdvCoberturaService'
+import { loadVacantesOperativasFuturas, type VacantesOperativasFuturasData } from '@/features/asignaciones/services/vacanteOperativaFuturaService'
+import { createServiceClient } from '@/lib/supabase/server'
 
 type MaybeMany<T> = T | T[] | null
+
+function isSupabaseClient(value: unknown): value is SupabaseClient {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'from' in value &&
+      typeof (value as { from?: unknown }).from === 'function'
+  )
+}
+
+function isActorActual(value: unknown): value is ActorActual {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'empleadoId' in value &&
+      'usuarioId' in value &&
+      'puesto' in value
+  )
+}
 
 type EmpleadoStatus = 'ACTIVO' | 'SUSPENDIDO' | 'BAJA'
 type ExpedienteEstado = 'PENDIENTE_DOCUMENTOS' | 'EN_REVISION' | 'VALIDADO' | 'OBSERVADO'
@@ -218,6 +246,7 @@ export interface ReclutamientoResumen {
   candidatosEnPipeline: number
   pendientesCoordinacion: number
   pendientesDocumentacion: number
+  pendientesDocumentacionNuevos: number
   pendientesNominaImss: number
   listosAdministracion: number
   proximasIsdinizaciones: number
@@ -231,6 +260,10 @@ export type OnboardingExternalAccessStatus =
 export type OnboardingContractStatus = 'PENDIENTE' | 'AGENDADO' | 'FIRMADO'
 
 export interface OnboardingOperativoSummary {
+  pdvSugeridoId?: string | null
+  pdvSugeridoLabel?: string | null
+  pdvDefinitivoId?: string | null
+  pdvDefinitivoLabel?: string | null
   pdvObjetivoId: string | null
   pdvObjetivoLabel: string | null
   coordinadorEmpleadoId: string | null
@@ -350,6 +383,8 @@ export interface EmpleadoListadoItem {
   workflowCancelAt: string | null
   workflowCancelFromStage: string | null
   adminAccessPending: boolean
+  recruitmentSource: string | null
+  candidateProfileSource: string | null
   onboarding: OnboardingOperativoSummary
   username: string | null
   estadoCuenta: UsuarioEstado | null
@@ -363,6 +398,7 @@ export interface EmpleadosPanelData {
   resumen: EmpleadoResumen
   resumenReclutamiento: ReclutamientoResumen
   recruitmentCoverageSummary: RecruitmentCoverageSummary
+  futureVacancies: VacantesOperativasFuturasData
   empleados: EmpleadoListadoItem[]
   recruitingInbox: EmployeeRecruitingInboxData<EmpleadoListadoItem>
   infraestructuraLista: boolean
@@ -439,10 +475,18 @@ function mapArray(value: unknown) {
 
 function mapOnboardingSummary(metadata: Record<string, unknown>): OnboardingOperativoSummary {
   const onboarding = mapRecord(metadata.onboarding_operativo)
+  const pdvSugeridoId = mapString(onboarding.pdv_sugerido_id) ?? mapString(onboarding.pdv_objetivo_id)
+  const pdvDefinitivoId = mapString(onboarding.pdv_definitivo_id)
+  const pdvSugeridoLabel = mapString(onboarding.pdv_sugerido_label) ?? mapString(onboarding.pdv_objetivo_label)
+  const pdvDefinitivoLabel = mapString(onboarding.pdv_definitivo_label)
 
   return {
-    pdvObjetivoId: mapString(onboarding.pdv_objetivo_id),
-    pdvObjetivoLabel: mapString(onboarding.pdv_objetivo_label),
+    pdvSugeridoId,
+    pdvSugeridoLabel,
+    pdvDefinitivoId,
+    pdvDefinitivoLabel,
+    pdvObjetivoId: pdvDefinitivoId ?? pdvSugeridoId,
+    pdvObjetivoLabel: pdvDefinitivoLabel ?? pdvSugeridoLabel,
     coordinadorEmpleadoId: mapString(onboarding.coordinador_empleado_id),
     coordinadorNombre: mapString(onboarding.coordinador_nombre),
     fechaIngresoOficial: mapString(onboarding.fecha_ingreso_oficial),
@@ -556,7 +600,32 @@ interface ObtenerPanelEmpleadosOptions {
   emitCoverageSideEffects?: boolean
 }
 
-export async function obtenerPanelEmpleados(
+const EMPLEADOS_PANEL_REVALIDATE_SECONDS = 60
+
+function buildEmpleadosCacheKey(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
+  options: ObtenerPanelEmpleadosOptions
+) {
+  return JSON.stringify({
+    cuentaClienteId: actor.cuentaClienteId ?? null,
+    empleadoId: actor.empleadoId,
+    puesto: actor.puesto,
+    emitCoverageSideEffects: options.emitCoverageSideEffects === true,
+  })
+}
+
+function buildEmpleadosCacheTags(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>
+) {
+  return buildModuleCacheTags({
+    module: 'empleados',
+    accountId: actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+  })
+}
+
+async function obtenerPanelEmpleadosUncached(
   supabase: SupabaseClient,
   options: ObtenerPanelEmpleadosOptions = {}
 ): Promise<EmpleadosPanelData> {
@@ -672,12 +741,26 @@ export async function obtenerPanelEmpleados(
         imssEnProceso: 0,
       },
       resumenReclutamiento: {
-        candidatosEnPipeline: 0,
-        pendientesCoordinacion: 0,
-        pendientesDocumentacion: 0,
-        pendientesNominaImss: 0,
-        listosAdministracion: 0,
-        proximasIsdinizaciones: 0,
+      candidatosEnPipeline: 0,
+      pendientesCoordinacion: 0,
+      pendientesDocumentacion: 0,
+      pendientesDocumentacionNuevos: 0,
+      pendientesNominaImss: 0,
+      listosAdministracion: 0,
+      proximasIsdinizaciones: 0,
+      },
+      futureVacancies: {
+        summary: {
+          total: 0,
+          nuevas: 0,
+          enRevision: 0,
+          enReasignacion: 0,
+          resueltas: 0,
+          descartadas: 0,
+          vacantesActuales: 0,
+          vacantesFuturas: 0,
+        },
+        items: [],
       },
       empleados: [],
       recruitingInbox: [],
@@ -804,6 +887,8 @@ export async function obtenerPanelEmpleados(
       workflowCancelAt: mapString(metadata.alta_cancelada_at),
       workflowCancelFromStage: mapString(metadata.alta_cancelada_desde_stage),
       adminAccessPending: metadata.admin_access_pending === true,
+      recruitmentSource: mapString(metadata.source),
+      candidateProfileSource: mapString(metadata.candidate_profile_source),
       onboarding: mapOnboardingSummary(metadata),
       username: usuario?.username ?? null,
       estadoCuenta: usuario?.estado_cuenta ?? null,
@@ -863,6 +948,19 @@ export async function obtenerPanelEmpleados(
     proximasIsdinizaciones: 0,
   }
   let pdvCoberturaBoard: PdvCoberturaBoardItem[] = []
+  let futureVacancies: VacantesOperativasFuturasData = {
+    summary: {
+      total: 0,
+      nuevas: 0,
+      enRevision: 0,
+      enReasignacion: 0,
+      resueltas: 0,
+      descartadas: 0,
+      vacantesActuales: 0,
+      vacantesFuturas: 0,
+    },
+    items: [],
+  }
   let coverageInfraError: string | null = null
 
   try {
@@ -877,6 +975,10 @@ export async function obtenerPanelEmpleados(
       (((asignacionesResult.data ?? []) as AsignacionDisponibilidadRow[]) ?? []).map((asignacion) => asignacion.pdv_id)
     )
     const fallbackCandidateStages = new Set([
+      'NUEVOS',
+      'EXPEDIENTE',
+      'EN_GESTION',
+      'ONBOARDING',
       'PENDIENTE_COORDINACION',
       'SELECCION_APROBADA',
       'PENDIENTE_IMSS_NOMINA',
@@ -887,8 +989,22 @@ export async function obtenerPanelEmpleados(
     ])
     const fallbackCandidatesByPdv = new Map(
       empleados
-        .filter((empleado) => fallbackCandidateStages.has(empleado.workflowStage ?? '') && empleado.onboarding.pdvObjetivoId)
-        .map((empleado) => [empleado.onboarding.pdvObjetivoId as string, empleado] as const)
+        .filter((empleado) => {
+          const pdvResuelto =
+            empleado.onboarding.pdvDefinitivoId ??
+            empleado.onboarding.pdvObjetivoId ??
+            empleado.onboarding.pdvSugeridoId
+
+          return fallbackCandidateStages.has(empleado.workflowStage ?? '') && Boolean(pdvResuelto)
+        })
+        .map((empleado) => {
+          const pdvResuelto =
+            empleado.onboarding.pdvDefinitivoId ??
+            empleado.onboarding.pdvObjetivoId ??
+            empleado.onboarding.pdvSugeridoId
+
+          return [pdvResuelto as string, empleado] as const
+        })
     )
     const fallbackTarget = recruitmentCoverageSummary.target
 
@@ -956,11 +1072,26 @@ export async function obtenerPanelEmpleados(
       pendientesAccesoVencidos: 0,
       vacantesEnProcesoFirma: pdvCoberturaBoard.filter((item) => item.actionNeed === 'VACANTE_EN_PROCESO_FIRMA').length,
       listosAdministracion: empleados.filter(
-        (empleado) => empleado.adminAccessPending || empleado.workflowStage === 'PENDIENTE_ACCESO_ADMIN'
+        (empleado) =>
+          empleado.adminAccessPending ||
+          empleado.workflowStage === 'ONBOARDING' ||
+          empleado.workflowStage === 'PENDIENTE_ACCESO_ADMIN'
       ).length,
       proximasIsdinizaciones: empleados.filter((empleado) => Boolean(empleado.onboarding.fechaIsdinizacion)).length,
     }
     coverageInfraError = null
+  }
+
+  let futureVacanciesInfraError: string | null = null
+  try {
+    if (options.actor) {
+      futureVacancies = await loadVacantesOperativasFuturas(supabase as SupabaseClient<any>, {
+        actor: options.actor,
+      })
+    }
+  } catch {
+    futureVacanciesInfraError =
+      'La bandeja de vacantes futuras aun no esta disponible hasta completar la infraestructura de bajas enlazadas a asignaciones.'
   }
 
   const pdvsDisponibles = pdvCoberturaBoard
@@ -975,41 +1106,47 @@ export async function obtenerPanelEmpleados(
       disponibilidadMotivo: 'SIN_ASIGNACION_ACTIVA' as const,
     }))
 
-  const candidatosPipeline = empleados.filter((empleado) =>
-    [
-      'PENDIENTE_COORDINACION',
-      'SELECCION_APROBADA',
-      'PENDIENTE_IMSS_NOMINA',
-      'EN_FLUJO_IMSS',
-      'PENDIENTE_VALIDACION_FINAL',
-      'PENDIENTE_ACCESO_ADMIN',
-      'RECLUTAMIENTO_CORRECCION_ALTA',
-    ].includes(empleado.workflowStage ?? '')
-  )
+  const candidatosPipeline = empleados
+    .filter((empleado) => isRecruitingAltaPipelineEmployee(empleado))
+    .map((empleado) => ({
+      empleado,
+      stageKey: resolveRecruitingAltaPipelineStage(empleado),
+    }))
+    .filter(
+      (
+        item
+      ): item is {
+        empleado: EmpleadoListadoItem
+        stageKey: NonNullable<ReturnType<typeof resolveRecruitingAltaPipelineStage>>
+      } => item.stageKey !== null
+    )
+  const candidatosActivosPipeline = candidatosPipeline.filter((item) => item.stageKey !== 'CANCELADOS')
+  const recruitingOriginEmployees = empleados.filter(isRecruitingOriginEmployee)
 
   const upcomingThreshold = new Date()
   const upcomingLimit = new Date(upcomingThreshold)
   upcomingLimit.setDate(upcomingThreshold.getDate() + 7)
 
   const resumenReclutamiento: ReclutamientoResumen = {
-    candidatosEnPipeline: candidatosPipeline.length,
-    pendientesCoordinacion: empleados.filter((empleado) => empleado.workflowStage === 'PENDIENTE_COORDINACION').length,
-    pendientesDocumentacion: empleados.filter(
+    candidatosEnPipeline: candidatosActivosPipeline.length,
+    pendientesCoordinacion: recruitingOriginEmployees.filter((empleado) =>
+      ['NUEVOS', 'PENDIENTE_COORDINACION'].includes(String(empleado.workflowStage ?? '').trim())
+    ).length,
+    pendientesDocumentacionNuevos: candidatosActivosPipeline.filter(
+      (item) => item.stageKey === 'EXPEDIENTE'
+    ).length,
+    pendientesDocumentacion: candidatosActivosPipeline.filter(
+      (item) => item.stageKey === 'NUEVOS' || item.stageKey === 'EXPEDIENTE'
+    ).length,
+    pendientesNominaImss: candidatosActivosPipeline.filter((item) => item.stageKey === 'EN_GESTION').length,
+    listosAdministracion: recruitingOriginEmployees.filter(
       (empleado) =>
-        ['SELECCION_APROBADA', 'PENDIENTE_VALIDACION_FINAL'].includes(empleado.workflowStage ?? '') ||
-        empleado.workflowStage === 'RECLUTAMIENTO_CORRECCION_ALTA'
+        empleado.adminAccessPending ||
+        ['ONBOARDING', 'PENDIENTE_ACCESO_ADMIN', 'PENDIENTE_VALIDACION_FINAL'].includes(
+          String(empleado.workflowStage ?? '').trim()
+        )
     ).length,
-    pendientesNominaImss: empleados.filter(
-      (empleado) =>
-        empleado.workflowStage === 'PENDIENTE_IMSS_NOMINA' ||
-        empleado.workflowStage === 'EN_FLUJO_IMSS' ||
-        empleado.imssEstado === 'EN_PROCESO' ||
-        empleado.imssEstado === 'PENDIENTE_DOCUMENTOS'
-    ).length,
-    listosAdministracion: empleados.filter(
-      (empleado) => empleado.adminAccessPending || empleado.workflowStage === 'PENDIENTE_ACCESO_ADMIN'
-    ).length,
-    proximasIsdinizaciones: empleados.filter((empleado) => {
+    proximasIsdinizaciones: recruitingOriginEmployees.filter((empleado) => {
       if (!empleado.onboarding.fechaIsdinizacion) {
         return false
       }
@@ -1035,12 +1172,13 @@ export async function obtenerPanelEmpleados(
     },
     resumenReclutamiento,
     recruitmentCoverageSummary,
+    futureVacancies,
     empleados,
     recruitingInbox: buildRecruitingInbox<EmpleadoListadoItem>(empleados),
-    infraestructuraLista: infraErrors.length === 0 && !coverageInfraError,
+    infraestructuraLista: infraErrors.length === 0 && !coverageInfraError && !futureVacanciesInfraError,
     mensajeInfraestructura:
-      infraErrors.length > 0 || coverageInfraError
-        ? [...infraErrors, coverageInfraError].filter(Boolean).join(' ')
+      infraErrors.length > 0 || coverageInfraError || futureVacanciesInfraError
+        ? [...infraErrors, coverageInfraError, futureVacanciesInfraError].filter(Boolean).join(' ')
         : undefined,
     supervisors,
     coordinators,
@@ -1052,6 +1190,51 @@ export async function obtenerPanelEmpleados(
     ocrDisponible: ocrConfiguracion.available,
     pdfOptimizationAvailable: PDF_OPTIMIZATION_AVAILABLE,
   }
+}
+
+export async function obtenerPanelEmpleados(
+  actorOrSupabase: ActorActual | SupabaseClient,
+  optionsOrActor: ObtenerPanelEmpleadosOptions | ActorActual = {},
+  customSupabase?: SupabaseClient
+): Promise<EmpleadosPanelData> {
+  if (isSupabaseClient(actorOrSupabase)) {
+    const actor =
+      isActorActual(optionsOrActor) ? optionsOrActor : optionsOrActor.actor ?? null
+    const options = isActorActual(optionsOrActor)
+      ? { actor: optionsOrActor, emitCoverageSideEffects: false }
+      : optionsOrActor
+
+    return obtenerPanelEmpleadosUncached(actorOrSupabase, {
+      ...options,
+      actor,
+    })
+  }
+
+  const actor = actorOrSupabase
+  const options = isActorActual(optionsOrActor)
+    ? { actor, emitCoverageSideEffects: false }
+    : {
+        ...optionsOrActor,
+        actor,
+      }
+
+  if (customSupabase) {
+    return obtenerPanelEmpleadosUncached(customSupabase, options)
+  }
+
+  const cacheKey = buildEmpleadosCacheKey(actor, options)
+
+  return unstable_cache(
+    async () => {
+      const service = createServiceClient() as unknown as SupabaseClient
+      return obtenerPanelEmpleadosUncached(service, options)
+    },
+    ['empleados:panel', cacheKey],
+    {
+      tags: buildEmpleadosCacheTags(actor),
+      revalidate: EMPLEADOS_PANEL_REVALIDATE_SECONDS,
+    }
+  )()
 }
 
 export async function collectEmpleadosExportPayload(
@@ -1201,10 +1384,3 @@ export async function collectEmpleadosExportPayload(
     filenameBase: `empleados-${dateStamp}`,
   }
 }
-
-
-
-
-
-
-

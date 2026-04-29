@@ -2,7 +2,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { createClient } = require('@supabase/supabase-js')
 
-function loadEnvFile(filePath) {
+function loadEnvFile(filePath, { override = false } = {}) {
   if (!fs.existsSync(filePath)) {
     return
   }
@@ -22,7 +22,7 @@ function loadEnvFile(filePath) {
     const key = trimmed.slice(0, separatorIndex).trim()
     const value = trimmed.slice(separatorIndex + 1).trim()
 
-    if (!process.env[key]) {
+    if (override || !process.env[key]) {
       process.env[key] = value
     }
   }
@@ -323,6 +323,7 @@ async function verifyLogin(supabaseUrl, anonKey, credentials) {
 
 async function main() {
   loadEnvFile(path.resolve('.env.local'))
+  loadEnvFile(path.resolve('.dev.vars'), { override: true })
 
   const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL')
   const anonKey = requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
@@ -366,7 +367,7 @@ async function main() {
       const padded = String(sequence).padStart(2, '0')
       const username = `test_${role.puesto.toLowerCase()}_${padded}`.replace(/[^a-z0-9_]/g, '_')
       const email = `${username}@fieldforce.test`
-      const password = `RtlTest!${role.passwordToken}${padded}`
+      const password = 'BTL2026'
       const idNomina = `TST-${role.token}-${padded}`
       const roleIndex = (roleCounters.get(role.puesto) ?? 0) + 1
       roleCounters.set(role.puesto, roleIndex)

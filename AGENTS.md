@@ -72,16 +72,17 @@ Validacion minima antes de cerrar un cambio relevante:
 
 Si el agente detecta que una mejora funcional empeora claramente costo, lecturas o latencia percibida, debe pausar y advertirlo antes de continuar.
 
-## Cloudflare Edge Compatibility Rule
+## Cloudflare Deployment Rule
 
-Todo codigo nuevo o modificado que vaya a desplegarse en Cloudflare Pages o en runtime Edge debe mantenerse libre de dependencias Node-only en produccion.
+La app principal full-stack de este repositorio se despliega en Cloudflare usando **Workers + OpenNext**. No debe tratarse como candidata a Cloudflare Pages mientras conserve SSR, middleware, Route Handlers, auth server-side y APIs internas.
 
 Reglas obligatorias:
 
-- No introducir en `src/` imports de `sharp`, `exceljs`, `node:crypto`, `node:stream`, `node:path`, `node:buffer`, `node:os`, `fs` o `child_process` en codigo de produccion que vaya al build de Cloudflare.
-- Si una funcionalidad necesita optimizacion de imagen, compresion pesada, streaming de Excel o APIs nativas de Node, debe degradarse a una ruta Edge-safe, mover la ejecucion a un servicio compatible o quedar aislada fuera del build de Cloudflare.
+- No introducir ni volver a propagar `export const runtime = "edge"` en paginas, layouts o route handlers de la app principal. OpenNext para Cloudflare Workers no soporta ese runtime como objetivo de despliegue para este proyecto.
+- No usar `@cloudflare/next-on-pages` como adaptador de despliegue para la app principal. La ruta soportada es `@opennextjs/cloudflare` con `wrangler.jsonc`.
+- Antes de cerrar cualquier corte destinado a Cloudflare, el agente debe verificar como minimo `npm run build` y `npm run cf:build`.
+- Si un cambio introduce dependencias nativas de Node o empaquetado pesado (`sharp`, `exceljs`, `fs`, `child_process`, symlinks especiales, etc.), el agente debe validar explicitamente que sigan siendo compatibles con OpenNext/Workers o documentar su aislamiento fuera del runtime principal.
 - Las pruebas pueden seguir usando dependencias nativas, pero deben vivir en archivos de test o utilidades no incluidas en produccion.
-- Antes de cerrar cualquier corte destinado a Cloudflare, el agente debe verificar que el build no arrastre imports incompatibles ni funciones huérfanas que sigan referenciando esos modulos.
 ## UTF-8 Rule
 
 Los tres documentos canonicos ya estan almacenados en UTF-8 valido. Si PowerShell o la terminal muestran mojibake al leerlos, tratalo como un problema de render de consola, no como corrupcion del archivo.

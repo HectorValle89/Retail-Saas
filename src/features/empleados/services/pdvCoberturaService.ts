@@ -183,8 +183,12 @@ function isDateWithinRange(start: string, end: string | null, target: string) {
 
 function parseOnboarding(metadata: Record<string, unknown>) {
   const onboarding = mapRecord(metadata.onboarding_operativo)
+  const pdvSugeridoId = mapString(onboarding.pdv_sugerido_id) ?? mapString(onboarding.pdv_objetivo_id)
+  const pdvDefinitivoId = mapString(onboarding.pdv_definitivo_id)
   return {
-    pdvObjetivoId: mapString(onboarding.pdv_objetivo_id),
+    pdvSugeridoId,
+    pdvDefinitivoId,
+    pdvObjetivoId: pdvDefinitivoId ?? pdvSugeridoId,
     fechaIsdinizacion: mapString(onboarding.fecha_isdinizacion),
     adminAccessPending: metadata.admin_access_pending === true,
   }
@@ -458,7 +462,10 @@ export async function buildRecruitmentCoverageBoard(
   }
 
   const pipelineStages = new Set([
-    'SELECCION_APROBADA',
+    'NUEVOS',
+    'EXPEDIENTE',
+    'EN_GESTION',
+    'ONBOARDING',
     'PENDIENTE_IMSS_NOMINA',
     'EN_FLUJO_IMSS',
     'PENDIENTE_VALIDACION_FINAL',
@@ -477,7 +484,7 @@ export async function buildRecruitmentCoverageBoard(
     const onboarding = parseOnboarding(metadata)
     const stage = mapString(metadata.workflow_stage)
 
-    if (onboarding.adminAccessPending || stage === 'PENDIENTE_ACCESO_ADMIN') {
+    if (onboarding.adminAccessPending || stage === 'PENDIENTE_ACCESO_ADMIN' || stage === 'ONBOARDING') {
       listosAdministracion += 1
     }
 
@@ -488,12 +495,14 @@ export async function buildRecruitmentCoverageBoard(
       }
     }
 
-    if (!onboarding.pdvObjetivoId || !stage || !pipelineStages.has(stage)) {
+    const pdvResuelto = onboarding.pdvDefinitivoId ?? onboarding.pdvObjetivoId ?? onboarding.pdvSugeridoId
+
+    if (!pdvResuelto || !stage || !pipelineStages.has(stage)) {
       continue
     }
 
-    if (!candidateByPdv.has(onboarding.pdvObjetivoId)) {
-      candidateByPdv.set(onboarding.pdvObjetivoId, employee)
+    if (!candidateByPdv.has(pdvResuelto)) {
+      candidateByPdv.set(pdvResuelto, employee)
     }
   }
 

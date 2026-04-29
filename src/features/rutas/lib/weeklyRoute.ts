@@ -1,3 +1,5 @@
+import { getIsoDateInMexicoCity } from '@/lib/geo/mexicoStateTimezone'
+
 export interface WeekDayOption {
   value: number
   label: string
@@ -23,8 +25,8 @@ function toUtcDate(value?: string | Date) {
     return new Date(`${value}T00:00:00.000Z`)
   }
 
-  const now = new Date()
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const today = getIsoDateInMexicoCity()
+  return new Date(`${today}T00:00:00.000Z`)
 }
 
 function toIsoDate(value: Date) {
@@ -44,9 +46,23 @@ export function getWeekEndIso(weekStart: string) {
   return toIsoDate(date)
 }
 
+export function getWeekDateIso(weekStart: string, dayNumber: number) {
+  const normalizedDayNumber = Number.isInteger(dayNumber) ? dayNumber : 1
+  const safeDayNumber = Math.min(Math.max(normalizedDayNumber, 1), 7)
+  const date = toUtcDate(weekStart)
+  date.setUTCDate(date.getUTCDate() + (safeDayNumber - 1))
+  return toIsoDate(date)
+}
+
 export function getNextWeekStartIso(value?: string | Date) {
   const currentWeekStart = toUtcDate(getWeekStartIso(value))
   currentWeekStart.setUTCDate(currentWeekStart.getUTCDate() + 7)
+  return toIsoDate(currentWeekStart)
+}
+
+export function getPreviousWeekStartIso(value?: string | Date) {
+  const currentWeekStart = toUtcDate(getWeekStartIso(value))
+  currentWeekStart.setUTCDate(currentWeekStart.getUTCDate() - 7)
   return toIsoDate(currentWeekStart)
 }
 

@@ -2,16 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
   revalidatePathMock,
+  revalidateTagMock,
   requerirOperadorNominaMock,
   createClientMock,
 } = vi.hoisted(() => ({
   revalidatePathMock: vi.fn(),
+  revalidateTagMock: vi.fn(),
   requerirOperadorNominaMock: vi.fn(),
   createClientMock: vi.fn(),
 }))
 
 vi.mock('next/cache', () => ({
   revalidatePath: revalidatePathMock,
+  revalidateTag: revalidateTagMock,
+  unstable_cache: vi.fn((fn) => fn),
 }))
 
 vi.mock('@/lib/auth/session', () => ({
@@ -43,6 +47,9 @@ describe('nomina actions', () => {
   it('genera un periodo en borrador con estimacion de colaboradoras incluidas', async () => {
     const periodos: Array<Record<string, unknown>> = []
     const supabase = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       from(table: string) {
         if (table === 'nomina_periodo') {
           return {
@@ -120,11 +127,15 @@ describe('nomina actions', () => {
       fecha_fin: '2026-03-31',
     })
     expect(periodos[0].metadata).toMatchObject({ empleados_incluidos: 3 })
+    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:nomina'), expect.anything())
   })
 
   it('aprueba un periodo en borrador antes de dispersarlo', async () => {
     const updates: Array<Record<string, unknown>> = []
     const supabase = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       from(table: string) {
         if (table !== 'nomina_periodo') {
           throw new Error(`Unexpected table ${table}`)
@@ -191,11 +202,15 @@ describe('nomina actions', () => {
     expect(updates[0]).toMatchObject({ estado: 'APROBADO' })
     expect(updates[0].fecha_cierre).toEqual(expect.any(String))
     expect(updates[0].metadata).toMatchObject({ aprobado_por_usuario_id: 'user-1' })
+    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:nomina'), expect.anything())
   })
 
   it('guarda una definicion de cuota con metas de ventas, LOVE y visitas', async () => {
     const inserts: Array<Record<string, unknown>> = []
     const supabase = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       from(table: string) {
         if (table === 'nomina_periodo') {
           return {
@@ -276,11 +291,15 @@ describe('nomina actions', () => {
       visitas_objetivo: 1,
       definida_por_usuario_id: 'user-1',
     })
+    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:nomina'), expect.anything())
   })
 
   it('registra un ajuste manual de ledger con autor y motivo', async () => {
     const inserts: Array<Record<string, unknown>> = []
     const supabase = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       from(table: string) {
         if (table === 'nomina_periodo') {
           return {
@@ -344,5 +363,6 @@ describe('nomina actions', () => {
       autor_usuario_id: 'user-1',
       motivo: 'Correccion por diferencia',
     })
+    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:nomina'), expect.anything())
   })
 })

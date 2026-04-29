@@ -1,5 +1,3 @@
-export const runtime = 'edge';
-import { createClient } from '@/lib/supabase/server'
 import { requerirActorActivo } from '@/lib/auth/session'
 import { VentasPanel } from '@/features/ventas/components/VentasPanel'
 import { obtenerPanelVentas } from '@/features/ventas/services/ventaService'
@@ -27,11 +25,8 @@ function parsePositiveInt(value: string | undefined, fallback: number) {
 
 export default async function VentasPage({ searchParams }: VentasPageProps) {
   const actor = await requerirActorActivo()
-  const supabase = await createClient()
   const params = (await searchParams) ?? {}
-  const data = await obtenerPanelVentas(supabase, {
-    actorPuesto: actor.puesto,
-    actorEmpleadoId: actor.empleadoId ?? null,
+  const data = await obtenerPanelVentas(actor, {
     page: parsePositiveInt(pickString(params.page), 1),
     pageSize: parsePositiveInt(pickString(params.pageSize), 50),
   })
@@ -44,12 +39,11 @@ export default async function VentasPage({ searchParams }: VentasPageProps) {
         </p>
         <h1 className="page-hero-title">Ventas</h1>
         <p className="page-hero-copy max-w-3xl">
-          Registro comercial diario ligado a jornada activa, confirmaciÃ³n de cierre y base para cuotas y bonos.
+          Registro comercial diario ligado a jornada activa, confirmación de cierre y base para cuotas y bonos.
         </p>
       </header>
 
-      <VentasPanel data={data} />
+      <VentasPanel actor={actor} data={data} />
     </div>
   )
 }
-

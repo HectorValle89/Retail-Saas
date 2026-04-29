@@ -316,10 +316,10 @@ export function evaluarReglasAsignacion(
   if (pdv && (!pdv.factor_cuota_default || pdv.factor_cuota_default <= 0)) {
     issues.push(
       createIssue(
-        'ERROR',
+        'ALERTA',
         'CUOTA_INVALIDA',
-        'Cuota invalida',
-        'La cadena del PDV no tiene un factor de cuota valido para operar.'
+        'Cuota opcional',
+        'La cadena del PDV no tiene un factor de cuota valido; la asignacion puede continuar sin cuota.'
       )
     )
   }

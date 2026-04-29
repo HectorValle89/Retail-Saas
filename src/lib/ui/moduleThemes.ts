@@ -24,6 +24,7 @@ export type ModuleThemeKey =
   | 'ventas'
   | 'love-isdin'
   | 'clientes'
+  | 'reclutamiento'
   | 'offline'
   | 'default'
 
@@ -61,7 +62,8 @@ const moduleBaseColors: Record<ModuleThemeKey, string> = {
   ventas: '#7EEFAE',
   'love-isdin': '#FF7FA5',
   clientes: '#9AA6B2',
-  offline: '#A3A8B3',
+  reclutamiento: '#7986CB',
+  offline: '#94A3B8',
   default: '#2CB67D',
 }
 
@@ -144,6 +146,7 @@ export function resolveModuleThemeKey(pathname: string): ModuleThemeKey {
   if (pathname.startsWith('/ventas')) return 'ventas'
   if (pathname.startsWith('/love-isdin')) return 'love-isdin'
   if (pathname.startsWith('/clientes')) return 'clientes'
+  if (pathname.startsWith('/reclutamiento')) return 'reclutamiento'
   if (pathname.startsWith('/offline')) return 'offline'
   return 'default'
 }

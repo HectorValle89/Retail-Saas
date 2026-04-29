@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('@/lib/supabase/server', () => ({
+  createServiceClient: () => ({}),
+}))
+
 import { computeNextScheduledRun, getScheduledReportPeriod } from './reporteScheduleService'
 
 describe('reporteScheduleService', () => {

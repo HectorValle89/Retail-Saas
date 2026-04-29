@@ -1,7 +1,8 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { requerirPuestosActivos } from '@/lib/auth/session'
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
+import { publishUiChanges } from '@/lib/ui-change/server'
 import {
   buildOperationalDocumentUploadLimitMessage,
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES,
@@ -14,6 +15,10 @@ import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence }
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CuentaCliente, Gasto, Puesto } from '@/types/database'
 import { ESTADO_GASTO_INICIAL, type GastoActionState } from './state'
+import {
+  notificarGastoReportado,
+  notificarGastoResuelto,
+} from '@/lib/notifications/workflows/gastosEmail'
 
 const GASTO_WRITE_ROLES = [
   'ADMINISTRADOR',
@@ -29,6 +34,55 @@ const GASTO_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'appl
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TypedSupabaseClient = SupabaseClient<any>
+
+const GASTO_REFRESH_TARGETS = {
+  gastoBase: ['gastos', 'reportes', 'nomina'] as const,
+}
+
+function buildGastoRefreshTargets(input: {
+  cuentaClienteId: string | null
+  empleadoId: string
+  supervisorEmpleadoId: string | null
+  fechaGasto: string
+  actorPuesto: string
+  eventType: string
+}) {
+  const period = input.fechaGasto.slice(0, 7)
+  return buildUiChangeTargetsFromBusinessEvent({
+    eventType: input.eventType,
+    modules: ['gastos', 'reportes', 'nomina', 'dashboard'],
+    surfaces: ['panel', 'all'],
+    scopes: [
+      buildUiChangeScope('global'),
+      buildUiChangeScope('cuenta', input.cuentaClienteId ?? undefined),
+      buildUiChangeScope('empleado', input.empleadoId),
+      buildUiChangeScope('empleado', input.supervisorEmpleadoId ?? undefined),
+      buildUiChangeScope('periodo', period),
+    ],
+    cuentaClienteId: input.cuentaClienteId,
+    empleadoId: input.empleadoId,
+    supervisorEmpleadoId: input.supervisorEmpleadoId,
+    roleTargets: ['ADMINISTRADOR', 'NOMINA', 'SUPERVISOR', 'COORDINADOR', 'LOGISTICA'],
+    metadata: {
+      periodo: period,
+      actor_puesto: input.actorPuesto,
+    },
+  })
+}
+
+async function publishGastoRefreshTargets(
+  service: TypedSupabaseClient,
+  input: {
+    cuentaClienteId: string | null
+    empleadoId: string
+    supervisorEmpleadoId: string | null
+    fechaGasto: string
+    actorPuesto: string
+    eventType: string
+  }
+) {
+  await publishUiChanges(buildGastoRefreshTargets(input), { service })
+}
 
 interface GastoComprobanteUpload {
   url: string
@@ -55,7 +109,7 @@ type LedgerReferenciaRow = {
 }
 type GastoApprovalRow = Pick<
   Gasto,
-  'id' | 'cuenta_cliente_id' | 'empleado_id' | 'supervisor_empleado_id' | 'monto' | 'moneda' | 'estatus' | 'metadata'
+  'id' | 'cuenta_cliente_id' | 'empleado_id' | 'supervisor_empleado_id' | 'fecha_gasto' | 'monto' | 'moneda' | 'estatus' | 'metadata'
 >
 
 function buildState(partial: Partial<GastoActionState>): GastoActionState {
@@ -340,9 +394,29 @@ export async function registrarGastoOperativo(
         cuenta_cliente_id: cuentaClienteId,
       })
 
-      revalidatePath('/gastos')
-      revalidatePath('/reportes')
-      revalidatePath('/nomina')
+      await publishGastoRefreshTargets(service, {
+        cuentaClienteId,
+        empleadoId,
+        supervisorEmpleadoId,
+        fechaGasto,
+        actorPuesto: actor.puesto,
+        eventType: 'gasto_registrado_r2_direct',
+      })
+
+      // Notificacion asincrona a coordinadores
+      service
+        .from('empleado')
+        .select('nombre_completo')
+        .eq('id', empleadoId)
+        .maybeSingle()
+        .then(({ data: empData }) => {
+          notificarGastoReportado(service, {
+            empleadoNombre: empData?.nombre_completo ?? 'Colaborador',
+            montoTotal: monto,
+            fecha: fechaGasto,
+            cuentaClienteId,
+          }).catch(console.error)
+        })
 
       return buildState({ ok: true, message: 'Comprobante inyectado a la Bodega R2 (Cero Egress).' })
     }
@@ -403,9 +477,29 @@ export async function registrarGastoOperativo(
       cuenta_cliente_id: cuentaClienteId,
     })
 
-    revalidatePath('/gastos')
-    revalidatePath('/reportes')
-    revalidatePath('/nomina')
+    await publishGastoRefreshTargets(service, {
+      cuentaClienteId,
+      empleadoId,
+      supervisorEmpleadoId,
+      fechaGasto,
+      actorPuesto: actor.puesto,
+      eventType: 'gasto_registrado',
+    })
+
+    // Notificacion asincrona a coordinadores
+    service
+      .from('empleado')
+      .select('nombre_completo')
+      .eq('id', empleadoId)
+      .maybeSingle()
+      .then(({ data: empData }) => {
+        notificarGastoReportado(service, {
+          empleadoNombre: empData?.nombre_completo ?? 'Colaborador',
+          montoTotal: monto,
+          fecha: fechaGasto,
+          cuentaClienteId,
+        }).catch(console.error)
+      })
 
     return buildState({ ok: true, message: 'Gasto operativo registrado.' })
   } catch (error) {
@@ -426,7 +520,7 @@ export async function actualizarEstatusGasto(formData: FormData): Promise<void> 
 
   const { data: gastoRaw, error: gastoError } = await service
     .from('gasto')
-    .select('id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, monto, moneda, estatus, metadata')
+    .select('id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, fecha_gasto, monto, moneda, estatus, metadata')
     .eq('id', gastoId)
     .eq('cuenta_cliente_id', cuentaClienteId)
     .maybeSingle()
@@ -568,7 +662,28 @@ export async function actualizarEstatusGasto(formData: FormData): Promise<void> 
     cuenta_cliente_id: cuentaClienteId,
   })
 
-  revalidatePath('/gastos')
-  revalidatePath('/reportes')
-  revalidatePath('/nomina')
+  await publishGastoRefreshTargets(service, {
+    cuentaClienteId,
+    empleadoId: gasto.empleado_id,
+    supervisorEmpleadoId: gasto.supervisor_empleado_id,
+    fechaGasto: gasto.fecha_gasto,
+    actorPuesto: actor.puesto,
+    eventType: evento,
+  })
+
+  // Notificacion asincrona al empleado
+  const isFinalStatus = 
+    estatus === 'RECHAZADO' || 
+    estatus === 'REEMBOLSADO' || 
+    (estatus === 'APROBADO' && actor.puesto !== 'SUPERVISOR')
+
+  if (isFinalStatus) {
+    notificarGastoResuelto(service, {
+      empleadoId: gasto.empleado_id,
+      adminNombre: actor.nombreCompleto ?? 'Administrador',
+      monto: gasto.monto,
+      fecha: gasto.fecha_gasto,
+      aprobado: estatus === 'APROBADO' || estatus === 'REEMBOLSADO',
+    }).catch(console.error)
+  }
 }

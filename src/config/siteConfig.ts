@@ -10,12 +10,12 @@ export interface SiteConfig {
 }
 
 export const siteConfig: SiteConfig = {
-  appName: 'Beteele One',
+  appName: 'Beteele-One',
   appDescription:
     'Plataforma operativa para ISDIN con control de campo, ventas, nomina y trazabilidad.',
   locale: 'es_MX',
   seo: {
-    siteTitle: 'Beteele One | ISDIN',
+    siteTitle: 'Beteele-One | ISDIN',
     defaultDescription:
       'Operacion retail de ISDIN con control diario, evidencias y seguimiento centralizado.',
     locale: 'es_MX',

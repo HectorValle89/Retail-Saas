@@ -1,4 +1,5 @@
-import * as XLSX from 'xlsx'
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const XLSX = require('xlsx') as typeof import('xlsx')
 import type { CampaignGoalType } from './campaignProgress'
 
 export interface CampaignProductQuotaImportRow {

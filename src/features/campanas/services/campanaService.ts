@@ -1,5 +1,7 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
 import { createServiceClient } from '@/lib/supabase/server'
 import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus'
 import type {
@@ -310,6 +312,25 @@ export interface CampanasOverviewData {
   cuentaSeleccionadaId: string | null
   infraestructuraLista: boolean
   mensajeInfraestructura?: string
+}
+
+function buildCampanasOverviewCacheKey(actor: ActorActual, cuentaSeleccionadaId: string | null) {
+  return [
+    'campanas-overview',
+    actor.cuentaClienteId ?? 'global',
+    actor.empleadoId,
+    actor.puesto,
+    cuentaSeleccionadaId ?? 'sin-cuenta',
+  ]
+}
+
+function buildCampanasOverviewCacheTags(actor: ActorActual, cuentaSeleccionadaId: string | null) {
+  return buildModuleCacheTags({
+    module: 'campanas',
+    accountId: cuentaSeleccionadaId ?? actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+  })
 }
 
 const EMPTY_DATA: CampanasPanelData = {
@@ -687,6 +708,31 @@ export async function obtenerInicioCampanas(
     cuentaSeleccionadaId,
     infraestructuraLista: true,
   }
+}
+
+export async function obtenerInicioCampanasParaActor(
+  actor: ActorActual,
+  options?: ObtenerPanelCampanasOptions
+): Promise<CampanasOverviewData> {
+  const cuentaSeleccionadaId = buildScopedAccountId(actor, options?.scopeAccountId)
+  const cacheKey = buildCampanasOverviewCacheKey(actor, cuentaSeleccionadaId)
+  const tags = buildCampanasOverviewCacheTags(actor, cuentaSeleccionadaId)
+
+  const read = unstable_cache(
+    async () =>
+      obtenerInicioCampanas(actor, {
+        ...options,
+        scopeAccountId: cuentaSeleccionadaId,
+        serviceClient: options?.serviceClient,
+      }),
+    cacheKey,
+    {
+      revalidate: 60,
+      tags,
+    }
+  )
+
+  return read()
 }
 
 export async function obtenerPanelCampanas(

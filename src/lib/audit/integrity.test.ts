@@ -18,10 +18,10 @@ function reorderKeys(value: unknown): unknown {
 describe('audit integrity properties', () => {
   it('stable serialization round-trips JSON payloads deterministically', () => {
     fc.assert(
-      fc.property(fc.jsonValue(), (payload) => {
+      fc.asyncProperty(fc.jsonValue(), async (payload) => {
         const serialized = stableSerialize(payload)
         expect(stableSerialize(JSON.parse(serialized))).toBe(serialized)
-        expect(calcularHashPayload(payload)).toBe(calcularHashPayload(payload))
+        expect(await calcularHashPayload(payload)).toBe(await calcularHashPayload(payload))
       }),
       { numRuns: 100 }
     )
@@ -29,8 +29,8 @@ describe('audit integrity properties', () => {
 
   it('hashes are invariant to key order', () => {
     fc.assert(
-      fc.property(fc.jsonValue(), (payload) => {
-        expect(calcularHashPayload(reorderKeys(payload))).toBe(calcularHashPayload(payload))
+      fc.asyncProperty(fc.jsonValue(), async (payload) => {
+        expect(await calcularHashPayload(reorderKeys(payload))).toBe(await calcularHashPayload(payload))
       }),
       { numRuns: 100 }
     )
@@ -38,15 +38,15 @@ describe('audit integrity properties', () => {
 
   it('detects tampering in persisted payloads', () => {
     fc.assert(
-      fc.property(
+      fc.asyncProperty(
         fc.dictionary(fc.string({ minLength: 1, maxLength: 12 }), fc.jsonValue()),
-        (payload) => {
+        async (payload) => {
           const tamperedPayload = {
             ...payload,
             __tampered__: payload.__tampered__ === true ? 'mutated' : true,
           }
 
-          expect(calcularHashPayload(tamperedPayload)).not.toBe(calcularHashPayload(payload))
+          expect(await calcularHashPayload(tamperedPayload)).not.toBe(await calcularHashPayload(payload))
         }
       ),
       { numRuns: 100 }

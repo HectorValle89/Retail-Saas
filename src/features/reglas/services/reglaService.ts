@@ -1,4 +1,8 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
+import { createServiceClient } from '@/lib/supabase/server'
 import type { ReglaNegocio } from '@/types/database'
 import {
   APPROVAL_FLOW_RULE_CODES,
@@ -44,11 +48,20 @@ export interface ReglasPanelData {
   mensajeInfraestructura?: string
 }
 
+function isSupabaseClient(value: unknown): value is SupabaseClient {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'from' in value &&
+      typeof (value as { from?: unknown }).from === 'function'
+  )
+}
+
 function stringifyJson(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2)
 }
 
-export async function obtenerPanelReglas(
+async function obtenerPanelReglasUncached(
   supabase: SupabaseClient
 ): Promise<ReglasPanelData> {
   const { data, error } = await supabase
@@ -97,4 +110,51 @@ export async function obtenerPanelReglas(
     infraestructuraLista: !error,
     mensajeInfraestructura: error?.message,
   }
+}
+
+const REGLAS_PANEL_REVALIDATE_SECONDS = 90
+
+function buildReglasCacheKey(actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>) {
+  return JSON.stringify({
+    cuentaClienteId: actor.cuentaClienteId ?? null,
+    empleadoId: actor.empleadoId,
+    puesto: actor.puesto,
+  })
+}
+
+function buildReglasCacheTags(actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>) {
+  return buildModuleCacheTags({
+    module: 'reglas',
+    accountId: actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+  })
+}
+
+export async function obtenerPanelReglas(
+  actorOrSupabase: ActorActual | SupabaseClient,
+  customSupabase?: SupabaseClient
+): Promise<ReglasPanelData> {
+  if (isSupabaseClient(actorOrSupabase)) {
+    return obtenerPanelReglasUncached(actorOrSupabase)
+  }
+
+  const actor = actorOrSupabase
+
+  if (customSupabase) {
+    return obtenerPanelReglasUncached(customSupabase)
+  }
+
+  const cacheKey = buildReglasCacheKey(actor)
+
+  return unstable_cache(
+    async () => {
+      const service = createServiceClient() as unknown as SupabaseClient
+      return obtenerPanelReglasUncached(service)
+    },
+    ['reglas:panel', cacheKey],
+    {
+      tags: buildReglasCacheTags(actor),
+      revalidate: REGLAS_PANEL_REVALIDATE_SECONDS,
+    }
+  )()
 }

@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useActionState, useState } from 'react'
+import { useActionState, useCallback, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import type { ActorActual } from '@/lib/auth/session'
 import { useFormStatus } from 'react-dom'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -9,6 +11,8 @@ import { EvidencePreview } from '@/components/ui/evidence-preview'
 import { Input } from '@/components/ui/input'
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { Select } from '@/components/ui/select'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import { ESTADO_MENSAJE_INICIAL } from '../state'
 import {
   marcarMensajeLeido,
@@ -48,7 +52,42 @@ function buildMensajesHref(
   return `/mensajes?${params.toString()}`
 }
 
-export function MensajesPanel({ data }: { data: MensajesPanelData }) {
+export function MensajesPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: MensajesPanelData
+}) {
+  const searchParams = useSearchParams()
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(
+    async (signal: AbortSignal) => {
+      const query = searchParams.toString()
+      const response = await fetch(query ? `/api/mensajes/panel?${query}` : '/api/mensajes/panel', {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal,
+      })
+      const payload = (await response.json()) as { data?: MensajesPanelData; message?: string }
+
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.message ?? 'No fue posible refrescar el panel de mensajes.')
+      }
+
+      return payload.data
+    },
+    [searchParams]
+  )
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'mensajes',
+    surfaces: ['panel', 'inbox', 'tabla', 'shell', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher: (signal) => fetcher(signal),
+    debounceMs: 650,
+  })
   const topTabs = data.puedeVerAnalitica
     ? [
         { value: 'bandeja', label: 'Bandeja' },

@@ -14,6 +14,15 @@ export type OfflineQueueStatus = 'pending' | 'processing' | 'failed'
 export type OfflineConflictStrategy = 'server_wins' | 'client_wins'
 
 export interface OfflineQueuedFile {
+  fileName: string
+  mimeType: string
+  fileSize: number
+  capturedAt: string
+  localHash: string | null
+  base64Data: string
+}
+
+export interface OfflineQueuedFileInput {
   file: File
   fileName: string
   mimeType: string
@@ -24,8 +33,8 @@ export interface OfflineQueuedFile {
 
 export type OfflineAsistenciaPayload = Partial<Asistencia> & {
   id: string
-  offline_selfie_check_in?: OfflineQueuedFile | null
-  offline_selfie_check_out?: OfflineQueuedFile | null
+  offline_selfie_check_in?: OfflineQueuedFile | OfflineQueuedFileInput | null
+  offline_selfie_check_out?: OfflineQueuedFile | OfflineQueuedFileInput | null
 }
 
 export type OfflineVentaPayload = Partial<Venta> & {

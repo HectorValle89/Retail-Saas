@@ -10,7 +10,7 @@ create table if not exists public.asignacion_diaria_resuelta (
   origen text not null
     check (origen in ('BASE', 'COBERTURA_TEMPORAL', 'COBERTURA_PERMANENTE', 'FORMACION', 'VACACIONES', 'INCAPACIDAD', 'JUSTIFICACION', 'NINGUNO')),
   referencia_tabla text null
-    check (referencia_tabla in ('asignacion', 'solicitud', 'formacion') or referencia_tabla is null),
+    check (referencia_tabla in ('asignacion', 'solicitud', 'formacion', 'descanso_override') or referencia_tabla is null),
   referencia_id uuid null,
   mensaje_operativo text null,
   laborable boolean not null default false,
@@ -43,6 +43,9 @@ create index if not exists idx_asignacion_diaria_resuelta_pdv_fecha
 
 create index if not exists idx_asignacion_diaria_resuelta_flags_gin
   on public.asignacion_diaria_resuelta using gin (flags jsonb_path_ops);
+
+create index if not exists idx_asignacion_diaria_resuelta_refreshed_at
+  on public.asignacion_diaria_resuelta(refreshed_at desc);
 
 create table if not exists public.asignacion_diaria_dirty_queue (
   id uuid primary key default gen_random_uuid(),

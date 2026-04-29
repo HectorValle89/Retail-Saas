@@ -1,9 +1,14 @@
 'use client'
 
 import Link from 'next/link'
+import { useCallback, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
+import type { ActorActual } from '@/lib/auth/session'
 import type { BitacoraPanelData } from '../services/bitacoraService'
 
 function buildCursorHref(
@@ -42,7 +47,51 @@ function formatDate(value: string) {
   }).format(new Date(value))
 }
 
-export function BitacoraPanel({ data }: { data: BitacoraPanelData }) {
+export function BitacoraPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: BitacoraPanelData
+}) {
+  const searchParams = useSearchParams()
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(
+    async (signal: AbortSignal) => {
+      const params = new URLSearchParams()
+      params.set('usuario', searchParams.get('usuario') ?? initialData.filtros.usuario)
+      params.set('modulo', searchParams.get('modulo') ?? initialData.filtros.modulo)
+      params.set('accion', searchParams.get('accion') ?? initialData.filtros.accion)
+      params.set('fechaDesde', searchParams.get('fechaDesde') ?? initialData.filtros.fechaDesde)
+      params.set('fechaHasta', searchParams.get('fechaHasta') ?? initialData.filtros.fechaHasta)
+      params.set('cursor', searchParams.get('cursor') ?? String(initialData.filtros.cursor ?? ''))
+      params.set('history', searchParams.get('history') ?? initialData.filtros.history.join(','))
+      params.set('pageSize', searchParams.get('pageSize') ?? String(initialData.paginacion.pageSize))
+
+      const response = await fetch(`/api/bitacora/panel?${params.toString()}`, {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal,
+      })
+      const payload = (await response.json()) as { data?: BitacoraPanelData; message?: string }
+
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.message ?? 'No fue posible refrescar la bitacora.')
+      }
+
+      return payload.data
+    },
+    [initialData, searchParams]
+  )
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'bitacora',
+    surfaces: ['panel', 'tabla', 'shell', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 850,
+  })
   const canPrev = data.paginacion.hasPreviousPage
   const canNext = data.paginacion.hasNextPage
 

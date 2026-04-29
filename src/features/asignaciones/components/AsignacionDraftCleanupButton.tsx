@@ -15,17 +15,24 @@ export function AsignacionDraftCleanupButton({
   puedeGestionar: boolean
   compact?: boolean
 }) {
-  const router = useRouter()
   const [state, formAction] = useActionState(
     limpiarBorradorAsignacion,
     ESTADO_ASIGNACION_INICIAL
   )
+  const router = useRouter()
 
   useEffect(() => {
-    if (state.ok) {
-      router.refresh()
+    if (!state.ok) {
+      return
     }
-  }, [router, state.ok])
+
+    if (state.redirectTo) {
+      router.replace(state.redirectTo)
+      return
+    }
+
+    router.refresh()
+  }, [router, state.ok, state.redirectTo])
 
   if (!puedeGestionar) {
     return null

@@ -86,3 +86,31 @@ Cuando una iteracion larga se acerque a saturacion de contexto, el agente debe c
 - TypeScript
 - Tailwind CSS
 - Supabase
+
+## Cloudflare
+
+La app full-stack se despliega en Cloudflare usando **Workers + OpenNext**, no Cloudflare Pages.
+
+Comandos base:
+
+```bash
+npm run build
+npm run cf:build
+npm run preview
+npm run deploy
+```
+
+Nota operativa: en Windows local, `npm run cf:build` puede requerir WSL o permisos para symlinks. El build remoto de Cloudflare Workers corre en Linux y no hereda esa limitacion local.
+
+## Actualizacion selectiva y costo
+
+La regla base actual del repo es:
+
+- la app carga snapshots iniciales y solo refresca superficies que realmente cambiaron;
+- las escrituras publican invalidaciones en `ui_change_version`;
+- las lecturas cacheables deben usar tags por modulo/scope;
+- `router.refresh()` no debe usarse como mecanismo general de sincronizacion operativa.
+
+Documento base de esta arquitectura:
+
+- `docs/selective-refresh-cost-control.md`

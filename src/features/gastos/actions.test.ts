@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
   revalidatePathMock,
+  revalidateTagMock,
   requerirPuestosActivosMock,
   createServiceClientMock,
   storeOptimizedEvidenceMock,
 } = vi.hoisted(() => ({
   revalidatePathMock: vi.fn(),
+  revalidateTagMock: vi.fn(),
   requerirPuestosActivosMock: vi.fn(),
   createServiceClientMock: vi.fn(),
   storeOptimizedEvidenceMock: vi.fn(),
@@ -14,6 +16,8 @@ const {
 
 vi.mock('next/cache', () => ({
   revalidatePath: revalidatePathMock,
+  revalidateTag: revalidateTagMock,
+  unstable_cache: vi.fn((fn) => fn),
 }))
 
 vi.mock('@/lib/auth/session', () => ({
@@ -45,6 +49,9 @@ describe('gastos actions', () => {
   it('registra un gasto de formacion con comprobante optimizado', async () => {
     const inserts = [] as Array<{ table: string; payload: Record<string, unknown> }>
     const service = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
@@ -58,6 +65,28 @@ describe('gastos actions', () => {
                 },
               }
             },
+          }
+        }
+
+        if (table === 'empleado') {
+          return {
+            select() { return this },
+            in() { return this },
+            eq() { return this },
+            or() { return this },
+            maybeSingle() { return Promise.resolve({ data: { id: 'emp-1', nombre_completo: 'Test User' }, error: null }) },
+            single() { return this.maybeSingle() },
+          }
+        }
+
+        if (table === 'usuario') {
+          return {
+            select() { return this },
+            in() { return this },
+            eq() { return this },
+            or() { return this },
+            maybeSingle() { return Promise.resolve({ data: { id: 'user-1', email: 'test@example.com' }, error: null }) },
+            single() { return this.maybeSingle() },
           }
         }
 
@@ -144,6 +173,9 @@ describe('gastos actions', () => {
     const auditInserts = [] as Array<Record<string, unknown>>
 
     const service = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
@@ -177,6 +209,7 @@ describe('gastos actions', () => {
                             cuenta_cliente_id: 'cuenta-1',
                             empleado_id: 'emp-1',
                             supervisor_empleado_id: 'emp-2',
+                            fecha_gasto: '2026-03-01',
                             monto: 350,
                             moneda: 'MXN',
                             estatus: 'APROBADO',
@@ -285,6 +318,28 @@ describe('gastos actions', () => {
           }
         }
 
+        if (table === 'empleado') {
+          return {
+            select() { return this },
+            in() { return this },
+            eq() { return this },
+            or() { return this },
+            maybeSingle() { return Promise.resolve({ data: { id: 'emp-1', nombre_completo: 'Test User' }, error: null }) },
+            single() { return this.maybeSingle() },
+          }
+        }
+
+        if (table === 'usuario') {
+          return {
+            select() { return this },
+            in() { return this },
+            eq() { return this },
+            or() { return this },
+            maybeSingle() { return Promise.resolve({ data: { id: 'user-1', email: 'test@example.com' }, error: null }) },
+            single() { return this.maybeSingle() },
+          }
+        }
+
         throw new Error(`Unexpected table ${table}`)
       },
       storage: {
@@ -329,6 +384,6 @@ describe('gastos actions', () => {
         reembolso_ledger_id: 'ledger-1',
       },
     })
-    expect(revalidatePathMock).toHaveBeenCalledWith('/nomina')
+    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:nomina'), expect.anything())
   })
 })

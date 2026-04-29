@@ -7,7 +7,7 @@ import {
 test('normaliza snapshot OCR de empleados en mayusculas y no usa fecha de ingreso OCR para altas', () => {
   const snapshot = buildEmpleadoOcrSnapshot({
     provider: 'gemini',
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-flash-lite',
     status: 'needs_review',
     documentTypeExpected: 'EXPEDIENTE_COMPLETO',
     documentTypeDetected: 'EXPEDIENTE_COMPLETO',

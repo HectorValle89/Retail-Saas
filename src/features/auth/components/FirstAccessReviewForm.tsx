@@ -38,11 +38,11 @@ export function FirstAccessReviewForm({
       <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-slate-700">
         <p className="font-semibold text-slate-950">{nombreCompleto}</p>
         <p className="mt-1">
-          Usuario provisional: <span className="font-medium">{username ?? 'sin username visible'}</span>
+          Acceso de primer login: <span className="font-medium">{username ?? 'sin username visible'}</span>
         </p>
         <p className="mt-3">
           Antes de entrar a la operacion, revisa estos datos. Puedes confirmarlos si estan bien o
-          pedir una correccion para que el equipo administrativo la atienda.
+          pedir una correccion para que Administracion la atienda.
         </p>
       </div>
 
@@ -77,9 +77,10 @@ export function FirstAccessReviewForm({
       <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-slate-950">Solicitar correccion</p>
+            <p className="text-sm font-semibold text-slate-950">Solicitar correccion a Administracion</p>
             <p className="mt-1 text-sm text-slate-700">
-              Usa esta opcion si detectas informacion incorrecta en tus datos iniciales.
+              Usa esta opcion si detectas informacion incorrecta en tus datos iniciales. La solicitud
+              llegara a la bandeja del administrador.
             </p>
           </div>
           <Button
@@ -88,14 +89,14 @@ export function FirstAccessReviewForm({
             onClick={() => setShowCorrectionForm((value) => !value)}
             className="border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
           >
-            {showCorrectionForm ? 'Ocultar correccion' : 'Pedir correccion'}
+            {showCorrectionForm ? 'Ocultar correccion' : 'Pedir correccion a Administracion'}
           </Button>
         </div>
 
         {showCorrectionForm && (
           <form action={correctionAction} className="mt-4 space-y-3">
             <label className="block text-sm font-medium text-slate-700" htmlFor="detalle">
-              Describe que dato debemos corregir
+              Describe que dato debemos corregir para que Administracion lo ajuste
             </label>
             <textarea
               id="detalle"
@@ -113,7 +114,7 @@ export function FirstAccessReviewForm({
             )}
 
             <Button type="submit" className="w-full bg-amber-500 text-white hover:bg-amber-600">
-              Enviar correccion y continuar
+              Enviar correccion a Administracion
             </Button>
           </form>
         )}

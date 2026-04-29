@@ -406,7 +406,7 @@ function PayrollInboxBoard({
         <div>
           <h2 className="text-lg font-semibold text-slate-950">Bandeja de Nomina</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Altas IMSS y bajas institucionales recibidas desde Reclutamiento.
+            Altas pendientes, bajas pendientes, bajas devueltas y devoluciones de altas recibidas desde Reclutamiento.
           </p>
         </div>
         <span className="inline-flex items-center justify-center rounded-full bg-[var(--module-primary)] px-4 py-2 text-sm font-semibold text-white">
@@ -463,6 +463,8 @@ function PayrollTicketModal({
   const employee = item.employee
   const [cancelModalOpen, setCancelModalOpen] = useState(false)
   const canCancelAlta = item.movementType === 'ALTA' && (
+    item.stage === 'EN_GESTION' ||
+    item.stage === 'ONBOARDING' ||
     item.stage === 'PENDIENTE_IMSS_NOMINA' ||
     item.stage === 'EN_FLUJO_IMSS' ||
     item.stage === 'RECLUTAMIENTO_CORRECCION_ALTA' ||
@@ -526,11 +528,15 @@ function PayrollTicketModal({
                 ]}
               />
             )
-          ) : item.stage === 'PENDIENTE_ACCESO_ADMIN' ? (
+          ) : item.stage === 'ONBOARDING' || item.stage === 'PENDIENTE_ACCESO_ADMIN' || item.stage === 'ALTA_IMSS_CERRADA' ? (
             <ReadOnlyWorkflowCard
               lines={[
-                'Alta IMSS cerrada.',
-                'Administracion ya puede crear el acceso provisional.',
+                item.stage === 'ALTA_IMSS_CERRADA'
+                  ? 'Alta finalizada.'
+                  : 'Alta IMSS cerrada.',
+                item.stage === 'ALTA_IMSS_CERRADA'
+                  ? 'Administracion ya genero el acceso provisional y el caso quedo cerrado.'
+                  : 'El expediente ya fue entregado a Administracion para crear usuario, password y QR.',
                 `estado IMSS: ${employee.imssEstado}`,
               ]}
             />

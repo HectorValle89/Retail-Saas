@@ -1,12 +1,16 @@
 'use client'
 
-import { useActionState, useDeferredValue, useState } from 'react'
+import { useActionState, useCallback, useDeferredValue, useMemo, useState } from 'react'
+import type { ActorActual } from '@/lib/auth/session'
 import { useFormStatus } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { Select } from '@/components/ui/select'
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import {
   eliminarTurnoCatalogo,
   guardarCadena,
@@ -142,7 +146,39 @@ function SubmitActionButton({
   )
 }
 
-export function ConfiguracionPanel({ data }: { data: ConfiguracionPanelData }) {
+export function ConfiguracionPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: ConfiguracionPanelData
+}) {
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    const response = await fetch('/api/configuracion/panel', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    })
+    const payload = (await response.json()) as { data?: ConfiguracionPanelData; message?: string }
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de configuracion.')
+    }
+
+    return payload.data
+  }, [])
+
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'configuracion',
+    surfaces: ['panel', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 500,
+  })
+
   const [productSearch, setProductSearch] = useState('')
   const [missionSearch, setMissionSearch] = useState('')
   const deferredProductSearch = useDeferredValue(productSearch.trim().toLowerCase())
@@ -501,6 +537,7 @@ function CadenaForm({ item }: { item?: CadenaCatalogoItem }) {
 
 function CiudadForm({ item }: { item?: CiudadCatalogoItem }) {
   const [state, formAction] = useActionState(guardarCiudad, ESTADO_CONFIGURACION_ADMIN_INICIAL)
+  const estadoDerivado = resolveMexicoStateFromCity(item?.nombre ?? null)
 
   return (
     <form
@@ -511,17 +548,26 @@ function CiudadForm({ item }: { item?: CiudadCatalogoItem }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-slate-950">{item ? item.nombre : 'Alta de ciudad'}</p>
-          <p className="text-xs text-slate-500">Ciudad operativa, zona y estado de disponibilidad.</p>
+          <p className="text-xs text-slate-500">
+            Ciudad operativa, zona y estado derivado por catálogo nacional.
+          </p>
         </div>
         {item && <StatusPill label={formatBooleanLabel(item.activa)} tone={getStatusTone(item.activa)} />}
       </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Input label="Ciudad" name="nombre" defaultValue={item?.nombre} placeholder="MONTERREY" />
-          <Input label="Zona" name="zona" defaultValue={item?.zona} placeholder="NORTE" />
-          <Input label="Estado" name="estado" defaultValue={item?.estado ?? ''} placeholder="NUEVO LEON" />
-          <Select
-            label="Activa"
-            name="activa"
+      <div className="grid gap-4 md:grid-cols-2">
+        <Input label="Ciudad" name="nombre" defaultValue={item?.nombre} placeholder="MONTERREY" />
+        <Input label="Zona" name="zona" defaultValue={item?.zona} placeholder="NORTE" />
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+          <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+            Estado derivado
+          </span>
+          <span className="mt-1 block font-medium text-slate-950">
+            {estadoDerivado ?? item?.estado ?? 'Sin derivar'}
+          </span>
+        </div>
+        <Select
+          label="Activa"
+          name="activa"
           defaultValue={item ? String(item.activa) : 'true'}
           options={[
             { value: 'true', label: 'Activa' },
@@ -776,8 +822,8 @@ function OcrConfigForm({ item }: { item: OcrConfiguracionItem }) {
           <Input
             label="Modelo preferido"
             name="model"
-            defaultValue={item.preferredModel ?? item.effectiveModel ?? 'gemini-2.5-flash'}
-            placeholder="gemini-2.5-flash"
+            defaultValue={item.preferredModel ?? item.effectiveModel ?? 'gemini-2.5-flash-lite'}
+            placeholder="gemini-2.5-flash-lite"
           />
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -915,5 +961,3 @@ function PdfCompressionConfigForm({ item }: { item: PdfCompressionConfiguracionI
     </div>
   )
 }
-
-

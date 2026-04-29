@@ -15,6 +15,7 @@ export type Puesto =
 export type EstadoCuenta =
   | 'PROVISIONAL'
   | 'PENDIENTE_VERIFICACION_EMAIL'
+  | 'PENDIENTE_PRIMER_LOGIN'
   | 'ACTIVA'
   | 'SUSPENDIDA'
   | 'BAJA'
@@ -337,7 +338,79 @@ export interface Asignacion {
   dia_descanso: string | null
   horario_referencia: string | null
   observaciones: string | null
+  metadata: Record<string, unknown>
   estado_publicacion: 'BORRADOR' | 'PUBLICADA'
+  created_at: string
+  updated_at: string
+}
+
+export type VacanteOperativaFuturaTipo =
+  | 'VACANTE_ACTUAL_POR_BAJA'
+  | 'VACANTE_FUTURA_POR_MOVIMIENTO_CANCELADO'
+
+export type VacanteOperativaFuturaSeguimiento =
+  | 'NUEVA'
+  | 'EN_REVISION'
+  | 'EN_REASIGNACION'
+  | 'RESUELTA'
+  | 'DESCARTADA'
+
+export interface VacanteOperativaFutura {
+  id: string
+  cuenta_cliente_id: string
+  empleado_origen_id: string
+  asignacion_origen_id: string | null
+  asignacion_cancelada_id: string | null
+  pdv_id: string
+  tipo_vacante: VacanteOperativaFuturaTipo
+  fecha_vacante_desde: string
+  fecha_baja_efectiva: string
+  motivo: string | null
+  estado_seguimiento: VacanteOperativaFuturaSeguimiento
+  accion_recomendada: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export type AsignacionBajaHistorialAccion =
+  | 'VACANTE_ACTUAL_GENERADA'
+  | 'MOVIMIENTO_CANCELADO'
+  | 'VACANTE_FUTURA_GENERADA'
+
+export interface AsignacionBajaHistorial {
+  id: string
+  cuenta_cliente_id: string
+  empleado_id: string
+  asignacion_id: string
+  vacante_operativa_futura_id: string | null
+  pdv_origen_id: string | null
+  pdv_destino_id: string | null
+  fecha_inicio_original: string
+  fecha_fin_original: string | null
+  fecha_baja_efectiva: string
+  accion_aplicada: AsignacionBajaHistorialAccion
+  usuario_actor_id: string | null
+  motivo: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface AsignacionDescansoOverride {
+  id: string
+  cuenta_cliente_id: string | null
+  asignacion_id: string
+  empleado_id: string
+  vigente_desde: string
+  vigente_hasta: string | null
+  modo: 'EXPLICITO' | 'REGLA_MENSUAL' | null
+  regla_descanso: Record<string, unknown> | null
+  fechas_descanso: string[]
+  fechas_trabajo: string[]
+  observaciones: string | null
+  activo: boolean
+  metadata: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -365,7 +438,7 @@ export interface AsignacionDiariaResuelta {
     | 'INCAPACIDAD'
     | 'JUSTIFICACION'
     | 'NINGUNO'
-  referencia_tabla: 'asignacion' | 'solicitud' | 'formacion' | null
+  referencia_tabla: 'asignacion' | 'solicitud' | 'formacion' | 'descanso_override' | null
   referencia_id: string | null
   mensaje_operativo: string | null
   laborable: boolean
@@ -845,8 +918,12 @@ export interface RutaSemanalVisita {
   estatus: 'PLANIFICADA' | 'COMPLETADA' | 'CANCELADA'
   selfie_url: string | null
   selfie_hash: string | null
+  selfie_thumbnail_url: string | null
+  selfie_thumbnail_hash: string | null
   evidencia_url: string | null
   evidencia_hash: string | null
+  evidencia_thumbnail_url: string | null
+  evidencia_thumbnail_hash: string | null
   checklist_calidad: Record<string, boolean>
   comentarios: string | null
   completada_en: string | null

@@ -1,12 +1,24 @@
 'use client'
 
-import { useActionState, useDeferredValue, useState, type ReactNode } from 'react'
+import {
+  useActionState,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import type { ActorActual } from '@/lib/auth/session'
 import { useFormStatus } from 'react-dom'
 import { ModalPanel } from '@/components/ui/modal-panel'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { Select } from '@/components/ui/select'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import {
   getSingleTenantAccountLabel,
   isSingleTenantUiEnabled,
@@ -15,6 +27,7 @@ import {
 import {
   actualizarEstadoCuentaUsuario,
   actualizarPuestoUsuario,
+  actualizarUsernameUsuario,
   crearUsuarioAdministrativo,
   enviarResetPasswordUsuario,
 } from '../actions'
@@ -27,6 +40,10 @@ import type {
   UsuarioSessionItem,
   UsuariosPanelData,
 } from '../services/usuarioService'
+
+interface UsuarioSessionsDetailResponse {
+  sessions: UsuarioSessionItem[]
+}
 
 function formatDateTime(value: string | null) {
   if (!value) {
@@ -46,12 +63,35 @@ function formatPuesto(value: string) {
   return value.replace(/_/g, ' ')
 }
 
+function formatEstadoCuenta(value: string) {
+  switch (value) {
+    case 'PROVISIONAL':
+      return 'Provisional'
+    case 'PENDIENTE_VERIFICACION_EMAIL':
+      return 'Pendiente verificacion email'
+    case 'PENDIENTE_PRIMER_LOGIN':
+      return 'Pendiente primer login'
+    case 'ACTIVA':
+      return 'Activa'
+    case 'SUSPENDIDA':
+      return 'Suspendida'
+    case 'BAJA':
+      return 'Baja'
+    default:
+      return value.replace(/_/g, ' ')
+  }
+}
+
 function getEstadoCuentaTone(value: string) {
   if (value === 'ACTIVA') {
     return 'bg-emerald-100 text-emerald-700'
   }
 
-  if (value === 'PROVISIONAL' || value === 'PENDIENTE_VERIFICACION_EMAIL') {
+  if (
+    value === 'PROVISIONAL' ||
+    value === 'PENDIENTE_VERIFICACION_EMAIL' ||
+    value === 'PENDIENTE_PRIMER_LOGIN'
+  ) {
     return 'bg-amber-100 text-amber-700'
   }
 
@@ -90,7 +130,44 @@ function getEstadoSesionLabel(value: EstadoSesionUsuario) {
   }
 }
 
-export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
+export function UsuariosPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: UsuariosPanelData
+}) {
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    const response = await fetch('/api/admin/users/panel', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    })
+    const payload = (await response.json()) as { data?: UsuariosPanelData; message?: string }
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de usuarios.')
+    }
+
+    return payload.data
+  }, [])
+
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'usuarios',
+    surfaces: ['panel', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 500,
+    refreshOnMount:
+      !initialData.provisionamiento.backendAdminConfigurado ||
+      !initialData.sesionesOperativasDisponibles ||
+      Boolean(initialData.mensajeBackendAdmin) ||
+      Boolean(initialData.mensajeSesiones),
+  })
+
   const fixedAccount = resolveSingleTenantAccountOption(data.cuentasClienteDisponibles)
   const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount)
   const [search, setSearch] = useState('')
@@ -162,7 +239,7 @@ export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
 
       {!data.sesionesOperativasDisponibles && data.mensajeSesiones && (
         <Card className="border-amber-200 bg-amber-50 text-amber-900">
-          <p className="font-medium">Vista de sesiones degradada</p>
+          <p className="font-medium">Vista de sesiones con soporte parcial</p>
           <p className="mt-2 text-sm">{data.mensajeSesiones}</p>
         </Card>
       )}
@@ -198,8 +275,9 @@ export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
           <div>
             <h2 className="text-lg font-semibold text-slate-950">Alta administrativa</h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-500">
-              Crea el usuario provisional solo para expedientes que ya cerraron alta IMSS. El
-              panel devuelve el username y password temporal para arrancar el flujo de activacion.
+              Crea el usuario provisional para cualquier puesto que vaya a entrar por primer
+              acceso. El panel devuelve el username y la password temporal para arrancar el flujo
+              guiado de activacion.
             </p>
           </div>
           <p className="text-sm text-slate-500">
@@ -241,7 +319,7 @@ export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-          <Select
+            <Select
             label="Estado"
             value={estadoFilter}
             onChange={(event) => setEstadoFilter(event.target.value)}
@@ -249,7 +327,7 @@ export function UsuariosPanel({ data }: { data: UsuariosPanelData }) {
               { value: 'ALL', label: 'Todos' },
               ...data.estadosDisponibles.map((estado) => ({
                 value: estado,
-                label: estado,
+                label: formatEstadoCuenta(estado),
               })),
             ]}
           />
@@ -335,7 +413,7 @@ function UsuarioRow({
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-base font-semibold text-slate-950">{usuario.empleado}</p>
             <StatusPill
-              label={usuario.estadoCuenta}
+              label={formatEstadoCuenta(usuario.estadoCuenta)}
               className={getEstadoCuentaTone(usuario.estadoCuenta)}
             />
             <StatusPill
@@ -405,6 +483,68 @@ function UsuarioDetailModal({
   onClose: () => void
 }) {
   const [tab, setTab] = useState<'resumen' | 'acciones' | 'seguridad' | 'actividad' | 'sesiones'>('resumen')
+  const [sesiones, setSesiones] = useState<UsuarioSessionItem[] | null>(null)
+  const [sesionesError, setSesionesError] = useState<string | null>(null)
+  const [sesionesLoading, setSesionesLoading] = useState(false)
+  const sesionesAbortControllerRef = useRef<AbortController | null>(null)
+
+  const cargarSesiones = useCallback(async () => {
+    if (!usuario.authUserId) {
+      return
+    }
+
+    sesionesAbortControllerRef.current?.abort()
+    const controller = new AbortController()
+    sesionesAbortControllerRef.current = controller
+
+    setSesionesLoading(true)
+    setSesionesError(null)
+
+    try {
+      const response = await fetch(`/api/admin/users/${usuario.id}/sessions`, {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal: controller.signal,
+      })
+      const payload = (await response.json()) as UsuarioSessionsDetailResponse & {
+        message?: string
+      }
+
+      if (!response.ok) {
+        throw new Error(payload.message ?? 'No fue posible cargar las sesiones del usuario.')
+      }
+
+      setSesiones(payload.sessions ?? [])
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return
+      }
+
+      setSesiones([])
+      setSesionesError(error instanceof Error ? error.message : 'No fue posible cargar las sesiones.')
+    } finally {
+      if (!controller.signal.aborted) {
+        setSesionesLoading(false)
+      }
+    }
+  }, [usuario.authUserId, usuario.id])
+
+  const handleTabChange = useCallback(
+    (nextTab: 'resumen' | 'acciones' | 'seguridad' | 'actividad' | 'sesiones') => {
+      setTab(nextTab)
+
+      if (nextTab === 'sesiones' && sesiones === null && !sesionesLoading) {
+        void cargarSesiones()
+      }
+    },
+    [cargarSesiones, sesiones, sesionesLoading]
+  )
+
+  useEffect(() => {
+    return () => {
+      sesionesAbortControllerRef.current?.abort()
+    }
+  }, [])
 
   return (
     <ModalPanel
@@ -420,7 +560,7 @@ function UsuarioDetailModal({
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap gap-2">
                 <StatusPill
-                  label={usuario.estadoCuenta}
+                  label={formatEstadoCuenta(usuario.estadoCuenta)}
                   className={getEstadoCuentaTone(usuario.estadoCuenta)}
                 />
                 <StatusPill
@@ -500,25 +640,32 @@ function UsuarioDetailModal({
                 <p className="mt-2 break-words text-base font-semibold text-slate-950">
                   {usuario.username ?? 'Sin username'}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => handleTabChange('acciones')}
+                  className="mt-3 inline-flex rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
+                >
+                  Cambiar
+                </button>
               </div>
             </div>
           </div>
         </section>
 
         <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-4">
-          <DetailTabButton active={tab === 'resumen'} onClick={() => setTab('resumen')}>
+          <DetailTabButton active={tab === 'resumen'} onClick={() => handleTabChange('resumen')}>
             Resumen
           </DetailTabButton>
-          <DetailTabButton active={tab === 'acciones'} onClick={() => setTab('acciones')}>
+          <DetailTabButton active={tab === 'acciones'} onClick={() => handleTabChange('acciones')}>
             Acciones
           </DetailTabButton>
-          <DetailTabButton active={tab === 'seguridad'} onClick={() => setTab('seguridad')}>
+          <DetailTabButton active={tab === 'seguridad'} onClick={() => handleTabChange('seguridad')}>
             Seguridad
           </DetailTabButton>
-          <DetailTabButton active={tab === 'actividad'} onClick={() => setTab('actividad')}>
+          <DetailTabButton active={tab === 'actividad'} onClick={() => handleTabChange('actividad')}>
             Actividad
           </DetailTabButton>
-          <DetailTabButton active={tab === 'sesiones'} onClick={() => setTab('sesiones')}>
+          <DetailTabButton active={tab === 'sesiones'} onClick={() => handleTabChange('sesiones')}>
             Sesiones
           </DetailTabButton>
         </div>
@@ -570,7 +717,20 @@ function UsuarioDetailModal({
             title="Acciones administrativas"
             description="Operaciones directas sobre el empleado y su acceso."
           >
-            <div className="grid gap-4 xl:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+              <DetailSubsection
+                title="Username provisional"
+                description="Cambia el identificador de primer acceso antes de que el usuario active su cuenta."
+              >
+                <CambioUsernameForm
+                  currentUsername={usuario.username}
+                  currentState={usuario.estadoCuenta}
+                  disabled={!canManage}
+                  empleado={usuario.empleado}
+                  usuarioId={usuario.id}
+                />
+              </DetailSubsection>
+
               <DetailSubsection
                 title="Cambio organizacional"
                 description="Ajusta el puesto que gobierna permisos y rol del sistema."
@@ -600,12 +760,24 @@ function UsuarioDetailModal({
         ) : null}
 
         {tab === 'seguridad' ? (
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
             <DetailCard
               title="Estado de la cuenta"
               description="Control de suspension o reactivacion del acceso administrativo."
             >
               <EstadoCuentaForm
+                currentState={usuario.estadoCuenta}
+                disabled={!canManage}
+                empleado={usuario.empleado}
+                usuarioId={usuario.id}
+              />
+            </DetailCard>
+
+            <DetailCard
+              title="Primer login"
+              description="Reinicia el acceso provisional, borra el correo guardado y vuelve a generar credenciales desde cero."
+            >
+              <PrimerLoginPendienteForm
                 currentState={usuario.estadoCuenta}
                 disabled={!canManage}
                 empleado={usuario.empleado}
@@ -658,10 +830,7 @@ function UsuarioDetailModal({
               description="Resumen ejecutivo para entender el estado del usuario sin entrar a acciones."
             >
               <div className="space-y-3 text-sm text-slate-600">
-                <SummaryLine
-                  label="Estado de cuenta"
-                  value={usuario.estadoCuenta}
-                />
+                <SummaryLine label="Estado de cuenta" value={formatEstadoCuenta(usuario.estadoCuenta)} />
                 <SummaryLine
                   label="Estado de sesion"
                   value={getEstadoSesionLabel(usuario.estadoSesion)}
@@ -684,8 +853,14 @@ function UsuarioDetailModal({
             title="Sesiones activas"
             description="Sesiones abiertas actualmente en auth para este usuario."
           >
-            {usuario.sesiones.length > 0 ? (
-              <SessionDetails sessions={usuario.sesiones} />
+            {!usuario.authUserId ? (
+              <p className="text-sm text-slate-500">Este usuario no tiene auth vinculado.</p>
+            ) : sesionesLoading ? (
+              <p className="text-sm text-slate-500">Cargando sesiones...</p>
+            ) : sesionesError ? (
+              <p className="text-sm text-rose-600">{sesionesError}</p>
+            ) : sesiones && sesiones.length > 0 ? (
+              <SessionDetails sessions={sesiones} />
             ) : (
               <p className="text-sm text-slate-500">No hay sesiones activas registradas.</p>
             )}
@@ -876,6 +1051,82 @@ function CambioPuestoForm({
   )
 }
 
+function CambioUsernameForm({
+  usuarioId,
+  currentUsername,
+  currentState,
+  empleado,
+  disabled,
+}: {
+  usuarioId: string
+  currentUsername: string | null
+  currentState: string
+  empleado: string
+  disabled: boolean
+}) {
+  const [state, formAction] = useActionState(
+    actualizarUsernameUsuario,
+    ESTADO_USUARIO_ADMIN_INICIAL
+  )
+
+  const usernameEditable =
+    currentState === 'PROVISIONAL' ||
+    currentState === 'PENDIENTE_VERIFICACION_EMAIL' ||
+    currentState === 'PENDIENTE_PRIMER_LOGIN'
+  const disabledReason = !usernameEditable
+    ? 'Solo las cuentas provisionales, pendientes de verificacion o pendientes de primer login pueden cambiar username aqui.'
+    : null
+
+  return (
+    <form
+      action={formAction}
+      className="space-y-2"
+      onSubmit={(event) => {
+        if (disabled || !usernameEditable) {
+          event.preventDefault()
+          return
+        }
+
+        const form = event.currentTarget
+        const input = form.elements.namedItem('username_destino') as HTMLInputElement | null
+        const destino = input?.value?.trim() ?? currentUsername ?? ''
+
+        if (!window.confirm(`Cambiar el username provisional de ${empleado} a ${destino}?`)) {
+          event.preventDefault()
+        }
+      }}
+    >
+      <input type="hidden" name="usuario_id" value={usuarioId} />
+      <Input
+        name="username_destino"
+        label="Nuevo username"
+        defaultValue={currentUsername ?? ''}
+        disabled={disabled || !usernameEditable}
+        placeholder="usuario_primer_acceso"
+        hint="Se usara como acceso de primer login mientras la cuenta siga provisional."
+        autoComplete="off"
+      />
+      <SubmitButton
+        disabled={disabled || !usernameEditable}
+        idleLabel="Cambiar username"
+        pendingLabel="Guardando..."
+        variant="secondary"
+      />
+      {(disabledReason || state.temporaryEmail) && (
+        <p className="text-xs text-slate-400">
+          {disabledReason ??
+            `Correo auth provisional actualizado a ${state.temporaryEmail}.`}
+        </p>
+      )}
+      {state.message && (
+        <p className={`text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+          {state.message}
+        </p>
+      )}
+    </form>
+  )
+}
+
 function EstadoCuentaForm({
   usuarioId,
   currentState,
@@ -921,6 +1172,82 @@ function EstadoCuentaForm({
       />
       {currentState === 'BAJA' && (
         <p className="text-xs text-slate-400">Las cuentas en BAJA no se gestionan desde aqui.</p>
+      )}
+      {state.message && (
+        <p className={`text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+          {state.message}
+        </p>
+      )}
+    </form>
+  )
+}
+
+function PrimerLoginPendienteForm({
+  usuarioId,
+  currentState,
+  empleado,
+  disabled,
+}: {
+  usuarioId: string
+  currentState: string
+  empleado: string
+  disabled: boolean
+}) {
+  const [state, formAction] = useActionState(
+    actualizarEstadoCuentaUsuario,
+    ESTADO_USUARIO_ADMIN_INICIAL
+  )
+
+  return (
+    <form
+      action={formAction}
+      className="space-y-2"
+      onSubmit={(event) => {
+        if (disabled || currentState === 'BAJA' || currentState === 'SUSPENDIDA') {
+          event.preventDefault()
+          return
+        }
+
+        if (
+          !window.confirm(
+            `Reiniciar el acceso provisional de ${empleado} desde cero, borrar el correo guardado y generar credenciales nuevas?`
+          )
+        ) {
+          event.preventDefault()
+        }
+      }}
+    >
+      <input type="hidden" name="usuario_id" value={usuarioId} />
+      <input type="hidden" name="accion_cuenta" value="PENDIENTE_PRIMER_LOGIN" />
+      <SubmitButton
+        disabled={disabled || currentState === 'BAJA' || currentState === 'SUSPENDIDA'}
+        idleLabel="Reiniciar acceso provisional"
+        pendingLabel="Reiniciando..."
+        variant="secondary"
+      />
+      {currentState === 'BAJA' && (
+        <p className="text-xs text-slate-400">Las cuentas en BAJA no se gestionan desde aqui.</p>
+      )}
+      {currentState === 'SUSPENDIDA' && (
+        <p className="text-xs text-slate-400">
+          Primero reactiva la cuenta; despues puedes reiniciar su acceso provisional.
+        </p>
+      )}
+      <p className="text-xs text-slate-400">
+        Esto deja la cuenta en PROVISIONAL, borra el correo guardado y genera una nueva contraseña
+        temporal para volver a iniciar desde cero.
+      </p>
+      {state.ok && state.generatedUsername && state.temporaryPassword && (
+        <div className="grid gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 sm:grid-cols-2">
+          <CredentialBlock label="Username" value={state.generatedUsername} />
+          <CredentialBlock label="Password temporal" value={state.temporaryPassword} />
+          <div className="sm:col-span-2">
+            <CredentialBlock
+              label="Correo auth provisional"
+              value={state.temporaryEmail ?? 'sin correo'}
+            />
+          </div>
+        </div>
       )}
       {state.message && (
         <p className={`text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
@@ -1017,9 +1344,11 @@ function SessionDetails({ sessions }: { sessions: UsuarioSessionItem[] }) {
 
 function CredentialBlock({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-emerald-200 bg-white px-4 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">{label}</p>
-      <p className="mt-2 break-all text-sm font-medium text-slate-900">{value}</p>
+    <div className="min-w-0 rounded-2xl border border-emerald-200 bg-white px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700 sm:text-[11px]">
+        {label}
+      </p>
+      <p className="mt-2 break-words text-sm font-medium leading-5 text-slate-900">{value}</p>
     </div>
   )
 }

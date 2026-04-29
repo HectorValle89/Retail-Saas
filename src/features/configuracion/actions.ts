@@ -1,8 +1,12 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { obtenerClienteAdmin } from '@/lib/auth/admin'
 import { requerirAdministradorActivo } from '@/lib/auth/session'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import {
+  buildUiChangeScope,
+  buildUiChangeTargetsFromBusinessEvent,
+} from '@/lib/ui-change/types'
 import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
 import type { ConfiguracionSistema } from '@/types/database'
 import { parseProductCatalogWorkbook } from './lib/productCatalogImport'
@@ -209,45 +213,43 @@ async function obtenerConfiguracion(
   return (data as ConfiguracionSistema | null) ?? null
 }
 
-function revalidateCommonPaths() {
-  revalidatePath('/configuracion')
-}
+async function publishConfiguracionPanelChange(
+  service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
+  input: {
+    eventType: string
+    key: string
+    metadata?: Record<string, unknown> | null
+  }
+) {
+  const targets = buildUiChangeTargetsFromBusinessEvent({
+    eventType: input.eventType,
+    modules: ['configuracion'],
+    surfaces: ['panel'],
+    scopes: [buildUiChangeScope('global')],
+    roleTargets: ['ADMINISTRADOR'],
+    metadata: {
+      key: input.key,
+      ...(input.metadata ?? {}),
+    },
+  })
 
-function revalidatePathsByConfigKey(key: string) {
-  revalidateCommonPaths()
-
-  if (key.startsWith('geocerca.') || key.startsWith('asistencias.')) {
-    revalidatePath('/pdvs')
-    revalidatePath('/asistencias')
+  if (input.key.startsWith('auth.')) {
+    targets.push(
+      ...buildUiChangeTargetsFromBusinessEvent({
+        eventType: input.eventType,
+        modules: ['usuarios'],
+        surfaces: ['panel'],
+        scopes: [buildUiChangeScope('global')],
+        roleTargets: ['ADMINISTRADOR'],
+        metadata: {
+          key: input.key,
+          ...(input.metadata ?? {}),
+        },
+      })
+    )
   }
 
-  if (key.startsWith('archivos.') || key.startsWith('integraciones.ocr')) {
-    revalidatePath('/empleados')
-  }
-
-  if (key.startsWith('integraciones.pdf')) {
-    revalidatePath('/empleados')
-    revalidatePath('/solicitudes')
-    revalidatePath('/gastos')
-    revalidatePath('/materiales')
-    revalidatePath('/mensajes')
-    revalidatePath('/rutas')
-    revalidatePath('/campanas')
-  }
-
-  if (key.startsWith('nomina.')) {
-    revalidatePath('/nomina')
-    revalidatePath('/dashboard')
-    revalidatePath('/reportes')
-  }
-
-  if (key.startsWith('ventas.')) {
-    revalidatePath('/ventas')
-  }
-
-  if (key.startsWith('auth.')) {
-    revalidatePath('/admin/users')
-  }
+  await publishUiChanges(targets, { service })
 }
 
 export async function importarCatalogoProductos(
@@ -302,10 +304,14 @@ export async function importarCatalogoProductos(
       filas_descartadas: parsed.skippedRows,
     })
 
-    revalidateCommonPaths()
-    revalidatePath('/ventas')
-    revalidatePath('/reportes')
-    revalidatePath('/campanas')
+    await publishConfiguracionPanelChange(service, {
+      eventType: 'configuracion_catalogo_productos_importado',
+      key: 'catalogo.productos',
+      metadata: {
+        archivo: uploadedFile.name,
+        productosProcesados: parsed.rows.length,
+      },
+    })
 
     return buildState({
       ok: true,
@@ -358,8 +364,16 @@ export async function guardarProducto(
       nombre: data.nombre,
     })
 
-    revalidateCommonPaths()
-    revalidatePath('/ventas')
+    await publishConfiguracionPanelChange(service, {
+      eventType: productoId
+        ? 'configuracion_producto_actualizado'
+        : 'configuracion_producto_creado',
+      key: 'catalogo.productos',
+      metadata: {
+        productoId: data.id,
+        sku: data.sku,
+      },
+    })
 
     return buildState({
       ok: true,
@@ -408,9 +422,16 @@ export async function guardarCadena(
       nombre: data.nombre,
     })
 
-    revalidateCommonPaths()
-    revalidatePath('/pdvs')
-    revalidatePath('/clientes')
+    await publishConfiguracionPanelChange(service, {
+      eventType: cadenaId
+        ? 'configuracion_cadena_actualizada'
+        : 'configuracion_cadena_creada',
+      key: 'catalogo.cadenas',
+      metadata: {
+        cadenaId: data.id,
+        codigo: data.codigo,
+      },
+    })
 
     return buildState({
       ok: true,
@@ -433,22 +454,10 @@ export async function guardarCiudad(
     const service = await getAdminService()
     const ciudadId = normalizeOptionalText(formData.get('ciudad_id'))
     const nombre = normalizeCatalogText(formData.get('nombre'), 'Ciudad')
-    const estadoCapturado = normalizeOptionalText(formData.get('estado'))
     const estadoDerivado = resolveMexicoStateFromCity(nombre)
-    const estado = estadoCapturado
-      ? normalizeCatalogText(estadoCapturado, 'Estado')
-      : estadoDerivado
-
-    if (!estado) {
-      return buildState({
-        message: 'No fue posible derivar el estado. Capturalo manualmente para esta ciudad.',
-      })
-    }
-
     const payload = {
       nombre,
       zona: normalizeCatalogText(formData.get('zona'), 'Zona'),
-      estado,
       activa: normalizeBoolean(formData.get('activa')),
       updated_at: new Date().toISOString(),
     }
@@ -457,7 +466,7 @@ export async function guardarCiudad(
       ? service.from('ciudad').update(payload).eq('id', ciudadId)
       : service.from('ciudad').insert(payload)
 
-    const { data, error } = await query.select('id, nombre, zona, estado').maybeSingle()
+    const { data, error } = await query.select('id, nombre, zona, activa').maybeSingle()
 
     if (error || !data) {
       return buildState({ message: error?.message ?? 'No fue posible guardar la ciudad.' })
@@ -467,12 +476,19 @@ export async function guardarCiudad(
       evento: ciudadId ? 'configuracion_ciudad_actualizada' : 'configuracion_ciudad_creada',
       nombre: data.nombre,
       zona: data.zona,
-      estado: data.estado,
+      estado: estadoDerivado,
     })
 
-    revalidateCommonPaths()
-    revalidatePath('/pdvs')
-    revalidatePath('/dashboard')
+    await publishConfiguracionPanelChange(service, {
+      eventType: ciudadId
+        ? 'configuracion_ciudad_actualizada'
+        : 'configuracion_ciudad_creada',
+      key: 'catalogo.ciudades',
+      metadata: {
+        ciudadId: data.id,
+        nombre: data.nombre,
+      },
+    })
 
     return buildState({
       ok: true,
@@ -541,8 +557,15 @@ export async function guardarTurnoCatalogo(
       nomenclatura,
     })
 
-    revalidateCommonPaths()
-    revalidatePath('/pdvs')
+    await publishConfiguracionPanelChange(service, {
+      eventType: previousCode
+        ? 'configuracion_turno_actualizado'
+        : 'configuracion_turno_creado',
+      key: TURNOS_CONFIG_KEY,
+      metadata: {
+        nomenclatura,
+      },
+    })
 
     return buildState({
       ok: true,
@@ -584,8 +607,13 @@ export async function eliminarTurnoCatalogo(
       nomenclatura,
     })
 
-    revalidateCommonPaths()
-    revalidatePath('/pdvs')
+    await publishConfiguracionPanelChange(service, {
+      eventType: 'configuracion_turno_eliminado',
+      key: TURNOS_CONFIG_KEY,
+      metadata: {
+        nomenclatura,
+      },
+    })
 
     return buildState({ ok: true, message: 'Turno eliminado del catalogo.' })
   } catch (error) {
@@ -624,7 +652,13 @@ export async function guardarParametroConfiguracion(
       valor: value,
     })
 
-    revalidatePathsByConfigKey(key)
+    await publishConfiguracionPanelChange(service, {
+      eventType: 'configuracion_parametro_actualizado',
+      key,
+      metadata: {
+        valor: value,
+      },
+    })
 
     return buildState({ ok: true, message: `${definition.label} actualizado.` })
   } catch (error) {
@@ -672,8 +706,16 @@ export async function guardarMisionDia(
       instruccion: data.instruccion,
     })
 
-    revalidateCommonPaths()
-    revalidatePath('/asistencias')
+    await publishConfiguracionPanelChange(service, {
+      eventType: misionId
+        ? 'configuracion_mision_actualizada'
+        : 'configuracion_mision_creada',
+      key: 'catalogo.misiones',
+      metadata: {
+        misionId: data.id,
+        codigo: data.codigo,
+      },
+    })
 
     return buildState({
       ok: true,
@@ -710,7 +752,7 @@ export async function guardarOcrConfiguracion(
     })
     const modelRow = await upsertConfiguracion(service, {
       key: OCR_MODEL_CONFIG_KEY,
-      value: provider === 'gemini' ? model ?? 'gemini-2.5-flash' : '',
+      value: provider === 'gemini' ? model ?? 'gemini-2.5-flash-lite' : '',
       description: 'Modelo OCR preferido para el proveedor configurado.',
       module: 'integraciones',
     })
@@ -718,15 +760,22 @@ export async function guardarOcrConfiguracion(
     await registrarEventoAudit(service, actor.usuarioId, 'configuracion', providerRow.id, {
       evento: 'configuracion_ocr_actualizada',
       provider,
-      model: provider === 'gemini' ? model ?? 'gemini-2.5-flash' : null,
+      model: provider === 'gemini' ? model ?? 'gemini-2.5-flash-lite' : null,
     })
     await registrarEventoAudit(service, actor.usuarioId, 'configuracion', modelRow.id, {
       evento: 'configuracion_ocr_model_actualizado',
       provider,
-      model: provider === 'gemini' ? model ?? 'gemini-2.5-flash' : null,
+      model: provider === 'gemini' ? model ?? 'gemini-2.5-flash-lite' : null,
     })
 
-    revalidatePathsByConfigKey('integraciones.ocr')
+    await publishConfiguracionPanelChange(service, {
+      eventType: 'configuracion_ocr_actualizada',
+      key: 'integraciones.ocr',
+      metadata: {
+        provider,
+        model: provider === 'gemini' ? model ?? 'gemini-2.5-flash-lite' : null,
+      },
+    })
 
     return buildState({
       ok: true,
@@ -831,7 +880,14 @@ export async function guardarPdfCompressionConfiguracion(
       fast_web_view: fastWebView,
     })
 
-    revalidatePathsByConfigKey('integraciones.pdf')
+    await publishConfiguracionPanelChange(service, {
+      eventType: 'configuracion_pdf_compression_actualizada',
+      key: 'integraciones.pdf',
+      metadata: {
+        provider,
+        stirlingBaseUrl: baseUrl,
+      },
+    })
 
     return buildState({
       ok: true,

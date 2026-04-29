@@ -1,7 +1,7 @@
-export const runtime = 'edge';
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { ACTIVE_ACCOUNT_COOKIE } from '@/lib/tenant/accountScope'
+import { requireRuntimeEnv } from '@/lib/runtime/env'
 import { resolveLogoutRedirectUrl } from './redirect'
 
 type CookieToSet = {
@@ -28,8 +28,8 @@ export async function GET(request: NextRequest) {
   const response = NextResponse.redirect(loginUrl)
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    requireRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL'),
+    requireRuntimeEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
     {
       cookies: {
         getAll() {
@@ -53,4 +53,3 @@ export async function GET(request: NextRequest) {
 
   return response
 }
-

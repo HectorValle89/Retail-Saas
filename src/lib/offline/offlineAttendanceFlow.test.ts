@@ -112,12 +112,44 @@ import {
   queueOfflineAsistencia,
   type SyncQueueRuntime,
 } from './syncQueue'
-import type { OfflineAsistenciaPayload, OfflineQueueSummary, OfflineSyncQueueItem } from './types'
+import type { OfflineAsistenciaPayload, OfflineQueueSummary, OfflineSyncQueueItem, OfflineQueuedFile } from './types'
+
+function base64ToUint8Array(base64Data: string) {
+  return Uint8Array.from(Buffer.from(base64Data, 'base64'))
+}
 
 function createFakeService() {
   return {
     storage: {
       createBucket: vi.fn(async () => ({ error: null })),
+    },
+    rpc(name: string, params: { p_datos?: Record<string, unknown> }) {
+      if (name !== 'rpc_registrar_asistencia_dc') {
+        return Promise.resolve({
+          data: null,
+          error: { message: `Unexpected rpc ${name}` },
+        })
+      }
+
+      const record = params.p_datos ?? {}
+      const storedRecord = {
+        ...record,
+        mision_dia_id: record.mision_dia_id ?? 'mission-1',
+        mision_codigo: record.mision_codigo ?? 'MISION-001',
+      }
+      if (record.id) {
+        persistedAssistances.set(String(record.id), structuredClone(storedRecord))
+      }
+
+      return Promise.resolve({
+        data: {
+          ok: true,
+          id: String(storedRecord.id ?? 'asis-offline-1'),
+          mision_dia_id: String(storedRecord.mision_dia_id),
+          mision_codigo: String(storedRecord.mision_codigo),
+        },
+        error: null,
+      })
     },
     from(table: string) {
       if (table === 'asistencia') {
@@ -217,6 +249,55 @@ function createFakeService() {
         }
       }
 
+      if (table === 'asignacion') {
+        return {
+          select() {
+            return this
+          },
+          eq() {
+            return this
+          },
+          maybeSingle() {
+            return Promise.resolve({
+              data: {
+                id: 'asig-1',
+                empleado_id: 'emp-1',
+                pdv_id: 'pdv-1',
+                fecha_inicio: '2026-03-01',
+                fecha_fin: null,
+                horario_referencia: '09:00-09:30',
+                estado_publicacion: 'PUBLICADA',
+              },
+              error: null,
+            })
+          },
+        }
+      }
+
+      if (table === 'pdv') {
+        return {
+          select() {
+            return this
+          },
+          eq() {
+            return this
+          },
+          maybeSingle() {
+            return Promise.resolve({
+              data: {
+                id: 'pdv-1',
+                nombre: 'PDV Centro',
+                clave_btl: 'PDV-001',
+                zona: 'Zona Centro',
+                ciudad: [{ nombre: 'Ciudad de Mexico' }],
+                cadena: [{ nombre: 'Cadena Demo' }],
+              },
+              error: null,
+            })
+          },
+        }
+      }
+
       if (table === 'mensaje_interno' || table === 'mensaje_receptor' || table === 'venta' || table === 'campana_pdv' || table === 'campana') {
         return {
           select() {
@@ -298,12 +379,22 @@ function createOfflineSyncRuntime(): SyncQueueRuntime {
       const { offline_selfie_check_in, offline_selfie_check_out, ...record } = payload
       formData.append('payload', JSON.stringify(record))
 
-      if (offline_selfie_check_in?.file) {
-        formData.append('selfie_check_in_file', offline_selfie_check_in.file, offline_selfie_check_in.fileName)
+      if (offline_selfie_check_in && 'base64Data' in offline_selfie_check_in) {
+        const checkInFile = new File(
+          [base64ToUint8Array((offline_selfie_check_in as OfflineQueuedFile).base64Data)],
+          offline_selfie_check_in.fileName,
+          { type: offline_selfie_check_in.mimeType }
+        )
+        formData.append('selfie_check_in_file', checkInFile, offline_selfie_check_in.fileName)
       }
 
-      if (offline_selfie_check_out?.file) {
-        formData.append('selfie_check_out_file', offline_selfie_check_out.file, offline_selfie_check_out.fileName)
+      if (offline_selfie_check_out && 'base64Data' in offline_selfie_check_out) {
+        const checkOutFile = new File(
+          [base64ToUint8Array((offline_selfie_check_out as OfflineQueuedFile).base64Data)],
+          offline_selfie_check_out.fileName,
+          { type: offline_selfie_check_out.mimeType }
+        )
+        formData.append('selfie_check_out_file', checkOutFile, offline_selfie_check_out.fileName)
       }
 
       const response = await POST(
@@ -425,6 +516,7 @@ describe('offline asistencia integration', () => {
     const payload: OfflineAsistenciaPayload = {
       id: 'asis-offline-1',
       cuenta_cliente_id: 'c1',
+      asignacion_id: 'asig-1',
       empleado_id: 'emp-1',
       supervisor_empleado_id: 'sup-1',
       pdv_id: 'pdv-1',
@@ -463,6 +555,19 @@ describe('offline asistencia integration', () => {
     expect(backgroundSyncTags).toEqual([OFFLINE_SYNC_TAG])
     expect(stores.sync_queue.size).toBe(1)
     expect(stores.asistencia_local.size).toBe(1)
+    expect(
+      (
+        stores.asistencia_local.get('asis-offline-1')?.payload as OfflineAsistenciaPayload
+      ).offline_selfie_check_in
+    ).toMatchObject({
+      fileName: 'check-in.jpg',
+      mimeType: 'image/jpeg',
+    })
+    expect(
+      'base64Data' in
+        (((stores.asistencia_local.get('asis-offline-1')?.payload as OfflineAsistenciaPayload)
+          .offline_selfie_check_in ?? {}) as Record<string, unknown>)
+    ).toBe(true)
 
     const result = await processSyncQueueWithRuntime(createOfflineSyncRuntime())
     expect(result.processed).toBe(1)

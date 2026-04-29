@@ -4,7 +4,7 @@ import { siteConfig } from '@/config/siteConfig';
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: siteConfig.appName,
-    short_name: 'Retail FF',
+    short_name: siteConfig.appName,
     description: siteConfig.appDescription,
     start_url: '/dashboard',
     display: 'standalone',

@@ -1,5 +1,3 @@
-export const runtime = 'edge';
-import { createClient } from '@/lib/supabase/server'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { SolicitudesPanel } from '@/features/solicitudes/components/SolicitudesPanel'
 import { obtenerPanelSolicitudes } from '@/features/solicitudes/services/solicitudService'
@@ -34,11 +32,8 @@ export default async function SolicitudesPage({ searchParams }: SolicitudesPageP
     'RECLUTAMIENTO',
     'NOMINA',
   ])
-  const supabase = await createClient()
   const params = (await searchParams) ?? {}
-  const data = await obtenerPanelSolicitudes(supabase, {
-    actorPuesto: actor.puesto,
-    actorEmpleadoId: actor.empleadoId ?? null,
+  const data = await obtenerPanelSolicitudes(actor, {
     page: parsePositiveInt(pickString(params.page), 1),
     pageSize: parsePositiveInt(pickString(params.pageSize), 50),
     filters: {
@@ -63,8 +58,7 @@ export default async function SolicitudesPage({ searchParams }: SolicitudesPageP
         </p>
       </header>
 
-      <SolicitudesPanel data={data} />
+      <SolicitudesPanel actor={actor} data={data} />
     </div>
   )
 }
-

@@ -5,13 +5,24 @@ import type {
   Asignacion,
   AsignacionDiariaDirtyQueue,
   AsignacionDiariaResuelta,
+  AsignacionDescansoOverride,
   Empleado,
   PdvRotacionMaestra,
   SupervisorPdv,
 } from '@/types/database'
 import { resolveEffectiveAssignmentForEmployeeDate } from '@/features/asignaciones/services/asignacionResolverService'
+import type { AssignmentRestOverrideLike } from '@/features/asignaciones/lib/assignmentRestOverride'
 
 type TypedSupabaseClient = SupabaseClient<any>
+
+function isMissingSchemaTableError(error: unknown, tableName: string) {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const normalized = message.toLowerCase()
+  return (
+    normalized.includes(tableName.toLowerCase()) &&
+    (normalized.includes('schema cache') || normalized.includes('could not find the table'))
+  )
+}
 
 type DirtyQueueState = AsignacionDiariaDirtyQueue['estado']
 
@@ -37,6 +48,26 @@ interface MaterializationAssignmentRow
     | 'horario_referencia'
     | 'naturaleza'
     | 'prioridad'
+  > {}
+
+interface MaterializationRestOverrideRow
+  extends Pick<
+    AsignacionDescansoOverride,
+    | 'id'
+    | 'asignacion_id'
+    | 'cuenta_cliente_id'
+    | 'empleado_id'
+    | 'vigente_desde'
+    | 'vigente_hasta'
+    | 'modo'
+    | 'regla_descanso'
+    | 'fechas_descanso'
+    | 'fechas_trabajo'
+    | 'observaciones'
+    | 'activo'
+    | 'metadata'
+    | 'created_at'
+    | 'updated_at'
   > {}
 
 interface MaterializationRequestRow {
@@ -128,6 +159,24 @@ export interface MaterializedCalendarEmployeeRow {
 
 export interface MaterializedMonthlyCalendar {
   month: string
+  fechaInicio: string
+  fechaFin: string
+  dias: string[]
+  totalEmpleados: number
+  empleados: MaterializedCalendarEmployeeRow[]
+}
+
+export interface MaterializedDateRangeFilters {
+  fechaInicio: string
+  fechaFin: string
+  supervisorEmpleadoId?: string | null
+  coordinadorEmpleadoId?: string | null
+  cuentaClienteId?: string | null
+  zona?: string | null
+  estadoOperativo?: AsignacionDiariaResuelta['estado_operativo'] | null
+}
+
+export interface MaterializedDateRangeCalendar {
   fechaInicio: string
   fechaFin: string
   dias: string[]
@@ -327,12 +376,16 @@ function buildReferenceTable(input: {
   assignmentId: string | null
   requestId: string | null
   formationId: string | null
+  restOverrideId: string | null
 }): AsignacionDiariaResuelta['referencia_tabla'] {
   if (input.formationId) {
     return 'formacion'
   }
   if (input.requestId) {
     return 'solicitud'
+  }
+  if (input.restOverrideId) {
+    return 'descanso_override'
   }
   if (input.assignmentId) {
     return 'asignacion'
@@ -404,6 +457,7 @@ async function loadMaterializationSources(
     return {
       empleados: [] as MaterializationEmployeeRow[],
       assignments: [] as MaterializationAssignmentRow[],
+      restOverrides: [] as MaterializationRestOverrideRow[],
       requests: [] as MaterializationRequestRow[],
       formations: [] as MaterializationFormationRow[],
       supervisors: [] as MaterializationSupervisorRow[],
@@ -464,9 +518,28 @@ async function loadMaterializationSources(
   }
 
   const empleados = (employeesResult.data ?? []) as MaterializationEmployeeRow[]
+  const assignmentIds = Array.from(
+    new Set(((assignmentsResult.data ?? []) as MaterializationAssignmentRow[]).map((item) => item.id))
+  )
   const supervisorIds = Array.from(
     new Set(empleados.map((item) => item.supervisor_empleado_id).filter((item): item is string => Boolean(item)))
   )
+
+  const restOverridesResult =
+    assignmentIds.length > 0
+      ? await service
+          .from('asignacion_descanso_override')
+          .select(
+            'id, asignacion_id, cuenta_cliente_id, empleado_id, vigente_desde, vigente_hasta, modo, regla_descanso, fechas_descanso, fechas_trabajo, observaciones, activo, metadata, created_at, updated_at'
+          )
+          .in('asignacion_id', assignmentIds)
+      : { data: [], error: null }
+
+  if (restOverridesResult.error) {
+    if (!isMissingSchemaTableError(restOverridesResult.error, 'asignacion_descanso_override')) {
+      throw new Error(restOverridesResult.error.message)
+    }
+  }
 
   const supervisorsResult =
     supervisorIds.length > 0
@@ -482,6 +555,33 @@ async function loadMaterializationSources(
     assignments: ((assignmentsResult.data ?? []) as Array<MaterializationAssignmentRow & { estado_publicacion: string }>)
       .filter((item) => item.estado_publicacion === 'PUBLICADA')
       .map(({ estado_publicacion: _ignored, ...item }) => item),
+    restOverrides: ((restOverridesResult.data ?? []) as MaterializationRestOverrideRow[]).map((item) => ({
+      id: item.id,
+      asignacion_id: item.asignacion_id,
+      cuenta_cliente_id: item.cuenta_cliente_id,
+      empleado_id: item.empleado_id,
+      vigente_desde: item.vigente_desde,
+      vigente_hasta: item.vigente_hasta,
+      modo: item.modo === 'REGLA_MENSUAL' ? ('REGLA_MENSUAL' as const) : ('EXPLICITO' as const),
+      regla_descanso:
+        item.regla_descanso && typeof item.regla_descanso === 'object' && !Array.isArray(item.regla_descanso)
+          ? (item.regla_descanso as Record<string, unknown>)
+          : null,
+      fechas_descanso: Array.isArray(item.fechas_descanso)
+        ? item.fechas_descanso.filter((entry): entry is string => typeof entry === 'string')
+        : [],
+      fechas_trabajo: Array.isArray(item.fechas_trabajo)
+        ? item.fechas_trabajo.filter((entry): entry is string => typeof entry === 'string')
+        : [],
+      observaciones: item.observaciones ?? null,
+      activo: item.activo,
+      metadata:
+        item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
+          ? (item.metadata as Record<string, unknown>)
+          : {},
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+    })),
     requests: ((requestsResult.data ?? []) as Array<{
       id: string
       empleado_id: string
@@ -529,6 +629,7 @@ function buildMaterializedRows(params: {
   fechaFin: string
   empleados: MaterializationEmployeeRow[]
   assignments: MaterializationAssignmentRow[]
+  restOverrides: AssignmentRestOverrideLike[]
   requests: MaterializationRequestRow[]
   formations: MaterializationFormationRow[]
   supervisors: MaterializationSupervisorRow[]
@@ -553,7 +654,8 @@ function buildMaterializedRows(params: {
         fecha,
         employeeAssignments,
         params.requests.filter((item) => item.empleadoId === empleado.id),
-        params.formations
+        params.formations,
+        params.restOverrides.filter((item) => item.empleado_id === empleado.id)
       )
 
       const horario = parseHorarioRange(resolved.assignment?.horario_referencia ?? null)
@@ -573,6 +675,7 @@ function buildMaterializedRows(params: {
           assignmentId: resolved.assignment?.id ?? null,
           requestId: resolved.request?.id ?? null,
           formationId: resolved.formation?.id ?? null,
+          restOverrideId: resolved.restOverride?.id ?? null,
         }),
         referencia_id: resolved.referenciaId,
         mensaje_operativo: resolved.mensajeOperativo,
@@ -587,6 +690,8 @@ function buildMaterializedRows(params: {
           naturaleza_asignacion: resolved.assignment?.naturaleza ?? null,
           tipo_solicitud: resolved.request?.tipo ?? null,
           tipo_formacion: resolved.formation?.tipo ?? null,
+          descanso_override: Boolean(resolved.restOverride),
+          descanso_override_id: resolved.restOverride?.id ?? null,
         },
         refreshed_at: new Date().toISOString(),
       })
@@ -1348,6 +1453,41 @@ export async function getMaterializedMonthlyCalendar(
 
   return fetchCachedMaterializedMonthlyCalendar(serializeMonthlyCalendarFilters(filters))
 }
+
+export async function getMaterializedDateRangeCalendar(
+  filters: MaterializedDateRangeFilters,
+  serviceClient?: TypedSupabaseClient
+): Promise<MaterializedDateRangeCalendar> {
+  const normalizedFilters: MaterializedMonthlyFilters = {
+    month: filters.fechaInicio.slice(0, 7),
+    supervisorEmpleadoId: filters.supervisorEmpleadoId ?? null,
+    coordinadorEmpleadoId: filters.coordinadorEmpleadoId ?? null,
+    cuentaClienteId: filters.cuentaClienteId ?? null,
+    zona: filters.zona ?? null,
+    estadoOperativo: filters.estadoOperativo ?? null,
+  }
+
+  if (serviceClient) {
+    const service = createService(serviceClient)
+    const rows = await loadMaterializedRowsForFilters(service, normalizedFilters, filters.fechaInicio, filters.fechaFin)
+    const monthly = await buildMonthlyCalendarFromRows(
+      service,
+      normalizedFilters,
+      filters.fechaInicio,
+      filters.fechaFin,
+      rows
+    )
+    return {
+      fechaInicio: monthly.fechaInicio,
+      fechaFin: monthly.fechaFin,
+      dias: monthly.dias,
+      totalEmpleados: monthly.totalEmpleados,
+      empleados: monthly.empleados,
+    }
+  }
+
+  return fetchCachedMaterializedDateRangeCalendar(serializeDateRangeCalendarFilters(filters))
+}
 export async function getSupervisorMonthlyPdvCalendar(
   filters: SupervisorMonthlyPdvFilters,
   serviceClient?: TypedSupabaseClient
@@ -1358,3 +1498,49 @@ export async function getSupervisorMonthlyPdvCalendar(
 
   return fetchCachedSupervisorMonthlyPdvCalendar(serializeSupervisorMonthlyPdvFilters(filters))
 }
+
+function serializeDateRangeCalendarFilters(filters: MaterializedDateRangeFilters) {
+  return JSON.stringify({
+    fechaInicio: filters.fechaInicio,
+    fechaFin: filters.fechaFin,
+    supervisorEmpleadoId: filters.supervisorEmpleadoId ?? '',
+    coordinadorEmpleadoId: filters.coordinadorEmpleadoId ?? '',
+    cuentaClienteId: filters.cuentaClienteId ?? '',
+    zona: filters.zona ?? '',
+    estadoOperativo: filters.estadoOperativo ?? '',
+  })
+}
+
+const fetchCachedMaterializedDateRangeCalendar = unstable_cache(
+  async (serializedFilters: string) => {
+    const filters = JSON.parse(serializedFilters) as MaterializedDateRangeFilters
+    const service = createService()
+    const normalizedFilters: MaterializedMonthlyFilters = {
+      month: filters.fechaInicio.slice(0, 7),
+      supervisorEmpleadoId: filters.supervisorEmpleadoId ?? null,
+      coordinadorEmpleadoId: filters.coordinadorEmpleadoId ?? null,
+      cuentaClienteId: filters.cuentaClienteId ?? null,
+      zona: filters.zona ?? null,
+      estadoOperativo: filters.estadoOperativo ?? null,
+    }
+
+    const rows = await loadMaterializedRowsForFilters(service, normalizedFilters, filters.fechaInicio, filters.fechaFin)
+    const monthly = await buildMonthlyCalendarFromRows(
+      service,
+      normalizedFilters,
+      filters.fechaInicio,
+      filters.fechaFin,
+      rows
+    )
+
+    return {
+      fechaInicio: monthly.fechaInicio,
+      fechaFin: monthly.fechaFin,
+      dias: monthly.dias,
+      totalEmpleados: monthly.totalEmpleados,
+      empleados: monthly.empleados,
+    } satisfies MaterializedDateRangeCalendar
+  },
+  ['materialized-date-range-calendar'],
+  { revalidate: MATERIALIZED_MONTHLY_CALENDAR_REVALIDATE_SECONDS }
+)

@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import { createClient } from '@/lib/supabase/server'
 import { requerirActorActivo } from '@/lib/auth/session'
 import { AsistenciasPanel } from '@/features/asistencias/components/AsistenciasPanel'
@@ -47,7 +46,7 @@ export default async function AsistenciasPage({ searchParams }: AsistenciasPageP
           </p>
           <h1 className="mt-3 text-3xl font-semibold text-slate-950">Asistencias</h1>
           <p className="mt-2 max-w-4xl text-sm leading-7 text-slate-600">
-            Calendario mensual consolidado por colaboradora, con faltas, retardos, vacaciones, incapacidades y detalle consultivo por dÃ­a.
+          Calendario mensual consolidado por colaboradora, con faltas, retardos, vacaciones, incapacidades y detalle consultivo por día.
           </p>
         </header>
 
@@ -57,7 +56,7 @@ export default async function AsistenciasPage({ searchParams }: AsistenciasPageP
   }
 
   if (actor.puesto === 'SUPERVISOR' || actor.puesto === 'DERMOCONSEJERO') {
-    const data = await obtenerPanelAsistencias(supabase, {
+    const data = await obtenerPanelAsistencias(actor, {
       page: parsePositiveInt(pickString(params.page), 1),
       pageSize: parsePositiveInt(pickString(params.pageSize), 50),
     })
@@ -70,15 +69,14 @@ export default async function AsistenciasPage({ searchParams }: AsistenciasPageP
           </p>
           <h1 className="mt-3 text-3xl font-semibold text-slate-950">Asistencias</h1>
           <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-            Jornada operativa con GPS, misiÃ³n del dÃ­a, validaciÃ³n biomÃ©trica y trazabilidad de check-in/check-out.
+          Jornada operativa con GPS, misión del día, validación biométrica y trazabilidad de check-in/check-out.
           </p>
         </header>
 
-        <AsistenciasPanel data={data} />
+        <AsistenciasPanel actor={actor} data={data} />
       </div>
     )
   }
 
   return null
 }
-

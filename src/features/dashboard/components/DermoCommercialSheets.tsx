@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { queueOfflineLoveIsdin, queueOfflineVenta } from '@/lib/offline/syncQueue';
 import { registrarRegistroExtemporaneo } from '@/features/solicitudes/extemporaneoActions';
@@ -22,6 +22,147 @@ type LoveCartItem = {
   afiliadoContacto: string | null;
   ticketFolio: string | null;
 };
+
+type CatalogoProductos = DashboardDermoconsejoData['catalogoProductos'];
+
+let sharedCatalogoProductos: CatalogoProductos | null = null;
+let sharedCatalogoProductosPromise: Promise<CatalogoProductos> | null = null;
+
+function cacheSharedCatalogoProductos(value: CatalogoProductos | null) {
+  sharedCatalogoProductos = value;
+  if (value === null) {
+    sharedCatalogoProductosPromise = null;
+  }
+}
+
+async function fetchCatalogoProductos(): Promise<CatalogoProductos> {
+  const response = await fetch('/api/catalogo/productos', {
+    method: 'GET',
+    credentials: 'same-origin',
+    cache: 'no-store',
+  });
+
+  const payload = (await response.json()) as {
+    data?: CatalogoProductos;
+    message?: string;
+  };
+
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.message ?? 'No fue posible cargar el catalogo de productos.');
+  }
+
+  return payload.data;
+}
+
+function loadSharedCatalogoProductos(forceRefresh = false) {
+  if (!forceRefresh && sharedCatalogoProductos) {
+    return Promise.resolve(sharedCatalogoProductos);
+  }
+
+  if (!forceRefresh && sharedCatalogoProductosPromise) {
+    return sharedCatalogoProductosPromise;
+  }
+
+  const request = fetchCatalogoProductos().then((payload) => {
+    cacheSharedCatalogoProductos(payload);
+    return payload;
+  });
+
+  if (!forceRefresh) {
+    sharedCatalogoProductosPromise = request.finally(() => {
+      sharedCatalogoProductosPromise = null;
+    });
+
+    return sharedCatalogoProductosPromise;
+  }
+
+  return request;
+}
+
+function useCatalogoProductos(initialCatalogoProductos: CatalogoProductos) {
+  const [catalogoProductos, setCatalogoProductos] = useState(initialCatalogoProductos);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(false);
+  const [catalogErrorMessage, setCatalogErrorMessage] = useState<string | null>(null);
+  const catalogFetchAttempted = useRef(false);
+
+  useEffect(() => {
+    setCatalogoProductos(initialCatalogoProductos);
+
+    if (initialCatalogoProductos.length > 0) {
+      cacheSharedCatalogoProductos(initialCatalogoProductos);
+      setCatalogErrorMessage(null);
+    }
+  }, [initialCatalogoProductos]);
+
+  useEffect(() => {
+    if (catalogoProductos.length > 0 || isCatalogLoading || catalogFetchAttempted.current) {
+      return;
+    }
+
+    catalogFetchAttempted.current = true;
+    setIsCatalogLoading(true);
+
+    let cancelled = false;
+
+    void loadSharedCatalogoProductos()
+      .then((payload) => {
+        if (!cancelled) {
+          setCatalogoProductos(payload);
+          setCatalogErrorMessage(null);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setCatalogErrorMessage(error instanceof Error ? error.message : 'No fue posible cargar el catalogo de productos.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsCatalogLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogoProductos.length, isCatalogLoading]);
+
+  const retryCatalog = useCallback(() => {
+    catalogFetchAttempted.current = false;
+    setCatalogErrorMessage(null);
+    setIsCatalogLoading(true);
+
+    let cancelled = false;
+
+    void loadSharedCatalogoProductos(true)
+      .then((payload) => {
+        if (!cancelled) {
+          setCatalogoProductos(payload);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setCatalogErrorMessage(error instanceof Error ? error.message : 'No fue posible cargar el catalogo de productos.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsCatalogLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return {
+    catalogoProductos,
+    isCatalogLoading,
+    catalogErrorMessage,
+    retryCatalog,
+  };
+}
 
 function getPreviousDateValue() {
   const value = new Date();
@@ -122,10 +263,7 @@ function ProductPicker({
 
 export function DermoVentasCartSheet({ data, onSuccess, onError }: { data: DashboardDermoconsejoData; onSuccess: (message: string, savedCount: number) => void; onError: (message: string) => void }) {
   const offline = useOfflineSync();
-  const [catalogoProductos, setCatalogoProductos] = useState(data.catalogoProductos);
-  const [isCatalogLoading, setIsCatalogLoading] = useState(false);
-  const catalogFetchAttempted = useRef(false);
-  const [catalogRetryNonce, setCatalogRetryNonce] = useState(0);
+  const { catalogoProductos, isCatalogLoading, catalogErrorMessage, retryCatalog } = useCatalogoProductos(data.catalogoProductos);
   const [search, setSearch] = useState('');
   const [selectedProductId, setSelectedProductId] = useState(data.catalogoProductos[0]?.id ?? '');
   const [units, setUnits] = useState('1');
@@ -134,55 +272,12 @@ export function DermoVentasCartSheet({ data, onSuccess, onError }: { data: Dashb
   const [localMessage, setLocalMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    setCatalogoProductos(data.catalogoProductos);
-  }, [data.catalogoProductos]);
-
-  useEffect(() => {
     if (selectedProductId || catalogoProductos.length === 0) {
       return;
     }
 
     setSelectedProductId(catalogoProductos[0]?.id ?? '');
   }, [catalogoProductos, selectedProductId]);
-
-  useEffect(() => {
-    if (catalogoProductos.length > 0 || isCatalogLoading) {
-      return;
-    }
-
-    if (catalogFetchAttempted.current) {
-      return;
-    }
-
-    catalogFetchAttempted.current = true;
-    setIsCatalogLoading(true);
-    void (async () => {
-      try {
-        const response = await fetch('/api/catalogo/productos', {
-          method: 'GET',
-          credentials: 'same-origin',
-          cache: 'no-store',
-        });
-        const payload = (await response.json()) as {
-          data?: DashboardDermoconsejoData['catalogoProductos'];
-          message?: string;
-        };
-
-        if (!response.ok || !payload.data) {
-          throw new Error(payload.message ?? 'No fue posible cargar el catalogo de productos.');
-        }
-
-        setCatalogoProductos(payload.data);
-        if (!selectedProductId && payload.data[0]?.id) {
-          setSelectedProductId(payload.data[0].id);
-        }
-      } catch (error) {
-        setLocalMessage(error instanceof Error ? error.message : 'No fue posible cargar el catalogo de productos.');
-      } finally {
-        setIsCatalogLoading(false);
-      }
-    })();
-  }, [catalogoProductos.length, isCatalogLoading, selectedProductId, catalogRetryNonce]);
 
   const selectedProduct = catalogoProductos.find((item) => item.id === selectedProductId) ?? null;
   const canOperate = Boolean(data.context.cuentaClienteId && data.context.pdvId && data.context.attendanceId && data.reportWindow.canReportToday);
@@ -276,9 +371,8 @@ export function DermoVentasCartSheet({ data, onSuccess, onError }: { data: Dashb
               <button
                 type="button"
                 onClick={() => {
-                  catalogFetchAttempted.current = false;
                   setLocalMessage(null);
-                  setCatalogRetryNonce((current) => current + 1);
+                  void retryCatalog();
                 }}
                 className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100"
               >
@@ -289,6 +383,11 @@ export function DermoVentasCartSheet({ data, onSuccess, onError }: { data: Dashb
         </div>
       ) : (
         <ProductPicker products={catalogoProductos} search={search} selectedProductId={selectedProductId} onSearchChange={setSearch} onSelectProduct={setSelectedProductId} />
+      )}
+      {catalogErrorMessage && (
+        <p className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+          {catalogErrorMessage}
+        </p>
       )}
       <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
         <Field label="Piezas">
@@ -459,10 +558,7 @@ export function DermoRegistroExtemporaneoSheet({ data, onClose, onSuccess }: { d
   const [activeTab, setActiveTab] = useState<'VENTA' | 'LOVE_ISDIN'>('VENTA');
   const [fechaOperativa, setFechaOperativa] = useState(getPreviousDateValue());
   const [motivo, setMotivo] = useState('');
-  const [catalogoProductos, setCatalogoProductos] = useState(data.catalogoProductos);
-  const [isCatalogLoading, setIsCatalogLoading] = useState(false);
-  const catalogFetchAttempted = useRef(false);
-  const [catalogRetryNonce, setCatalogRetryNonce] = useState(0);
+  const { catalogoProductos, isCatalogLoading, catalogErrorMessage, retryCatalog } = useCatalogoProductos(data.catalogoProductos);
   const [search, setSearch] = useState('');
   const [selectedProductId, setSelectedProductId] = useState(data.catalogoProductos[0]?.id ?? '');
   const [units, setUnits] = useState('1');
@@ -472,53 +568,6 @@ export function DermoRegistroExtemporaneoSheet({ data, onClose, onSuccess }: { d
   const [loveTicket, setLoveTicket] = useState('');
   const [loveCart, setLoveCart] = useState<LoveCartItem[]>([]);
   const [localMessage, setLocalMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    setCatalogoProductos(data.catalogoProductos);
-  }, [data.catalogoProductos]);
-
-  useEffect(() => {
-    if (activeTab !== 'VENTA') {
-      return;
-    }
-
-    if (catalogoProductos.length > 0 || isCatalogLoading) {
-      return;
-    }
-
-    if (catalogFetchAttempted.current) {
-      return;
-    }
-
-    catalogFetchAttempted.current = true;
-    setIsCatalogLoading(true);
-    void (async () => {
-      try {
-        const response = await fetch('/api/catalogo/productos', {
-          method: 'GET',
-          credentials: 'same-origin',
-          cache: 'no-store',
-        });
-        const payload = (await response.json()) as {
-          data?: DashboardDermoconsejoData['catalogoProductos'];
-          message?: string;
-        };
-
-        if (!response.ok || !payload.data) {
-          throw new Error(payload.message ?? 'No fue posible cargar el catalogo de productos.');
-        }
-
-        setCatalogoProductos(payload.data);
-        if (!selectedProductId && payload.data[0]?.id) {
-          setSelectedProductId(payload.data[0].id);
-        }
-      } catch (error) {
-        setLocalMessage(error instanceof Error ? error.message : 'No fue posible cargar el catalogo de productos.');
-      } finally {
-        setIsCatalogLoading(false);
-      }
-    })();
-  }, [activeTab, catalogoProductos.length, catalogRetryNonce, isCatalogLoading, selectedProductId]);
 
   useEffect(() => {
     if (selectedProductId || catalogoProductos.length === 0) {
@@ -581,8 +630,8 @@ export function DermoRegistroExtemporaneoSheet({ data, onClose, onSuccess }: { d
                   <button
                     type="button"
                     onClick={() => {
-                      catalogFetchAttempted.current = false;
-                      setCatalogRetryNonce((current) => current + 1);
+                      setLocalMessage(null);
+                      void retryCatalog();
                     }}
                     className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-amber-200 bg-white px-4 py-2 text-sm font-semibold text-amber-900 shadow-sm transition hover:bg-amber-100"
                   >
@@ -593,6 +642,11 @@ export function DermoRegistroExtemporaneoSheet({ data, onClose, onSuccess }: { d
             </div>
           ) : (
             <ProductPicker products={catalogoProductos} search={search} selectedProductId={selectedProductId} onSearchChange={setSearch} onSelectProduct={setSelectedProductId} />
+          )}
+          {catalogErrorMessage && (
+            <p className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+              {catalogErrorMessage}
+            </p>
           )}
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
             <Field label="Piezas"><input value={units} onChange={(event) => setUnits(event.target.value)} inputMode="numeric" className="mt-2 w-full rounded-[14px] border border-border bg-white px-4 py-3 text-base text-slate-900 focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-100" /></Field>

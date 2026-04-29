@@ -1,6 +1,4 @@
 'use server'
-
-import { revalidatePath } from 'next/cache'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import {
   buildOperationalDocumentUploadLimitMessage,
@@ -8,6 +6,11 @@ import {
   exceedsOperationalDocumentUploadLimit,
 } from '@/lib/files/documentOptimization'
 import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import {
+  buildUiChangeScope,
+  buildUiChangeTargetsFromBusinessEvent,
+} from '@/lib/ui-change/types'
 import { sendOperationalPushNotification } from '@/lib/push/pushFanout'
 import { createServiceClient } from '@/lib/supabase/server'
 import { registerVentaWithService } from '@/features/ventas/lib/ventaRegistration'
@@ -68,6 +71,49 @@ function buildState(partial: Partial<SolicitudActionState>): SolicitudActionStat
     ...ESTADO_SOLICITUD_INICIAL,
     ...partial,
   }
+}
+
+async function publishExtemporaneoUiChanges(
+  service: TypedSupabaseClient,
+  {
+    cuentaClienteId,
+    empleadoId,
+    supervisorEmpleadoId,
+    pdvId,
+    fechaOperativa,
+    eventType,
+  }: {
+    cuentaClienteId: string
+    empleadoId: string
+    supervisorEmpleadoId: string | null
+    pdvId: string
+    fechaOperativa: string
+    eventType: string
+  }
+) {
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType,
+      modules: ['solicitudes', 'dashboard', 'ventas', 'love-isdin', 'asistencias'],
+      surfaces: ['panel', 'inbox', 'tabla', 'metricas', 'shell'],
+      scopes: [
+        buildUiChangeScope('cuenta', cuentaClienteId),
+        buildUiChangeScope('empleado', empleadoId),
+        buildUiChangeScope('supervisor', supervisorEmpleadoId),
+        buildUiChangeScope('pdv', pdvId),
+        buildUiChangeScope('periodo', fechaOperativa.slice(0, 7)),
+      ],
+      cuentaClienteId,
+      empleadoId,
+      supervisorEmpleadoId,
+      metadata: {
+        periodo: fechaOperativa.slice(0, 7),
+        fechaOperativa,
+        pdvId,
+      },
+    }),
+    { service }
+  )
 }
 
 function normalizeRequiredText(value: FormDataEntryValue | null, label: string) {
@@ -717,10 +763,14 @@ export async function registrarRegistroExtemporaneo(
       tipoRegistro,
     })
 
-    revalidatePath('/solicitudes')
-    revalidatePath('/dashboard')
-    revalidatePath('/ventas')
-    revalidatePath('/love-isdin')
+    await publishExtemporaneoUiChanges(service, {
+      cuentaClienteId: context.cuentaClienteId,
+      empleadoId: context.empleadoId,
+      supervisorEmpleadoId: context.supervisorEmpleadoId,
+      pdvId: context.pdvId,
+      fechaOperativa,
+      eventType: 'registro_extemporaneo_registrado',
+    })
 
     return buildState({
       ok: true,
@@ -806,8 +856,14 @@ export async function resolverRegistroExtemporaneo(
 
       await notifyEmployeeExtemporaneoResolution(row, { approved: false })
 
-      revalidatePath('/solicitudes')
-      revalidatePath('/dashboard')
+      await publishExtemporaneoUiChanges(service, {
+        cuentaClienteId: row.cuenta_cliente_id,
+        empleadoId: row.empleado_id,
+        supervisorEmpleadoId: row.supervisor_empleado_id,
+        pdvId: row.pdv_id,
+        fechaOperativa: row.fecha_operativa,
+        eventType: 'registro_extemporaneo_rechazado',
+      })
 
       return buildState({
         ok: true,
@@ -939,10 +995,14 @@ export async function resolverRegistroExtemporaneo(
 
     await notifyEmployeeExtemporaneoResolution(row, { approved: true })
 
-    revalidatePath('/solicitudes')
-    revalidatePath('/dashboard')
-    revalidatePath('/ventas')
-    revalidatePath('/love-isdin')
+    await publishExtemporaneoUiChanges(service, {
+      cuentaClienteId: row.cuenta_cliente_id,
+      empleadoId: row.empleado_id,
+      supervisorEmpleadoId: row.supervisor_empleado_id,
+      pdvId: row.pdv_id,
+      fechaOperativa: row.fecha_operativa,
+      eventType: 'registro_extemporaneo_aprobado',
+    })
 
     return buildState({
       ok: true,

@@ -15,6 +15,16 @@ const MEXICO_STATE_TIMEZONE_MAP = new Map<string, string>([
 ])
 
 export const DEFAULT_MEXICO_OPERATION_TIMEZONE = 'America/Mexico_City'
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const WEEKDAY_INDEX_BY_SHORT_NAME = new Map([
+  ['Sun', 7],
+  ['Mon', 1],
+  ['Tue', 2],
+  ['Wed', 3],
+  ['Thu', 4],
+  ['Fri', 5],
+  ['Sat', 6],
+])
 
 export function resolveMexicoTimezoneFromState(stateName: string | null | undefined) {
   const normalized = normalizeMexicoCatalogText(stateName)
@@ -35,6 +45,34 @@ export function formatIsoDateInTimezone(
     month: '2-digit',
     day: '2-digit',
   }).format(typeof value === 'string' ? new Date(value) : value)
+}
+
+export function getIsoDateInMexicoCity(value?: string | Date) {
+  if (typeof value === 'string' && ISO_DATE_PATTERN.test(value)) {
+    return value
+  }
+
+  if (value instanceof Date) {
+    return formatIsoDateInTimezone(value, DEFAULT_MEXICO_OPERATION_TIMEZONE)
+  }
+
+  return formatIsoDateInTimezone(new Date(), DEFAULT_MEXICO_OPERATION_TIMEZONE)
+}
+
+export function getWeekDayNumberInMexicoCity(value?: string | Date) {
+  const instant =
+    typeof value === 'string' && ISO_DATE_PATTERN.test(value)
+      ? new Date(`${value}T12:00:00.000Z`)
+      : value instanceof Date
+        ? value
+        : new Date()
+
+  const shortWeekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: DEFAULT_MEXICO_OPERATION_TIMEZONE,
+    weekday: 'short',
+  }).format(instant)
+
+  return WEEKDAY_INDEX_BY_SHORT_NAME.get(shortWeekday) ?? 7
 }
 
 export function formatTimeInTimezone(

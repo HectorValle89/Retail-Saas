@@ -26,17 +26,31 @@ import {
 } from '../lib/assignmentRotationValidation'
 import { buildAssignmentScopeOrFilter } from '../lib/assignmentQuery'
 import type { AssignmentEngineNature } from '../lib/assignmentEngine'
+import { summarizeRestOverrideDates } from '../lib/assignmentRestOverride'
 import {
   getMaterializedMonthlyCalendar,
   type MaterializedMonthlyCalendar,
   type MaterializedMonthlyFilters,
 } from './asignacionMaterializationService'
+import {
+  loadVacantesOperativasFuturas,
+  type VacantesOperativasFuturasData,
+} from './vacanteOperativaFuturaService'
 
 type MaybeMany<T> = T | T[] | null
 type TypedSupabaseClient = SupabaseClient<any>
 
-export type AssignmentWorkspaceView = 'asignaciones' | 'pdvs' | 'calendario'
-export type AssignmentWorkspaceModal = 'catalogo' | 'horarios' | 'manual' | null
+function isMissingSchemaTableError(error: unknown, tableName: string) {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const normalized = message.toLowerCase()
+  return (
+    normalized.includes(tableName.toLowerCase()) &&
+    (normalized.includes('schema cache') || normalized.includes('could not find the table'))
+  )
+}
+
+export type AssignmentWorkspaceView = 'asignaciones' | 'pdvs' | 'calendario' | 'vacantes-futuras'
+export type AssignmentWorkspaceModal = 'catalogo' | 'horarios' | 'manual' | 'descansos' | null
 export type AssignmentListState = 'BORRADOR' | 'PUBLICADA' | 'ACTIVAS'
 export type AssignmentPdvBoardState = 'ALL' | 'ASIGNADOS' | 'RESERVADOS' | 'SIN_ASIGNACION' | 'INACTIVOS'
 export type AssignmentPdvRotationState = PdvRotacionFilter
@@ -218,6 +232,42 @@ export interface AsignacionesManualModalData {
   empleadosDisponibles: AsignacionEmpleadoOption[]
   pdvsDisponibles: AsignacionPdvOption[]
   turnosDisponibles: AsignacionTurnoOption[]
+  prefill: {
+    pdvId: string | null
+    fechaInicio: string | null
+    motivoMovimiento: string | null
+    observaciones: string | null
+    tipo: string | null
+    naturaleza: AssignmentEngineNature | null
+  }
+}
+
+export interface AsignacionDescansoOverrideOption {
+  id: string
+  label: string
+  empleadoLabel: string
+  pdvLabel: string
+}
+
+export interface AsignacionDescansoOverrideRow {
+  id: string
+  asignacionId: string
+  asignacionLabel: string
+  vigenteDesde: string
+  vigenteHasta: string | null
+  modo: 'EXPLICITO' | 'REGLA_MENSUAL'
+  reglaDescanso: Record<string, unknown> | null
+  fechasDescanso: string[]
+  fechasTrabajo: string[]
+  observaciones: string | null
+  diasAfectados: number
+  activo: boolean
+}
+
+export interface AsignacionesDescansoModalData {
+  assignmentOptions: AsignacionDescansoOverrideOption[]
+  activeOverrides: AsignacionDescansoOverrideRow[]
+  defaultMonth: string
 }
 
 export interface AsignacionesPdvsBoardData {
@@ -253,8 +303,10 @@ export interface AsignacionesPanelData {
   assignmentsView: AsignacionesAssignmentsTabData | null
   pdvsView: AsignacionesPdvsBoardData | null
   calendarView: AsignacionesCalendarData | null
+  futureVacanciesView: VacantesOperativasFuturasData | null
   catalogModal: AsignacionesModalCatalogData | null
   manualModal: AsignacionesManualModalData | null
+  descansoModal: AsignacionesDescansoModalData | null
   infraestructuraLista: boolean
   mensajeInfraestructura?: string
 }
@@ -278,8 +330,10 @@ const EMPTY_DATA: AsignacionesPanelData = {
   assignmentsView: null,
   pdvsView: null,
   calendarView: null,
+  futureVacanciesView: null,
   catalogModal: null,
   manualModal: null,
+  descansoModal: null,
   infraestructuraLista: false,
 }
 
@@ -297,6 +351,14 @@ interface ObtenerPanelAsignacionesOptions {
   modal?: string | null
   page?: number | null
   assignmentState?: string | null
+  manualPrefill?: {
+    pdvId?: string | null
+    fechaInicio?: string | null
+    motivoMovimiento?: string | null
+    observaciones?: string | null
+    tipo?: string | null
+    naturaleza?: string | null
+  }
   filters?: {
     month?: string | null
     supervisorEmpleadoId?: string | null
@@ -366,11 +428,11 @@ function getCurrentDayValue() {
 }
 
 function normalizeView(value: string | null | undefined): AssignmentWorkspaceView {
-  return value === 'pdvs' || value === 'calendario' ? value : 'asignaciones'
+  return value === 'pdvs' || value === 'calendario' || value === 'vacantes-futuras' ? value : 'asignaciones'
 }
 
 function normalizeModal(value: string | null | undefined): AssignmentWorkspaceModal {
-  return value === 'catalogo' || value === 'horarios' || value === 'manual' ? value : null
+  return value === 'catalogo' || value === 'horarios' || value === 'manual' || value === 'descansos' ? value : null
 }
 
 function normalizeAssignmentState(value: string | null | undefined): AssignmentListState {
@@ -405,6 +467,22 @@ function normalizePdvPanel(value: string | null | undefined): AssignmentPdvPanel
 
 function normalizeTextFilter(value: string | null | undefined) {
   return String(value ?? '').trim()
+}
+
+function normalizeAssignmentTypePrefill(value: string | null | undefined) {
+  if (value === 'FIJA' || value === 'ROTATIVA' || value === 'COBERTURA') {
+    return value
+  }
+
+  return 'COBERTURA'
+}
+
+function normalizeAssignmentNaturePrefill(value: string | null | undefined): AssignmentEngineNature {
+  if (value === 'BASE' || value === 'COBERTURA_PERMANENTE' || value === 'COBERTURA_TEMPORAL') {
+    return value
+  }
+
+  return 'COBERTURA_TEMPORAL'
 }
 
 function normalizePositiveInt(value: number | string | null | undefined, fallback: number) {
@@ -559,7 +637,8 @@ async function loadCatalogModalData(supabase: TypedSupabaseClient, actor: ActorA
 
 async function loadManualModalData(
   supabase: TypedSupabaseClient,
-  actor: ActorActual
+  actor: ActorActual,
+  prefill?: ObtenerPanelAsignacionesOptions['manualPrefill']
 ): Promise<AsignacionesManualModalData> {
   const today = getCurrentDayValue()
   const scopedCuentaPdvQuery = actor.cuentaClienteId
@@ -630,6 +709,158 @@ async function loadManualModalData(
         label: buildTurnoLabel(item),
       })
     ),
+    prefill: {
+      pdvId: normalizeTextFilter(prefill?.pdvId) || null,
+      fechaInicio: normalizeTextFilter(prefill?.fechaInicio) || null,
+      motivoMovimiento: normalizeTextFilter(prefill?.motivoMovimiento) || null,
+      observaciones: normalizeTextFilter(prefill?.observaciones) || null,
+      tipo: normalizeAssignmentTypePrefill(prefill?.tipo),
+      naturaleza: normalizeAssignmentNaturePrefill(prefill?.naturaleza),
+    },
+  }
+}
+
+interface DescansoOverrideAssignmentQueryRow
+  extends Pick<
+    Asignacion,
+    'id' | 'empleado_id' | 'pdv_id' | 'cuenta_cliente_id' | 'fecha_inicio' | 'fecha_fin' | 'estado_publicacion' | 'naturaleza'
+  > {
+  empleado: MaybeMany<Pick<Empleado, 'nombre_completo'>>
+  pdv: MaybeMany<Pick<Pdv, 'nombre' | 'clave_btl'>>
+}
+
+async function loadDescansoModalData(
+  supabase: TypedSupabaseClient,
+  actor: ActorActual
+): Promise<AsignacionesDescansoModalData> {
+  const today = getCurrentDayValue()
+
+  let assignmentsQuery = supabase
+    .from('asignacion')
+    .select(
+      `
+        id,
+        empleado_id,
+        pdv_id,
+        cuenta_cliente_id,
+        fecha_inicio,
+        fecha_fin,
+        estado_publicacion,
+        naturaleza,
+        empleado:empleado_id(nombre_completo),
+        pdv:pdv_id(nombre, clave_btl)
+      `
+    )
+    .eq('estado_publicacion', 'PUBLICADA')
+    .eq('naturaleza', 'BASE')
+    .lte('fecha_inicio', today)
+    .or(`fecha_fin.is.null,fecha_fin.gte.${today}`)
+    .order('fecha_inicio', { ascending: false })
+    .limit(250)
+
+  if (actor.cuentaClienteId) {
+    assignmentsQuery = assignmentsQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+
+  const assignmentsResult = await assignmentsQuery
+
+  if (assignmentsResult.error) {
+    throw new Error(assignmentsResult.error.message)
+  }
+
+  const assignmentRows = (assignmentsResult.data ?? []) as DescansoOverrideAssignmentQueryRow[]
+  const assignmentMap = new Map(assignmentRows.map((item) => [item.id, item] as const))
+
+  const overridesResult =
+    assignmentRows.length > 0
+      ? await supabase
+          .from('asignacion_descanso_override')
+          .select(
+            'id, asignacion_id, cuenta_cliente_id, empleado_id, vigente_desde, vigente_hasta, modo, regla_descanso, fechas_descanso, fechas_trabajo, observaciones, activo, metadata, created_at, updated_at'
+          )
+          .in('asignacion_id', assignmentRows.map((item) => item.id))
+          .order('vigente_desde', { ascending: false })
+      : { data: [], error: null }
+
+  if (overridesResult.error) {
+    if (!isMissingSchemaTableError(overridesResult.error, 'asignacion_descanso_override')) {
+      throw new Error(overridesResult.error.message)
+    }
+  }
+
+  const activeOverrides = ((overridesResult.data ?? []) as Array<{
+    id: string
+    asignacion_id: string
+    cuenta_cliente_id: string | null
+    empleado_id: string
+    vigente_desde: string
+    vigente_hasta: string | null
+    modo: 'EXPLICITO' | 'REGLA_MENSUAL' | null
+    regla_descanso: Record<string, unknown> | null
+    fechas_descanso: string[] | null
+    fechas_trabajo: string[] | null
+    observaciones: string | null
+    activo: boolean
+  }>).map((item) => {
+    const assignment = assignmentMap.get(item.asignacion_id)
+    const empleado = Array.isArray(assignment?.empleado) ? assignment.empleado[0] ?? null : assignment?.empleado ?? null
+    const pdv = Array.isArray(assignment?.pdv) ? assignment.pdv[0] ?? null : assignment?.pdv ?? null
+    const dates = summarizeRestOverrideDates({
+      id: item.id,
+      asignacion_id: item.asignacion_id,
+      cuenta_cliente_id: item.cuenta_cliente_id,
+      empleado_id: item.empleado_id,
+      vigente_desde: item.vigente_desde,
+      vigente_hasta: item.vigente_hasta,
+      modo: item.modo === 'REGLA_MENSUAL' ? 'REGLA_MENSUAL' : 'EXPLICITO',
+      regla_descanso:
+        item.regla_descanso && typeof item.regla_descanso === 'object' && !Array.isArray(item.regla_descanso)
+          ? (item.regla_descanso as Record<string, unknown>)
+          : null,
+      fechas_descanso: item.fechas_descanso ?? [],
+      fechas_trabajo: item.fechas_trabajo ?? [],
+      observaciones: item.observaciones,
+      activo: item.activo,
+    })
+
+    return {
+      id: item.id,
+      asignacionId: item.asignacion_id,
+      asignacionLabel: [
+        empleado?.nombre_completo ?? item.empleado_id,
+        pdv?.clave_btl ?? null,
+        pdv?.nombre ?? null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      vigenteDesde: item.vigente_desde,
+      vigenteHasta: item.vigente_hasta,
+      modo: item.modo === 'REGLA_MENSUAL' ? 'REGLA_MENSUAL' : 'EXPLICITO',
+      reglaDescanso: dates.regla ? (dates.regla as unknown as Record<string, unknown>) : null,
+      fechasDescanso: dates.descansos,
+      fechasTrabajo: dates.trabajos,
+      observaciones: item.observaciones ?? null,
+      diasAfectados: dates.total,
+      activo: item.activo,
+    } satisfies AsignacionDescansoOverrideRow
+  })
+
+  return {
+    assignmentOptions: assignmentRows.map((item) => {
+      const empleado = Array.isArray(item.empleado) ? item.empleado[0] ?? null : item.empleado ?? null
+      const pdv = Array.isArray(item.pdv) ? item.pdv[0] ?? null : item.pdv ?? null
+
+      return {
+        id: item.id,
+        label: [empleado?.nombre_completo ?? item.empleado_id, pdv?.clave_btl ?? null, pdv?.nombre ?? null]
+          .filter(Boolean)
+          .join(' · '),
+        empleadoLabel: empleado?.nombre_completo ?? item.empleado_id,
+        pdvLabel: [pdv?.clave_btl ?? null, pdv?.nombre ?? null].filter(Boolean).join(' · '),
+      } satisfies AsignacionDescansoOverrideOption
+    }),
+    activeOverrides,
+    defaultMonth: today.slice(0, 7),
   }
 }
 
@@ -1100,6 +1331,24 @@ export async function obtenerPanelAsignaciones(
   try {
     if (activeView === 'asignaciones') {
       response.assignmentsView = await loadAssignmentsView(typedSupabase, actor, assignmentState, page)
+      response.pdvsView = await loadPdvView(typedSupabase, actor, {
+        pdvPanel: options.filters?.pdvPanel,
+        pdvState: options.filters?.pdvState,
+        cadena: options.filters?.cadena,
+        ciudad: options.filters?.ciudad,
+        zona: options.filters?.zona,
+        rotacionClasificacion: options.filters?.rotacionClasificacion,
+        grupoRotacion: options.filters?.grupoRotacion,
+      })
+      response.calendarView = await loadCalendarView(typedSupabase, actor, {
+        month: options.filters?.month,
+        supervisorEmpleadoId: options.filters?.supervisorEmpleadoId,
+        estadoOperativo: options.filters?.estadoOperativo,
+      })
+      response.futureVacanciesView = await loadVacantesOperativasFuturas(typedSupabase, { actor })
+      response.catalogModal = await loadCatalogModalData(typedSupabase, actor)
+      response.manualModal = await loadManualModalData(typedSupabase, actor, options.manualPrefill)
+      response.descansoModal = await loadDescansoModalData(typedSupabase, actor)
     }
 
     if (activeView === 'pdvs') {
@@ -1122,13 +1371,116 @@ export async function obtenerPanelAsignaciones(
       })
     }
 
+    if (activeView === 'vacantes-futuras') {
+      response.futureVacanciesView = await loadVacantesOperativasFuturas(typedSupabase, { actor })
+    }
+
     if (activeModal === 'catalogo') {
       response.catalogModal = await loadCatalogModalData(typedSupabase, actor)
     }
 
     if (activeModal === 'manual') {
-      response.manualModal = await loadManualModalData(typedSupabase, actor)
+      response.manualModal = await loadManualModalData(typedSupabase, actor, options.manualPrefill)
     }
+
+    if (activeModal === 'descansos') {
+      response.descansoModal = await loadDescansoModalData(typedSupabase, actor)
+    }
+  } catch (error) {
+    return {
+      ...response,
+      infraestructuraLista: false,
+      mensajeInfraestructura:
+        error instanceof Error
+          ? error.message
+          : 'La base de asignaciones aun no esta completa para operar esta vista.',
+    }
+  }
+
+  return response
+}
+
+export async function obtenerAsignacionesWorkspaceData(
+  supabase: SupabaseClient,
+  actor: ActorActual,
+  options: Pick<ObtenerPanelAsignacionesOptions, 'page' | 'assignmentState' | 'modal' | 'manualPrefill'> = {}
+): Promise<AsignacionesPanelData> {
+  const typedSupabase = supabase as TypedSupabaseClient
+  const activeModal = normalizeModal(options.modal)
+  const page = normalizePositiveInt(options.page, 1)
+  const assignmentState = normalizeAssignmentState(options.assignmentState)
+  const shell = await loadShellSummary(typedSupabase, actor)
+
+  const response: AsignacionesPanelData = {
+    ...EMPTY_DATA,
+    activeView: 'asignaciones',
+    activeModal,
+    shell,
+    resumen: shell,
+    puedeGestionar: actor.puesto === 'ADMINISTRADOR',
+    infraestructuraLista: true,
+  }
+
+  try {
+    response.assignmentsView = await loadAssignmentsView(typedSupabase, actor, assignmentState, page)
+
+    if (activeModal === 'catalogo') {
+      response.catalogModal = await loadCatalogModalData(typedSupabase, actor)
+    }
+
+    if (activeModal === 'manual') {
+      response.manualModal = await loadManualModalData(typedSupabase, actor, options.manualPrefill)
+    }
+
+    if (activeModal === 'descansos') {
+      response.descansoModal = await loadDescansoModalData(typedSupabase, actor)
+    }
+  } catch (error) {
+    return {
+      ...response,
+      infraestructuraLista: false,
+      mensajeInfraestructura:
+        error instanceof Error
+          ? error.message
+          : 'La base de asignaciones aun no esta completa para operar esta vista.',
+    }
+  }
+
+  return response
+}
+
+export async function obtenerPdvsWorkspaceData(
+  supabase: SupabaseClient,
+  actor: ActorActual,
+  options: {
+    pdvState?: string | null
+    cadena?: string | null
+    ciudad?: string | null
+    zona?: string | null
+    rotacionClasificacion?: string | null
+    grupoRotacion?: string | null
+    pdvPanel?: string | null
+  } = {}
+): Promise<AsignacionesPanelData> {
+  const typedSupabase = supabase as TypedSupabaseClient
+  const response: AsignacionesPanelData = {
+    ...EMPTY_DATA,
+    activeView: 'pdvs',
+    activeModal: null,
+    puedeGestionar: actor.puesto === 'ADMINISTRADOR',
+    infraestructuraLista: true,
+  }
+
+  try {
+    response.pdvsView = await loadPdvView(typedSupabase, actor, {
+      pdvPanel: options.pdvPanel,
+      pdvState: options.pdvState,
+      cadena: options.cadena,
+      ciudad: options.ciudad,
+      zona: options.zona,
+      rotacionClasificacion: options.rotacionClasificacion,
+      grupoRotacion: options.grupoRotacion,
+    })
   } catch (error) {
     return {
       ...response,

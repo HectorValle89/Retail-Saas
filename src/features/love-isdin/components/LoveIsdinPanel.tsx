@@ -1,8 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { useActionState, useMemo, useState, type ReactNode } from 'react'
+import { useActionState, useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useFormStatus } from 'react-dom'
+import type { ActorActual } from '@/lib/auth/session'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -19,6 +21,8 @@ import {
   isSingleTenantUiEnabled,
   resolveSingleTenantAccountOption,
 } from '@/lib/tenant/singleTenant'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import { asignarQrDisponibleLoveIsdin, registrarCargaMasivaQrIncremental } from '../actions'
 import { ESTADO_LOVE_ISDIN_INICIAL } from '../state'
 import type {
@@ -288,7 +292,42 @@ function fieldClassName() {
   return 'w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] transition focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]'
 }
 
-export function LoveIsdinPanel({ data }: { data: LoveIsdinPanelData }) {
+export function LoveIsdinPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: LoveIsdinPanelData
+}) {
+  const searchParams = useSearchParams()
+  const queryString = searchParams.toString()
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetchPanel = useCallback(
+    async (signal: AbortSignal) => {
+      const response = await fetch(queryString ? `/api/love-isdin/panel?${queryString}` : '/api/love-isdin/panel', {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal,
+      })
+      const payload = (await response.json()) as { data?: LoveIsdinPanelData; message?: string }
+
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.message ?? 'No fue posible refrescar LOVE ISDIN.')
+      }
+
+      return payload.data
+    },
+    [queryString]
+  )
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'love-isdin',
+    surfaces: ['panel', 'tabla', 'metricas', 'inbox', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher: (signal) => fetchPanel(signal),
+    debounceMs: 650,
+  })
   const [activeSection, setActiveSection] = useState<LoveSection>('kpis')
   const [range, setRange] = useState<LoveRange>('mes')
   const [selectedPdvId, setSelectedPdvId] = useState('')

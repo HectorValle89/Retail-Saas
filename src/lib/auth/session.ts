@@ -1,9 +1,15 @@
 import { cache } from 'react'
+import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { readRequestAccountScope } from '@/lib/tenant/accountScope'
 import { isSingleTenantBackendEnabled } from '@/lib/tenant/singleTenant'
+import { ACTOR_CONTEXT_HEADER } from '@/lib/supabase/proxy'
 import { createClient } from '@/lib/supabase/server'
 import { isPrimerAccesoPendiente } from '@/lib/auth/firstAccess'
+import {
+  extractUsuarioOperativoEmpleado,
+  resolverUsuarioOperativoPorAuthUserId,
+} from '@/lib/auth/usuarioOperativo'
 import type { EstadoCuenta, Puesto } from '@/types/database'
 
 export interface ActorActual {
@@ -20,69 +26,98 @@ export interface ActorActual {
   primerAccesoPendiente?: boolean
 }
 
-type UsuarioActorRow = {
-  id: string
-  empleado_id: string
-  cuenta_cliente_id: string | null
+function decodeActorContextHeader(value: string | null): {
+  authUserId: string
+  usuarioId: string
+  empleadoId: string
+  cuentaClienteId: string | null
   username: string | null
-  correo_electronico: string | null
-  correo_verificado: boolean
-  estado_cuenta: EstadoCuenta
-  empleado:
-    | {
-        id: string
-        nombre_completo: string
-        puesto: Puesto
-        metadata: Record<string, unknown> | null
-      }
-    | Array<{
-        id: string
-        nombre_completo: string
-        puesto: Puesto
-        metadata: Record<string, unknown> | null
-      }>
-    | null
-}
-
-function normalizeEmpleado(
-  value: UsuarioActorRow['empleado']
-): {
-  id: string
-  nombre_completo: string
+  correoElectronico: string | null
+  correoVerificado: boolean
+  estadoCuenta: EstadoCuenta
+  nombreCompleto: string | null
   puesto: Puesto
-  metadata: Record<string, unknown> | null
+  primerAccesoPendiente: boolean
 } | null {
   if (!value) {
     return null
   }
 
-  return Array.isArray(value) ? (value[0] ?? null) : value
+  try {
+    const parsed = JSON.parse(decodeURIComponent(value)) as {
+      authUserId: string
+      usuarioId: string
+      empleadoId: string
+      cuentaClienteId: string | null
+      username: string | null
+      correoElectronico: string | null
+      correoVerificado: boolean
+      estadoCuenta: EstadoCuenta
+      nombreCompleto: string | null
+      puesto: Puesto | null
+      primerAccesoPendiente: boolean
+    }
+
+    if (!parsed.authUserId || !parsed.usuarioId || !parsed.empleadoId || !parsed.estadoCuenta || !parsed.puesto) {
+      return null
+    }
+
+    return {
+      ...parsed,
+      puesto: parsed.puesto,
+    }
+  } catch {
+    return null
+  }
 }
 
 const obtenerActorActualCached = cache(async (): Promise<ActorActual | null> => {
+  const headerStore = await headers()
   const supabase = await createClient({ bypassTenantScope: true })
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims()
 
-  if (!user) {
+  if (claimsError || !claimsData?.claims) {
     return null
   }
 
-  const { data: usuario } = await supabase
-    .from('usuario')
-    .select(
-      'id, empleado_id, cuenta_cliente_id, username, correo_electronico, correo_verificado, estado_cuenta, empleado:empleado_id(id, nombre_completo, puesto, metadata)'
-    )
-    .eq('auth_user_id', user.id)
-    .maybeSingle()
+  const claims = claimsData.claims as Record<string, unknown>
+  const authUserId = typeof claims.sub === 'string' ? claims.sub : null
 
-  const usuarioActual = (usuario ?? null) as UsuarioActorRow | null
+  if (!authUserId) {
+    return null
+  }
+
+  const headerActor = decodeActorContextHeader(headerStore.get(ACTOR_CONTEXT_HEADER))
+  if (headerActor && headerActor.authUserId === authUserId && headerActor.nombreCompleto) {
+    const requestScope = await readRequestAccountScope()
+    const cuentaClienteId =
+      isSingleTenantBackendEnabled()
+        ? requestScope.accountId ?? headerActor.cuentaClienteId
+        : headerActor.puesto === 'ADMINISTRADOR'
+          ? requestScope.accountId
+          : headerActor.cuentaClienteId
+
+    return {
+      authUserId,
+      usuarioId: headerActor.usuarioId,
+      empleadoId: headerActor.empleadoId,
+      cuentaClienteId,
+      username: headerActor.username,
+      correoElectronico: headerActor.correoElectronico,
+      correoVerificado: headerActor.correoVerificado,
+      estadoCuenta: headerActor.estadoCuenta,
+      nombreCompleto: headerActor.nombreCompleto,
+      puesto: headerActor.puesto,
+      primerAccesoPendiente: headerActor.primerAccesoPendiente,
+    }
+  }
+
+  const usuarioActual = await resolverUsuarioOperativoPorAuthUserId(supabase, authUserId)
   if (!usuarioActual) {
     return null
   }
 
-  const empleadoActual = normalizeEmpleado(usuarioActual.empleado)
+  const empleadoActual = extractUsuarioOperativoEmpleado(usuarioActual)
   if (!empleadoActual) {
     return null
   }
@@ -96,7 +131,7 @@ const obtenerActorActualCached = cache(async (): Promise<ActorActual | null> => 
         : usuarioActual.cuenta_cliente_id
 
   return {
-    authUserId: user.id,
+    authUserId,
     usuarioId: usuarioActual.id,
     empleadoId: usuarioActual.empleado_id,
     cuentaClienteId,
@@ -127,12 +162,12 @@ export async function requerirActorAutenticado() {
 export async function requerirActorActivo() {
   const actor = await requerirActorAutenticado()
 
-  if (actor.estadoCuenta !== 'ACTIVA') {
-    redirect('/activacion')
+  if (actor.estadoCuenta === 'PENDIENTE_PRIMER_LOGIN' || actor.primerAccesoPendiente) {
+    redirect('/primer-acceso')
   }
 
-  if (actor.primerAccesoPendiente) {
-    redirect('/primer-acceso')
+  if (actor.estadoCuenta !== 'ACTIVA') {
+    redirect('/activacion')
   }
 
   return actor

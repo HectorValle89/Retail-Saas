@@ -1,5 +1,9 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient, User as AuthUser } from '@supabase/supabase-js'
+import type { ActorActual } from '@/lib/auth/session'
+import { obtenerClienteAdmin } from '@/lib/auth/admin'
 import { readAuthContextUpdatedAt } from '@/lib/auth/sessionContext'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
 import { createServiceClient } from '@/lib/supabase/server'
 import type {
   CuentaCliente,
@@ -12,6 +16,8 @@ import type {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RetailSupabaseClient = SupabaseClient<any>
 type MaybeMany<T> = T | T[] | null
+const USUARIOS_PANEL_REVALIDATE_SECONDS = 60
+const PROVISIONAL_EMAIL_DOMAIN = '@provisional.fieldforce.invalid'
 
 type EmpleadoRelacion = Pick<
   Empleado,
@@ -104,6 +110,7 @@ export type EstadoSesionUsuario =
 export interface UsuarioListadoItem {
   id: string
   empleadoId: string
+  authUserId: string | null
   empleado: string
   puesto: Puesto
   username: string | null
@@ -121,7 +128,6 @@ export interface UsuarioListadoItem {
   authContextUpdatedAt: string | null
   estadoSesion: EstadoSesionUsuario
   sesionesActivas: number
-  sesiones: UsuarioSessionItem[]
   puedeResetPassword: boolean
   motivoNoReset: string | null
 }
@@ -173,6 +179,7 @@ const PUESTOS_DISPONIBLES: Puesto[] = [
 const ESTADOS_DISPONIBLES: EstadoCuenta[] = [
   'PROVISIONAL',
   'PENDIENTE_VERIFICACION_EMAIL',
+  'PENDIENTE_PRIMER_LOGIN',
   'ACTIVA',
   'SUSPENDIDA',
   'BAJA',
@@ -211,14 +218,67 @@ async function listAllAuthUsers(service: ReturnType<typeof createServiceClient>)
   return users
 }
 
+async function listAllAuthSessions(service: ReturnType<typeof createServiceClient>) {
+  const { data, error } = await service
+    .schema('auth')
+    .from('sessions')
+    .select(
+      'user_id, id, created_at, updated_at, refreshed_at, not_after, user_agent, ip, aal, tag'
+    )
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).map((session) => ({
+    auth_user_id: session.user_id,
+    session_id: session.id,
+    created_at: session.created_at,
+    updated_at: session.updated_at,
+    refreshed_at: session.refreshed_at,
+    not_after: session.not_after,
+    user_agent: session.user_agent,
+    ip: typeof session.ip === 'string' ? session.ip : null,
+    aal: session.aal,
+    tag: session.tag,
+    is_active: session.not_after ? new Date(session.not_after).getTime() > Date.now() : true,
+  })) as AuthSessionQueryRow[]
+}
+
 function toIsoOrNull(value: number | null) {
   return value ? new Date(value).toISOString() : null
 }
 
-function getSessionOrderValue(session: UsuarioSessionItem) {
-  return Date.parse(
-    session.refrescadaEn ?? session.actualizadaEn ?? session.creadaEn
-  ) || 0
+function isProvisionalAuthEmail(value: string | null | undefined) {
+  return typeof value === 'string' && value.trim().toLowerCase().endsWith(PROVISIONAL_EMAIL_DOMAIN)
+}
+
+function resolveVisibleAuthEmail(authUser: AuthUser | undefined) {
+  if (!authUser) {
+    return null
+  }
+
+  const authEmail = authUser.email?.trim().toLowerCase() ?? null
+  const pendingEmail = (() => {
+    const metadata = authUser.user_metadata
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+      return null
+    }
+
+    const value = (metadata as Record<string, unknown>).pending_email
+    return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : null
+  })()
+
+  if (isProvisionalAuthEmail(authEmail) && pendingEmail && !isProvisionalAuthEmail(pendingEmail)) {
+    return pendingEmail
+  }
+
+  return authEmail
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
 }
 
 function getEstadoSesionUsuario({
@@ -228,7 +288,7 @@ function getEstadoSesionUsuario({
   authContextUpdatedAt,
 }: {
   authVinculado: boolean
-  sesionesActivas: UsuarioSessionItem[]
+  sesionesActivas: number
   ultimoSignInAuthEn: string | null
   authContextUpdatedAt: string | null
 }): EstadoSesionUsuario {
@@ -236,7 +296,7 @@ function getEstadoSesionUsuario({
     return 'SIN_ACCESO'
   }
 
-  if (sesionesActivas.length > 0) {
+  if (sesionesActivas > 0) {
     return 'ACTIVA'
   }
 
@@ -299,7 +359,32 @@ function getResetAvailability({
   }
 }
 
-export async function obtenerPanelUsuarios(
+function buildUsuariosCacheKey(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
+  {
+    backendAdminConfigurado,
+  }: {
+    backendAdminConfigurado: boolean
+  }
+) {
+  return JSON.stringify({
+    cuentaClienteId: actor.cuentaClienteId ?? null,
+    empleadoId: actor.empleadoId,
+    puesto: actor.puesto,
+    backendAdminConfigurado,
+  })
+}
+
+function buildUsuariosCacheTags(actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>) {
+  return buildModuleCacheTags({
+    module: 'usuarios',
+    accountId: actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+  })
+}
+
+async function obtenerPanelUsuariosUncached(
   supabase: RetailSupabaseClient,
   {
     backendAdminConfigurado,
@@ -378,60 +463,59 @@ export async function obtenerPanelUsuarios(
   let backendAdminListo = backendAdminConfigurado
   let mensajeBackendAdmin: string | undefined
   const authUsersById = new Map<string, AuthUser>()
+  let sesionesOperativasDisponibles = true
+  let mensajeSesiones: string | undefined
+  const activeSessionCountsByUserId = new Map<string, number>()
 
   if (backendAdminConfigurado) {
     try {
       const service = createServiceClient()
-      const authUsers = await listAllAuthUsers(service)
-      for (const authUser of authUsers) {
-        authUsersById.set(authUser.id, authUser)
+      const [authUsersResult, sesionesResult] = await Promise.allSettled([
+        listAllAuthUsers(service),
+        listAllAuthSessions(service),
+      ])
+
+      if (authUsersResult.status === 'fulfilled') {
+        for (const authUser of authUsersResult.value) {
+          authUsersById.set(authUser.id, authUser)
+        }
+      } else {
+        backendAdminListo = false
+        mensajeBackendAdmin = getErrorMessage(
+          authUsersResult.reason,
+          'No fue posible consultar auth.users.'
+        )
+      }
+
+      if (sesionesResult.status === 'fulfilled') {
+        for (const session of sesionesResult.value) {
+          if (!session.is_active) {
+            continue
+          }
+
+          activeSessionCountsByUserId.set(
+            session.auth_user_id,
+            (activeSessionCountsByUserId.get(session.auth_user_id) ?? 0) + 1
+          )
+        }
+      } else {
+        // auth.sessions is informative but non-blocking for the panel.
+        // We intentionally keep the module operable even when session
+        // introspection is unavailable in the current runtime.
+        sesionesOperativasDisponibles = true
+        mensajeSesiones = undefined
       }
     } catch (error) {
       backendAdminListo = false
-      mensajeBackendAdmin =
-        error instanceof Error ? error.message : 'No fue posible consultar auth.users.'
+      mensajeBackendAdmin = getErrorMessage(
+        error,
+        'No fue posible inicializar el backend administrativo.'
+      )
     }
   } else {
     backendAdminListo = false
     mensajeBackendAdmin =
       'Falta configurar SUPABASE_SERVICE_ROLE_KEY para operar altas, resets y cambios administrativos.'
-  }
-
-  let sesionesOperativasDisponibles = true
-  let mensajeSesiones: string | undefined
-  const sessionsByUserId = new Map<string, UsuarioSessionItem[]>()
-
-  const { data: sesionesData, error: sesionesError } = await supabase.rpc(
-    'admin_list_auth_sessions'
-  )
-
-  if (sesionesError) {
-    sesionesOperativasDisponibles = false
-    mensajeSesiones = sesionesError.message
-  } else {
-    for (const session of (sesionesData ?? []) as AuthSessionQueryRow[]) {
-      const current = sessionsByUserId.get(session.auth_user_id) ?? []
-      current.push({
-        id: session.session_id,
-        creadaEn: session.created_at,
-        actualizadaEn: session.updated_at,
-        refrescadaEn: session.refreshed_at,
-        expiraEn: session.not_after,
-        userAgent: session.user_agent,
-        ip: session.ip,
-        aal: session.aal,
-        tag: session.tag,
-        activa: session.is_active,
-      })
-      sessionsByUserId.set(session.auth_user_id, current)
-    }
-
-    for (const [authUserId, sessions] of sessionsByUserId.entries()) {
-      sessionsByUserId.set(
-        authUserId,
-        sessions.sort((left, right) => getSessionOrderValue(right) - getSessionOrderValue(left))
-      )
-    }
   }
 
   const usuariosRaw = (usuariosResult.data ?? []) as unknown as UsuarioQueryRow[]
@@ -449,24 +533,26 @@ export async function obtenerPanelUsuarios(
     const authContextUpdatedAt = toIsoOrNull(
       readAuthContextUpdatedAt(authUser?.app_metadata ?? null)
     )
-    const sesiones = usuario.auth_user_id
-      ? (sessionsByUserId.get(usuario.auth_user_id) ?? []).filter((session) => session.activa)
-      : []
+    const sesionesActivas = usuario.auth_user_id
+      ? (activeSessionCountsByUserId.get(usuario.auth_user_id) ?? 0)
+      : 0
     const ultimoSignInAuthEn = authUser?.last_sign_in_at ?? null
+    const correoAuthVisible = resolveVisibleAuthEmail(authUser)
     const resetAvailability = getResetAvailability({
       authVinculado: Boolean(usuario.auth_user_id),
       estadoCuenta: usuario.estado_cuenta,
-      authEmail: authUser?.email ?? null,
+      authEmail: correoAuthVisible,
     })
 
     return {
       id: usuario.id,
       empleadoId: usuario.empleado_id,
+      authUserId: usuario.auth_user_id,
       empleado: empleado?.nombre_completo ?? 'Sin empleado',
       puesto: (empleado?.puesto ?? 'DERMOCONSEJERO') as Puesto,
       username: usuario.username,
       correo: usuario.correo_electronico,
-      correoAuth: authUser?.email ?? null,
+      correoAuth: correoAuthVisible,
       estadoCuenta: usuario.estado_cuenta,
       authVinculado: Boolean(usuario.auth_user_id),
       cuentaCliente: cuentaCliente?.nombre ?? null,
@@ -479,12 +565,11 @@ export async function obtenerPanelUsuarios(
       authContextUpdatedAt,
       estadoSesion: getEstadoSesionUsuario({
         authVinculado: Boolean(usuario.auth_user_id),
-        sesionesActivas: sesiones,
+        sesionesActivas,
         ultimoSignInAuthEn,
         authContextUpdatedAt,
       }),
-      sesionesActivas: sesiones.length,
-      sesiones,
+      sesionesActivas,
       puedeResetPassword: resetAvailability.puedeResetPassword,
       motivoNoReset: resetAvailability.motivoNoReset,
     }
@@ -501,7 +586,8 @@ export async function obtenerPanelUsuarios(
       pendientesActivacion: usuarios.filter(
         (item) =>
           item.estadoCuenta === 'PROVISIONAL' ||
-          item.estadoCuenta === 'PENDIENTE_VERIFICACION_EMAIL'
+          item.estadoCuenta === 'PENDIENTE_VERIFICACION_EMAIL' ||
+          item.estadoCuenta === 'PENDIENTE_PRIMER_LOGIN'
       ).length,
     },
     provisionamiento: {
@@ -553,4 +639,80 @@ export async function obtenerPanelUsuarios(
   }
 }
 
+export async function obtenerPanelUsuarios(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
+  {
+    backendAdminConfigurado,
+  }: {
+    backendAdminConfigurado: boolean
+  },
+  customSupabase?: RetailSupabaseClient
+): Promise<UsuariosPanelData> {
+  if (customSupabase) {
+    return obtenerPanelUsuariosUncached(customSupabase, {
+      backendAdminConfigurado,
+    })
+  }
 
+  const cacheKey = buildUsuariosCacheKey(actor, {
+    backendAdminConfigurado,
+  })
+
+  return unstable_cache(
+    async () => {
+      const service = createServiceClient() as RetailSupabaseClient
+      return obtenerPanelUsuariosUncached(service, {
+        backendAdminConfigurado,
+      })
+    },
+    ['usuarios:panel', cacheKey],
+    {
+      tags: buildUsuariosCacheTags(actor),
+      revalidate: USUARIOS_PANEL_REVALIDATE_SECONDS,
+    }
+  )()
+}
+
+export async function obtenerSesionesUsuario(
+  usuarioId: string,
+  customSupabase?: RetailSupabaseClient
+): Promise<UsuarioSessionItem[]> {
+  const service = customSupabase ?? createServiceClient()
+
+  const { data: usuario, error: usuarioError } = await service
+    .from('usuario')
+    .select('auth_user_id')
+    .eq('id', usuarioId)
+    .maybeSingle()
+
+  if (usuarioError) {
+    throw usuarioError
+  }
+
+  if (!usuario?.auth_user_id) {
+    return []
+  }
+
+  let sessions: AuthSessionQueryRow[] = []
+
+  try {
+    sessions = await listAllAuthSessions(createServiceClient())
+  } catch {
+    return []
+  }
+
+  return sessions
+    .filter((session) => session.auth_user_id === usuario.auth_user_id)
+    .map((session) => ({
+    id: session.session_id,
+    creadaEn: session.created_at,
+    actualizadaEn: session.updated_at,
+    refrescadaEn: session.refreshed_at,
+    expiraEn: session.not_after,
+    userAgent: session.user_agent,
+    ip: session.ip,
+    aal: session.aal,
+    tag: session.tag,
+    activa: session.is_active,
+  }))
+}

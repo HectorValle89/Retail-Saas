@@ -1,5 +1,9 @@
+import { unstable_cache } from 'next/cache'
 import { calculatePayrollNet } from '../lib/payrollMath'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
+import { createServiceClient } from '@/lib/supabase/server'
 import type { CuentaCliente, CuotaEmpleadoPeriodo, Empleado, NominaLedger, PeriodoNomina } from '@/types/database'
 
 interface ReceiptPeriodoRow extends Pick<PeriodoNomina, 'clave' | 'fecha_inicio' | 'fecha_fin' | 'estado' | 'fecha_cierre'> {}
@@ -59,7 +63,7 @@ function first<T>(value: T | T[] | null) {
   return Array.isArray(value) ? value[0] ?? null : value
 }
 
-export async function obtenerRecibosNominaEmpleado(
+async function loadRecibosNominaEmpleado(
   supabase: SupabaseClient,
   empleadoId: string
 ): Promise<ReciboNominaItem[]> {
@@ -211,4 +215,59 @@ export async function obtenerRecibosNominaEmpleado(
       }),
     }))
     .sort((a, b) => b.fechaFin.localeCompare(a.fechaFin))
+}
+
+export async function obtenerRecibosNominaEmpleado(
+  actorOrSupabase: ActorActual | SupabaseClient,
+  empleadoIdOrOptions:
+    | string
+    | {
+        empleadoId?: string
+        serviceClient?: SupabaseClient
+        cacheKeyParts?: Array<string | number | null | undefined>
+        cacheTags?: string[]
+        revalidateSeconds?: number
+      }
+): Promise<ReciboNominaItem[]> {
+  if ('from' in actorOrSupabase) {
+    const empleadoId = typeof empleadoIdOrOptions === 'string' ? empleadoIdOrOptions : empleadoIdOrOptions.empleadoId
+    if (!empleadoId) {
+      throw new Error('El empleado es obligatorio para cargar los recibos de nomina.')
+    }
+
+    return loadRecibosNominaEmpleado(actorOrSupabase, empleadoId)
+  }
+
+  const actor = actorOrSupabase
+  const options = typeof empleadoIdOrOptions === 'string' ? { empleadoId: empleadoIdOrOptions } : empleadoIdOrOptions
+  const empleadoId = options?.empleadoId ?? actor.empleadoId
+  if (!empleadoId) {
+    throw new Error('El empleado es obligatorio para cargar los recibos de nomina.')
+  }
+
+  const service = options?.serviceClient ?? createServiceClient()
+  const cached = unstable_cache(
+    () => loadRecibosNominaEmpleado(service, empleadoId),
+    [
+      'mi-nomina-recibos',
+      actor.cuentaClienteId ?? 'sin-cuenta',
+      actor.empleadoId,
+      actor.puesto,
+      empleadoId,
+      ...(options?.cacheKeyParts ?? []),
+    ].map((value) => String(value)),
+    {
+      tags: [
+        ...buildModuleCacheTags({
+          module: 'mi-nomina',
+          accountId: actor.cuentaClienteId,
+          employeeId: empleadoId,
+        }),
+        ...(options?.cacheTags ?? []),
+      ],
+      revalidate: options?.revalidateSeconds ?? 180,
+    }
+  )
+
+  return cached()
 }

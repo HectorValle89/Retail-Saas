@@ -1,8 +1,12 @@
 'use client'
 
 import Link from 'next/link'
+import { useCallback, useMemo } from 'react'
 import { Card } from '@/components/ui/card'
 import { MetricCard } from '@/components/ui/metric-card'
+import type { ActorActual } from '@/lib/auth/session'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import type { CampanaOverviewItem, CampanasOverviewData } from '../services/campanaService'
 import { CampanaPublishAction } from './CampanaPublishAction'
 
@@ -162,7 +166,39 @@ function CampaignSection({
   )
 }
 
-export function CampanasOverviewPanel({ data }: { data: CampanasOverviewData }) {
+export function CampanasOverviewPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: CampanasOverviewData
+}) {
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    const response = await fetch('/api/campanas/panel', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    })
+    const payload = (await response.json()) as { data?: CampanasOverviewData; message?: string }
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar el resumen de campanas.')
+    }
+
+    return payload.data
+  }, [])
+
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'campanas',
+    surfaces: ['panel', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 650,
+  })
+
   const todayIso = new Date().toISOString().slice(0, 10)
   const draftCampaigns = data.campanas.filter((campaign) => campaign.estado === 'BORRADOR')
   const scheduledCampaigns = data.campanas.filter(

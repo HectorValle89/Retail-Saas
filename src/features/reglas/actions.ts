@@ -1,6 +1,7 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
 import { obtenerClienteAdmin } from '@/lib/auth/admin'
 import { requerirAdministradorActivo } from '@/lib/auth/session'
 import type { ReglaNegocio } from '@/types/database'
@@ -148,23 +149,48 @@ async function upsertRegla(
   return data as { id: string; codigo: string }
 }
 
-function revalidateRuleConsumers(code: string) {
-  revalidatePath('/reglas')
+async function revalidateRuleConsumers(
+  actor: Awaited<ReturnType<typeof requerirAdministradorActivo>>,
+  service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
+  code: string
+) {
+  const scopes = [
+    buildUiChangeScope('cuenta', actor.cuentaClienteId),
+    actor.cuentaClienteId ? null : buildUiChangeScope('global'),
+  ]
+
+  const modules = new Set<string>(['reglas'])
+  const surfaces = new Set<string>(['panel'])
 
   if (code === SUPERVISOR_INHERITANCE_RULE_CODE) {
-    revalidatePath('/asignaciones')
-    revalidatePath('/asistencias')
+    modules.add('asignaciones')
+    modules.add('asistencias')
   }
 
   if (code === SCHEDULE_PRIORITY_RULE_CODE) {
-    revalidatePath('/pdvs')
-    revalidatePath('/asignaciones')
-    revalidatePath('/asistencias')
+    modules.add('pdvs')
+    modules.add('asignaciones')
+    modules.add('asistencias')
   }
 
   if (Object.values(APPROVAL_FLOW_RULE_CODES).includes(code as (typeof APPROVAL_FLOW_RULE_CODES)[SolicitudTipo])) {
-    revalidatePath('/dashboard')
+    modules.add('dashboard')
+    surfaces.add('insights')
   }
+
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType: `regla_${code.toLowerCase()}_actualizada`,
+      modules: Array.from(modules),
+      surfaces: Array.from(surfaces),
+      scopes,
+      cuentaClienteId: actor.cuentaClienteId ?? null,
+      empleadoId: actor.empleadoId,
+      roleTargets: ['ALL'],
+      metadata: { ruleCode: code },
+    }),
+    { service }
+  )
 }
 
 function parseOrderedTokens(input: string, allowed: readonly string[], label: string) {
@@ -221,7 +247,7 @@ export async function guardarReglaSupervisor(
       activa: active,
     })
 
-    revalidateRuleConsumers(saved.codigo)
+    await revalidateRuleConsumers(actor, service, saved.codigo)
     return buildState({ ok: true, message: 'Regla de herencia de supervisor actualizada.' })
   } catch (error) {
     return buildState({ message: error instanceof Error ? error.message : 'No fue posible guardar la regla.' })
@@ -278,7 +304,7 @@ export async function guardarReglaHorario(
       activa: active,
     })
 
-    revalidateRuleConsumers(saved.codigo)
+    await revalidateRuleConsumers(actor, service, saved.codigo)
     return buildState({ ok: true, message: 'Regla de prioridad de horarios actualizada.' })
   } catch (error) {
     return buildState({ message: error instanceof Error ? error.message : 'No fue posible guardar la regla.' })
@@ -364,7 +390,7 @@ export async function guardarFlujoAprobacion(
       activa: active,
     })
 
-    revalidateRuleConsumers(saved.codigo)
+    await revalidateRuleConsumers(actor, service, saved.codigo)
     return buildState({ ok: true, message: `Flujo ${solicitudTipo} actualizado.` })
   } catch (error) {
     return buildState({ message: error instanceof Error ? error.message : 'No fue posible guardar el flujo.' })
@@ -410,7 +436,7 @@ export async function guardarReglaInventario(
       activa: active,
     })
 
-    revalidateRuleConsumers(saved.codigo)
+    await revalidateRuleConsumers(actor, service, saved.codigo)
     return buildState({ ok: true, message: `Regla ${saved.codigo} actualizada.` })
   } catch (error) {
     return buildState({ message: error instanceof Error ? error.message : 'No fue posible guardar la regla.' })

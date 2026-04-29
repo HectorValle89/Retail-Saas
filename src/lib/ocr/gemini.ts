@@ -1,4 +1,4 @@
-const GEMINI_MODEL = process.env.GEMINI_OCR_MODEL?.trim() || 'gemini-2.5-flash'
+const GEMINI_MODEL = process.env.GEMINI_OCR_MODEL?.trim() || 'gemini-2.5-flash-lite'
 
 export type OcrProvider = 'gemini'
 export type ConfiguredOcrProvider = 'disabled' | 'gemini' | 'codex' | 'antigravity'

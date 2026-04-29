@@ -3,7 +3,7 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const { createClient } = require('@supabase/supabase-js')
 
-function loadEnvFile(filePath) {
+function loadEnvFile(filePath, { override = false } = {}) {
   if (!fs.existsSync(filePath)) {
     return
   }
@@ -23,7 +23,7 @@ function loadEnvFile(filePath) {
     const key = trimmed.slice(0, separatorIndex).trim()
     const value = trimmed.slice(separatorIndex + 1).trim()
 
-    if (!process.env[key]) {
+    if (override || !process.env[key]) {
       process.env[key] = value
     }
   }
@@ -61,7 +61,7 @@ function requireEnv(name) {
 }
 
 function createTemporaryPassword() {
-  return `Rtl!${crypto.randomBytes(9).toString('base64url')}`
+  return 'BTL2026'
 }
 
 function normalizePlaceholderUsername(value, usuarioId) {
@@ -107,6 +107,7 @@ function toIso(value) {
 
 async function main() {
   loadEnvFile(path.resolve('.env.local'))
+  loadEnvFile(path.resolve('.dev.vars'), { override: true })
 
   const { dryRun, reportFile } = parseArgs(process.argv.slice(2))
   const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL')
@@ -188,6 +189,7 @@ async function main() {
       : buildPlaceholderEmail(normalizedUsername)
 
     const existingAuthUser = authUsersByEmail.get(loginEmail)
+    const shouldResetPassword = targetState === 'PROVISIONAL' || targetState === 'PENDIENTE_VERIFICACION_EMAIL'
     let authUserId = existingAuthUser?.id ?? null
     let tempPassword = null
     let action = existingAuthUser ? 'linked_existing_auth' : 'created_auth_user'
@@ -218,6 +220,27 @@ async function main() {
 
       created += 1
     } else {
+      if (shouldResetPassword && !dryRun) {
+        tempPassword = createTemporaryPassword()
+        const { data: updatedAuth, error: updateError } = await supabase.auth.admin.updateUserById(existingAuthUser.id, {
+          email: loginEmail,
+          password: tempPassword,
+          email_confirm: true,
+          user_metadata: {
+            username: normalizedUsername,
+            provisional_email: !useRealEmail,
+            source: 'retail_auth_provisioning',
+          },
+        })
+
+        if (updateError || !updatedAuth.user) {
+          throw updateError ?? new Error(`Failed to update auth user for ${normalizedUsername}`)
+        }
+
+        authUsersByEmail.set(loginEmail, updatedAuth.user)
+        authUserId = updatedAuth.user.id
+      }
+
       linkedExisting += 1
     }
 

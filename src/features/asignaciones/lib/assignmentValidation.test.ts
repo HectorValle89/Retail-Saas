@@ -24,7 +24,7 @@ function buildSupervisores(
 }
 
 describe('assignment validation properties', () => {
-  it('keeps blocking validations aligned with core invariants', () => {
+  it('keeps blocking validations aligned with core invariants while quota stays non-blocking', () => {
     fc.assert(
       fc.property(
         fc.boolean(),
@@ -68,12 +68,37 @@ describe('assignment validation properties', () => {
             historicalAssignmentsForPdv: [],
             horariosPorPdv: { 'pdv-1': 1 },
           })
+          const issues = evaluarReglasAsignacion(asignacion, {
+            employee: {
+              id: 'emp-1',
+              puesto: 'DERMOCONSEJERO',
+              estatus_laboral: 'ACTIVO',
+              telefono: '5555555555',
+              correo_electronico: 'dc@example.com',
+            },
+            pdv: {
+              id: 'pdv-1',
+              estatus: 'ACTIVO',
+              radio_tolerancia_metros: 150,
+              cadena_codigo: 'GENERICA',
+              factor_cuota_default: validQuota ? 1 : 0,
+            },
+            pdvsConGeocerca: hasGeofence ? new Set<string>(['pdv-1']) : new Set<string>(),
+            supervisoresPorPdv: {
+              'pdv-1': buildSupervisores('pdv-1', referencia, hasSupervisor),
+            },
+            comparableAssignments: [],
+            historicalAssignmentsForPdv: [],
+            horariosPorPdv: { 'pdv-1': 1 },
+          })
+          const resumen = resumirIssuesAsignacion(issues)
 
           expect(validaciones.includes('Sin cuenta cliente')).toBe(!hasAccount)
           expect(validaciones.includes('PDV sin geocerca')).toBe(!hasGeofence)
           expect(validaciones.includes('PDV sin supervisor activo')).toBe(!hasSupervisor)
           expect(validaciones.includes('Vigencia invalida')).toBe(!validRange)
-          expect(validaciones.includes('Cuota invalida')).toBe(!validQuota)
+          expect(resumen.errores.some((issue) => issue.code === 'CUOTA_INVALIDA')).toBe(false)
+          expect(resumen.alertas.some((issue) => issue.code === 'CUOTA_INVALIDA')).toBe(!validQuota)
         }
       ),
       { numRuns: 100 }

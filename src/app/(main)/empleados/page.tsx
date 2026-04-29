@@ -1,7 +1,7 @@
-export const runtime = 'edge';
 import { requerirPuestosActivos } from '@/lib/auth/session'
-import { createServiceClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { EmpleadosPanel } from '@/features/empleados/components/EmpleadosPanel'
+import { resolveEmpleadosInitialTab } from '@/features/empleados/lib/empleadosTabs'
 import { obtenerPanelEmpleados } from '@/features/empleados/services/empleadoService'
 
 export const metadata = {
@@ -18,11 +18,19 @@ function pickString(value: string | string[] | undefined) {
 
 export default async function EmpleadosPage({ searchParams }: EmpleadosPageProps) {
   const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR'])
-  const supabase = createServiceClient()
-  const data = await obtenerPanelEmpleados(supabase, {
-    actor,
+  const serviceSupabase = createServiceClient()
+  let data = await obtenerPanelEmpleados(actor, {
     emitCoverageSideEffects: actor.puesto === 'RECLUTAMIENTO' || actor.puesto === 'ADMINISTRADOR',
-  })
+  }, serviceSupabase)
+
+  const infraError = String(data.mensajeInfraestructura ?? '')
+  if (!data.infraestructuraLista && /invalid api key/i.test(infraError)) {
+    const readSupabase = await createClient({ bypassTenantScope: false })
+    data = await obtenerPanelEmpleados(actor, {
+      emitCoverageSideEffects: false,
+    }, readSupabase)
+  }
+
   const params = (await searchParams) ?? {}
   const initialFilters = {
     search: pickString(params.search) ?? '',
@@ -32,9 +40,14 @@ export default async function EmpleadosPage({ searchParams }: EmpleadosPageProps
     imss: pickString(params.imss) ?? 'ALL',
     inbox: pickString(params.inbox) ?? 'ALL',
   }
+  const initialTab = resolveEmpleadosInitialTab(actor.puesto, params.tab)
 
   const roleLabel =
-    actor.puesto === 'ADMINISTRADOR' ? 'ISDIN' : 'Reclutamiento'
+    actor.puesto === 'ADMINISTRADOR'
+      ? 'ISDIN'
+      : actor.puesto === 'COORDINADOR'
+        ? 'Coordinacion'
+        : 'Reclutamiento'
 
   return (
     <div className="page-shell max-w-7xl">
@@ -58,8 +71,12 @@ export default async function EmpleadosPage({ searchParams }: EmpleadosPageProps
         </div>
       </header>
 
-      <EmpleadosPanel data={data} actorPuesto={actor.puesto} initialFilters={initialFilters} />
+      <EmpleadosPanel
+        actor={actor}
+        data={data}
+        initialFilters={initialFilters}
+        initialTab={initialTab}
+      />
     </div>
   )
 }
-

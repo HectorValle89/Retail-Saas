@@ -1,12 +1,15 @@
 'use client'
 
-import { useActionState, type ReactNode } from 'react'
+import { useActionState, useCallback, useMemo, type ReactNode } from 'react'
 import { useFormStatus } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { Select } from '@/components/ui/select'
+import type { ActorActual } from '@/lib/auth/session'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import {
   guardarFlujoAprobacion,
   guardarReglaHorario,
@@ -153,7 +156,39 @@ function RuleCard({
   )
 }
 
-export function ReglasPanel({ data }: { data: ReglasPanelData }) {
+export function ReglasPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: ReglasPanelData
+}) {
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    const response = await fetch('/api/reglas/panel', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    })
+    const payload = (await response.json()) as { data?: ReglasPanelData; message?: string }
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de reglas.')
+    }
+
+    return payload.data
+  }, [])
+
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'reglas',
+    surfaces: ['panel', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 650,
+  })
+
   const inventoryOperativeCodes = new Set<string>([
     SUPERVISOR_INHERITANCE_RULE_CODE,
     SCHEDULE_PRIORITY_RULE_CODE,

@@ -1,7 +1,8 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { requerirActorActivo } from '@/lib/auth/session'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
 import {
   buildOperationalDocumentUploadLimitMessage,
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES,
@@ -637,11 +638,63 @@ async function notifySuspiciousVisitTask(
   }
 }
 
-function revalidateCampaignPaths() {
-  revalidatePath('/campanas')
-  revalidatePath('/dashboard')
-  revalidatePath('/reportes')
-  revalidatePath('/mensajes')
+async function publishCampanaUiChanges(
+  actor: Awaited<ReturnType<typeof requerirActorActivo>>,
+  service: ReturnType<typeof createServiceClient>,
+  {
+    cuentaClienteId,
+    empleadoId,
+    supervisorEmpleadoId,
+    campanaId,
+    campanaPdvId,
+    eventType,
+  }: {
+    cuentaClienteId: string | null | undefined
+    empleadoId?: string | null
+    supervisorEmpleadoId?: string | null
+    campanaId?: string | null
+    campanaPdvId?: string | null
+    eventType: string
+  }
+) {
+  const scopes = [
+    buildUiChangeScope('global'),
+    buildUiChangeScope('cuenta', cuentaClienteId ?? actor.cuentaClienteId),
+    buildUiChangeScope('empleado', empleadoId ?? actor.empleadoId),
+    buildUiChangeScope('supervisor', supervisorEmpleadoId),
+  ]
+
+  const targets = [
+    ...buildUiChangeTargetsFromBusinessEvent({
+      eventType,
+      modules: ['campanas'],
+      surfaces: ['all'],
+      scopes,
+      cuentaClienteId: cuentaClienteId ?? actor.cuentaClienteId ?? null,
+      empleadoId: empleadoId ?? actor.empleadoId,
+      supervisorEmpleadoId: supervisorEmpleadoId ?? null,
+      roleTargets: ['ADMINISTRADOR', 'VENTAS', 'SUPERVISOR', 'COORDINADOR', 'LOGISTICA', 'DERMOCONSEJERO', 'CLIENTE'],
+      metadata: {
+        campanaId: campanaId ?? null,
+        campanaPdvId: campanaPdvId ?? null,
+      },
+    }),
+    ...buildUiChangeTargetsFromBusinessEvent({
+      eventType,
+      modules: ['dashboard', 'reportes', 'mensajes'],
+      surfaces: ['all'],
+      scopes,
+      cuentaClienteId: cuentaClienteId ?? actor.cuentaClienteId ?? null,
+      empleadoId: empleadoId ?? actor.empleadoId,
+      supervisorEmpleadoId: supervisorEmpleadoId ?? null,
+      metadata: {
+        campanaId: campanaId ?? null,
+        campanaPdvId: campanaPdvId ?? null,
+      },
+    }),
+  ]
+
+  await publishUiChanges(targets, { service })
 }
 
 async function notifyCampaignPublication(
@@ -953,7 +1006,11 @@ export async function publicarCampana(
       },
     })
 
-    revalidateCampaignPaths()
+    await publishCampanaUiChanges(actor, service, {
+      cuentaClienteId: campaign.cuenta_cliente_id,
+      campanaId: campaign.id,
+      eventType: 'campana_publicada',
+    })
 
     return buildState({
       ok: true,
@@ -1460,7 +1517,16 @@ export async function guardarCampana(
       },
     })
 
-    revalidateCampaignPaths()
+    await publishCampanaUiChanges(actor, service, {
+      cuentaClienteId: cuentaCliente.id,
+      campanaId: campaign.id,
+      eventType: campanaId ? 'campana_actualizada' : 'campana_creada',
+    })
+    await publishCampanaUiChanges(actor, service, {
+      cuentaClienteId: cuentaCliente.id,
+      campanaId: campanaId ?? null,
+      eventType: 'campana_actualizada',
+    })
 
     return buildState({
       ok: true,
@@ -1547,7 +1613,13 @@ export async function actualizarCumplimientoCampanaPdv(
       },
     })
 
-    revalidateCampaignPaths()
+    await publishCampanaUiChanges(actor, service, {
+      cuentaClienteId: row.cuenta_cliente_id,
+      campanaId: row.campana_id,
+      campanaPdvId: row.id,
+      eventType: 'campana_pdv_cumplimiento_actualizado',
+    })
+    // Published selectively above; no route-wide refresh needed.
 
     return buildState({
       ok: true,
@@ -2056,7 +2128,15 @@ export async function ejecutarTareasCampanaPdv(
       }
     }
 
-    revalidateCampaignPaths()
+    await publishCampanaUiChanges(actor, service, {
+      cuentaClienteId: row.cuenta_cliente_id,
+      empleadoId: actor.empleadoId,
+      supervisorEmpleadoId,
+      campanaId: row.campana_id,
+      campanaPdvId: row.id,
+      eventType: 'campana_pdv_tareas_ejecutadas',
+    })
+    // Published selectively above; no route-wide refresh needed.
 
     return buildState({
       ok: true,

@@ -52,6 +52,21 @@ function cellClassName(cell: AttendanceAdminDayCell) {
   return `flex h-10 w-12 items-center justify-center rounded-xl border text-[11px] font-semibold tracking-[0.04em] transition hover:shadow-sm ${tone}`
 }
 
+function buildEvidenceHref(item: AttendanceAdminDayDetail['evidencias'][number]) {
+  const params = new URLSearchParams()
+  params.set('kind', item.kind === 'JUSTIFICANTE' ? 'justificante' : item.kind === 'SELFIE_OUT' ? 'check-out-thumbnail' : 'check-in-thumbnail')
+
+  if (item.kind === 'JUSTIFICANTE') {
+    if (!item.requestId) return item.url
+    params.set('requestId', item.requestId)
+  } else {
+    if (!item.attendanceId) return item.url
+    params.set('attendanceId', item.attendanceId)
+  }
+
+  return `/api/asistencias/evidencia?${params.toString()}`
+}
+
 export function AsistenciasAdminPanel({ data }: { data: AttendanceAdminMonthData }) {
   const [selectedCell, setSelectedCell] = useState<{ empleadoId: string; nombre: string; fecha: string } | null>(null)
   const [detail, setDetail] = useState<AttendanceAdminDayDetail | null>(null)
@@ -245,7 +260,7 @@ export function AsistenciasAdminPanel({ data }: { data: AttendanceAdminMonthData
               ) : (
                 <div className="mt-3 flex flex-wrap gap-3">
                   {detail.evidencias.map((item) => (
-                    <a key={`${item.kind}-${item.url}`} href={item.url} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100">
+                    <a key={`${item.kind}-${item.url}`} href={buildEvidenceHref(item)} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100">
                       {item.label}
                     </a>
                   ))}

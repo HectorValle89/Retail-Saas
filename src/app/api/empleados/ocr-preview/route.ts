@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import { NextResponse } from 'next/server'
 import {
   buildOperationalDocumentUploadLimitMessage,
@@ -99,18 +98,11 @@ export async function POST(request: Request) {
     })
     const snapshot = buildEmpleadoOcrSnapshot(ocr.result)
     const recognizedFields = countRecognizedSnapshotFields(snapshot)
-    const resultMessage =
-      ocr.result.errorMessage ??
-      ocr.result.confidenceSummary ??
-      (recognizedFields > 0
-        ? `Gemini detecto ${recognizedFields} campo(s) utiles del curriculum.`
-        : 'Gemini no detecto campos utiles en el curriculum. Revisa calidad, orientacion o legibilidad del PDF.')
-
     if (recognizedFields === 0 && ocr.result.status !== 'ok') {
       return NextResponse.json(
         {
           ok: false,
-          message: resultMessage,
+          message: ocr.result.errorMessage ?? 'No fue posible analizar el curriculum.',
           ocrProvider: ocr.provider,
           snapshot,
           result: ocr.result,
@@ -122,7 +114,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      message: resultMessage,
       ocrProvider: ocr.provider,
       snapshot,
       result: ocr.result,
@@ -140,4 +131,3 @@ export async function POST(request: Request) {
     )
   }
 }
-

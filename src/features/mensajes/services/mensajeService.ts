@@ -1,5 +1,7 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
 import { createServiceClient } from '@/lib/supabase/server'
 import type {
   Empleado,
@@ -73,6 +75,7 @@ type UsuarioCreatorRow = Pick<UsuarioSistema, 'id' | 'empleado_id'>
 const MANAGER_ROLES = ['ADMINISTRADOR', 'COORDINADOR'] as const satisfies Puesto[]
 const READ_ROLES = [...MANAGER_ROLES, 'SUPERVISOR', 'DERMOCONSEJERO', 'LOVE_IS', 'VENTAS', 'NOMINA', 'LOGISTICA', 'RECLUTAMIENTO'] as const satisfies Puesto[]
 const AUDIENCE_ROLE_OPTIONS = ['RECLUTAMIENTO', 'NOMINA', 'LOGISTICA', 'LOVE_IS', 'VENTAS', 'SUPERVISOR', 'COORDINADOR', 'ADMINISTRADOR'] as const satisfies Puesto[]
+const MENSAJES_PANEL_REVALIDATE_SECONDS = 45
 
 function hasRole(roles: readonly Puesto[], puesto: Puesto) {
   return roles.includes(puesto)
@@ -259,6 +262,15 @@ export interface MensajesPanelData {
   zonas: MensajeAudienceOption[]
   supervisores: MensajeAudienceOption[]
   puestosDestino: MensajeAudienceOption[]
+}
+
+interface ObtenerPanelMensajesOptions {
+  scopeAccountId?: string | null
+  page?: number
+  pageSize?: number
+  direction?: string | null
+  tab?: string | null
+  serviceClient?: TypedSupabaseClient
 }
 
 const EMPTY_DATA: MensajesPanelData = {
@@ -815,14 +827,7 @@ async function buildSurveyAnalytics(
 
 export async function obtenerPanelMensajes(
   actor: ActorActual,
-  options?: {
-    scopeAccountId?: string | null
-    page?: number
-    pageSize?: number
-    direction?: string | null
-    tab?: string | null
-    serviceClient?: TypedSupabaseClient
-  }
+  options?: ObtenerPanelMensajesOptions
 ): Promise<MensajesPanelData> {
   if (!hasRole(READ_ROLES, actor.puesto)) {
     return {
@@ -893,4 +898,48 @@ export async function obtenerPanelMensajes(
     supervisores: audienceOptions.supervisores,
     puestosDestino: audienceOptions.puestosDestino,
   }
+}
+
+function buildMensajesCacheKey(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto' | 'usuarioId'>,
+  options: ObtenerPanelMensajesOptions = {}
+) {
+  return JSON.stringify({
+    cuentaClienteId: options.scopeAccountId ?? actor.cuentaClienteId ?? null,
+    empleadoId: actor.empleadoId,
+    usuarioId: actor.usuarioId,
+    puesto: actor.puesto,
+    page: Math.max(1, options.page ?? 1),
+    pageSize: Math.min(50, Math.max(10, options.pageSize ?? 20)),
+    direction: normalizeDirection(options.direction),
+    tab: normalizeTab(options.tab),
+  })
+}
+
+function buildMensajesCacheTags(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
+  scopeAccountId?: string | null
+) {
+  return buildModuleCacheTags({
+    module: 'mensajes',
+    accountId: scopeAccountId ?? actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+  })
+}
+
+export async function obtenerPanelMensajesCacheado(
+  actor: ActorActual,
+  options: ObtenerPanelMensajesOptions = {}
+) {
+  const cacheKey = buildMensajesCacheKey(actor, options)
+
+  return unstable_cache(
+    async () => obtenerPanelMensajes(actor, options),
+    ['mensajes:panel', cacheKey],
+    {
+      tags: buildMensajesCacheTags(actor, options.scopeAccountId),
+      revalidate: MENSAJES_PANEL_REVALIDATE_SECONDS,
+    }
+  )()
 }

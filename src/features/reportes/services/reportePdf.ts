@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
+import { rgb, type PDFFont, type PDFPage } from 'pdf-lib'
 import type { ReportExportPayload, ExportSectionKey } from './reporteExport'
 
 const PAGE_WIDTH = 841.89
@@ -210,6 +210,7 @@ function drawRow(page: PDFPage, row: Array<string | number | null>, widths: numb
 }
 
 export async function buildReportPdf(section: ExportSectionKey, periodo: string, payload: ReportExportPayload) {
+  const { PDFDocument, StandardFonts } = await import('pdf-lib')
   const pdf = await PDFDocument.create()
   const regularFont = await pdf.embedFont(StandardFonts.Helvetica)
   const boldFont = await pdf.embedFont(StandardFonts.HelveticaBold)
@@ -235,4 +236,3 @@ export async function buildReportPdf(section: ExportSectionKey, periodo: string,
 
   return pdf.save()
 }
-

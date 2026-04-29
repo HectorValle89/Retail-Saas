@@ -1,14 +1,22 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog'
 import { OfflineStatusCard } from '@/components/pwa/OfflineStatusCard'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { useOfflineSync } from '@/hooks/useOfflineSync'
-import { queueOfflineAsistencia } from '@/lib/offline/syncQueue'
+import {
+  getGeolocationPermissionRecoveryState,
+  type PermissionRecoveryState,
+} from '@/lib/device/permissionRecovery'
+import type { ActorActual } from '@/lib/auth/session'
+import { queueOfflineAsistencia, syncAsistenciaNow } from '@/lib/offline/syncQueue'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import {
   calcularDistanciaMetros,
   calcularHashArchivo,
@@ -18,6 +26,7 @@ import {
   type CapturedPosition,
   type SelfieCapture,
 } from '../lib/attendanceCapture'
+import { isReusableAttendanceDraftContext } from '../lib/attendanceDraftContext'
 import type { AsistenciasPanelData } from '../services/asistenciaService'
 import { selectAttendanceMission } from '../lib/attendanceMission'
 
@@ -28,9 +37,48 @@ function buildPageHref(data: AsistenciasPanelData, page: number) {
   return `/asistencias?${params.toString()}`
 }
 
-export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
+export function AsistenciasPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: AsistenciasPanelData
+}) {
   const offline = useOfflineSync()
-  const [contextId, setContextId] = useState(data.asistencias[0]?.id ?? '')
+  const searchParams = useSearchParams()
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    const params = new URLSearchParams()
+    params.set('page', searchParams.get('page') ?? String(initialData.paginacion.page))
+    params.set('pageSize', searchParams.get('pageSize') ?? String(initialData.paginacion.pageSize))
+
+    const response = await fetch(`/api/asistencias/panel?${params.toString()}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    })
+    const payload = (await response.json()) as { data?: AsistenciasPanelData; message?: string }
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de asistencias.')
+    }
+
+    return payload.data
+  }, [initialData.paginacion.page, initialData.paginacion.pageSize, searchParams])
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'asistencias',
+    surfaces: ['panel', 'tabla', 'metricas', 'inbox', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 650,
+  })
+  const reusableContexts = useMemo(
+    () => data.asistencias.filter(isReusableAttendanceDraftContext),
+    [data.asistencias]
+  )
+  const [contextId, setContextId] = useState('')
   const [fechaOperacion, setFechaOperacion] = useState(getLocalDateValue())
   const [horaCheckIn, setHoraCheckIn] = useState(getLocalTimeValue())
   const [estadoGps, setEstadoGps] = useState<
@@ -45,6 +93,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
   const [distancia, setDistancia] = useState('')
   const [justificacion, setJustificacion] = useState('')
   const [capturedPosition, setCapturedPosition] = useState<CapturedPosition | null>(null)
+  const [gpsRecoveryState, setGpsRecoveryState] = useState<PermissionRecoveryState | null>(null)
   const [selfieCapture, setSelfieCapture] = useState<SelfieCapture | null>(null)
   const [isLocating, setIsLocating] = useState(false)
   const [isReadingSelfie, setIsReadingSelfie] = useState(false)
@@ -56,6 +105,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
   >('PENDIENTE')
   const [checkoutJustificacion, setCheckoutJustificacion] = useState('')
   const [checkoutSelfieCapture, setCheckoutSelfieCapture] = useState<SelfieCapture | null>(null)
+  const [checkoutGpsRecoveryState, setCheckoutGpsRecoveryState] = useState<PermissionRecoveryState | null>(null)
   const [activeCameraFlow, setActiveCameraFlow] = useState<'check-in' | 'check-out' | null>(null)
   const [isCapturingCheckoutPosition, setIsCapturingCheckoutPosition] = useState(false)
   const [isReadingCheckoutSelfie, setIsReadingCheckoutSelfie] = useState(false)
@@ -65,7 +115,33 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
     message: string
   } | null>(null)
 
-  const selectedContext = data.asistencias.find((item) => item.id === contextId) ?? null
+  useEffect(() => {
+    if (reusableContexts.length === 0) {
+      if (contextId !== '') {
+        setContextId('')
+      }
+      return
+    }
+
+    const hasCurrentSelection = reusableContexts.some((item) => item.id === contextId)
+    if (!hasCurrentSelection) {
+      setContextId(reusableContexts[0]?.id ?? '')
+    }
+  }, [contextId, reusableContexts])
+
+  const buildSyncFallbackMessage = useCallback(
+    (entityLabel: 'check-in' | 'check-out', error: unknown) => {
+      const reason =
+        error instanceof Error && error.message.trim()
+          ? error.message.trim()
+          : 'No fue posible contactar al servidor.'
+
+      return `El ${entityLabel} no se sincronizo con el servidor. Motivo: ${reason}. Quedo guardado solo en este dispositivo y se reenviara cuando la app confirme conectividad real.`
+    },
+    []
+  )
+
+  const selectedContext = reusableContexts.find((item) => item.id === contextId) ?? null
   const tieneGeocerca =
     selectedContext?.geocercaLatitud !== null &&
     selectedContext?.geocercaLongitud !== null &&
@@ -93,6 +169,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
 
   useEffect(() => {
     setCapturedPosition(null)
+    setGpsRecoveryState(null)
     setSelfieCapture(null)
     setDistancia('')
     setJustificacion('')
@@ -100,6 +177,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
     setBiometriaEstado('PENDIENTE')
     setEstatus('PENDIENTE_VALIDACION')
     setCheckoutPosition(null)
+    setCheckoutGpsRecoveryState(null)
     setCheckoutEstadoGps('PENDIENTE')
     setCheckoutJustificacion('')
     setCheckoutSelfieCapture(null)
@@ -129,6 +207,18 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
         capturadaEn: capturedAt,
       })
       setEstadoGps('SIN_GPS')
+      setGpsRecoveryState({
+        kind: 'geolocation',
+        title: 'Activa tu GPS',
+        message:
+          'Este dispositivo o navegador no pudo usar tu ubicacion. Beteele volvera a pedir el permiso cuando toques reintentar.',
+        steps: [
+          'Activa ubicacion en el telefono o navegador.',
+          'Vuelve aqui y toca "Volver a pedir GPS".',
+        ],
+        retryLabel: 'Volver a pedir GPS',
+        requiresSettings: true,
+      })
       setEstatus('PENDIENTE_VALIDACION')
       setFeedback({
         tone: 'success',
@@ -184,6 +274,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
         capturadaEn: new Date().toISOString(),
       })
       setEstadoGps(siguienteEstadoGps)
+      setGpsRecoveryState(null)
       if (siguienteEstadoGps === 'DENTRO_GEOCERCA') {
         setJustificacion('')
       }
@@ -198,6 +289,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
       const message =
         error instanceof Error ? error.message : 'No fue posible capturar la ubicacion actual.'
       const capturedAt = new Date().toISOString()
+      const recoveryState = getGeolocationPermissionRecoveryState(error)
 
       setCapturedPosition({
         latitud: null,
@@ -208,10 +300,11 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
         capturadaEn: capturedAt,
       })
       setEstadoGps('SIN_GPS')
+      setGpsRecoveryState(recoveryState)
       setEstatus('PENDIENTE_VALIDACION')
       setFeedback({
         tone: 'success',
-        message: `${message} El check-in quedara en PENDIENTE_VALIDACION por falta de GPS.`,
+        message: `${recoveryState.message} El check-in quedara en PENDIENTE_VALIDACION por falta de GPS.`,
       })
     } finally {
       setIsLocating(false)
@@ -226,6 +319,17 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
 
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
       setFeedback({ tone: 'error', message: 'Este navegador no soporta geolocalizacion.' })
+      setCheckoutGpsRecoveryState({
+        kind: 'geolocation',
+        title: 'Activa tu GPS',
+        message: 'Este navegador no pudo usar tu ubicacion para cerrar la jornada.',
+        steps: [
+          'Activa ubicacion en el navegador o telefono.',
+          'Toca "Volver a pedir GPS" para intentar de nuevo.',
+        ],
+        retryLabel: 'Volver a pedir GPS',
+        requiresSettings: true,
+      })
       return
     }
 
@@ -272,6 +376,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
         capturadaEn: new Date().toISOString(),
       })
       setCheckoutEstadoGps(siguienteEstadoGps)
+      setCheckoutGpsRecoveryState(null)
       if (siguienteEstadoGps === 'DENTRO_GEOCERCA') {
         setCheckoutJustificacion('')
       }
@@ -283,10 +388,10 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
             : 'Ubicacion de salida capturada correctamente.',
       })
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'No fue posible capturar la ubicacion de salida.'
+      const recoveryState = getGeolocationPermissionRecoveryState(error)
 
-      setFeedback({ tone: 'error', message })
+      setCheckoutGpsRecoveryState(recoveryState)
+      setFeedback({ tone: 'error', message: recoveryState.message })
     } finally {
       setIsCapturingCheckoutPosition(false)
     }
@@ -456,9 +561,10 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
     setFeedback(null)
 
     try {
-      await queueOfflineAsistencia({
+      const resolvedCuentaClienteId = actor.cuentaClienteId ?? selectedContext.cuentaClienteId
+      const attendancePayload = {
         id: crypto.randomUUID(),
-        cuenta_cliente_id: selectedContext.cuentaClienteId,
+        cuenta_cliente_id: resolvedCuentaClienteId,
         asignacion_id: selectedContext.asignacionId,
         empleado_id: selectedContext.empleadoId,
         supervisor_empleado_id: selectedContext.supervisorEmpleadoId,
@@ -482,14 +588,20 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
         mision_dia_id: selectedContext.misionDiaId,
         mision_codigo: selectedContext.misionCodigo,
         mision_instruccion: selectedContext.misionInstruccion,
-        biometria_estado: selfieCapture ? 'PENDIENTE' : biometriaEstado,
+        biometria_estado: (selfieCapture
+          ? 'PENDIENTE'
+          : biometriaEstado) as 'PENDIENTE' | 'VALIDA' | 'RECHAZADA' | 'NO_EVALUADA',
         biometria_score: null,
         selfie_check_in_hash: selfieCapture?.hash ?? null,
         selfie_check_in_url: null,
         selfie_check_out_hash: null,
         selfie_check_out_url: null,
-        estatus,
-        origen: 'OFFLINE_SYNC',
+        estatus: estatus as
+          | 'PENDIENTE_VALIDACION'
+          | 'VALIDA'
+          | 'RECHAZADA'
+          | 'CERRADA',
+        origen: 'OFFLINE_SYNC' as const,
         offline_selfie_check_in: selfieCapture
           ? {
               file: selfieCapture.file,
@@ -524,18 +636,52 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
               }
             : null,
         },
-      })
-
-      if (offline.isOnline) {
-        await offline.syncNow()
       }
 
-      setFeedback({
-        tone: 'success',
-        message: offline.isOnline
-          ? 'Borrador en cola local. Se intento sincronizar de inmediato.'
-          : 'Borrador guardado localmente. Quedara pendiente hasta recuperar red.',
-      })
+      if (offline.isOnline) {
+        try {
+          await syncAsistenciaNow(attendancePayload)
+          setFeedback({
+            tone: 'success',
+            message: 'Check-in enviado correctamente y sincronizado con operacion.',
+          })
+          setDistancia('')
+          setJustificacion('')
+          setEstadoGps('PENDIENTE')
+          setBiometriaEstado('PENDIENTE')
+          setEstatus('PENDIENTE_VALIDACION')
+          setCapturedPosition(null)
+          setSelfieCapture(null)
+          setActiveCameraFlow(null)
+          await offline.refreshSummary()
+          return
+        } catch (error) {
+          await queueOfflineAsistencia(attendancePayload)
+          await offline.refreshSummary()
+          setFeedback({
+            tone: 'error',
+            message: buildSyncFallbackMessage('check-in', error),
+          })
+          setDistancia('')
+          setJustificacion('')
+          setEstadoGps('PENDIENTE')
+          setBiometriaEstado('PENDIENTE')
+          setEstatus('PENDIENTE_VALIDACION')
+          setCapturedPosition(null)
+          setSelfieCapture(null)
+          setActiveCameraFlow(null)
+          return
+        }
+      }
+
+      await queueOfflineAsistencia(attendancePayload)
+      await offline.refreshSummary()
+
+        setFeedback({
+          tone: 'success',
+          message:
+            'Borrador guardado solo en este dispositivo. La asistencia sigue pendiente hasta que se sincronice con el servidor.',
+        })
       setDistancia('')
       setJustificacion('')
       setEstadoGps('PENDIENTE')
@@ -594,9 +740,10 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
     setFeedback(null)
 
     try {
-      await queueOfflineAsistencia({
+      const resolvedCuentaClienteId = actor.cuentaClienteId ?? openAttendance.cuentaClienteId
+      const attendancePayload = {
         id: openAttendance.id,
-        cuenta_cliente_id: openAttendance.cuentaClienteId,
+        cuenta_cliente_id: resolvedCuentaClienteId,
         asignacion_id: openAttendance.asignacionId,
         empleado_id: openAttendance.empleadoId,
         supervisor_empleado_id: openAttendance.supervisorEmpleadoId,
@@ -613,11 +760,15 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
         distancia_check_out_metros:
           checkoutPosition.distanciaMetros !== null ? Math.round(checkoutPosition.distanciaMetros) : null,
         estado_gps: checkoutEstadoGps,
+        biometria_estado: (typeof openAttendance.biometriaEstado === 'string' &&
+        openAttendance.biometriaEstado.length > 0
+          ? openAttendance.biometriaEstado
+          : 'NO_EVALUADA') as 'PENDIENTE' | 'VALIDA' | 'RECHAZADA' | 'NO_EVALUADA',
         justificacion_fuera_geocerca: checkoutJustificacion.trim() || null,
         selfie_check_out_hash: checkoutSelfieCapture?.hash ?? null,
         selfie_check_out_url: null,
-        estatus: 'CERRADA',
-        origen: 'OFFLINE_SYNC',
+        estatus: 'CERRADA' as const,
+        origen: 'OFFLINE_SYNC' as const,
         offline_selfie_check_out: checkoutSelfieCapture
           ? {
               file: checkoutSelfieCapture.file,
@@ -653,20 +804,46 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
                   target_met: checkoutSelfieCapture.targetMet,
                 }
               : null,
-          },
+            },
         },
-      })
-
-      if (offline.isOnline) {
-        await offline.syncNow()
       }
 
-      setFeedback({
-        tone: 'success',
-        message: offline.isOnline
-          ? 'Check-out en cola local. Se intento sincronizar de inmediato.'
-          : 'Check-out guardado localmente. Se sincronizara cuando vuelva la conectividad.',
-      })
+      if (offline.isOnline) {
+        try {
+          await syncAsistenciaNow(attendancePayload)
+          setFeedback({
+            tone: 'success',
+            message: 'Check-out enviado correctamente y sincronizado con operacion.',
+          })
+          setCheckoutPosition(null)
+          setCheckoutEstadoGps('PENDIENTE')
+          setCheckoutJustificacion('')
+          setCheckoutSelfieCapture(null)
+          await offline.refreshSummary()
+          return
+        } catch (error) {
+          await queueOfflineAsistencia(attendancePayload)
+          await offline.refreshSummary()
+          setFeedback({
+            tone: 'error',
+            message: buildSyncFallbackMessage('check-out', error),
+          })
+          setCheckoutPosition(null)
+          setCheckoutEstadoGps('PENDIENTE')
+          setCheckoutJustificacion('')
+          setCheckoutSelfieCapture(null)
+          return
+        }
+      }
+
+      await queueOfflineAsistencia(attendancePayload)
+      await offline.refreshSummary()
+
+        setFeedback({
+          tone: 'success',
+          message:
+            'Check-out guardado solo en este dispositivo. La jornada seguira pendiente hasta sincronizarse con el servidor.',
+        })
       setCheckoutPosition(null)
       setCheckoutEstadoGps('PENDIENTE')
       setCheckoutJustificacion('')
@@ -711,6 +888,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
         description="La cámara frontal se abre en vivo para capturar la selfie operativa del check-in."
         onClose={() => setActiveCameraFlow(null)}
         onCapture={handleCaptureCheckInSelfie}
+        onRetryPermissions={handleCapturePosition}
       />
       <NativeCameraSelfieDialog
         open={activeCameraFlow === 'check-out'}
@@ -718,6 +896,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
         description="Captura la selfie de salida desde la cámara nativa antes de cerrar la jornada."
         onClose={() => setActiveCameraFlow(null)}
         onCapture={handleCaptureCheckOutSelfie}
+        onRetryPermissions={handleCheckoutPosition}
       />
 
       <Card className="border-slate-200 bg-white">
@@ -809,13 +988,13 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
             </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            Plantillas recientes: <span className="font-semibold text-slate-950">{data.asistencias.length}</span>
+            Contextos activos: <span className="font-semibold text-slate-950">{reusableContexts.length}</span>
           </div>
         </div>
 
-        {data.asistencias.length === 0 ? (
+        {reusableContexts.length === 0 ? (
           <p className="mt-6 text-sm text-amber-700">
-            Aun no hay asistencias recientes para tomar como contexto base.
+            Aun no hay un contexto activo disponible para capturar. Los expedientes cerrados viven en Base operativa.
           </p>
         ) : (
           <form className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={handleQueueDraft}>
@@ -826,7 +1005,7 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
                 value={contextId}
                 onChange={(event) => setContextId(event.target.value)}
               >
-                {data.asistencias.map((asistencia) => (
+                {reusableContexts.map((asistencia) => (
                   <option key={asistencia.id} value={asistencia.id}>
                     {asistencia.empleado} - {asistencia.pdvClaveBtl} - {asistencia.fechaOperacion}
                   </option>
@@ -935,6 +1114,27 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
                   </Button>
                 )}
               </div>
+              {gpsRecoveryState && estadoGps === 'SIN_GPS' ? (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950">
+                  <p className="font-semibold">{gpsRecoveryState.title}</p>
+                  <p className="mt-2 leading-6">{gpsRecoveryState.message}</p>
+                  <div className="mt-3 space-y-2 text-sm">
+                    {gpsRecoveryState.steps.map((step) => (
+                      <p key={step}>{step}</p>
+                    ))}
+                  </div>
+                  {gpsRecoveryState.requiresSettings ? (
+                    <p className="mt-3 text-xs text-amber-800">
+                      Si tu telefono ya bloqueo el permiso, primero debes activarlo en los ajustes del navegador o de la app.
+                    </p>
+                  ) : null}
+                  <div className="mt-4">
+                    <Button type="button" variant="outline" onClick={handleCapturePosition} isLoading={isLocating}>
+                      {gpsRecoveryState.retryLabel}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700 md:col-span-2 xl:col-span-2">
@@ -1139,6 +1339,32 @@ export function AsistenciasPanel({ data }: { data: AsistenciasPanelData }) {
                   </Button>
                 )}
               </div>
+              {checkoutGpsRecoveryState && checkoutEstadoGps === 'SIN_GPS' ? (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950">
+                  <p className="font-semibold">{checkoutGpsRecoveryState.title}</p>
+                  <p className="mt-2 leading-6">{checkoutGpsRecoveryState.message}</p>
+                  <div className="mt-3 space-y-2 text-sm">
+                    {checkoutGpsRecoveryState.steps.map((step) => (
+                      <p key={step}>{step}</p>
+                    ))}
+                  </div>
+                  {checkoutGpsRecoveryState.requiresSettings ? (
+                    <p className="mt-3 text-xs text-amber-800">
+                      Si el navegador ya dejo el GPS bloqueado, primero activalo en ajustes y luego vuelve aqui para reintentarlo.
+                    </p>
+                  ) : null}
+                  <div className="mt-4">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleCheckoutPosition}
+                      isLoading={isCapturingCheckoutPosition}
+                    >
+                      {checkoutGpsRecoveryState.retryLabel}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <label className="block text-sm text-slate-600">

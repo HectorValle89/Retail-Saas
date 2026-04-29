@@ -1,4 +1,8 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
 import {
   PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
   PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY,
@@ -10,6 +14,7 @@ import {
   probePdfCompressionProvider,
 } from '@/lib/files/pdfCompressionConfig'
 import { resolveConfiguredOcrConfiguration } from '@/lib/ocr/gemini'
+import { createServiceClient } from '@/lib/supabase/server'
 import type {
   ConfiguracionSistema,
   Database,
@@ -30,6 +35,8 @@ import {
   type EditableConfigKind,
   type TurnoCatalogoItem,
 } from '../configuracionCatalog'
+const CONFIGURACION_PANEL_REVALIDATE_SECONDS = 60
+const CONFIGURACION_PDF_COMPRESSION_REVALIDATE_SECONDS = 300
 
 export interface ConfiguracionResumen {
   productosActivos: number
@@ -342,16 +349,67 @@ function mapConfigTextValue(value: unknown) {
   return normalized || null
 }
 
-export async function obtenerPanelConfiguracion(
+function buildPdfCompressionCacheKey(configRows: ConfiguracionSistema[]) {
+  return JSON.stringify({
+    provider: configRows.find((item) => item.clave === PDF_COMPRESSION_PROVIDER_CONFIG_KEY)?.valor ?? null,
+    baseUrl:
+      configRows.find((item) => item.clave === PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY)?.valor ??
+      null,
+    optimizeLevel:
+      configRows.find((item) => item.clave === PDF_COMPRESSION_STIRLING_OPTIMIZE_LEVEL_CONFIG_KEY)?.valor ??
+      null,
+    imageQuality:
+      configRows.find((item) => item.clave === PDF_COMPRESSION_STIRLING_IMAGE_QUALITY_CONFIG_KEY)?.valor ??
+      null,
+    imageDpi:
+      configRows.find((item) => item.clave === PDF_COMPRESSION_STIRLING_IMAGE_DPI_CONFIG_KEY)?.valor ??
+      null,
+    fastWebView:
+      configRows.find((item) => item.clave === PDF_COMPRESSION_STIRLING_FAST_WEB_VIEW_CONFIG_KEY)?.valor ??
+      null,
+    envProvider: process.env.PDF_COMPRESSION_PROVIDER ?? null,
+    envBaseUrl: process.env.STIRLING_PDF_BASE_URL ?? null,
+    envApiKey: process.env.STIRLING_PDF_API_KEY ? 'set' : null,
+    envOptimizeLevel: process.env.STIRLING_PDF_OPTIMIZE_LEVEL ?? null,
+    envImageQuality: process.env.STIRLING_PDF_IMAGE_QUALITY ?? null,
+    envImageDpi: process.env.STIRLING_PDF_IMAGE_DPI ?? null,
+    envFastWebView: process.env.STIRLING_PDF_FAST_WEB_VIEW ?? null,
+  })
+}
+
+async function getCachedPdfCompressionConfigItem(configRows: ConfiguracionSistema[]) {
+  const cacheKey = buildPdfCompressionCacheKey(configRows)
+
+  return unstable_cache(
+    () => buildPdfCompressionConfigItem(configRows),
+    ['configuracion:pdf-compression', cacheKey],
+    {
+      revalidate: CONFIGURACION_PDF_COMPRESSION_REVALIDATE_SECONDS,
+    }
+  )()
+}
+
+function buildConfiguracionCacheKey(actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>) {
+  return JSON.stringify({
+    cuentaClienteId: actor.cuentaClienteId ?? null,
+    empleadoId: actor.empleadoId,
+    puesto: actor.puesto,
+  })
+}
+
+function buildConfiguracionCacheTags(actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>) {
+  return buildModuleCacheTags({
+    module: 'configuracion',
+    accountId: actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+  })
+}
+
+async function obtenerPanelConfiguracionUncached(
   supabase: SupabaseClient
 ): Promise<ConfiguracionPanelData> {
-  const [
-    configuracionResult,
-    productosResult,
-    cadenasResult,
-    ciudadesResult,
-    misionesResult,
-  ] = await Promise.all([
+  const [configuracionResult, productosResult, cadenasResult, misionesResult] = await Promise.all([
     supabase
       .from('configuracion')
       .select('id, clave, valor, descripcion, modulo')
@@ -366,15 +424,16 @@ export async function obtenerPanelConfiguracion(
       .select('id, codigo, nombre, factor_cuota_default, activa')
       .order('nombre', { ascending: true }),
     supabase
-      .from('ciudad')
-      .select('id, nombre, zona, estado, activa')
-      .order('nombre', { ascending: true }),
-    supabase
       .from('mision_dia')
       .select('id, codigo, instruccion, orden, peso, activa')
       .order('orden', { ascending: true })
       .order('instruccion', { ascending: true }),
   ])
+
+  const ciudadesResult = await supabase
+    .from('ciudad')
+    .select('id, nombre, zona, activa')
+    .order('nombre', { ascending: true })
 
   const infraestructuraErrors = [
     configuracionResult.error,
@@ -404,11 +463,12 @@ export async function obtenerPanelConfiguracion(
     factorCuotaDefault: item.factor_cuota_default,
     activa: item.activa,
   }))
-  const ciudades = ((ciudadesResult.data ?? []) as CiudadRow[]).map((item) => ({
+  const ciudadesSource = (ciudadesResult.data ?? []) as CiudadRow[]
+  const ciudades = ciudadesSource.map((item) => ({
     id: item.id,
     nombre: item.nombre,
     zona: item.zona,
-    estado: item.estado,
+    estado: resolveMexicoStateFromCity(item.nombre ?? null),
     activa: item.activa,
   }))
   const misiones = ((misionesResult.data ?? []) as MisionDia[]).map((item) => ({
@@ -430,7 +490,7 @@ export async function obtenerPanelConfiguracion(
   const parametrosNomina = PAYROLL_PARAMETER_DEFINITIONS.map((definition) =>
     buildParametroEditable(definition, configuracionMap.get(definition.key) ?? null)
   )
-  const pdfCompression = await buildPdfCompressionConfigItem(configuracionRows)
+  const pdfCompression = await getCachedPdfCompressionConfigItem(configuracionRows)
 
   return {
     resumen: {
@@ -461,3 +521,25 @@ export async function obtenerPanelConfiguracion(
   }
 }
 
+export async function obtenerPanelConfiguracion(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
+  customSupabase?: SupabaseClient
+): Promise<ConfiguracionPanelData> {
+  if (customSupabase) {
+    return obtenerPanelConfiguracionUncached(customSupabase)
+  }
+
+  const cacheKey = buildConfiguracionCacheKey(actor)
+
+  return unstable_cache(
+    async () => {
+      const service = createServiceClient() as unknown as SupabaseClient
+      return obtenerPanelConfiguracionUncached(service)
+    },
+    ['configuracion:panel', cacheKey],
+    {
+      tags: buildConfiguracionCacheTags(actor),
+      revalidate: CONFIGURACION_PANEL_REVALIDATE_SECONDS,
+    }
+  )()
+}

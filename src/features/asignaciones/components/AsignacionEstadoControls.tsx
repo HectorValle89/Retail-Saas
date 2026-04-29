@@ -1,6 +1,7 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useFormStatus } from 'react-dom'
 import { actualizarEstadoPublicacionAsignacion } from '../actions'
 import { ESTADO_ASIGNACION_INICIAL } from '../state'
@@ -26,6 +27,20 @@ export function AsignacionEstadoControls({
     actualizarEstadoPublicacionAsignacion,
     ESTADO_ASIGNACION_INICIAL
   )
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!state.ok) {
+      return
+    }
+
+    if (state.redirectTo) {
+      router.replace(state.redirectTo)
+      return
+    }
+
+    router.refresh()
+  }, [router, state.ok, state.redirectTo])
 
   if (!puedeGestionar) {
     return <p className="text-xs text-slate-400">Solo lectura</p>

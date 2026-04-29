@@ -35,7 +35,7 @@ export function ForgotPasswordForm() {
         </div>
         <p className="font-medium text-success-700">Revisa tu correo electronico</p>
         <p className="mt-1 text-sm text-success-600">
-          Te enviamos un enlace para restablecer tu contrasena.
+          Si tu cuenta ya esta activa, te enviamos un enlace temporal para restablecer tu contrasena.
         </p>
       </div>
     )
@@ -49,7 +49,7 @@ export function ForgotPasswordForm() {
         type="email"
         label="Correo corporativo"
         placeholder="nombre@empresa.com"
-        hint="Te enviaremos un enlace para restablecer tu contrasena"
+        hint="Solo funciona para cuentas activas con correo ya verificado"
         required
       />
 

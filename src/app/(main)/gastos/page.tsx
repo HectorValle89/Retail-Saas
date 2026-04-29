@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import { createClient } from '@/lib/supabase/server'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { GastosPanel } from '@/features/gastos/components/GastosPanel'
@@ -9,9 +8,9 @@ export const metadata = {
 }
 
 export default async function GastosPage() {
-  await requerirPuestosActivos(['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'LOGISTICA'])
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'SUPERVISOR', 'COORDINADOR', 'LOGISTICA'])
   const supabase = await createClient()
-  const data = await obtenerPanelGastos(supabase)
+  const data = await obtenerPanelGastos(actor, { serviceClient: supabase })
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -25,8 +24,7 @@ export default async function GastosPage() {
         </p>
       </header>
 
-      <GastosPanel data={data} />
+      <GastosPanel actor={actor} data={data} />
     </div>
   )
 }
-

@@ -1,0 +1,2266 @@
+﻿
+[1m[46m RUN [49m[22m [36mv4.1.0 [39m[90mD:/IA/Retail[39m
+
+ [31mÔØ»[39m src/lib/pwa/serviceWorkerStrategies.test.ts [2m([22m[2m5 tests[22m[2m | [22m[31m4 failed[39m[2m)[22m[32m 30[2mms[22m[39m
+[31m     [31m├ù[31m uses cache-first for static assets and thumbnails[39m[32m 11[2mms[22m[39m
+[31m     [31m├ù[31m uses stale-while-revalidate for catalogs with one-hour ttl[39m[32m 7[2mms[22m[39m
+[31m     [31m├ù[31m uses network-first for navigations and operational data with offline fallback[39m[32m 7[2mms[22m[39m
+     [32mÔ£ô[39m keeps sensitive modules and heavy documents out of persistent cache[32m 1[2mms[22m[39m
+[31m     [31m├ù[31m versions caches and coordinates foreground sync confirmations from the service worker when background sync fires[39m[32m 4[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/pwa/serviceWorkerRuntime.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+ [31mÔØ»[39m src/lib/audit/integrity.test.ts [2m([22m[2m3 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[32m 82[2mms[22m[39m
+[31m     [31m├ù[31m stable serialization round-trips JSON payloads deterministically[39m[32m 19[2mms[22m[39m
+[31m     [31m├ù[31m hashes are invariant to key order[39m[32m 12[2mms[22m[39m
+     [32mÔ£ô[39m detects tampering in persisted payloads[32m 49[2mms[22m[39m
+ [31mÔØ»[39m src/lib/files/evidenceStorage.test.ts [2m([22m[2m3 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 17[2mms[22m[39m
+     [32mÔ£ô[39m genera el mismo hash para el mismo contenido[32m 6[2mms[22m[39m
+     [32mÔ£ô[39m genera hashes distintos para contenidos distintos[32m 2[2mms[22m[39m
+[31m     [31m├ù[31m no realiza segundo upload cuando el hash ya existe[39m[32m 7[2mms[22m[39m
+ [31mÔØ»[39m src/features/asignaciones/lib/pdvRotationLegacyWorkbook.test.ts [2m([22m[2m1 test[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 42[2mms[22m[39m
+[31m   [31m├ù[31m convierte archivo legacy a rotacion oficial con grupos naturales y parejas manuales[39m[32m 41[2mms[22m[39m
+ [31mÔØ»[39m src/lib/biometrics/attendanceBiometrics.test.ts [2m([22m[2m2 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 48[2mms[22m[39m
+[31m     [31m├ù[31m mantiene un score alto para variantes cercanas de la misma referencia[39m[32m 31[2mms[22m[39m
+     [32mÔ£ô[39m reduce el score cuando la imagen es materialmente distinta[32m 15[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/notifications/transactionalEmail.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 351[2mms[22m[39m
+     [33m[2mÔ£ô[22m[39m deshabilita el canal si la bandera global esta apagada [33m 342[2mms[22m[39m
+ [32mÔ£ô[39m src/features/nomina/lib/payrollMath.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 110[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/tenant/accountScope.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 71[2mms[22m[39m
+ [31mÔØ»[39m src/features/nomina/nominaReceiptService.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31mÔØ»[39m src/features/asignaciones/services/asignacionMaterializationService.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31mÔØ»[39m src/features/asistencias/services/attendanceAdminService.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31mÔØ»[39m src/features/reportes/services/reporteExport.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32mÔ£ô[39m src/lib/offline/syncQueue.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 62[2mms[22m[39m
+ [31mÔØ»[39m src/features/materiales/services/materialService.preview.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31mÔØ»[39m src/features/campanas/services/campanaService.overview.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32mÔ£ô[39m src/features/reportes/services/reportePdf.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 61[2mms[22m[39m
+ [32mÔ£ô[39m src/features/love-isdin/lib/loveQrImport.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+ [31mÔØ»[39m src/features/nomina/actions.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31mÔØ»[39m src/hooks/useOfflineSync.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32mÔ£ô[39m src/features/asignaciones/lib/assignmentCatalogImport.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 48[2mms[22m[39m
+ [32mÔ£ô[39m src/features/asignaciones/lib/assignmentValidation.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 50[2mms[22m[39m
+ [31mÔØ»[39m src/features/solicitudes/actions.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [31mÔØ»[39m src/features/nomina/nominaFlow.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32mÔ£ô[39m src/features/usuarios/actions.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 40[2mms[22m[39m
+ [32mÔ£ô[39m src/features/asistencias/lib/asistenciaRules.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [31mÔØ»[39m src/features/asistencias/lib/attendanceDiscipline.test.ts [2m([22m[2m1 test[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 38[2mms[22m[39m
+[31m     [31m├ù[31m detects tardies, justified absences and administrative absences[39m[32m 36[2mms[22m[39m
+ [31mÔØ»[39m src/features/solicitudes/extemporaneoActions.test.ts [2m([22m[2m3 tests[22m[2m | [22m[31m3 failed[39m[2m)[22m[32m 80[2mms[22m[39m
+[31m     [31m├ù[31m registra un registro extemporaneo pendiente de aprobacion[39m[32m 74[2mms[22m[39m
+[31m     [31m├ù[31m aprueba un registro extemporaneo y consolida la venta[39m[32m 2[2mms[22m[39m
+[31m     [31m├ù[31m registra carrito extemporaneo de ventas y consolida multiples registros al aprobar[39m[32m 2[2mms[22m[39m
+ [31mÔØ»[39m src/features/gastos/actions.test.ts [2m([22m[2m0 test[22m[2m)[22m
+ [32mÔ£ô[39m src/actions/auth.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 65[2mms[22m[39m
+ [32mÔ£ô[39m src/features/materiales/lib/materialDistributionImport.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 39[2mms[22m[39m
+ [32mÔ£ô[39m src/features/asignaciones/lib/pdvRotationCatalogImport.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 31[2mms[22m[39m
+ [32mÔ£ô[39m src/features/rutas/lib/weeklyRoute.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32mÔ£ô[39m src/features/rutas/services/rutaAgendaService.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32mÔ£ô[39m src/features/configuracion/lib/productCatalogImport.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 40[2mms[22m[39m
+ [32mÔ£ô[39m src/features/campanas/lib/campaignProgress.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32mÔ£ô[39m src/features/asignaciones/lib/assignmentEngine.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32mÔ£ô[39m src/features/rutas/services/rutaSemanalPdvLookup.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 27[2mms[22m[39m
+ [31mÔØ»[39m src/features/materiales/actions.test.ts [2m([22m[2m5 tests[22m[2m | [22m[31m4 failed[39m[2m)[22m[32m 41[2mms[22m[39m
+[31m     [31m├ù[31m guarda el catalogo promocional por cuenta[39m[32m 33[2mms[22m[39m
+     [32mÔ£ô[39m bloquea entrega promocional cuando excede el saldo disponible[32m 2[2mms[22m[39m
+[31m     [31m├ù[31m registra la entrega promocional y descuenta el saldo[39m[32m 2[2mms[22m[39m
+[31m     [31m├ù[31m acepta ticket sellado por camara cuando el material lo requiere[39m[32m 2[2mms[22m[39m
+[31m     [31m├ù[31m descarta el preview efimero del usuario actual[39m[32m 1[2mms[22m[39m
+ [32mÔ£ô[39m src/features/empleados/services/bajaAsignacionImpactService.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32mÔ£ô[39m src/app/api/asistencias/sync/assignmentPersistence.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32mÔ£ô[39m src/features/asistencias/lib/geofencePushAlert.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m src/features/asistencias/lib/attendanceMission.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32mÔ£ô[39m src/features/asignaciones/lib/assignmentWeeklyScheduleImport.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32mÔ£ô[39m src/features/mensajes/lib/messageSurveyImport.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/offline/offlineAttendanceFlow.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 38[2mms[22m[39m
+ [32mÔ£ô[39m src/features/rutas/lib/supervisorVisitChecklist.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32mÔ£ô[39m src/app/api/reportes/visitas-supervisores/evidencia/route.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32mÔ£ô[39m src/app/api/auth/confirm/route.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32mÔ£ô[39m src/features/campanas/lib/campaignRotationImpact.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32mÔ£ô[39m src/features/rutas/services/rutaSemanalService.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+ [32mÔ£ô[39m src/features/materiales/lib/materialDistributionTemplate.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 29[2mms[22m[39m
+ [32mÔ£ô[39m src/features/asignaciones/lib/assignmentRotationValidation.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/notifications/workflows/workflowCatalog.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m src/features/reportes/services/reporteVisitasSupervisoresService.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/notifications/workflows/rutaSemanalEmail.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/supabase/authClientErrors.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m src/features/empleados/lib/recruitingPipeline.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m src/app/api/asistencias/sync/attendanceSyncErrors.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32mÔ£ô[39m src/features/empleados/lib/workflowInbox.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/storage/r2Service.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m src/features/mensajes/actions.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 31[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/ui/bodyScrollLock.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32mÔ£ô[39m src/features/dashboard/lib/supervisorNotifications.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32mÔ£ô[39m src/app/logout/redirect.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/notifications/workflows/workflowFanout.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/cache/moduleTags.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m src/features/rutas/lib/routeWorkspace.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m src/features/reportes/services/reporteScheduleService.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m src/features/reportes/services/reporteVisitasOperativasService.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32mÔ£ô[39m src/features/asistencias/lib/attendanceDraftContext.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/runtime/chunkRecovery.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32mÔ£ô[39m src/features/empleados/lib/recruitmentNotifications.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32mÔ£ô[39m src/lib/auth/flowRouting.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32mÔ£ô[39m src/features/empleados/lib/onboardingRules.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32mÔ£ô[39m src/features/empleados/lib/empleadosTabs.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32mÔ£ô[39m src/features/dashboard/services/dashboardService.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [31mÔØ»[39m src/lib/files/documentOptimization.test.ts [2m([22m[2m6 tests[22m[2m | [22m[31m4 failed[39m[2m)[22m[33m 2361[2mms[22m[39m
+[31m     [31m├ù[31m genera una imagen oficial optimizada y su miniatura ligera[39m[33m 794[2mms[22m[39m
+[31m     [31m├ù[31m mantiene el output y la miniatura dentro de los limites para entradas SVG variadas[39m[33m 914[2mms[22m[39m
+[31m     [31m├ù[31m expone compressImage(file, maxKB) con target configurable[39m[33m 304[2mms[22m[39m
+[31m     [31m├ù[31m expone generateThumbnail(file, maxKB) con salida ligera[39m[33m 346[2mms[22m[39m
+     [32mÔ£ô[39m expone compressPDF(file, maxKB) preservando contrato PDF[32m 1[2mms[22m[39m
+     [32mÔ£ô[39m deja pasar el PDF sin compresion aunque exista provider externo configurado[32m 0[2mms[22m[39m
+node.exe : 
+En línea: 1 Carácter: 1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[31mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[39m[1m[41m Failed Suites 11 [49m[22m[31mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[39m
+
+[41m[1m FAIL [22m[49m src/hooks/useOfflineSync.test.ts[2m [ src/hooks/useOfflineSync.test.ts ][22m
+[41m[1m FAIL [22m[49m src/features/gastos/actions.test.ts[2m [ src/features/gastos/actions.test.ts ][22m
+[41m[1m FAIL [22m[49m src/features/nomina/actions.test.ts[2m [ src/features/nomina/actions.test.ts ][22m
+[41m[1m FAIL [22m[49m src/features/nomina/nominaReceiptService.test.ts[2m [ 
+src/features/nomina/nominaReceiptService.test.ts ][22m
+[41m[1m FAIL [22m[49m src/features/asignaciones/services/asignacionMaterializationService.test.ts[2m [ 
+src/features/asignaciones/services/asignacionMaterializationService.test.ts ][22m
+[41m[1m FAIL [22m[49m src/features/asistencias/services/attendanceAdminService.test.ts[2m [ 
+src/features/asistencias/services/attendanceAdminService.test.ts ][22m
+[41m[1m FAIL [22m[49m src/features/campanas/services/campanaService.overview.test.ts[2m [ 
+src/features/campanas/services/campanaService.overview.test.ts ][22m
+[41m[1m FAIL [22m[49m src/features/materiales/services/materialService.preview.test.ts[2m [ 
+src/features/materiales/services/materialService.preview.test.ts ][22m
+[41m[1m FAIL [22m[49m src/features/reportes/services/reporteExport.test.ts[2m [ 
+src/features/reportes/services/reporteExport.test.ts ][22m
+[31m[1mError[22m: This module cannot be imported from a Client Component module. It should only be used from a 
+Server Component.[39m
+[90m [2mÔØ»[22m Object.<anonymous> node_modules/server-only/index.js:[2m1:7[22m[39m
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[1/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/features/nomina/nominaFlow.test.ts[2m [ src/features/nomina/nominaFlow.test.ts ][22m
+[31m[1mError[22m: [vitest] No "unstable_cache" export is defined on the "next/cache" mock. Did you forget to return 
+it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+[39m
+vi.mock(import("next/cache"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+[36m [2mÔØ»[22m src/features/asignaciones/services/asignacionMaterializationService.ts:[2m1429:48[22m[39m
+    [90m1427|[39m }
+    [90m1428|[39m
+    [90m1429|[39m [35mconst[39m fetchCachedMaterializedMonthlyCalendar [33m=[39m [34munstable_cache[39m(
+    [90m   |[39m                                                [31m^[39m
+    [90m1430|[39m   [35masync[39m (serializedFilters[33m:[39m string) [33m=>[39m {
+    [90m1431|[39m     const filters = JSON.parse(serializedFilters) as MaterializedMonthÔÇª
+[90m [2mÔØ»[22m src/features/reportes/services/reporteExport.ts:[2m3:1[22m[39m
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[2/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/features/solicitudes/actions.test.ts[2m [ src/features/solicitudes/actions.test.ts 
+][22m
+[31m[1mError[22m: [vitest] No "unstable_cache" export is defined on the "next/cache" mock. Did you forget to return 
+it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+[39m
+vi.mock(import("next/cache"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+[36m [2mÔØ»[22m src/features/asignaciones/services/asignacionMaterializationService.ts:[2m1429:48[22m[39m
+    [90m1427|[39m }
+    [90m1428|[39m
+    [90m1429|[39m [35mconst[39m fetchCachedMaterializedMonthlyCalendar [33m=[39m [34munstable_cache[39m(
+    [90m   |[39m                                                [31m^[39m
+    [90m1430|[39m   [35masync[39m (serializedFilters[33m:[39m string) [33m=>[39m {
+    [90m1431|[39m     const filters = JSON.parse(serializedFilters) as MaterializedMonthÔÇª
+[90m [2mÔØ»[22m src/features/solicitudes/actions.ts:[2m16:1[22m[39m
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[3/32]ÔÄ»[22m[39m
+
+
+[31mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[39m[1m[41m Failed Tests 21 [49m[22m[31mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[39m
+
+[41m[1m FAIL [22m[49m src/lib/audit/integrity.test.ts[2m > [22maudit integrity properties[2m > [22mstable 
+serialization round-trips JSON payloads deterministically
+[31m[1mError[22m: Property failed after 1 tests
+{ seed: 793371972, path: "0:0", endOnFailure: true }
+Counterexample: [[]]
+Shrunk 1 time(s)
+
+Hint: Enable verbose mode in order to have the list of all failing values encountered during the run[39m
+[90m [2mÔØ»[22m buildError node_modules/fast-check/lib/fast-check.js:[2m2434:16[22m[39m
+[90m [2mÔØ»[22m throwIfFailed node_modules/fast-check/lib/fast-check.js:[2m2441:8[22m[39m
+[90m [2mÔØ»[22m reportRunDetails node_modules/fast-check/lib/fast-check.js:[2m2457:14[22m[39m
+[90m [2mÔØ»[22m Module.assert node_modules/fast-check/lib/fast-check.js:[2m2514:7[22m[39m
+[36m [2mÔØ»[22m src/lib/audit/integrity.test.ts:[2m20:8[22m[39m
+    [90m 18|[39m [34mdescribe[39m([32m'audit integrity properties'[39m[33m,[39m () [33m=>[39m {
+    [90m 19|[39m   it('stable serialization round-trips JSON payloads deterministicallyÔÇª
+    [90m 20|[39m     fc[33m.[39m[34massert[39m(
+    [90m   |[39m        [31m^[39m
+    [90m 21|[39m       fc[33m.[39m[34mproperty[39m(fc[33m.[39m[34mjsonValue[39m()[33m,[39m (payload) 
+[33m=>[39m {
+    [90m 22|[39m         [35mconst[39m serialized [33m=[39m [34mstableSerialize[39m(payload)
+
+[31m[1mCaused by: AssertionError[22m: expected Promise{ÔÇª} to be Promise{ÔÇª} // Object.is equality
+
+If it should pass with deep equality, replace "toBe" with "toStrictEqual"
+
+Expected: Promise{ÔÇª}
+Received: serializes to the same string
+[39m
+
+[2mCompared values have no visual difference.[22m
+
+[36m [2mÔØ»[22m src/lib/audit/integrity.test.ts:[2m24:46[22m[39m
+[90m [2mÔØ»[22m Property.predicate node_modules/fast-check/lib/fast-check.js:[2m1329:99[22m[39m
+[90m [2mÔØ»[22m Property.run node_modules/fast-check/lib/fast-check.js:[2m1298:24[22m[39m
+[90m [2mÔØ»[22m runIt node_modules/fast-check/lib/fast-check.js:[2m2477:24[22m[39m
+[90m [2mÔØ»[22m check node_modules/fast-check/lib/fast-check.js:[2m2509:204[22m[39m
+[90m [2mÔØ»[22m Module.assert node_modules/fast-check/lib/fast-check.js:[2m2512:14[22m[39m
+[90m [2mÔØ»[22m src/lib/audit/integrity.test.ts:[2m20:8[22m[39m
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[4/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/lib/audit/integrity.test.ts[2m > [22maudit integrity properties[2m > [22mhashes are 
+invariant to key order
+[31m[1mError[22m: Property failed after 1 tests
+{ seed: 393094192, path: "0:0", endOnFailure: true }
+Counterexample: [{}]
+Shrunk 1 time(s)
+
+Hint: Enable verbose mode in order to have the list of all failing values encountered during the run[39m
+[90m [2mÔØ»[22m buildError node_modules/fast-check/lib/fast-check.js:[2m2434:16[22m[39m
+[90m [2mÔØ»[22m throwIfFailed node_modules/fast-check/lib/fast-check.js:[2m2441:8[22m[39m
+[90m [2mÔØ»[22m reportRunDetails node_modules/fast-check/lib/fast-check.js:[2m2457:14[22m[39m
+[90m [2mÔØ»[22m Module.assert node_modules/fast-check/lib/fast-check.js:[2m2514:7[22m[39m
+[36m [2mÔØ»[22m src/lib/audit/integrity.test.ts:[2m31:8[22m[39m
+    [90m 29|[39m
+    [90m 30|[39m   [34mit[39m([32m'hashes are invariant to key order'[39m[33m,[39m () [33m=>[39m {
+    [90m 31|[39m     fc[33m.[39m[34massert[39m(
+    [90m   |[39m        [31m^[39m
+    [90m 32|[39m       fc[33m.[39m[34mproperty[39m(fc[33m.[39m[34mjsonValue[39m()[33m,[39m (payload) 
+[33m=>[39m {
+    [90m 33|[39m         expect(calcularHashPayload(reorderKeys(payload))).toBe(calculaÔÇª
+
+[31m[1mCaused by: AssertionError[22m: expected Promise{ÔÇª} to be Promise{ÔÇª} // Object.is equality
+
+If it should pass with deep equality, replace "toBe" with "toStrictEqual"
+
+Expected: Promise{ÔÇª}
+Received: serializes to the same string
+[39m
+
+[2mCompared values have no visual difference.[22m
+
+[36m [2mÔØ»[22m src/lib/audit/integrity.test.ts:[2m33:59[22m[39m
+[90m [2mÔØ»[22m Property.predicate node_modules/fast-check/lib/fast-check.js:[2m1329:99[22m[39m
+[90m [2mÔØ»[22m Property.run node_modules/fast-check/lib/fast-check.js:[2m1298:24[22m[39m
+[90m [2mÔØ»[22m runIt node_modules/fast-check/lib/fast-check.js:[2m2477:24[22m[39m
+[90m [2mÔØ»[22m check node_modules/fast-check/lib/fast-check.js:[2m2509:204[22m[39m
+[90m [2mÔØ»[22m Module.assert node_modules/fast-check/lib/fast-check.js:[2m2512:14[22m[39m
+[90m [2mÔØ»[22m src/lib/audit/integrity.test.ts:[2m31:8[22m[39m
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[5/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/lib/biometrics/attendanceBiometrics.test.ts[2m > [22mattendance biometrics 
+comparator[2m > [22mmantiene un score alto para variantes cercanas de la misma referencia
+[31m[1mAssertionError[22m: expected 0.5 to be greater than 0.8[39m
+[36m [2mÔØ»[22m src/lib/biometrics/attendanceBiometrics.test.ts:[2m37:19[22m[39m
+    [90m 35|[39m     })
+    [90m 36|[39m
+    [90m 37|[39m     [34mexpect[39m(score)[33m.[39m[34mtoBeGreaterThan[39m([34m0.8[39m)
+    [90m   |[39m                   [31m^[39m
+    [90m 38|[39m   })
+    [90m 39|[39m
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[6/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/lib/files/documentOptimization.test.ts[2m > [22mdocumentOptimization image 
+pipeline[2m > [22mgenera una imagen oficial optimizada y su miniatura ligera
+[31m[1mAssertionError[22m: expected 'none' to be 'image-jpeg' // Object.is equality[39m
+
+Expected: [32m"image-jpeg"[39m
+Received: [31m"none"[39m
+
+[36m [2mÔØ»[22m src/lib/files/documentOptimization.test.ts:[2m33:37[22m[39m
+    [90m 31|[39m     })
+    [90m 32|[39m
+    [90m 33|[39m     
+[34mexpect[39m(result[33m.[39moptimizationKind)[33m.[39m[34mtoBe[39m([32m'image-jpeg'[39m)
+    [90m   |[39m                                     [31m^[39m
+    [90m 34|[39m     [34mexpect[39m(result[33m.[39mmimeType)[33m.[39m[34mtoBe[39m([32m'image/jpeg'[39m)
+    [90m 35|[39m     
+[34mexpect[39m(result[33m.[39mofficialAssetKind)[33m.[39m[34mtoBe[39m([32m'optimized'[39m)
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[7/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/lib/files/documentOptimization.test.ts[2m > [22mdocumentOptimization image 
+pipeline[2m > [22mmantiene el output y la miniatura dentro de los limites para entradas SVG variadas
+[31m[1mError[22m: Property failed after 1 tests
+{ seed: 1898784772, path: "0:0", endOnFailure: true }
+Counterexample: [40]
+Shrunk 1 time(s)
+
+Hint: Enable verbose mode in order to have the list of all failing values encountered during the run[39m
+[90m [2mÔØ»[22m buildError node_modules/fast-check/lib/fast-check.js:[2m2434:16[22m[39m
+[90m [2mÔØ»[22m asyncThrowIfFailed node_modules/fast-check/lib/fast-check.js:[2m2446:8[22m[39m
+
+[31m[1mCaused by: AssertionError[22m: expected 289680 to be less than or equal to 102400[39m
+[36m [2mÔØ»[22m src/lib/files/documentOptimization.test.ts:[2m53:39[22m[39m
+[90m [2mÔØ»[22m AsyncProperty.run node_modules/fast-check/lib/fast-check.js:[2m1193:19[22m[39m
+[90m [2mÔØ»[22m asyncRunIt node_modules/fast-check/lib/fast-check.js:[2m2488:15[22m[39m
+[90m [2mÔØ»[22m src/lib/files/documentOptimization.test.ts:[2m43:5[22m[39m
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[8/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/lib/files/documentOptimization.test.ts[2m > [22mdocumentOptimization public 
+utilities[2m > [22mexpone compressImage(file, maxKB) con target configurable
+[31m[1mAssertionError[22m: expected 795442 to be less than or equal to 102400[39m
+[36m [2mÔØ»[22m src/lib/files/documentOptimization.test.ts:[2m69:35[22m[39m
+    [90m 67|[39m     [35mconst[39m result [33m=[39m [35mawait[39m [34mcompressImage[39m(file[33m,[39m 
+[34m100[39m)
+    [90m 68|[39m
+    [90m 69|[39m     expect(result.optimizedBytes).toBeLessThanOrEqual(EXPEDIENTE_IMAGEÔÇª
+    [90m   |[39m                                   [31m^[39m
+    [90m 70|[39m     expect(result.thumbnail?.bytes).toBeLessThanOrEqual(EXPEDIENTE_THUÔÇª
+    [90m 71|[39m   })
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[9/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/lib/files/documentOptimization.test.ts[2m > [22mdocumentOptimization public 
+utilities[2m > [22mexpone generateThumbnail(file, maxKB) con salida ligera
+[31m[1mAssertionError[22m: expected null not to be null[39m
+[36m [2mÔØ»[22m src/lib/files/documentOptimization.test.ts:[2m79:27[22m[39m
+    [90m 77|[39m     [35mconst[39m thumbnail [33m=[39m [35mawait[39m 
+[34mgenerateThumbnail[39m(file[33m,[39m [34m20[39m)
+    [90m 78|[39m
+    [90m 79|[39m     [34mexpect[39m(thumbnail)[33m.[39mnot[33m.[39m[34mtoBeNull[39m()
+    [90m   |[39m                           [31m^[39m
+    [90m 80|[39m     expect(thumbnail?.bytes).toBeLessThanOrEqual(EXPEDIENTE_THUMBNAIL_ÔÇª
+    [90m 81|[39m   })
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[10/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/lib/files/evidenceStorage.test.ts[2m > [22mstoreOptimizedEvidence deduplication[2m > 
+[22mno realiza segundo upload cuando el hash ya existe
+[31m[1mError[22m: [vitest] No "exceedsOperationalDocumentUploadLimit" export is defined on the 
+"./documentOptimization" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+[39m
+vi.mock(import("./documentOptimization"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+[36m [2mÔØ»[22m Module.storeOptimizedEvidence src/lib/files/evidenceStorage.ts:[2m56:7[22m[39m
+    [90m 54|[39m   file[33m,[39m
+    [90m 55|[39m }[33m:[39m [33mStoreOptimizedEvidenceInput[39m)[33m:[39m 
+[33mPromise[39m[33m<[39m[33mStoredEvidenceResult[39m[33m>[39m {
+    [90m 56|[39m   [35mif[39m ([34mexceedsOperationalDocumentUploadLimit[39m(file)) {
+    [90m   |[39m       [31m^[39m
+    [90m 57|[39m     throw new Error(buildOperationalDocumentUploadLimitMessage('PDF', ÔÇª
+    [90m 58|[39m   }
+[90m [2mÔØ»[22m src/lib/files/evidenceStorage.test.ts:[2m134:26[22m[39m
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[11/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/lib/pwa/serviceWorkerStrategies.test.ts[2m > [22mservice worker cache strategies[2m > 
+[22muses cache-first for static assets and thumbnails
+[31m[1mAssertionError[22m: expected '// Bump this version whenever we deplÔÇª' to contain 'const CACHE_NAME_STATIC 
+= "retail-staÔÇª'[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- const CACHE_NAME_STATIC = "retail-static-v2"[39m
+[31m+ // Bump this version whenever we deploy a new build.[39m
+[31m+ // This forces the SW caches to rotate, preventing stale HTML/JS/CSS mismatches.[39m
+[31m+ const CACHE_NAME_APP_SHELL = "retail-app-shell-v5"[39m
+[31m+ const CACHE_NAME_STATIC = "retail-static-v6"[39m
+[31m+ const CACHE_NAME_DATA = "retail-data-v5"[39m
+[31m+ const CACHE_NAME_CATALOGS = "retail-catalogs-v5"[39m
+[31m+ const CACHE_NAME_THUMBNAILS = "retail-thumbnails-v5"[39m
+[31m+ const OFFLINE_URL = "/offline"[39m
+[31m+ const STATIC_ASSETS = ["/manifest.webmanifest"][39m
+[31m+ // We only precache a minimal offline fallback. Operational routes are SSR + auth-gated and[39m
+[31m+ // precaching them can lead to stale redirects or outdated chunks after a deploy.[39m
+[31m+ const PRECACHE_ROUTES = ["/offline"][39m
+[31m+ const CATALOG_TTL_MS = 60 * 60 * 1000[39m
+[31m+ const THUMBNAIL_TTL_MS = 7 * 24 * 60 * 60 * 1000[39m
+[31m+ const META_SUFFIX = "::meta"[39m
+[31m+ const OFFLINE_SYNC_TAG = "retail-offline-sync"[39m
+[31m+ const OFFLINE_SYNC_REQUEST = "OFFLINE_SYNC_REQUEST"[39m
+[31m+ const OFFLINE_SYNC_COMPLETE = "OFFLINE_SYNC_COMPLETE"[39m
+[31m+ const OFFLINE_SYNC_TIMEOUT_MS = 15 * 1000[39m
+[31m+ const SENSITIVE_PATTERNS = [[39m
+[31m+   "/nomina",[39m
+[31m+   "/nomina_periodo",[39m
+[31m+   "/pre_nomina",[39m
+[31m+   "/gastos",[39m
+[31m+   "/expediente",[39m
+[31m+   "/incapacidad",[39m
+[31m+ ][39m
+[31m+ const THUMBNAIL_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".avif"][39m
+[31m+ const HEAVY_DOCUMENT_EXTENSIONS = [[39m
+[31m+   ".pdf",[39m
+[31m+   ".doc",[39m
+[31m+   ".docx",[39m
+[31m+   ".xls",[39m
+[31m+   ".xlsx",[39m
+[31m+   ".csv",[39m
+[31m+   ".ppt",[39m
+[31m+   ".pptx",[39m
+[31m+   ".zip",[39m
+[31m+ ][39m
+[31m+ const LEGACY_CACHE_NAMES = [[39m
+[31m+   "retail-pages-v1",[39m
+[31m+   "retail-static-v1",[39m
+[31m+   "retail-data-v1",[39m
+[31m+   "retail-catalogs-v1",[39m
+[31m+   "retail-app-shell-v4",[39m
+[31m+   "retail-static-v4",[39m
+[31m+   "retail-data-v4",[39m
+[31m+   "retail-catalogs-v4",[39m
+[31m+   "retail-thumbnails-v4",[39m
+[31m+ ][39m
+[31m+ const CACHE_NAMES = [[39m
+[31m+   CACHE_NAME_APP_SHELL,[39m
+[31m+   CACHE_NAME_STATIC,[39m
+[31m+   CACHE_NAME_DATA,[39m
+[31m+   CACHE_NAME_CATALOGS,[39m
+[31m+   CACHE_NAME_THUMBNAILS,[39m
+[31m+   ...LEGACY_CACHE_NAMES,[39m
+[31m+ ][39m
+[31m+ const pendingSyncRequests = new Map()[39m
+[31m+[39m
+[31m+ self.addEventListener("install", (event) => {[39m
+[31m+   event.waitUntil([39m
+[31m+     Promise.all([[39m
+[31m+       caches.open(CACHE_NAME_APP_SHELL).then((cache) => cache.add(OFFLINE_URL)),[39m
+[31m+       caches.open(CACHE_NAME_STATIC).then((cache) => cache.addAll(STATIC_ASSETS)),[39m
+[31m+       caches.open(CACHE_NAME_APP_SHELL).then((cache) => cache.addAll(PRECACHE_ROUTES)),[39m
+[31m+     ])[39m
+[31m+   )[39m
+[31m+   self.skipWaiting()[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("activate", (event) => {[39m
+[31m+   event.waitUntil([39m
+[31m+     caches.keys().then((keys) =>[39m
+[31m+       Promise.all([39m
+[31m+         keys[39m
+[31m+           .filter((key) => !CACHE_NAMES.includes(key))[39m
+[31m+           .map((key) => caches.delete(key))[39m
+[31m+       )[39m
+[31m+     )[39m
+[31m+   )[39m
+[31m+   self.clients.claim()[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("push", (event) => {[39m
+[31m+   if (!event.data) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const payload = event.data.json()[39m
+[31m+   const title = payload.title || "Mensaje operativo"[39m
+[31m+   const options = {[39m
+[31m+     body: payload.body || "Tienes una nueva notificacion.",[39m
+[31m+     icon: "/icon",[39m
+[31m+     badge: "/icon",[39m
+[31m+     tag: payload.tag || "retail-push",[39m
+[31m+     data: payload.data || { path: "/mensajes" },[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   event.waitUntil(self.registration.showNotification(title, options))[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("notificationclick", (event) => {[39m
+[31m+   event.notification.close()[39m
+[31m+   const targetPath = event.notification.data?.path || "/mensajes"[39m
+[31m+   const targetUrl = new URL(targetPath, self.location.origin).toString()[39m
+[31m+[39m
+[31m+   event.waitUntil([39m
+[31m+     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {[39m
+[31m+       const matched = clients.find((client) => client.url === targetUrl)[39m
+[31m+       if (matched) {[39m
+[31m+         return matched.focus()[39m
+[31m+       }[39m
+[31m+[39m
+[31m+       return self.clients.openWindow(targetUrl)[39m
+[31m+     })[39m
+[31m+   )[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("sync", (event) => {[39m
+[31m+   if (event.tag !== OFFLINE_SYNC_TAG) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   event.waitUntil(processBackgroundSync(event.tag))[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("message", (event) => {[39m
+[31m+   const data = event.data || {}[39m
+[31m+[39m
+[31m+   if (data.type !== OFFLINE_SYNC_COMPLETE || !data.requestId) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const pendingRequest = pendingSyncRequests.get(data.requestId)[39m
+[31m+   if (!pendingRequest) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   clearTimeout(pendingRequest.timeoutId)[39m
+[31m+   pendingSyncRequests.delete(data.requestId)[39m
+[31m+[39m
+[31m+   if (data.ok === false) {[39m
+[31m+     pendingRequest.reject(new Error(data.error || "Foreground sync failed"))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   pendingRequest.resolve()[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("fetch", (event) => {[39m
+[31m+   if (event.request.method !== "GET") {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const requestUrl = new URL(event.request.url)[39m
+[31m+   const isSameOrigin = requestUrl.origin === self.location.origin[39m
+[31m+   const isHeavyDocumentRequest = isHeavyDocumentStorageRequest(requestUrl)[39m
+[31m+   const isThumbnailRequest = isImageRequest(requestUrl)[39m
+[31m+   const isCatalogRequest = isCatalogResource(requestUrl)[39m
+[31m+   const isOperationalData =[39m
+[31m+     requestUrl.pathname.startsWith("/api/") ||[39m
+[31m+     requestUrl.pathname.includes("/rest/v1/") ||[39m
+[31m+     (!isSameOrigin && requestUrl.hostname.includes("supabase"))[39m
+[31m+   const isSensitiveData = matchesSensitivePattern(requestUrl)[39m
+[31m+[39m
+[31m+   if (isSensitiveData) {[39m
+[31m+     event.respondWith(fetch(event.request))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isHeavyDocumentRequest) {[39m
+[31m+     event.respondWith(fetch(event.request))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (event.request.mode === "navigate") {[39m
+[31m+     // Do not cache navigations (HTML). Caching SSR documents can lead to stale chunk references after a 
+deploy,[39m
+[31m+     // which manifests as "bugged" navigation until the caches are cleared.[39m
+[31m+     event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE_URL)))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isThumbnailRequest) {[39m
+[31m+     event.respondWith(cacheFirstWithTtl(event, CACHE_NAME_THUMBNAILS, THUMBNAIL_TTL_MS))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isStaticAsset(requestUrl, isSameOrigin)) {[39m
+[31m+     event.respondWith(cacheFirstWithTtl(event, CACHE_NAME_STATIC))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isCatalogRequest) {[39m
+[31m+     event.respondWith(staleWhileRevalidateWithTtl(event, CACHE_NAME_CATALOGS, CATALOG_TTL_MS))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isOperationalData) {[39m
+[31m+     event.respondWith(networkFirst(event, CACHE_NAME_DATA))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ async function cacheFirstWithTtl(event, cacheName, ttl) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+   const cachedResponse = await cache.match(event.request)[39m
+[31m+[39m
+[31m+   if (cachedResponse) {[39m
+[31m+     if (!ttl || !(await isStale(cache, event.request, ttl))) {[39m
+[31m+       return cachedResponse[39m
+[31m+     }[39m
+[31m+     event.waitUntil(fetchAndCache(event.request, cacheName))[39m
+[31m+     return cachedResponse[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   return fetchAndCache(event.request, cacheName)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function networkFirst(event, cacheName) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+[39m
+[31m+   try {[39m
+[31m+     return await fetchAndCache(event.request, cacheName)[39m
+[31m+   } catch {[39m
+[31m+     const cachedResponse = await cache.match(event.request)[39m
+[31m+     if (cachedResponse) {[39m
+[31m+       return cachedResponse[39m
+[31m+     }[39m
+[31m+     if (event.request.mode === "navigate") {[39m
+[31m+       return caches.match(OFFLINE_URL)[39m
+[31m+     }[39m
+[31m+     throw new Error("Network failure")[39m
+[31m+   }[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function staleWhileRevalidateWithTtl(event, cacheName, ttl) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+   const cachedResponse = await cache.match(event.request)[39m
+[31m+[39m
+[31m+   if (cachedResponse) {[39m
+[31m+     const shouldRevalidate = !ttl || (await isStale(cache, event.request, ttl))[39m
+[31m+[39m
+[31m+     if (shouldRevalidate) {[39m
+[31m+       event.waitUntil([39m
+[31m+         fetchAndCache(event.request, cacheName).catch(() => null)[39m
+[31m+       )[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     return cachedResponse[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   return fetchAndCache(event.request, cacheName)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function fetchAndCache(request, cacheName) {[39m
+[31m+   const response = await fetch(request)[39m
+[31m+   await storeInCache(cacheName, request, response)[39m
+[31m+   return response[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function storeInCache(cacheName, request, response) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+   await cache.put(request, response.clone())[39m
+[31m+   await cache.put(getMetaRequest(request), new Response(String(Date.now())))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function getMetaRequest(request) {[39m
+[31m+   return new Request(request.url + META_SUFFIX)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function isStale(cache, request, ttl) {[39m
+[31m+   if (!ttl) {[39m
+[31m+     return false[39m
+[31m+   }[39m
+[31m+   const metaResponse = await cache.match(getMetaRequest(request))[39m
+[31m+   if (!metaResponse) {[39m
+[31m+     return true[39m
+[31m+   }[39m
+[31m+   const timestamp = Number(await metaResponse.text())[39m
+[31m+   return Number.isNaN(timestamp) || Date.now() - timestamp > ttl[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isCatalogResource(requestUrl) {[39m
+[31m+   return ([39m
+[31m+     requestUrl.pathname.includes("/producto") ||[39m
+[31m+     requestUrl.pathname.includes("/cadena") ||[39m
+[31m+     requestUrl.pathname.includes("/ciudad") ||[39m
+[31m+     requestUrl.pathname.includes("/horario") ||[39m
+[31m+     requestUrl.pathname.includes("/mision")[39m
+[31m+   )[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isImageRequest(requestUrl) {[39m
+[31m+   const pathname = requestUrl.pathname.toLowerCase()[39m
+[31m+   if (requestUrl.pathname.includes("/storage/v1/object")) {[39m
+[31m+     if (hasHeavyDocumentExtension(pathname)) {[39m
+[31m+       return false[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     return ([39m
+[31m+       hasThumbnailExtension(pathname) ||[39m
+[31m+       requestUrl.searchParams.has("width") ||[39m
+[31m+       requestUrl.searchParams.has("height") ||[39m
+[31m+       requestUrl.searchParams.has("resize")[39m
+[31m+     )[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   return hasThumbnailExtension(pathname)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isHeavyDocumentStorageRequest(requestUrl) {[39m
+[31m+   const pathname = requestUrl.pathname.toLowerCase()[39m
+[31m+   return requestUrl.pathname.includes("/storage/v1/object") && hasHeavyDocumentExtension(pathname)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function hasThumbnailExtension(pathname) {[39m
+[31m+   return THUMBNAIL_EXTENSIONS.some((extension) => pathname.endsWith(extension))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function hasHeavyDocumentExtension(pathname) {[39m
+[31m+   return HEAVY_DOCUMENT_EXTENSIONS.some((extension) => pathname.endsWith(extension))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isStaticAsset(requestUrl, isSameOrigin) {[39m
+[31m+   return ([39m
+[31m+     isSameOrigin &&[39m
+[31m+     (requestUrl.pathname.startsWith("/_next/static/") ||[39m
+[31m+       requestUrl.pathname.startsWith("/_next/image") ||[39m
+[31m+       requestUrl.pathname.endsWith(".js") ||[39m
+[31m+       requestUrl.pathname.endsWith(".css") ||[39m
+[31m+       requestUrl.pathname.endsWith(".svg") ||[39m
+[31m+       requestUrl.pathname.endsWith(".woff2"))[39m
+[31m+   )[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function matchesSensitivePattern(requestUrl) {[39m
+[31m+   return SENSITIVE_PATTERNS.some((segment) => requestUrl.pathname.includes(segment))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function notifyClientsToSync(tag) {[39m
+[31m+   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true })[39m
+[31m+   const requestId = self.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`[39m
+[31m+[39m
+[31m+   await Promise.all([39m
+[31m+     clients.map((client) =>[39m
+[31m+       client.postMessage({[39m
+[31m+         type: OFFLINE_SYNC_REQUEST,[39m
+[31m+         tag,[39m
+[31m+         requestId,[39m
+[31m+       })[39m
+[31m+     )[39m
+[31m+   )[39m
+[31m+[39m
+[31m+   return requestId[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function processBackgroundSync(tag) {[39m
+[31m+   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true })[39m
+[31m+[39m
+[31m+   if (clients.length === 0) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const requestId = await notifyClientsToSync(tag)[39m
+[31m+   await waitForSyncCompletion(requestId)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function waitForSyncCompletion(requestId) {[39m
+[31m+   return new Promise((resolve, reject) => {[39m
+[31m+     const timeoutId = setTimeout(() => {[39m
+[31m+       pendingSyncRequests.delete(requestId)[39m
+[31m+       reject(new Error("Foreground sync confirmation timed out"))[39m
+[31m+     }, OFFLINE_SYNC_TIMEOUT_MS)[39m
+[31m+[39m
+[31m+     pendingSyncRequests.set(requestId, {[39m
+[31m+       resolve,[39m
+[31m+       reject,[39m
+[31m+       timeoutId,[39m
+[31m+     })[39m
+[31m+   })[39m
+[31m+ }[39m
+[31m+[39m
+
+[36m [2mÔØ»[22m src/lib/pwa/serviceWorkerStrategies.test.ts:[2m9:33[22m[39m
+    [90m  7|[39m [34mdescribe[39m([32m'service worker cache strategies'[39m[33m,[39m () [33m=>[39m {
+    [90m  8|[39m   [34mit[39m([32m'uses cache-first for static assets and thumbnails'[39m[33m,[39m () 
+[33m=>[39m {
+    [90m  9|[39m     expect(serviceWorkerSource).toContain('const CACHE_NAME_STATIC = "ÔÇª
+    [90m   |[39m                                 [31m^[39m
+    [90m 10|[39m     expect(serviceWorkerSource).toContain('const CACHE_NAME_THUMBNAILSÔÇª
+    [90m 11|[39m     [34mexpect[39m(serviceWorkerSource)[33m.[39m[34mtoContain[39m(
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[12/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/lib/pwa/serviceWorkerStrategies.test.ts[2m > [22mservice worker cache strategies[2m > 
+[22muses stale-while-revalidate for catalogs with one-hour ttl
+[31m[1mAssertionError[22m: expected '// Bump this version whenever we deplÔÇª' to contain 'const 
+CACHE_NAME_CATALOGS = "retail-cÔÇª'[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- const CACHE_NAME_CATALOGS = "retail-catalogs-v2"[39m
+[31m+ // Bump this version whenever we deploy a new build.[39m
+[31m+ // This forces the SW caches to rotate, preventing stale HTML/JS/CSS mismatches.[39m
+[31m+ const CACHE_NAME_APP_SHELL = "retail-app-shell-v5"[39m
+[31m+ const CACHE_NAME_STATIC = "retail-static-v6"[39m
+[31m+ const CACHE_NAME_DATA = "retail-data-v5"[39m
+[31m+ const CACHE_NAME_CATALOGS = "retail-catalogs-v5"[39m
+[31m+ const CACHE_NAME_THUMBNAILS = "retail-thumbnails-v5"[39m
+[31m+ const OFFLINE_URL = "/offline"[39m
+[31m+ const STATIC_ASSETS = ["/manifest.webmanifest"][39m
+[31m+ // We only precache a minimal offline fallback. Operational routes are SSR + auth-gated and[39m
+[31m+ // precaching them can lead to stale redirects or outdated chunks after a deploy.[39m
+[31m+ const PRECACHE_ROUTES = ["/offline"][39m
+[31m+ const CATALOG_TTL_MS = 60 * 60 * 1000[39m
+[31m+ const THUMBNAIL_TTL_MS = 7 * 24 * 60 * 60 * 1000[39m
+[31m+ const META_SUFFIX = "::meta"[39m
+[31m+ const OFFLINE_SYNC_TAG = "retail-offline-sync"[39m
+[31m+ const OFFLINE_SYNC_REQUEST = "OFFLINE_SYNC_REQUEST"[39m
+[31m+ const OFFLINE_SYNC_COMPLETE = "OFFLINE_SYNC_COMPLETE"[39m
+[31m+ const OFFLINE_SYNC_TIMEOUT_MS = 15 * 1000[39m
+[31m+ const SENSITIVE_PATTERNS = [[39m
+[31m+   "/nomina",[39m
+[31m+   "/nomina_periodo",[39m
+[31m+   "/pre_nomina",[39m
+[31m+   "/gastos",[39m
+[31m+   "/expediente",[39m
+[31m+   "/incapacidad",[39m
+[31m+ ][39m
+[31m+ const THUMBNAIL_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".avif"][39m
+[31m+ const HEAVY_DOCUMENT_EXTENSIONS = [[39m
+[31m+   ".pdf",[39m
+[31m+   ".doc",[39m
+[31m+   ".docx",[39m
+[31m+   ".xls",[39m
+[31m+   ".xlsx",[39m
+[31m+   ".csv",[39m
+[31m+   ".ppt",[39m
+[31m+   ".pptx",[39m
+[31m+   ".zip",[39m
+[31m+ ][39m
+[31m+ const LEGACY_CACHE_NAMES = [[39m
+[31m+   "retail-pages-v1",[39m
+[31m+   "retail-static-v1",[39m
+[31m+   "retail-data-v1",[39m
+[31m+   "retail-catalogs-v1",[39m
+[31m+   "retail-app-shell-v4",[39m
+[31m+   "retail-static-v4",[39m
+[31m+   "retail-data-v4",[39m
+[31m+   "retail-catalogs-v4",[39m
+[31m+   "retail-thumbnails-v4",[39m
+[31m+ ][39m
+[31m+ const CACHE_NAMES = [[39m
+[31m+   CACHE_NAME_APP_SHELL,[39m
+[31m+   CACHE_NAME_STATIC,[39m
+[31m+   CACHE_NAME_DATA,[39m
+[31m+   CACHE_NAME_CATALOGS,[39m
+[31m+   CACHE_NAME_THUMBNAILS,[39m
+[31m+   ...LEGACY_CACHE_NAMES,[39m
+[31m+ ][39m
+[31m+ const pendingSyncRequests = new Map()[39m
+[31m+[39m
+[31m+ self.addEventListener("install", (event) => {[39m
+[31m+   event.waitUntil([39m
+[31m+     Promise.all([[39m
+[31m+       caches.open(CACHE_NAME_APP_SHELL).then((cache) => cache.add(OFFLINE_URL)),[39m
+[31m+       caches.open(CACHE_NAME_STATIC).then((cache) => cache.addAll(STATIC_ASSETS)),[39m
+[31m+       caches.open(CACHE_NAME_APP_SHELL).then((cache) => cache.addAll(PRECACHE_ROUTES)),[39m
+[31m+     ])[39m
+[31m+   )[39m
+[31m+   self.skipWaiting()[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("activate", (event) => {[39m
+[31m+   event.waitUntil([39m
+[31m+     caches.keys().then((keys) =>[39m
+[31m+       Promise.all([39m
+[31m+         keys[39m
+[31m+           .filter((key) => !CACHE_NAMES.includes(key))[39m
+[31m+           .map((key) => caches.delete(key))[39m
+[31m+       )[39m
+[31m+     )[39m
+[31m+   )[39m
+[31m+   self.clients.claim()[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("push", (event) => {[39m
+[31m+   if (!event.data) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const payload = event.data.json()[39m
+[31m+   const title = payload.title || "Mensaje operativo"[39m
+[31m+   const options = {[39m
+[31m+     body: payload.body || "Tienes una nueva notificacion.",[39m
+[31m+     icon: "/icon",[39m
+[31m+     badge: "/icon",[39m
+[31m+     tag: payload.tag || "retail-push",[39m
+[31m+     data: payload.data || { path: "/mensajes" },[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   event.waitUntil(self.registration.showNotification(title, options))[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("notificationclick", (event) => {[39m
+[31m+   event.notification.close()[39m
+[31m+   const targetPath = event.notification.data?.path || "/mensajes"[39m
+[31m+   const targetUrl = new URL(targetPath, self.location.origin).toString()[39m
+[31m+[39m
+[31m+   event.waitUntil([39m
+[31m+     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {[39m
+[31m+       const matched = clients.find((client) => client.url === targetUrl)[39m
+[31m+       if (matched) {[39m
+[31m+         return matched.focus()[39m
+[31m+       }[39m
+[31m+[39m
+[31m+       return self.clients.openWindow(targetUrl)[39m
+[31m+     })[39m
+[31m+   )[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("sync", (event) => {[39m
+[31m+   if (event.tag !== OFFLINE_SYNC_TAG) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   event.waitUntil(processBackgroundSync(event.tag))[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("message", (event) => {[39m
+[31m+   const data = event.data || {}[39m
+[31m+[39m
+[31m+   if (data.type !== OFFLINE_SYNC_COMPLETE || !data.requestId) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const pendingRequest = pendingSyncRequests.get(data.requestId)[39m
+[31m+   if (!pendingRequest) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   clearTimeout(pendingRequest.timeoutId)[39m
+[31m+   pendingSyncRequests.delete(data.requestId)[39m
+[31m+[39m
+[31m+   if (data.ok === false) {[39m
+[31m+     pendingRequest.reject(new Error(data.error || "Foreground sync failed"))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   pendingRequest.resolve()[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("fetch", (event) => {[39m
+[31m+   if (event.request.method !== "GET") {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const requestUrl = new URL(event.request.url)[39m
+[31m+   const isSameOrigin = requestUrl.origin === self.location.origin[39m
+[31m+   const isHeavyDocumentRequest = isHeavyDocumentStorageRequest(requestUrl)[39m
+[31m+   const isThumbnailRequest = isImageRequest(requestUrl)[39m
+[31m+   const isCatalogRequest = isCatalogResource(requestUrl)[39m
+[31m+   const isOperationalData =[39m
+[31m+     requestUrl.pathname.startsWith("/api/") ||[39m
+[31m+     requestUrl.pathname.includes("/rest/v1/") ||[39m
+[31m+     (!isSameOrigin && requestUrl.hostname.includes("supabase"))[39m
+[31m+   const isSensitiveData = matchesSensitivePattern(requestUrl)[39m
+[31m+[39m
+[31m+   if (isSensitiveData) {[39m
+[31m+     event.respondWith(fetch(event.request))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isHeavyDocumentRequest) {[39m
+[31m+     event.respondWith(fetch(event.request))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (event.request.mode === "navigate") {[39m
+[31m+     // Do not cache navigations (HTML). Caching SSR documents can lead to stale chunk references after a 
+deploy,[39m
+[31m+     // which manifests as "bugged" navigation until the caches are cleared.[39m
+[31m+     event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE_URL)))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isThumbnailRequest) {[39m
+[31m+     event.respondWith(cacheFirstWithTtl(event, CACHE_NAME_THUMBNAILS, THUMBNAIL_TTL_MS))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isStaticAsset(requestUrl, isSameOrigin)) {[39m
+[31m+     event.respondWith(cacheFirstWithTtl(event, CACHE_NAME_STATIC))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isCatalogRequest) {[39m
+[31m+     event.respondWith(staleWhileRevalidateWithTtl(event, CACHE_NAME_CATALOGS, CATALOG_TTL_MS))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isOperationalData) {[39m
+[31m+     event.respondWith(networkFirst(event, CACHE_NAME_DATA))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ async function cacheFirstWithTtl(event, cacheName, ttl) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+   const cachedResponse = await cache.match(event.request)[39m
+[31m+[39m
+[31m+   if (cachedResponse) {[39m
+[31m+     if (!ttl || !(await isStale(cache, event.request, ttl))) {[39m
+[31m+       return cachedResponse[39m
+[31m+     }[39m
+[31m+     event.waitUntil(fetchAndCache(event.request, cacheName))[39m
+[31m+     return cachedResponse[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   return fetchAndCache(event.request, cacheName)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function networkFirst(event, cacheName) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+[39m
+[31m+   try {[39m
+[31m+     return await fetchAndCache(event.request, cacheName)[39m
+[31m+   } catch {[39m
+[31m+     const cachedResponse = await cache.match(event.request)[39m
+[31m+     if (cachedResponse) {[39m
+[31m+       return cachedResponse[39m
+[31m+     }[39m
+[31m+     if (event.request.mode === "navigate") {[39m
+[31m+       return caches.match(OFFLINE_URL)[39m
+[31m+     }[39m
+[31m+     throw new Error("Network failure")[39m
+[31m+   }[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function staleWhileRevalidateWithTtl(event, cacheName, ttl) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+   const cachedResponse = await cache.match(event.request)[39m
+[31m+[39m
+[31m+   if (cachedResponse) {[39m
+[31m+     const shouldRevalidate = !ttl || (await isStale(cache, event.request, ttl))[39m
+[31m+[39m
+[31m+     if (shouldRevalidate) {[39m
+[31m+       event.waitUntil([39m
+[31m+         fetchAndCache(event.request, cacheName).catch(() => null)[39m
+[31m+       )[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     return cachedResponse[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   return fetchAndCache(event.request, cacheName)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function fetchAndCache(request, cacheName) {[39m
+[31m+   const response = await fetch(request)[39m
+[31m+   await storeInCache(cacheName, request, response)[39m
+[31m+   return response[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function storeInCache(cacheName, request, response) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+   await cache.put(request, response.clone())[39m
+[31m+   await cache.put(getMetaRequest(request), new Response(String(Date.now())))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function getMetaRequest(request) {[39m
+[31m+   return new Request(request.url + META_SUFFIX)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function isStale(cache, request, ttl) {[39m
+[31m+   if (!ttl) {[39m
+[31m+     return false[39m
+[31m+   }[39m
+[31m+   const metaResponse = await cache.match(getMetaRequest(request))[39m
+[31m+   if (!metaResponse) {[39m
+[31m+     return true[39m
+[31m+   }[39m
+[31m+   const timestamp = Number(await metaResponse.text())[39m
+[31m+   return Number.isNaN(timestamp) || Date.now() - timestamp > ttl[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isCatalogResource(requestUrl) {[39m
+[31m+   return ([39m
+[31m+     requestUrl.pathname.includes("/producto") ||[39m
+[31m+     requestUrl.pathname.includes("/cadena") ||[39m
+[31m+     requestUrl.pathname.includes("/ciudad") ||[39m
+[31m+     requestUrl.pathname.includes("/horario") ||[39m
+[31m+     requestUrl.pathname.includes("/mision")[39m
+[31m+   )[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isImageRequest(requestUrl) {[39m
+[31m+   const pathname = requestUrl.pathname.toLowerCase()[39m
+[31m+   if (requestUrl.pathname.includes("/storage/v1/object")) {[39m
+[31m+     if (hasHeavyDocumentExtension(pathname)) {[39m
+[31m+       return false[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     return ([39m
+[31m+       hasThumbnailExtension(pathname) ||[39m
+[31m+       requestUrl.searchParams.has("width") ||[39m
+[31m+       requestUrl.searchParams.has("height") ||[39m
+[31m+       requestUrl.searchParams.has("resize")[39m
+[31m+     )[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   return hasThumbnailExtension(pathname)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isHeavyDocumentStorageRequest(requestUrl) {[39m
+[31m+   const pathname = requestUrl.pathname.toLowerCase()[39m
+[31m+   return requestUrl.pathname.includes("/storage/v1/object") && hasHeavyDocumentExtension(pathname)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function hasThumbnailExtension(pathname) {[39m
+[31m+   return THUMBNAIL_EXTENSIONS.some((extension) => pathname.endsWith(extension))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function hasHeavyDocumentExtension(pathname) {[39m
+[31m+   return HEAVY_DOCUMENT_EXTENSIONS.some((extension) => pathname.endsWith(extension))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isStaticAsset(requestUrl, isSameOrigin) {[39m
+[31m+   return ([39m
+[31m+     isSameOrigin &&[39m
+[31m+     (requestUrl.pathname.startsWith("/_next/static/") ||[39m
+[31m+       requestUrl.pathname.startsWith("/_next/image") ||[39m
+[31m+       requestUrl.pathname.endsWith(".js") ||[39m
+[31m+       requestUrl.pathname.endsWith(".css") ||[39m
+[31m+       requestUrl.pathname.endsWith(".svg") ||[39m
+[31m+       requestUrl.pathname.endsWith(".woff2"))[39m
+[31m+   )[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function matchesSensitivePattern(requestUrl) {[39m
+[31m+   return SENSITIVE_PATTERNS.some((segment) => requestUrl.pathname.includes(segment))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function notifyClientsToSync(tag) {[39m
+[31m+   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true })[39m
+[31m+   const requestId = self.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`[39m
+[31m+[39m
+[31m+   await Promise.all([39m
+[31m+     clients.map((client) =>[39m
+[31m+       client.postMessage({[39m
+[31m+         type: OFFLINE_SYNC_REQUEST,[39m
+[31m+         tag,[39m
+[31m+         requestId,[39m
+[31m+       })[39m
+[31m+     )[39m
+[31m+   )[39m
+[31m+[39m
+[31m+   return requestId[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function processBackgroundSync(tag) {[39m
+[31m+   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true })[39m
+[31m+[39m
+[31m+   if (clients.length === 0) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const requestId = await notifyClientsToSync(tag)[39m
+[31m+   await waitForSyncCompletion(requestId)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function waitForSyncCompletion(requestId) {[39m
+[31m+   return new Promise((resolve, reject) => {[39m
+[31m+     const timeoutId = setTimeout(() => {[39m
+[31m+       pendingSyncRequests.delete(requestId)[39m
+[31m+       reject(new Error("Foreground sync confirmation timed out"))[39m
+[31m+     }, OFFLINE_SYNC_TIMEOUT_MS)[39m
+[31m+[39m
+[31m+     pendingSyncRequests.set(requestId, {[39m
+[31m+       resolve,[39m
+[31m+       reject,[39m
+[31m+       timeoutId,[39m
+[31m+     })[39m
+[31m+   })[39m
+[31m+ }[39m
+[31m+[39m
+
+[36m [2mÔØ»[22m src/lib/pwa/serviceWorkerStrategies.test.ts:[2m20:33[22m[39m
+    [90m 18|[39m
+    [90m 19|[39m   it('uses stale-while-revalidate for catalogs with one-hour ttl', () ÔÇª
+    [90m 20|[39m     expect(serviceWorkerSource).toContain('const CACHE_NAME_CATALOGS =ÔÇª
+    [90m   |[39m                                 [31m^[39m
+    [90m 21|[39m     expect(serviceWorkerSource).toContain('const CATALOG_TTL_MS = 60 *ÔÇª
+    [90m 22|[39m     [34mexpect[39m(serviceWorkerSource)[33m.[39m[34mtoContain[39m(
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[13/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/lib/pwa/serviceWorkerStrategies.test.ts[2m > [22mservice worker cache strategies[2m > 
+[22muses network-first for navigations and operational data with offline fallback
+[31m[1mAssertionError[22m: expected '// Bump this version whenever we deplÔÇª' to contain 'const 
+CACHE_NAME_APP_SHELL = "retail-ÔÇª'[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- const CACHE_NAME_APP_SHELL = "retail-app-shell-v2"[39m
+[31m+ // Bump this version whenever we deploy a new build.[39m
+[31m+ // This forces the SW caches to rotate, preventing stale HTML/JS/CSS mismatches.[39m
+[31m+ const CACHE_NAME_APP_SHELL = "retail-app-shell-v5"[39m
+[31m+ const CACHE_NAME_STATIC = "retail-static-v6"[39m
+[31m+ const CACHE_NAME_DATA = "retail-data-v5"[39m
+[31m+ const CACHE_NAME_CATALOGS = "retail-catalogs-v5"[39m
+[31m+ const CACHE_NAME_THUMBNAILS = "retail-thumbnails-v5"[39m
+[31m+ const OFFLINE_URL = "/offline"[39m
+[31m+ const STATIC_ASSETS = ["/manifest.webmanifest"][39m
+[31m+ // We only precache a minimal offline fallback. Operational routes are SSR + auth-gated and[39m
+[31m+ // precaching them can lead to stale redirects or outdated chunks after a deploy.[39m
+[31m+ const PRECACHE_ROUTES = ["/offline"][39m
+[31m+ const CATALOG_TTL_MS = 60 * 60 * 1000[39m
+[31m+ const THUMBNAIL_TTL_MS = 7 * 24 * 60 * 60 * 1000[39m
+[31m+ const META_SUFFIX = "::meta"[39m
+[31m+ const OFFLINE_SYNC_TAG = "retail-offline-sync"[39m
+[31m+ const OFFLINE_SYNC_REQUEST = "OFFLINE_SYNC_REQUEST"[39m
+[31m+ const OFFLINE_SYNC_COMPLETE = "OFFLINE_SYNC_COMPLETE"[39m
+[31m+ const OFFLINE_SYNC_TIMEOUT_MS = 15 * 1000[39m
+[31m+ const SENSITIVE_PATTERNS = [[39m
+[31m+   "/nomina",[39m
+[31m+   "/nomina_periodo",[39m
+[31m+   "/pre_nomina",[39m
+[31m+   "/gastos",[39m
+[31m+   "/expediente",[39m
+[31m+   "/incapacidad",[39m
+[31m+ ][39m
+[31m+ const THUMBNAIL_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".avif"][39m
+[31m+ const HEAVY_DOCUMENT_EXTENSIONS = [[39m
+[31m+   ".pdf",[39m
+[31m+   ".doc",[39m
+[31m+   ".docx",[39m
+[31m+   ".xls",[39m
+[31m+   ".xlsx",[39m
+[31m+   ".csv",[39m
+[31m+   ".ppt",[39m
+[31m+   ".pptx",[39m
+[31m+   ".zip",[39m
+[31m+ ][39m
+[31m+ const LEGACY_CACHE_NAMES = [[39m
+[31m+   "retail-pages-v1",[39m
+[31m+   "retail-static-v1",[39m
+[31m+   "retail-data-v1",[39m
+[31m+   "retail-catalogs-v1",[39m
+[31m+   "retail-app-shell-v4",[39m
+[31m+   "retail-static-v4",[39m
+[31m+   "retail-data-v4",[39m
+[31m+   "retail-catalogs-v4",[39m
+[31m+   "retail-thumbnails-v4",[39m
+[31m+ ][39m
+[31m+ const CACHE_NAMES = [[39m
+[31m+   CACHE_NAME_APP_SHELL,[39m
+[31m+   CACHE_NAME_STATIC,[39m
+[31m+   CACHE_NAME_DATA,[39m
+[31m+   CACHE_NAME_CATALOGS,[39m
+[31m+   CACHE_NAME_THUMBNAILS,[39m
+[31m+   ...LEGACY_CACHE_NAMES,[39m
+[31m+ ][39m
+[31m+ const pendingSyncRequests = new Map()[39m
+[31m+[39m
+[31m+ self.addEventListener("install", (event) => {[39m
+[31m+   event.waitUntil([39m
+[31m+     Promise.all([[39m
+[31m+       caches.open(CACHE_NAME_APP_SHELL).then((cache) => cache.add(OFFLINE_URL)),[39m
+[31m+       caches.open(CACHE_NAME_STATIC).then((cache) => cache.addAll(STATIC_ASSETS)),[39m
+[31m+       caches.open(CACHE_NAME_APP_SHELL).then((cache) => cache.addAll(PRECACHE_ROUTES)),[39m
+[31m+     ])[39m
+[31m+   )[39m
+[31m+   self.skipWaiting()[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("activate", (event) => {[39m
+[31m+   event.waitUntil([39m
+[31m+     caches.keys().then((keys) =>[39m
+[31m+       Promise.all([39m
+[31m+         keys[39m
+[31m+           .filter((key) => !CACHE_NAMES.includes(key))[39m
+[31m+           .map((key) => caches.delete(key))[39m
+[31m+       )[39m
+[31m+     )[39m
+[31m+   )[39m
+[31m+   self.clients.claim()[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("push", (event) => {[39m
+[31m+   if (!event.data) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const payload = event.data.json()[39m
+[31m+   const title = payload.title || "Mensaje operativo"[39m
+[31m+   const options = {[39m
+[31m+     body: payload.body || "Tienes una nueva notificacion.",[39m
+[31m+     icon: "/icon",[39m
+[31m+     badge: "/icon",[39m
+[31m+     tag: payload.tag || "retail-push",[39m
+[31m+     data: payload.data || { path: "/mensajes" },[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   event.waitUntil(self.registration.showNotification(title, options))[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("notificationclick", (event) => {[39m
+[31m+   event.notification.close()[39m
+[31m+   const targetPath = event.notification.data?.path || "/mensajes"[39m
+[31m+   const targetUrl = new URL(targetPath, self.location.origin).toString()[39m
+[31m+[39m
+[31m+   event.waitUntil([39m
+[31m+     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {[39m
+[31m+       const matched = clients.find((client) => client.url === targetUrl)[39m
+[31m+       if (matched) {[39m
+[31m+         return matched.focus()[39m
+[31m+       }[39m
+[31m+[39m
+[31m+       return self.clients.openWindow(targetUrl)[39m
+[31m+     })[39m
+[31m+   )[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("sync", (event) => {[39m
+[31m+   if (event.tag !== OFFLINE_SYNC_TAG) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   event.waitUntil(processBackgroundSync(event.tag))[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("message", (event) => {[39m
+[31m+   const data = event.data || {}[39m
+[31m+[39m
+[31m+   if (data.type !== OFFLINE_SYNC_COMPLETE || !data.requestId) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const pendingRequest = pendingSyncRequests.get(data.requestId)[39m
+[31m+   if (!pendingRequest) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   clearTimeout(pendingRequest.timeoutId)[39m
+[31m+   pendingSyncRequests.delete(data.requestId)[39m
+[31m+[39m
+[31m+   if (data.ok === false) {[39m
+[31m+     pendingRequest.reject(new Error(data.error || "Foreground sync failed"))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   pendingRequest.resolve()[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("fetch", (event) => {[39m
+[31m+   if (event.request.method !== "GET") {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const requestUrl = new URL(event.request.url)[39m
+[31m+   const isSameOrigin = requestUrl.origin === self.location.origin[39m
+[31m+   const isHeavyDocumentRequest = isHeavyDocumentStorageRequest(requestUrl)[39m
+[31m+   const isThumbnailRequest = isImageRequest(requestUrl)[39m
+[31m+   const isCatalogRequest = isCatalogResource(requestUrl)[39m
+[31m+   const isOperationalData =[39m
+[31m+     requestUrl.pathname.startsWith("/api/") ||[39m
+[31m+     requestUrl.pathname.includes("/rest/v1/") ||[39m
+[31m+     (!isSameOrigin && requestUrl.hostname.includes("supabase"))[39m
+[31m+   const isSensitiveData = matchesSensitivePattern(requestUrl)[39m
+[31m+[39m
+[31m+   if (isSensitiveData) {[39m
+[31m+     event.respondWith(fetch(event.request))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isHeavyDocumentRequest) {[39m
+[31m+     event.respondWith(fetch(event.request))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (event.request.mode === "navigate") {[39m
+[31m+     // Do not cache navigations (HTML). Caching SSR documents can lead to stale chunk references after a 
+deploy,[39m
+[31m+     // which manifests as "bugged" navigation until the caches are cleared.[39m
+[31m+     event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE_URL)))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isThumbnailRequest) {[39m
+[31m+     event.respondWith(cacheFirstWithTtl(event, CACHE_NAME_THUMBNAILS, THUMBNAIL_TTL_MS))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isStaticAsset(requestUrl, isSameOrigin)) {[39m
+[31m+     event.respondWith(cacheFirstWithTtl(event, CACHE_NAME_STATIC))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isCatalogRequest) {[39m
+[31m+     event.respondWith(staleWhileRevalidateWithTtl(event, CACHE_NAME_CATALOGS, CATALOG_TTL_MS))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isOperationalData) {[39m
+[31m+     event.respondWith(networkFirst(event, CACHE_NAME_DATA))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ async function cacheFirstWithTtl(event, cacheName, ttl) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+   const cachedResponse = await cache.match(event.request)[39m
+[31m+[39m
+[31m+   if (cachedResponse) {[39m
+[31m+     if (!ttl || !(await isStale(cache, event.request, ttl))) {[39m
+[31m+       return cachedResponse[39m
+[31m+     }[39m
+[31m+     event.waitUntil(fetchAndCache(event.request, cacheName))[39m
+[31m+     return cachedResponse[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   return fetchAndCache(event.request, cacheName)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function networkFirst(event, cacheName) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+[39m
+[31m+   try {[39m
+[31m+     return await fetchAndCache(event.request, cacheName)[39m
+[31m+   } catch {[39m
+[31m+     const cachedResponse = await cache.match(event.request)[39m
+[31m+     if (cachedResponse) {[39m
+[31m+       return cachedResponse[39m
+[31m+     }[39m
+[31m+     if (event.request.mode === "navigate") {[39m
+[31m+       return caches.match(OFFLINE_URL)[39m
+[31m+     }[39m
+[31m+     throw new Error("Network failure")[39m
+[31m+   }[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function staleWhileRevalidateWithTtl(event, cacheName, ttl) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+   const cachedResponse = await cache.match(event.request)[39m
+[31m+[39m
+[31m+   if (cachedResponse) {[39m
+[31m+     const shouldRevalidate = !ttl || (await isStale(cache, event.request, ttl))[39m
+[31m+[39m
+[31m+     if (shouldRevalidate) {[39m
+[31m+       event.waitUntil([39m
+[31m+         fetchAndCache(event.request, cacheName).catch(() => null)[39m
+[31m+       )[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     return cachedResponse[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   return fetchAndCache(event.request, cacheName)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function fetchAndCache(request, cacheName) {[39m
+[31m+   const response = await fetch(request)[39m
+[31m+   await storeInCache(cacheName, request, response)[39m
+[31m+   return response[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function storeInCache(cacheName, request, response) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+   await cache.put(request, response.clone())[39m
+[31m+   await cache.put(getMetaRequest(request), new Response(String(Date.now())))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function getMetaRequest(request) {[39m
+[31m+   return new Request(request.url + META_SUFFIX)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function isStale(cache, request, ttl) {[39m
+[31m+   if (!ttl) {[39m
+[31m+     return false[39m
+[31m+   }[39m
+[31m+   const metaResponse = await cache.match(getMetaRequest(request))[39m
+[31m+   if (!metaResponse) {[39m
+[31m+     return true[39m
+[31m+   }[39m
+[31m+   const timestamp = Number(await metaResponse.text())[39m
+[31m+   return Number.isNaN(timestamp) || Date.now() - timestamp > ttl[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isCatalogResource(requestUrl) {[39m
+[31m+   return ([39m
+[31m+     requestUrl.pathname.includes("/producto") ||[39m
+[31m+     requestUrl.pathname.includes("/cadena") ||[39m
+[31m+     requestUrl.pathname.includes("/ciudad") ||[39m
+[31m+     requestUrl.pathname.includes("/horario") ||[39m
+[31m+     requestUrl.pathname.includes("/mision")[39m
+[31m+   )[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isImageRequest(requestUrl) {[39m
+[31m+   const pathname = requestUrl.pathname.toLowerCase()[39m
+[31m+   if (requestUrl.pathname.includes("/storage/v1/object")) {[39m
+[31m+     if (hasHeavyDocumentExtension(pathname)) {[39m
+[31m+       return false[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     return ([39m
+[31m+       hasThumbnailExtension(pathname) ||[39m
+[31m+       requestUrl.searchParams.has("width") ||[39m
+[31m+       requestUrl.searchParams.has("height") ||[39m
+[31m+       requestUrl.searchParams.has("resize")[39m
+[31m+     )[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   return hasThumbnailExtension(pathname)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isHeavyDocumentStorageRequest(requestUrl) {[39m
+[31m+   const pathname = requestUrl.pathname.toLowerCase()[39m
+[31m+   return requestUrl.pathname.includes("/storage/v1/object") && hasHeavyDocumentExtension(pathname)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function hasThumbnailExtension(pathname) {[39m
+[31m+   return THUMBNAIL_EXTENSIONS.some((extension) => pathname.endsWith(extension))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function hasHeavyDocumentExtension(pathname) {[39m
+[31m+   return HEAVY_DOCUMENT_EXTENSIONS.some((extension) => pathname.endsWith(extension))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isStaticAsset(requestUrl, isSameOrigin) {[39m
+[31m+   return ([39m
+[31m+     isSameOrigin &&[39m
+[31m+     (requestUrl.pathname.startsWith("/_next/static/") ||[39m
+[31m+       requestUrl.pathname.startsWith("/_next/image") ||[39m
+[31m+       requestUrl.pathname.endsWith(".js") ||[39m
+[31m+       requestUrl.pathname.endsWith(".css") ||[39m
+[31m+       requestUrl.pathname.endsWith(".svg") ||[39m
+[31m+       requestUrl.pathname.endsWith(".woff2"))[39m
+[31m+   )[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function matchesSensitivePattern(requestUrl) {[39m
+[31m+   return SENSITIVE_PATTERNS.some((segment) => requestUrl.pathname.includes(segment))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function notifyClientsToSync(tag) {[39m
+[31m+   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true })[39m
+[31m+   const requestId = self.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`[39m
+[31m+[39m
+[31m+   await Promise.all([39m
+[31m+     clients.map((client) =>[39m
+[31m+       client.postMessage({[39m
+[31m+         type: OFFLINE_SYNC_REQUEST,[39m
+[31m+         tag,[39m
+[31m+         requestId,[39m
+[31m+       })[39m
+[31m+     )[39m
+[31m+   )[39m
+[31m+[39m
+[31m+   return requestId[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function processBackgroundSync(tag) {[39m
+[31m+   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true })[39m
+[31m+[39m
+[31m+   if (clients.length === 0) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const requestId = await notifyClientsToSync(tag)[39m
+[31m+   await waitForSyncCompletion(requestId)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function waitForSyncCompletion(requestId) {[39m
+[31m+   return new Promise((resolve, reject) => {[39m
+[31m+     const timeoutId = setTimeout(() => {[39m
+[31m+       pendingSyncRequests.delete(requestId)[39m
+[31m+       reject(new Error("Foreground sync confirmation timed out"))[39m
+[31m+     }, OFFLINE_SYNC_TIMEOUT_MS)[39m
+[31m+[39m
+[31m+     pendingSyncRequests.set(requestId, {[39m
+[31m+       resolve,[39m
+[31m+       reject,[39m
+[31m+       timeoutId,[39m
+[31m+     })[39m
+[31m+   })[39m
+[31m+ }[39m
+[31m+[39m
+
+[36m [2mÔØ»[22m src/lib/pwa/serviceWorkerStrategies.test.ts:[2m28:33[22m[39m
+    [90m 26|[39m
+    [90m 27|[39m   it('uses network-first for navigations and operational data with offÔÇª
+    [90m 28|[39m     expect(serviceWorkerSource).toContain('const CACHE_NAME_APP_SHELL ÔÇª
+    [90m   |[39m                                 [31m^[39m
+    [90m 29|[39m     expect(serviceWorkerSource).toContain('const CACHE_NAME_DATA = "reÔÇª
+    [90m 30|[39m     expect(serviceWorkerSource).toContain('event.respondWith(networkFiÔÇª
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[14/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/lib/pwa/serviceWorkerStrategies.test.ts[2m > [22mservice worker cache strategies[2m > 
+[22mversions caches and coordinates foreground sync confirmations from the service worker when background sync fires
+[31m[1mAssertionError[22m: expected '// Bump this version whenever we deplÔÇª' to contain 'const 
+CACHE_NAME_APP_SHELL = "retail-ÔÇª'[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- const CACHE_NAME_APP_SHELL = "retail-app-shell-v2"[39m
+[31m+ // Bump this version whenever we deploy a new build.[39m
+[31m+ // This forces the SW caches to rotate, preventing stale HTML/JS/CSS mismatches.[39m
+[31m+ const CACHE_NAME_APP_SHELL = "retail-app-shell-v5"[39m
+[31m+ const CACHE_NAME_STATIC = "retail-static-v6"[39m
+[31m+ const CACHE_NAME_DATA = "retail-data-v5"[39m
+[31m+ const CACHE_NAME_CATALOGS = "retail-catalogs-v5"[39m
+[31m+ const CACHE_NAME_THUMBNAILS = "retail-thumbnails-v5"[39m
+[31m+ const OFFLINE_URL = "/offline"[39m
+[31m+ const STATIC_ASSETS = ["/manifest.webmanifest"][39m
+[31m+ // We only precache a minimal offline fallback. Operational routes are SSR + auth-gated and[39m
+[31m+ // precaching them can lead to stale redirects or outdated chunks after a deploy.[39m
+[31m+ const PRECACHE_ROUTES = ["/offline"][39m
+[31m+ const CATALOG_TTL_MS = 60 * 60 * 1000[39m
+[31m+ const THUMBNAIL_TTL_MS = 7 * 24 * 60 * 60 * 1000[39m
+[31m+ const META_SUFFIX = "::meta"[39m
+[31m+ const OFFLINE_SYNC_TAG = "retail-offline-sync"[39m
+[31m+ const OFFLINE_SYNC_REQUEST = "OFFLINE_SYNC_REQUEST"[39m
+[31m+ const OFFLINE_SYNC_COMPLETE = "OFFLINE_SYNC_COMPLETE"[39m
+[31m+ const OFFLINE_SYNC_TIMEOUT_MS = 15 * 1000[39m
+[31m+ const SENSITIVE_PATTERNS = [[39m
+[31m+   "/nomina",[39m
+[31m+   "/nomina_periodo",[39m
+[31m+   "/pre_nomina",[39m
+[31m+   "/gastos",[39m
+[31m+   "/expediente",[39m
+[31m+   "/incapacidad",[39m
+[31m+ ][39m
+[31m+ const THUMBNAIL_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".avif"][39m
+[31m+ const HEAVY_DOCUMENT_EXTENSIONS = [[39m
+[31m+   ".pdf",[39m
+[31m+   ".doc",[39m
+[31m+   ".docx",[39m
+[31m+   ".xls",[39m
+[31m+   ".xlsx",[39m
+[31m+   ".csv",[39m
+[31m+   ".ppt",[39m
+[31m+   ".pptx",[39m
+[31m+   ".zip",[39m
+[31m+ ][39m
+[31m+ const LEGACY_CACHE_NAMES = [[39m
+[31m+   "retail-pages-v1",[39m
+[31m+   "retail-static-v1",[39m
+[31m+   "retail-data-v1",[39m
+[31m+   "retail-catalogs-v1",[39m
+[31m+   "retail-app-shell-v4",[39m
+[31m+   "retail-static-v4",[39m
+[31m+   "retail-data-v4",[39m
+[31m+   "retail-catalogs-v4",[39m
+[31m+   "retail-thumbnails-v4",[39m
+[31m+ ][39m
+[31m+ const CACHE_NAMES = [[39m
+[31m+   CACHE_NAME_APP_SHELL,[39m
+[31m+   CACHE_NAME_STATIC,[39m
+[31m+   CACHE_NAME_DATA,[39m
+[31m+   CACHE_NAME_CATALOGS,[39m
+[31m+   CACHE_NAME_THUMBNAILS,[39m
+[31m+   ...LEGACY_CACHE_NAMES,[39m
+[31m+ ][39m
+[31m+ const pendingSyncRequests = new Map()[39m
+[31m+[39m
+[31m+ self.addEventListener("install", (event) => {[39m
+[31m+   event.waitUntil([39m
+[31m+     Promise.all([[39m
+[31m+       caches.open(CACHE_NAME_APP_SHELL).then((cache) => cache.add(OFFLINE_URL)),[39m
+[31m+       caches.open(CACHE_NAME_STATIC).then((cache) => cache.addAll(STATIC_ASSETS)),[39m
+[31m+       caches.open(CACHE_NAME_APP_SHELL).then((cache) => cache.addAll(PRECACHE_ROUTES)),[39m
+[31m+     ])[39m
+[31m+   )[39m
+[31m+   self.skipWaiting()[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("activate", (event) => {[39m
+[31m+   event.waitUntil([39m
+[31m+     caches.keys().then((keys) =>[39m
+[31m+       Promise.all([39m
+[31m+         keys[39m
+[31m+           .filter((key) => !CACHE_NAMES.includes(key))[39m
+[31m+           .map((key) => caches.delete(key))[39m
+[31m+       )[39m
+[31m+     )[39m
+[31m+   )[39m
+[31m+   self.clients.claim()[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("push", (event) => {[39m
+[31m+   if (!event.data) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const payload = event.data.json()[39m
+[31m+   const title = payload.title || "Mensaje operativo"[39m
+[31m+   const options = {[39m
+[31m+     body: payload.body || "Tienes una nueva notificacion.",[39m
+[31m+     icon: "/icon",[39m
+[31m+     badge: "/icon",[39m
+[31m+     tag: payload.tag || "retail-push",[39m
+[31m+     data: payload.data || { path: "/mensajes" },[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   event.waitUntil(self.registration.showNotification(title, options))[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("notificationclick", (event) => {[39m
+[31m+   event.notification.close()[39m
+[31m+   const targetPath = event.notification.data?.path || "/mensajes"[39m
+[31m+   const targetUrl = new URL(targetPath, self.location.origin).toString()[39m
+[31m+[39m
+[31m+   event.waitUntil([39m
+[31m+     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {[39m
+[31m+       const matched = clients.find((client) => client.url === targetUrl)[39m
+[31m+       if (matched) {[39m
+[31m+         return matched.focus()[39m
+[31m+       }[39m
+[31m+[39m
+[31m+       return self.clients.openWindow(targetUrl)[39m
+[31m+     })[39m
+[31m+   )[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("sync", (event) => {[39m
+[31m+   if (event.tag !== OFFLINE_SYNC_TAG) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   event.waitUntil(processBackgroundSync(event.tag))[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("message", (event) => {[39m
+[31m+   const data = event.data || {}[39m
+[31m+[39m
+[31m+   if (data.type !== OFFLINE_SYNC_COMPLETE || !data.requestId) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const pendingRequest = pendingSyncRequests.get(data.requestId)[39m
+[31m+   if (!pendingRequest) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   clearTimeout(pendingRequest.timeoutId)[39m
+[31m+   pendingSyncRequests.delete(data.requestId)[39m
+[31m+[39m
+[31m+   if (data.ok === false) {[39m
+[31m+     pendingRequest.reject(new Error(data.error || "Foreground sync failed"))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   pendingRequest.resolve()[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ self.addEventListener("fetch", (event) => {[39m
+[31m+   if (event.request.method !== "GET") {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const requestUrl = new URL(event.request.url)[39m
+[31m+   const isSameOrigin = requestUrl.origin === self.location.origin[39m
+[31m+   const isHeavyDocumentRequest = isHeavyDocumentStorageRequest(requestUrl)[39m
+[31m+   const isThumbnailRequest = isImageRequest(requestUrl)[39m
+[31m+   const isCatalogRequest = isCatalogResource(requestUrl)[39m
+[31m+   const isOperationalData =[39m
+[31m+     requestUrl.pathname.startsWith("/api/") ||[39m
+[31m+     requestUrl.pathname.includes("/rest/v1/") ||[39m
+[31m+     (!isSameOrigin && requestUrl.hostname.includes("supabase"))[39m
+[31m+   const isSensitiveData = matchesSensitivePattern(requestUrl)[39m
+[31m+[39m
+[31m+   if (isSensitiveData) {[39m
+[31m+     event.respondWith(fetch(event.request))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isHeavyDocumentRequest) {[39m
+[31m+     event.respondWith(fetch(event.request))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (event.request.mode === "navigate") {[39m
+[31m+     // Do not cache navigations (HTML). Caching SSR documents can lead to stale chunk references after a 
+deploy,[39m
+[31m+     // which manifests as "bugged" navigation until the caches are cleared.[39m
+[31m+     event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE_URL)))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isThumbnailRequest) {[39m
+[31m+     event.respondWith(cacheFirstWithTtl(event, CACHE_NAME_THUMBNAILS, THUMBNAIL_TTL_MS))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isStaticAsset(requestUrl, isSameOrigin)) {[39m
+[31m+     event.respondWith(cacheFirstWithTtl(event, CACHE_NAME_STATIC))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isCatalogRequest) {[39m
+[31m+     event.respondWith(staleWhileRevalidateWithTtl(event, CACHE_NAME_CATALOGS, CATALOG_TTL_MS))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   if (isOperationalData) {[39m
+[31m+     event.respondWith(networkFirst(event, CACHE_NAME_DATA))[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+ })[39m
+[31m+[39m
+[31m+ async function cacheFirstWithTtl(event, cacheName, ttl) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+   const cachedResponse = await cache.match(event.request)[39m
+[31m+[39m
+[31m+   if (cachedResponse) {[39m
+[31m+     if (!ttl || !(await isStale(cache, event.request, ttl))) {[39m
+[31m+       return cachedResponse[39m
+[31m+     }[39m
+[31m+     event.waitUntil(fetchAndCache(event.request, cacheName))[39m
+[31m+     return cachedResponse[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   return fetchAndCache(event.request, cacheName)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function networkFirst(event, cacheName) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+[39m
+[31m+   try {[39m
+[31m+     return await fetchAndCache(event.request, cacheName)[39m
+[31m+   } catch {[39m
+[31m+     const cachedResponse = await cache.match(event.request)[39m
+[31m+     if (cachedResponse) {[39m
+[31m+       return cachedResponse[39m
+[31m+     }[39m
+[31m+     if (event.request.mode === "navigate") {[39m
+[31m+       return caches.match(OFFLINE_URL)[39m
+[31m+     }[39m
+[31m+     throw new Error("Network failure")[39m
+[31m+   }[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function staleWhileRevalidateWithTtl(event, cacheName, ttl) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+   const cachedResponse = await cache.match(event.request)[39m
+[31m+[39m
+[31m+   if (cachedResponse) {[39m
+[31m+     const shouldRevalidate = !ttl || (await isStale(cache, event.request, ttl))[39m
+[31m+[39m
+[31m+     if (shouldRevalidate) {[39m
+[31m+       event.waitUntil([39m
+[31m+         fetchAndCache(event.request, cacheName).catch(() => null)[39m
+[31m+       )[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     return cachedResponse[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   return fetchAndCache(event.request, cacheName)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function fetchAndCache(request, cacheName) {[39m
+[31m+   const response = await fetch(request)[39m
+[31m+   await storeInCache(cacheName, request, response)[39m
+[31m+   return response[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function storeInCache(cacheName, request, response) {[39m
+[31m+   const cache = await caches.open(cacheName)[39m
+[31m+   await cache.put(request, response.clone())[39m
+[31m+   await cache.put(getMetaRequest(request), new Response(String(Date.now())))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function getMetaRequest(request) {[39m
+[31m+   return new Request(request.url + META_SUFFIX)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function isStale(cache, request, ttl) {[39m
+[31m+   if (!ttl) {[39m
+[31m+     return false[39m
+[31m+   }[39m
+[31m+   const metaResponse = await cache.match(getMetaRequest(request))[39m
+[31m+   if (!metaResponse) {[39m
+[31m+     return true[39m
+[31m+   }[39m
+[31m+   const timestamp = Number(await metaResponse.text())[39m
+[31m+   return Number.isNaN(timestamp) || Date.now() - timestamp > ttl[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isCatalogResource(requestUrl) {[39m
+[31m+   return ([39m
+[31m+     requestUrl.pathname.includes("/producto") ||[39m
+[31m+     requestUrl.pathname.includes("/cadena") ||[39m
+[31m+     requestUrl.pathname.includes("/ciudad") ||[39m
+[31m+     requestUrl.pathname.includes("/horario") ||[39m
+[31m+     requestUrl.pathname.includes("/mision")[39m
+[31m+   )[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isImageRequest(requestUrl) {[39m
+[31m+   const pathname = requestUrl.pathname.toLowerCase()[39m
+[31m+   if (requestUrl.pathname.includes("/storage/v1/object")) {[39m
+[31m+     if (hasHeavyDocumentExtension(pathname)) {[39m
+[31m+       return false[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     return ([39m
+[31m+       hasThumbnailExtension(pathname) ||[39m
+[31m+       requestUrl.searchParams.has("width") ||[39m
+[31m+       requestUrl.searchParams.has("height") ||[39m
+[31m+       requestUrl.searchParams.has("resize")[39m
+[31m+     )[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   return hasThumbnailExtension(pathname)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isHeavyDocumentStorageRequest(requestUrl) {[39m
+[31m+   const pathname = requestUrl.pathname.toLowerCase()[39m
+[31m+   return requestUrl.pathname.includes("/storage/v1/object") && hasHeavyDocumentExtension(pathname)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function hasThumbnailExtension(pathname) {[39m
+[31m+   return THUMBNAIL_EXTENSIONS.some((extension) => pathname.endsWith(extension))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function hasHeavyDocumentExtension(pathname) {[39m
+[31m+   return HEAVY_DOCUMENT_EXTENSIONS.some((extension) => pathname.endsWith(extension))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function isStaticAsset(requestUrl, isSameOrigin) {[39m
+[31m+   return ([39m
+[31m+     isSameOrigin &&[39m
+[31m+     (requestUrl.pathname.startsWith("/_next/static/") ||[39m
+[31m+       requestUrl.pathname.startsWith("/_next/image") ||[39m
+[31m+       requestUrl.pathname.endsWith(".js") ||[39m
+[31m+       requestUrl.pathname.endsWith(".css") ||[39m
+[31m+       requestUrl.pathname.endsWith(".svg") ||[39m
+[31m+       requestUrl.pathname.endsWith(".woff2"))[39m
+[31m+   )[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function matchesSensitivePattern(requestUrl) {[39m
+[31m+   return SENSITIVE_PATTERNS.some((segment) => requestUrl.pathname.includes(segment))[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function notifyClientsToSync(tag) {[39m
+[31m+   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true })[39m
+[31m+   const requestId = self.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`[39m
+[31m+[39m
+[31m+   await Promise.all([39m
+[31m+     clients.map((client) =>[39m
+[31m+       client.postMessage({[39m
+[31m+         type: OFFLINE_SYNC_REQUEST,[39m
+[31m+         tag,[39m
+[31m+         requestId,[39m
+[31m+       })[39m
+[31m+     )[39m
+[31m+   )[39m
+[31m+[39m
+[31m+   return requestId[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ async function processBackgroundSync(tag) {[39m
+[31m+   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true })[39m
+[31m+[39m
+[31m+   if (clients.length === 0) {[39m
+[31m+     return[39m
+[31m+   }[39m
+[31m+[39m
+[31m+   const requestId = await notifyClientsToSync(tag)[39m
+[31m+   await waitForSyncCompletion(requestId)[39m
+[31m+ }[39m
+[31m+[39m
+[31m+ function waitForSyncCompletion(requestId) {[39m
+[31m+   return new Promise((resolve, reject) => {[39m
+[31m+     const timeoutId = setTimeout(() => {[39m
+[31m+       pendingSyncRequests.delete(requestId)[39m
+[31m+       reject(new Error("Foreground sync confirmation timed out"))[39m
+[31m+     }, OFFLINE_SYNC_TIMEOUT_MS)[39m
+[31m+[39m
+[31m+     pendingSyncRequests.set(requestId, {[39m
+[31m+       resolve,[39m
+[31m+       reject,[39m
+[31m+       timeoutId,[39m
+[31m+     })[39m
+[31m+   })[39m
+[31m+ }[39m
+[31m+[39m
+
+[36m [2mÔØ»[22m src/lib/pwa/serviceWorkerStrategies.test.ts:[2m45:33[22m[39m
+    [90m 43|[39m
+    [90m 44|[39m   it('versions caches and coordinates foreground sync confirmations frÔÇª
+    [90m 45|[39m     expect(serviceWorkerSource).toContain('const CACHE_NAME_APP_SHELL ÔÇª
+    [90m   |[39m                                 [31m^[39m
+    [90m 46|[39m     expect(serviceWorkerSource).toContain('const CACHE_NAME_STATIC = "ÔÇª
+    [90m 47|[39m     expect(serviceWorkerSource).toContain('const OFFLINE_SYNC_TAG = "rÔÇª
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[15/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/features/materiales/actions.test.ts[2m > [22mmateriales actions[2m > [22mguarda el 
+catalogo promocional por cuenta
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2mÔØ»[22m src/features/materiales/actions.test.ts:[2m114:23[22m[39m
+    [90m112|[39m     const result = await guardarMaterialCatalogo(ESTADO_MATERIAL_INICIÔÇª
+    [90m113|[39m
+    [90m114|[39m     [34mexpect[39m(result[33m.[39mok)[33m.[39m[34mtoBe[39m([35mtrue[39m)
+    [90m   |[39m                       [31m^[39m
+    [90m115|[39m     
+[34mexpect[39m(revalidatePathMock)[33m.[39m[34mtoHaveBeenCalledWith[39m([32m'/materiales'[39m)
+    [90m116|[39m     [34mexpect[39m(inserts[[34m0[39m])[33m.[39m[34mtoMatchObject[39m({
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[16/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/features/materiales/actions.test.ts[2m > [22mmateriales actions[2m > [22mregistra la 
+entrega promocional y descuenta el saldo
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2mÔØ»[22m src/features/materiales/actions.test.ts:[2m319:23[22m[39m
+    [90m317|[39m     const result = await registrarEntregaPromocional(ESTADO_MATERIAL_IÔÇª
+    [90m318|[39m
+    [90m319|[39m     [34mexpect[39m(result[33m.[39mok)[33m.[39m[34mtoBe[39m([35mtrue[39m)
+    [90m   |[39m                       [31m^[39m
+    [90m320|[39m     
+[34mexpect[39m(revalidatePathMock)[33m.[39m[34mtoHaveBeenCalledWith[39m([32m'/materiales'[39m)
+    [90m321|[39m     [34mexpect[39m(calls[[34m0[39m])[33m.[39m[34mtoMatchObject[39m({
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[17/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/features/materiales/actions.test.ts[2m > [22mmateriales actions[2m > [22macepta 
+ticket sellado por camara cuando el material lo requiere
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2mÔØ»[22m src/features/materiales/actions.test.ts:[2m467:23[22m[39m
+    [90m465|[39m     const result = await registrarEntregaPromocional(ESTADO_MATERIAL_IÔÇª
+    [90m466|[39m
+    [90m467|[39m     [34mexpect[39m(result[33m.[39mok)[33m.[39m[34mtoBe[39m([35mtrue[39m)
+    [90m   |[39m                       [31m^[39m
+    [90m468|[39m     
+[34mexpect[39m(storeOptimizedEvidenceMock)[33m.[39m[34mtoHaveBeenCalledTimes[39m([34m3[39m)
+    [90m469|[39m     [34mexpect[39m(calls[[34m0[39m])[33m.[39m[34mtoMatchObject[39m({
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[18/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/features/materiales/actions.test.ts[2m > [22mmateriales actions[2m > [22mdescarta el 
+preview efimero del usuario actual
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2mÔØ»[22m src/features/materiales/actions.test.ts:[2m536:23[22m[39m
+    [90m534|[39m     const result = await descartarPreviewMateriales(ESTADO_MATERIAL_INÔÇª
+    [90m535|[39m
+    [90m536|[39m     [34mexpect[39m(result[33m.[39mok)[33m.[39m[34mtoBe[39m([35mtrue[39m)
+    [90m   |[39m                       [31m^[39m
+    [90m537|[39m     
+[34mexpect[39m(revalidatePathMock)[33m.[39m[34mtoHaveBeenCalledWith[39m([32m'/materiales'[39m)
+    [90m538|[39m     [34mexpect[39m(calls[[34m0[39m])[33m.[39m[34mtoMatchObject[39m({
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[19/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/features/solicitudes/extemporaneoActions.test.ts[2m > [22mextemporaneo actions[2m > 
+[22mregistra un registro extemporaneo pendiente de aprobacion
+[31m[1mAssertionError[22m: expected { ok: false, ÔÇª(1) } to match object { ok: true, ÔÇª(1) }[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "message": "Registro extemporaneo enviado a aprobacion.",[39m
+[32m-   "ok": true,[39m
+[31m+   "message": "service.rpc is not a function",[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+[36m [2mÔØ»[22m src/features/solicitudes/extemporaneoActions.test.ts:[2m303:20[22m[39m
+    [90m301|[39m     const result = await registrarRegistroExtemporaneo(ESTADO_SOLICITUÔÇª
+    [90m302|[39m
+    [90m303|[39m     [34mexpect[39m(result)[33m.[39m[34mtoMatchObject[39m({
+    [90m   |[39m                    [31m^[39m
+    [90m304|[39m       ok[33m:[39m [35mtrue[39m[33m,[39m
+    [90m305|[39m       message[33m:[39m [32m'Registro extemporaneo enviado a aprobacion.'[39m[33m,[39m
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[20/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/features/solicitudes/extemporaneoActions.test.ts[2m > [22mextemporaneo actions[2m > 
+[22maprueba un registro extemporaneo y consolida la venta
+[31m[1mAssertionError[22m: expected { ok: false, ÔÇª(1) } to match object { ok: true, ÔÇª(1) }[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "message": "Registro extemporaneo aprobado y consolidado.",[39m
+[32m-   "ok": true,[39m
+[31m+   "message": "No fue posible cargar el registro extemporaneo.",[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+[36m [2mÔØ»[22m src/features/solicitudes/extemporaneoActions.test.ts:[2m356:20[22m[39m
+    [90m354|[39m     const result = await resolverRegistroExtemporaneo(ESTADO_SOLICITUDÔÇª
+    [90m355|[39m
+    [90m356|[39m     [34mexpect[39m(result)[33m.[39m[34mtoMatchObject[39m({
+    [90m   |[39m                    [31m^[39m
+    [90m357|[39m       ok[33m:[39m [35mtrue[39m[33m,[39m
+    [90m358|[39m       message[33m:[39m [32m'Registro extemporaneo aprobado y consolidado.'[39m[33m,[39m
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[21/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/features/solicitudes/extemporaneoActions.test.ts[2m > [22mextemporaneo actions[2m > 
+[22mregistra carrito extemporaneo de ventas y consolida multiples registros al aprobar
+[31m[1mAssertionError[22m: expected { ok: false, ÔÇª(1) } to match object { ok: true, ÔÇª(1) }[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "message": "Registro extemporaneo enviado a aprobacion.",[39m
+[32m-   "ok": true,[39m
+[31m+   "message": "service.rpc is not a function",[39m
+[31m+   "ok": false,[39m
+[2m  }[22m
+
+[36m [2mÔØ»[22m src/features/solicitudes/extemporaneoActions.test.ts:[2m402:26[22m[39m
+    [90m400|[39m     const createResult = await registrarRegistroExtemporaneo(ESTADO_SOÔÇª
+    [90m401|[39m
+    [90m402|[39m     [34mexpect[39m(createResult)[33m.[39m[34mtoMatchObject[39m({
+    [90m   |[39m                          [31m^[39m
+    [90m403|[39m       ok[33m:[39m [35mtrue[39m[33m,[39m
+    [90m404|[39m       message[33m:[39m [32m'Registro extemporaneo enviado a aprobacion.'[39m[33m,[39m
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[22/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/features/asignaciones/lib/pdvRotationLegacyWorkbook.test.ts[2m > [22mconvierte archivo 
+legacy a rotacion oficial con grupos naturales y parejas manuales
+
+[2m Test Files [22m [1m[31m20 failed[39m[22m[2m | [22m[1m[32m58 passed[39m[22m[90m (78)[39m
+[2m      Tests [22m [1m[31m21 failed[39m[22m[2m | [22m[1m[32m208 passed[39m[22m[90m (229)[39m
+[2m   Start at [22m 16:02:08
+[2m   Duration [22m 3.59s[2m (transform 26.13s, setup 0ms, import 27.26s, tests 4.31s, environment 10ms)[22m
+
+[31m[1mAssertionError[22m: expected [ { rowNumber: null, ÔÇª(4) }, ÔÇª(7) ] to deeply equal [][39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   {[39m
+[31m+     "claveBtl": "BTL-FAH-RIOR-AF",[39m
+[31m+     "code": "PAREJA_MANUAL_INCOMPLETA",[39m
+[31m+     "message": "La pareja manual ROT-ISDIN-MAN-002 referencia BTL-FAH-RIOR-AF y ese PDV no existe en el archivo 
+legacy.",[39m
+[31m+     "rowNumber": null,[39m
+[31m+     "severity": "ERROR",[39m
+[31m+   },[39m
+[31m+   {[39m
+[31m+     "claveBtl": "BTL-FAH-SANP-J4",[39m
+[31m+     "code": "PAREJA_MANUAL_INCOMPLETA",[39m
+[31m+     "message": "La pareja manual ROT-ISDIN-MAN-002 referencia BTL-FAH-SANP-J4 y ese PDV no existe en el archivo 
+legacy.",[39m
+[31m+     "rowNumber": null,[39m
+[31m+     "severity": "ERROR",[39m
+[31m+   },[39m
+[31m+   {[39m
+[31m+     "claveBtl": "BTL-FAH-LUIS-9S",[39m
+[31m+     "code": "PAREJA_MANUAL_INCOMPLETA",[39m
+[31m+     "message": "La pareja manual ROT-ISDIN-MAN-003 referencia BTL-FAH-LUIS-9S y ese PDV no existe en el archivo 
+legacy.",[39m
+[31m+     "rowNumber": null,[39m
+[31m+     "severity": "ERROR",[39m
+[31m+   },[39m
+[31m+   {[39m
+[31m+     "claveBtl": "BTL-FAH-POLA-HM",[39m
+[31m+     "code": "PAREJA_MANUAL_INCOMPLETA",[39m
+[31m+     "message": "La pareja manual ROT-ISDIN-MAN-003 referencia BTL-FAH-POLA-HM y ese PDV no existe en el archivo 
+legacy.",[39m
+[31m+     "rowNumber": null,[39m
+[31m+     "severity": "ERROR",[39m
+[31m+   },[39m
+[31m+   {[39m
+[31m+     "claveBtl": "BTL-LIV-GUAD-7E",[39m
+[31m+     "code": "PAREJA_MANUAL_INCOMPLETA",[39m
+[31m+     "message": "La pareja manual ROT-ISDIN-MAN-004 referencia BTL-LIV-GUAD-7E y ese PDV no existe en el archivo 
+legacy.",[39m
+[31m+     "rowNumber": null,[39m
+[31m+     "severity": "ERROR",[39m
+[31m+   },[39m
+[31m+   {[39m
+[31m+     "claveBtl": "BTL-LIV-LZAP-J5",[39m
+[31m+     "code": "PAREJA_MANUAL_INCOMPLETA",[39m
+[31m+     "message": "La pareja manual ROT-ISDIN-MAN-004 referencia BTL-LIV-LZAP-J5 y ese PDV no existe en el archivo 
+legacy.",[39m
+[31m+     "rowNumber": null,[39m
+[31m+     "severity": "ERROR",[39m
+[31m+   },[39m
+[31m+   {[39m
+[31m+     "claveBtl": "BTL-LIV-TLAQ-3W",[39m
+[31m+     "code": "PAREJA_MANUAL_INCOMPLETA",[39m
+[31m+     "message": "La pareja manual ROT-ISDIN-MAN-005 referencia BTL-LIV-TLAQ-3W y ese PDV no existe en el archivo 
+legacy.",[39m
+[31m+     "rowNumber": null,[39m
+[31m+     "severity": "ERROR",[39m
+[31m+   },[39m
+[31m+   {[39m
+[31m+     "claveBtl": "BTL-LIV-ZAPO-DM",[39m
+[31m+     "code": "PAREJA_MANUAL_INCOMPLETA",[39m
+[31m+     "message": "La pareja manual ROT-ISDIN-MAN-005 referencia BTL-LIV-ZAPO-DM y ese PDV no existe en el archivo 
+legacy.",[39m
+[31m+     "rowNumber": null,[39m
+[31m+     "severity": "ERROR",[39m
+[31m+   },[39m
+[31m+ ][39m
+
+[36m [2mÔØ»[22m src/features/asignaciones/lib/pdvRotationLegacyWorkbook.test.ts:[2m108:25[22m[39m
+    [90m106|[39m   })
+    [90m107|[39m
+    [90m108|[39m   [34mexpect[39m(result[33m.[39missues)[33m.[39m[34mtoEqual[39m([])
+    [90m   |[39m                         [31m^[39m
+    [90m109|[39m   
+[34mexpect[39m(result[33m.[39msummary[33m.[39mconvertedRows)[33m.[39m[34mtoBe[39m([34m9[39m)
+    [90m110|[39m   [34mexpect[39m(result[33m.[39msummary[33m.[39mfijos)[33m.[39m[34mtoBe[39m([34m2[39m)
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[23/32]ÔÄ»[22m[39m
+
+[41m[1m FAIL [22m[49m src/features/asistencias/lib/attendanceDiscipline.test.ts[2m > 
+[22mderiveAttendanceDiscipline[2m > [22mdetects tardies, justified absences and administrative absences
+[31m[1mAssertionError[22m: expected [] to have a length of 1 but got +0[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+[36m [2mÔØ»[22m src/features/asistencias/lib/attendanceDiscipline.test.ts:[2m69:85[22m[39m
+    [90m 67|[39m
+    [90m 68|[39m     expect(result.records.filter((item) => item.estado === 'RETARDO'))ÔÇª
+    [90m 69|[39m     expect(result.records.filter((item) => item.estado === 'AUSENCIA_JÔÇª
+    [90m   |[39m                                                                                     [31m^[39m
+    [90m 70|[39m     expect(result.records.filter((item) => item.estado === 'FALTA')).tÔÇª
+    [90m 71|[39m     
+[34mexpect[39m(result[33m.[39madministrativeAbsences)[33m.[39m[34mtoHaveLength[39m([34m1[39m)
+
+[31m[2mÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[24/32]ÔÄ»[22m[39m
+

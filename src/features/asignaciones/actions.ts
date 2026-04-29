@@ -1,6 +1,5 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   SUPERVISOR_INHERITANCE_RULE_CODE,
@@ -8,10 +7,10 @@ import {
   resolveSupervisorInheritance,
   type BusinessRuleRow,
 } from '@/features/reglas/lib/businessRules'
-import { requerirAdministradorActivo } from '@/lib/auth/session'
+import { requerirAdministradorActivo, requerirPuestosActivos } from '@/lib/auth/session'
 import { getSingleTenantAccountId } from '@/lib/tenant/singleTenant'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import type { Empleado, Pdv, UsuarioSistema } from '@/types/database'
+import type { Empleado, Pdv, UsuarioSistema, VacanteOperativaFuturaSeguimiento } from '@/types/database'
 import {
   evaluarReglasAsignacion,
   resumirIssuesAsignacion,
@@ -42,14 +41,31 @@ import {
   enqueueAndProcessMaterializedAssignments,
   resolveMaterializationImpactRange,
 } from './services/asignacionMaterializationService'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
 import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus'
 import {
+  normalizeAssignmentRestMonthlyRule,
+  normalizeIsoDateList,
+  WEEKDAY_MONTHLY_RULES,
+  type AssignmentRestMonthlyRule,
+  type AssignmentRestWeekdayCode,
+  summarizeRestOverrideDates,
+  type AssignmentRestOverrideLike,
+} from './lib/assignmentRestOverride'
+import {
+  ESTADO_ACTUALIZACION_VACANTE_OPERATIVA_INICIAL,
   ESTADO_ASIGNACION_INICIAL,
+  ESTADO_DESCANSO_PERMANENTE_INICIAL,
   ESTADO_PUBLICACION_CATALOGO_ASIGNACIONES_INICIAL,
+  type ActualizarVacanteOperativaFuturaState,
   type ActualizarEstadoAsignacionState,
   type AssignmentImportConflict,
+  type AssignmentImportPreviewRow,
   type ImportarCatalogoAsignacionesState,
+  type GuardarDescansoPermanenteState,
   type PublicarCatalogoAsignacionesState,
+  type RestOverridePreviewSummary,
 } from './state'
 import {
   type ImportarRotacionMaestraState,
@@ -98,6 +114,31 @@ interface CuentaClientePdvRow {
 }
 
 type TypedSupabaseClient = SupabaseClient<any>
+type MaybeMany<T> = T | T[] | null
+
+async function publishAsignacionesUiChanges(
+  actor: Awaited<ReturnType<typeof requerirAdministradorActivo>>,
+  service: TypedSupabaseClient,
+  eventType: string
+) {
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType,
+      modules: ['asignaciones', 'dashboard', 'pdvs', 'reportes'],
+      surfaces: ['panel', 'insights', 'tabla', 'all'],
+      scopes: [
+        buildUiChangeScope('global'),
+        buildUiChangeScope('cuenta', actor.cuentaClienteId),
+        buildUiChangeScope('empleado', actor.empleadoId),
+      ],
+      cuentaClienteId: actor.cuentaClienteId ?? null,
+      empleadoId: actor.empleadoId,
+      roleTargets: ['ADMINISTRADOR', 'COORDINADOR', 'SUPERVISOR'],
+      metadata: { source: 'asignaciones_actions' },
+    }),
+    { service }
+  )
+}
 
 type EmpleadoContextRow = Pick<
   Empleado,
@@ -157,6 +198,8 @@ function buildImportState(
     message: null,
     conflicts: [],
     summary: null,
+    previewRows: [],
+    redirectTo: null,
   }
 
   return {
@@ -164,7 +207,27 @@ function buildImportState(
     ...partial,
     conflicts: partial.conflicts ?? baseState.conflicts,
     summary: partial.summary ?? baseState.summary,
+    previewRows: partial.previewRows ?? baseState.previewRows,
+    redirectTo: partial.redirectTo ?? baseState.redirectTo,
   }
+}
+
+function buildVacanteOperativaState(
+  partial: Partial<ActualizarVacanteOperativaFuturaState>
+): ActualizarVacanteOperativaFuturaState {
+  return {
+    ...ESTADO_ACTUALIZACION_VACANTE_OPERATIVA_INICIAL,
+    ...partial,
+  }
+}
+
+function isMissingSchemaTableError(error: unknown, tableName: string) {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const normalized = message.toLowerCase()
+  return (
+    normalized.includes(tableName.toLowerCase()) &&
+    (normalized.includes('schema cache') || normalized.includes('could not find the table'))
+  )
 }
 
 function buildPublishState(
@@ -177,12 +240,13 @@ function buildPublishState(
   return {
     ...baseState,
     ...partial,
-    conflicts: partial.conflicts ?? baseState.conflicts,
-    publishedRows: partial.publishedRows ?? baseState.publishedRows,
-    materializedEmployees: partial.materializedEmployees ?? baseState.materializedEmployees,
-    materializedWindowLabel: partial.materializedWindowLabel ?? baseState.materializedWindowLabel,
+      conflicts: partial.conflicts ?? baseState.conflicts,
+      publishedRows: partial.publishedRows ?? baseState.publishedRows,
+      materializedEmployees: partial.materializedEmployees ?? baseState.materializedEmployees,
+      materializedWindowLabel: partial.materializedWindowLabel ?? baseState.materializedWindowLabel,
+      redirectTo: partial.redirectTo ?? baseState.redirectTo,
+    }
   }
-}
 
 function buildRotationImportState(
   partial: Partial<ImportarRotacionMaestraState>
@@ -201,11 +265,36 @@ function buildRotationImportState(
     summary: partial.summary ?? baseState.summary,
   }
 }
+
+function buildDescansoPermanentState(
+  partial: Partial<GuardarDescansoPermanenteState>
+): GuardarDescansoPermanenteState {
+  const baseState: GuardarDescansoPermanenteState = {
+    ...ESTADO_DESCANSO_PERMANENTE_INICIAL,
+  }
+
+  return {
+    ...baseState,
+    ...partial,
+    preview: partial.preview ?? baseState.preview,
+    overrideId: partial.overrideId ?? baseState.overrideId,
+  }
+}
+
 function getCurrentMxMonth() {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Mexico_City',
     year: 'numeric',
     month: '2-digit',
+  }).format(new Date())
+}
+
+function getCurrentMxDate() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
   }).format(new Date())
 }
 
@@ -338,6 +427,166 @@ function normalizeOptionalText(value: FormDataEntryValue | null) {
   return normalized || null
 }
 
+function previousIsoDate(value: string) {
+  const date = new Date(`${value}T12:00:00Z`)
+  date.setUTCDate(date.getUTCDate() - 1)
+  return date.toISOString().slice(0, 10)
+}
+
+function parseIsoDateLines(value: FormDataEntryValue | null) {
+  const raw = String(value ?? '').trim()
+  if (!raw) {
+    return {
+      dates: [] as string[],
+      invalidTokens: [] as string[],
+    }
+  }
+
+  const tokens = raw
+    .split(/[\n,;|]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  const dates = Array.from(new Set(tokens.filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item))))
+    .sort((left, right) => left.localeCompare(right))
+  const invalidTokens = tokens.filter((item) => !/^\d{4}-\d{2}-\d{2}$/.test(item))
+
+  return { dates, invalidTokens }
+}
+
+function parseOccurrenceList(value: FormDataEntryValue | null) {
+  const raw = String(value ?? '').trim()
+  if (!raw) {
+    return {
+      values: [] as number[],
+      invalidTokens: [] as string[],
+    }
+  }
+
+  const tokens = raw
+    .split(/[\n,;|]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  const validValues = Array.from(
+    new Set(
+      tokens
+        .map((item) => Number(item))
+        .filter((item) => Number.isInteger(item) && item >= 1 && item <= 5)
+    )
+  ).sort((left, right) => left - right)
+
+  const invalidTokens = tokens.filter((item) => {
+    const parsed = Number(item)
+    return !Number.isInteger(parsed) || parsed < 1 || parsed > 5
+  })
+
+  return {
+    values: validValues,
+    invalidTokens,
+  }
+}
+
+function parseMonthlyWeekdayRuleFields(formData: FormData) {
+  const invalidTokens: string[] = []
+  const values = WEEKDAY_MONTHLY_RULES.map((item) => {
+    const rest = parseOccurrenceList(formData.get(`regla_${item.code}_descanso`))
+    const work = parseOccurrenceList(formData.get(`regla_${item.code}_trabajo`))
+
+    invalidTokens.push(...rest.invalidTokens, ...work.invalidTokens)
+
+    return {
+      weekday: item.code,
+      descanso: rest.values,
+      trabajo: work.values,
+    }
+  })
+
+  return {
+    values,
+    invalidTokens,
+  }
+}
+
+function buildMonthlyWeekdayRule(
+  input: Array<{
+    weekday: AssignmentRestWeekdayCode
+    descanso: number[]
+    trabajo: number[]
+  }>
+): AssignmentRestMonthlyRule | null {
+  const rest = input
+    .filter((item) => item.descanso.length > 0)
+    .map((item) => ({ weekday: item.weekday, occurrences: item.descanso }))
+  const work = input
+    .filter((item) => item.trabajo.length > 0)
+    .map((item) => ({ weekday: item.weekday, occurrences: item.trabajo }))
+
+  if (rest.length === 0 && work.length === 0) {
+    return null
+  }
+
+  return {
+    kind: 'MONTHLY_WEEKDAY_OCCURRENCIES',
+    timezone: 'America/Mexico_City',
+    rest,
+    work,
+  }
+}
+
+function listDatesForMonthlyRule(rule: AssignmentRestMonthlyRule | null, month: string) {
+  if (!rule) {
+    return {
+      descansos: [] as string[],
+      trabajos: [] as string[],
+    }
+  }
+
+  const start = startOfMonth(month)
+  const end = endOfMonth(month)
+  const descansos: string[] = []
+  const trabajos: string[] = []
+  const weekdayMap = WEEKDAY_MONTHLY_RULES.map((item) => item.code) as AssignmentRestWeekdayCode[]
+
+  for (let cursor = start; cursor <= end; ) {
+    const normalized = normalizeAssignmentRestMonthlyRule(rule)
+    if (!normalized) {
+      break
+    }
+
+    const [yearRaw, monthRaw, dayRaw] = cursor.split('-').map(Number)
+    const date = new Date(Date.UTC(yearRaw, monthRaw - 1, dayRaw))
+    const weekday = weekdayMap[date.getUTCDay()] ?? 'DOM'
+    const occurrence = Math.floor((date.getUTCDate() - 1) / 7) + 1
+
+    if (normalized.work.some((entry) => entry.weekday === weekday && entry.occurrences.includes(occurrence))) {
+      trabajos.push(cursor)
+    } else if (normalized.rest.some((entry) => entry.weekday === weekday && entry.occurrences.includes(occurrence))) {
+      descansos.push(cursor)
+    }
+
+    date.setUTCDate(date.getUTCDate() + 1)
+    cursor = date.toISOString().slice(0, 10)
+  }
+
+  return { descansos, trabajos }
+}
+
+function buildRuleLabel(rule: AssignmentRestMonthlyRule | null) {
+  if (!rule) {
+    return null
+  }
+
+  const labelByCode = new Map(WEEKDAY_MONTHLY_RULES.map((item) => [item.code, item.label] as const))
+  const parts = [...rule.rest.map((entry) => `Descanso ${labelByCode.get(entry.weekday) ?? entry.weekday} ${entry.occurrences.join('/')}`)]
+  parts.push(...rule.work.map((entry) => `Trabajo ${labelByCode.get(entry.weekday) ?? entry.weekday} ${entry.occurrences.join('/')}`))
+  return parts.join(' · ')
+}
+
+function serializeRestMonthlyRule(rule: AssignmentRestMonthlyRule | null): Record<string, unknown> | null {
+  return rule ? (rule as unknown as Record<string, unknown>) : null
+}
+
 
 
 function normalizeAssignmentNature(value: FormDataEntryValue | null): AssignmentEngineNature {
@@ -364,6 +613,27 @@ function derivePriorityFromNature(naturaleza: AssignmentEngineNature) {
   }
 
   return 100
+}
+
+function buildDescansoOverridePreviewSummary(input: {
+  assignmentId: string
+  assignmentLabel: string
+  modo: 'EXPLICITO' | 'REGLA_MENSUAL'
+  reglaLabel: string | null
+  fechasDescanso: string[]
+  fechasTrabajo: string[]
+  previewMonth: string
+}): RestOverridePreviewSummary {
+  return {
+    mes: input.previewMonth,
+    asignacionId: input.assignmentId,
+    asignacionLabel: input.assignmentLabel,
+    modo: input.modo,
+    reglaLabel: input.reglaLabel,
+    fechasDescanso: input.fechasDescanso,
+    fechasTrabajo: input.fechasTrabajo,
+    diasAfectados: Array.from(new Set([...input.fechasDescanso, ...input.fechasTrabajo])).length,
+  }
 }
 
 async function registrarEventoAudit(
@@ -661,10 +931,7 @@ export async function guardarAsignacionPlanificada(
       usuarioId: actor.usuarioId,
       cuentaClienteId: data.cuenta_cliente_id,
     })
-
-    revalidatePath('/asignaciones')
-    revalidatePath('/dashboard')
-    revalidatePath('/pdvs')
+    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
 
     const nonBlocking = [...resumen.alertas, ...resumen.avisos]
 
@@ -677,12 +944,385 @@ export async function guardarAsignacionPlanificada(
       issues,
     })
   } catch (error) {
-    return buildState({
-      message: error instanceof Error ? error.message : 'No fue posible guardar la asignacion.',
+      return buildState({
+        message: error instanceof Error ? error.message : 'No fue posible guardar la asignacion.',
+      })
+    }
+  }
+
+export async function guardarDescansoPermanenteAsignacion(
+  _prevState: GuardarDescansoPermanenteState,
+  formData: FormData
+): Promise<GuardarDescansoPermanenteState> {
+  const actor = await requerirAdministradorActivo()
+
+  try {
+    const supabase = await createClient()
+    const service = createServiceClient() as TypedSupabaseClient
+    const asignacionId = normalizeOptionalText(formData.get('asignacion_id'))
+    const actionMode = String(formData.get('descanso_action') ?? 'preview').trim().toLowerCase()
+    const overrideMode = String(formData.get('override_mode') ?? 'EXPLICITO').trim().toUpperCase() === 'REGLA_MENSUAL'
+      ? 'REGLA_MENSUAL'
+      : 'EXPLICITO'
+    const previewMonthRaw = normalizeOptionalText(formData.get('preview_month'))
+    const previewMonth = /^\d{4}-\d{2}$/.test(previewMonthRaw ?? '') ? previewMonthRaw! : getCurrentMxMonth()
+    const vigenteDesde = normalizeDate(formData.get('vigente_desde')) ?? getCurrentMxDate()
+    const observaciones = normalizeOptionalText(formData.get('observaciones'))
+    const { dates: descansoRaw, invalidTokens: descansoInvalid } = parseIsoDateLines(
+      formData.get('fechas_descanso')
+    )
+    const { dates: trabajoRaw, invalidTokens: trabajoInvalid } = parseIsoDateLines(formData.get('fechas_trabajo'))
+    const fechasDescanso = normalizeIsoDateList(descansoRaw)
+    const fechasTrabajo = normalizeIsoDateList(trabajoRaw)
+    const monthlyRuleFields = parseMonthlyWeekdayRuleFields(formData)
+    const monthlyRule = buildMonthlyWeekdayRule(monthlyRuleFields.values)
+    const rulePreviewDates = listDatesForMonthlyRule(monthlyRule, previewMonth)
+    const effectiveFechasDescanso =
+      overrideMode === 'REGLA_MENSUAL'
+        ? normalizeIsoDateList([...rulePreviewDates.descansos, ...fechasDescanso])
+        : fechasDescanso
+    const effectiveFechasTrabajo =
+      overrideMode === 'REGLA_MENSUAL'
+        ? normalizeIsoDateList([...rulePreviewDates.trabajos, ...fechasTrabajo])
+        : fechasTrabajo
+
+    if (!asignacionId) {
+      return buildDescansoPermanentState({
+        message: 'La asignacion es obligatoria para configurar descansos permanentes.',
+      })
+    }
+
+    if (
+      descansoInvalid.length > 0 ||
+      trabajoInvalid.length > 0 ||
+      monthlyRuleFields.invalidTokens.length > 0
+    ) {
+      const invalidTokens = Array.from(
+        new Set([
+          ...descansoInvalid,
+          ...trabajoInvalid,
+          ...monthlyRuleFields.invalidTokens,
+        ])
+      )
+      return buildDescansoPermanentState({
+        message: `Usa fechas ISO validas y ocurrencias mensuales del 1 al 5. Tokens invalidos: ${invalidTokens.join(', ')}.`,
+      })
+    }
+
+    if (!monthlyRule && fechasDescanso.length === 0 && fechasTrabajo.length === 0) {
+      return buildDescansoPermanentState({
+        message: 'Agrega al menos una regla mensual o una fecha de descanso/trabajo antes de guardar.',
+      })
+    }
+
+    const overlap = effectiveFechasDescanso.filter((item) => effectiveFechasTrabajo.includes(item))
+    if (overlap.length > 0) {
+      return buildDescansoPermanentState({
+        message: `Las mismas fechas no pueden quedar como descanso y trabajo al mismo tiempo: ${overlap.join(', ')}.`,
+      })
+    }
+
+    const { data: assignmentRaw, error: assignmentError } = await supabase
+      .from('asignacion')
+      .select(
+        `
+          id,
+          cuenta_cliente_id,
+          empleado_id,
+          pdv_id,
+          estado_publicacion,
+          naturaleza,
+          empleado:empleado_id(nombre_completo),
+          pdv:pdv_id(nombre, clave_btl)
+        `
+      )
+      .eq('id', asignacionId)
+      .maybeSingle()
+
+    if (assignmentError || !assignmentRaw) {
+      return buildDescansoPermanentState({
+        message: assignmentError?.message ?? 'No fue posible encontrar la asignacion seleccionada.',
+      })
+    }
+
+    const assignment = assignmentRaw as {
+      id: string
+      cuenta_cliente_id: string | null
+      empleado_id: string
+      pdv_id: string
+      estado_publicacion: 'BORRADOR' | 'PUBLICADA'
+      naturaleza: AssignmentEngineNature
+      empleado: MaybeMany<Pick<Empleado, 'nombre_completo'>>
+      pdv: MaybeMany<Pick<Pdv, 'nombre' | 'clave_btl'>>
+    }
+
+    if (assignment.naturaleza !== 'BASE') {
+      return buildDescansoPermanentState({
+        message: 'Los descansos permanentes solo se pueden configurar sobre asignaciones base.',
+      })
+    }
+
+    if (assignment.estado_publicacion !== 'PUBLICADA') {
+      return buildDescansoPermanentState({
+        message: 'Primero publica la asignacion base para poder agregar descansos permanentes.',
+      })
+    }
+
+    if (actor.cuentaClienteId && assignment.cuenta_cliente_id && actor.cuentaClienteId !== assignment.cuenta_cliente_id) {
+      return buildDescansoPermanentState({
+        message: 'La asignacion seleccionada no pertenece a la cuenta activa del administrador.',
+      })
+    }
+
+    const empleado = Array.isArray(assignment.empleado) ? assignment.empleado[0] ?? null : assignment.empleado ?? null
+    const pdv = Array.isArray(assignment.pdv) ? assignment.pdv[0] ?? null : assignment.pdv ?? null
+    const assignmentLabel = [empleado?.nombre_completo ?? assignment.empleado_id, pdv?.clave_btl ?? null, pdv?.nombre ?? null]
+      .filter(Boolean)
+      .join(' · ')
+
+    const activeOverrideResult = await service
+      .from('asignacion_descanso_override')
+      .select(
+        `
+          id,
+          asignacion_id,
+          cuenta_cliente_id,
+          empleado_id,
+          vigente_desde,
+          vigente_hasta,
+          modo,
+          regla_descanso,
+          fechas_descanso,
+          fechas_trabajo,
+          observaciones,
+          activo,
+          metadata,
+          created_at,
+          updated_at
+        `
+      )
+      .eq('asignacion_id', assignment.id)
+      .eq('activo', true)
+      .maybeSingle()
+
+    if (activeOverrideResult.error) {
+      if (isMissingSchemaTableError(activeOverrideResult.error, 'asignacion_descanso_override')) {
+        return buildDescansoPermanentState({
+          preview: null,
+          overrideId: null,
+          message: 'La capa de descansos permanentes aun no esta disponible en este entorno.',
+        })
+      }
+
+      return buildDescansoPermanentState({ message: activeOverrideResult.error.message })
+    }
+
+    const activeOverride = activeOverrideResult.data
+      ? ({
+          id: activeOverrideResult.data.id,
+          asignacion_id: activeOverrideResult.data.asignacion_id,
+          cuenta_cliente_id: activeOverrideResult.data.cuenta_cliente_id,
+          empleado_id: activeOverrideResult.data.empleado_id,
+          vigente_desde: activeOverrideResult.data.vigente_desde,
+          vigente_hasta: activeOverrideResult.data.vigente_hasta,
+          modo: activeOverrideResult.data.modo === 'REGLA_MENSUAL' ? 'REGLA_MENSUAL' : 'EXPLICITO',
+          regla_descanso:
+            activeOverrideResult.data.regla_descanso &&
+            typeof activeOverrideResult.data.regla_descanso === 'object' &&
+            !Array.isArray(activeOverrideResult.data.regla_descanso)
+              ? (activeOverrideResult.data.regla_descanso as Record<string, unknown>)
+              : null,
+          fechas_descanso: Array.isArray(activeOverrideResult.data.fechas_descanso)
+            ? activeOverrideResult.data.fechas_descanso.filter((item): item is string => typeof item === 'string')
+            : [],
+          fechas_trabajo: Array.isArray(activeOverrideResult.data.fechas_trabajo)
+            ? activeOverrideResult.data.fechas_trabajo.filter((item): item is string => typeof item === 'string')
+            : [],
+          observaciones: activeOverrideResult.data.observaciones ?? null,
+          activo: activeOverrideResult.data.activo,
+          metadata:
+            activeOverrideResult.data.metadata &&
+            typeof activeOverrideResult.data.metadata === 'object' &&
+            !Array.isArray(activeOverrideResult.data.metadata)
+              ? (activeOverrideResult.data.metadata as Record<string, unknown>)
+              : {},
+          created_at: activeOverrideResult.data.created_at,
+          updated_at: activeOverrideResult.data.updated_at,
+        } satisfies AssignmentRestOverrideLike)
+      : null
+
+    const normalizedActive = activeOverride ? summarizeRestOverrideDates(activeOverride) : null
+    const normalizedInput = summarizeRestOverrideDates({
+      id: 'preview',
+      asignacion_id: assignment.id,
+      cuenta_cliente_id: assignment.cuenta_cliente_id,
+      empleado_id: assignment.empleado_id,
+      vigente_desde: vigenteDesde,
+      vigente_hasta: null,
+      modo: overrideMode,
+      regla_descanso: serializeRestMonthlyRule(monthlyRule),
+      fechas_descanso: fechasDescanso,
+      fechas_trabajo: fechasTrabajo,
+      observaciones,
+      activo: true,
+      metadata: {},
+    })
+
+    const preview = buildDescansoOverridePreviewSummary({
+      assignmentId: assignment.id,
+      assignmentLabel,
+      modo: overrideMode,
+      reglaLabel: buildRuleLabel(monthlyRule),
+      fechasDescanso: effectiveFechasDescanso,
+      fechasTrabajo: effectiveFechasTrabajo,
+      previewMonth,
+    })
+
+    if (actionMode !== 'save') {
+      return buildDescansoPermanentState({
+        ok: true,
+        message: 'Vista previa lista. Revisa el impacto mensual antes de guardar el cambio permanente.',
+        preview,
+        overrideId: activeOverride?.id ?? null,
+      })
+    }
+
+    if (
+      activeOverride &&
+      activeOverride.modo === overrideMode &&
+      activeOverride.vigente_desde === vigenteDesde &&
+      activeOverride.observaciones === observaciones &&
+      JSON.stringify(activeOverride.regla_descanso ?? null) === JSON.stringify(monthlyRule) &&
+      normalizedActive &&
+      normalizedActive.descansos.join('|') === normalizedInput.descansos.join('|') &&
+      normalizedActive.trabajos.join('|') === normalizedInput.trabajos.join('|')
+    ) {
+      return buildDescansoPermanentState({
+        ok: true,
+        message: 'El descanso permanente vigente ya coincide con esta configuracion.',
+        preview,
+        overrideId: activeOverride.id,
+      })
+    }
+
+    if (activeOverride && vigenteDesde < activeOverride.vigente_desde) {
+      return buildDescansoPermanentState({
+        message:
+          'La nueva vigencia no puede empezar antes que la version actual del descanso permanente. Elige la misma fecha o una posterior.',
+      })
+    }
+
+    const now = new Date().toISOString()
+    if (activeOverride) {
+      const closeDate = previousIsoDate(vigenteDesde)
+      const { error: deactivateError } = await service
+        .from('asignacion_descanso_override')
+        .update({
+          activo: false,
+          vigente_hasta: closeDate,
+          updated_at: now,
+          metadata: {
+            ...(activeOverride.metadata ?? {}),
+            reemplazado_en: now,
+            reemplazado_por_usuario_id: actor.usuarioId,
+            reemplazado_por_vigencia_desde: vigenteDesde,
+          },
+        })
+        .eq('id', activeOverride.id)
+
+      if (deactivateError) {
+        return buildDescansoPermanentState({ message: deactivateError.message })
+      }
+    }
+
+    const auditPayload = {
+      evento: activeOverride ? 'descanso_permanente_actualizado' : 'descanso_permanente_creado',
+      asignacion_id: assignment.id,
+      vigencia_desde: vigenteDesde,
+      modo: overrideMode,
+      regla_descanso: serializeRestMonthlyRule(monthlyRule),
+      fechas_descanso: fechasDescanso,
+      fechas_trabajo: fechasTrabajo,
+      observaciones,
+      preview_month: previewMonth,
+      override_anterior_id: activeOverride?.id ?? null,
+    }
+
+    const { data: insertedOverride, error: insertError } = await service
+      .from('asignacion_descanso_override')
+      .insert({
+        cuenta_cliente_id: assignment.cuenta_cliente_id,
+        asignacion_id: assignment.id,
+        empleado_id: assignment.empleado_id,
+        vigente_desde: vigenteDesde,
+        vigente_hasta: null,
+        modo: overrideMode,
+        regla_descanso: serializeRestMonthlyRule(monthlyRule),
+        fechas_descanso: fechasDescanso,
+        fechas_trabajo: fechasTrabajo,
+        observaciones,
+        activo: true,
+        metadata: {
+          fuente: 'asignaciones_panel',
+          preview_month: previewMonth,
+          reemplaza_override_id: activeOverride?.id ?? null,
+          guardado_por_usuario_id: actor.usuarioId,
+        },
+      })
+      .select('id')
+      .maybeSingle()
+
+    if (insertError || !insertedOverride) {
+      return buildDescansoPermanentState({
+        message: insertError?.message ?? 'No fue posible guardar el descanso permanente.',
+        preview,
+      })
+    }
+
+    const materializationStart = startOfMonth(previewMonth) < vigenteDesde ? vigenteDesde : startOfMonth(previewMonth)
+    const materializationEnd = endOfMonth(addUtcMonths(previewMonth, 1))
+
+    await registrarEventoAudit(service, {
+      tabla: 'asignacion_descanso_override',
+      registroId: insertedOverride.id,
+      payload: {
+        ...auditPayload,
+        descanso_override_id: insertedOverride.id,
+      },
+      usuarioId: actor.usuarioId,
+      cuentaClienteId: assignment.cuenta_cliente_id ?? actor.cuentaClienteId,
+    })
+
+    await refreshMaterializedAssignmentRanges([
+      {
+        empleadoId: assignment.empleado_id,
+        fechaInicio: materializationStart,
+        fechaFin: materializationEnd,
+        motivo: 'DESCANSO_PERMANENTE_ACTUALIZADO',
+        payload: {
+          ...auditPayload,
+          descanso_override_id: insertedOverride.id,
+        },
+      },
+    ])
+
+    await publishAsignacionesUiChanges(actor, service, 'asignaciones_actualizadas')
+
+    return buildDescansoPermanentState({
+      ok: true,
+      message: activeOverride
+        ? 'Descanso permanente actualizado y versionado.'
+        : 'Descanso permanente guardado y versionado.',
+      preview,
+      overrideId: insertedOverride.id,
+    })
+  } catch (error) {
+    return buildDescansoPermanentState({
+      message: error instanceof Error ? error.message : 'No fue posible guardar el descanso permanente.',
     })
   }
 }
-
+  
 function buildImportComparableKey(input: {
   empleadoId: string
   pdvId: string
@@ -1071,6 +1711,7 @@ export async function importarCatalogoMaestroAsignaciones(
       comparableId: string
       payload: Record<string, unknown>
     }> = []
+    const previewRows: AssignmentImportPreviewRow[] = []
 
     let unresolvedPdvs = 0
     let unresolvedEmployees = 0
@@ -1170,6 +1811,20 @@ export async function importarCatalogoMaestroAsignaciones(
           tipo: row.tipo,
         })
       )
+
+      previewRows.push({
+        rowNumber: row.rowNumber,
+        estadoPublicacion: 'BORRADOR',
+        accion: existingAssignment ? 'ACTUALIZADA' : 'NUEVA',
+        claveBtl: row.claveBtl,
+        username: row.username,
+        idNomina: row.idNomina,
+        nombreDc: row.nombreDc,
+        horarioReferencia: row.horarioReferencia,
+        diasLaborales: row.diasLaborales,
+        diaDescanso: row.diaDescanso,
+        fechaInicio: effectiveFechaInicio,
+      })
 
       resolvedRows.push({
         parsedRow: row,
@@ -1288,9 +1943,10 @@ export async function importarCatalogoMaestroAsignaciones(
 
     if (conflictCount > 0) {
       return buildImportState({
-        message: `Se detectaron ${conflictCount} conflicto(s) en el catalogo maestro. Corrige el archivo antes de importarlo.`,
+        message: `Se detectaron ${conflictCount} conflicto(s) bloqueante(s), ${alertCount} alerta(s) y ${noticeCount} aviso(s) en el catalogo maestro. Revisa el borrador propuesto y el panel de incidencias antes de importar.`,
         conflicts: conflicts.sort((left, right) => (left.rowNumber ?? 0) - (right.rowNumber ?? 0)),
         summary,
+        previewRows,
       })
     }
 
@@ -1347,15 +2003,15 @@ export async function importarCatalogoMaestroAsignaciones(
       usuarioId: actor.usuarioId,
       cuentaClienteId: actor.cuentaClienteId,
     })
-
-    revalidatePath('/asignaciones')
-    revalidatePath('/dashboard')
+    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
 
     return buildImportState({
       ok: true,
       message: `Catalogo maestro procesado. Nuevas: ${summary.insertedRows}. Actualizadas: ${summary.updatedRows}. Alertas: ${alertCount}. Avisos: ${noticeCount}.`,
       conflicts: conflicts.sort((left, right) => (left.rowNumber ?? 0) - (right.rowNumber ?? 0)),
       summary,
+      previewRows,
+      redirectTo: '/asignaciones/asignaciones?estado=BORRADOR',
     })
   } catch (error) {
     return buildImportState({
@@ -1748,10 +2404,7 @@ export async function publicarCatalogoMaestroAsignaciones(
       usuarioId: actor.usuarioId,
       cuentaClienteId: actor.cuentaClienteId,
     })
-
-    revalidatePath('/asignaciones')
-    revalidatePath('/dashboard')
-    revalidatePath('/reportes')
+    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
 
     return buildPublishState({
       ok: true,
@@ -1760,6 +2413,7 @@ export async function publicarCatalogoMaestroAsignaciones(
       publishedRows: approvalPlans.length,
       materializedEmployees: Array.from(new Set(materializationInputs.map((item) => item.empleadoId))).length,
       materializedWindowLabel: buildOperationalWindowLabel(),
+      redirectTo: '/asignaciones/asignaciones?estado=PUBLICADA',
     })
   } catch (error) {
     return buildPublishState({
@@ -1844,10 +2498,7 @@ export async function publicarOperacionMensualAsignaciones(
       usuarioId: actor.usuarioId,
       cuentaClienteId: actor.cuentaClienteId,
     })
-
-    revalidatePath('/asignaciones')
-    revalidatePath('/dashboard')
-    revalidatePath('/reportes')
+    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
 
     return buildPublishState({
       ok: true,
@@ -2195,10 +2846,7 @@ export async function importarRotacionMaestraPdvs(
       usuarioId: actor.usuarioId,
       cuentaClienteId,
     })
-
-    revalidatePath('/asignaciones')
-    revalidatePath('/pdvs')
-    revalidatePath('/dashboard')
+    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
 
     return buildRotationImportState({
       ok: true,
@@ -2359,10 +3007,7 @@ export async function importarHorariosSanPabloSemanales(
       usuarioId: actor.usuarioId,
       cuentaClienteId: actor.cuentaClienteId,
     })
-
-    revalidatePath('/asignaciones')
-    revalidatePath('/pdvs')
-    revalidatePath('/dashboard')
+    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
 
     const detailMessage = unresolvedPdvs + nonSanPabloPdvs + invalidTurns > 0
       ? ' Sin resolver -> PDVs: ' + unresolvedPdvs + ', fuera de San Pablo: ' + nonSanPabloPdvs + ', filas sin turno valido: ' + invalidTurns + '.'
@@ -2591,9 +3236,7 @@ export async function actualizarEstadoPublicacionAsignacion(
       },
     },
   ])
-
-  revalidatePath('/asignaciones')
-  revalidatePath('/dashboard')
+    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
 
   const resumen = resumirIssuesAsignacion(issues)
   const nonBlockingCount = resumen.alertas.length + resumen.avisos.length
@@ -2696,12 +3339,11 @@ export async function limpiarBorradorAsignacion(
         .eq('estado_publicacion', 'BORRADOR')
       remainingDrafts = remainingCount ?? 0
     }
-
-    revalidatePath('/asignaciones')
+    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
 
     return buildState({
       ok: true,
-      redirectTo: remainingDrafts > 0 ? '/asignaciones?vista=asignaciones&estado=BORRADOR' : '/asignaciones?vista=asignaciones&estado=PUBLICADA',
+      redirectTo: remainingDrafts > 0 ? '/asignaciones/asignaciones?estado=BORRADOR' : '/asignaciones/asignaciones?estado=PUBLICADA',
       message: auditWarning ? `Borrador limpiado. La trazabilidad quedo pendiente: ${auditWarning}` : 'Borrador limpiado.',
     })
   } catch (error) {
@@ -2739,7 +3381,7 @@ export async function limpiarTodosLosBorradoresAsignaciones(
     if (total === 0) {
       return buildState({
         ok: true,
-        redirectTo: '/asignaciones?vista=asignaciones&estado=PUBLICADA',
+        redirectTo: '/asignaciones/asignaciones?estado=PUBLICADA',
         message: 'No hay borradores para limpiar en la cuenta activa.',
       })
     }
@@ -2784,12 +3426,11 @@ export async function limpiarTodosLosBorradoresAsignaciones(
     } catch (error) {
       auditWarning = error instanceof Error ? error.message : 'La trazabilidad del borrado quedo pendiente.'
     }
-
-    revalidatePath('/asignaciones')
+    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
 
     return buildState({
       ok: true,
-      redirectTo: '/asignaciones?vista=asignaciones&estado=PUBLICADA',
+      redirectTo: '/asignaciones/asignaciones?estado=PUBLICADA',
       message: auditWarning
         ? `Se limpiaron ${deleted.length} borrador(es) de asignacion. La trazabilidad quedo pendiente: ${auditWarning}`
         : `Se limpiaron ${deleted.length} borrador(es) de asignacion.`,
@@ -2802,6 +3443,127 @@ export async function limpiarTodosLosBorradoresAsignaciones(
           : 'No fue posible limpiar los borradores de asignacion.',
     })
   }
+}
+
+function normalizeVacanteSeguimiento(
+  value: FormDataEntryValue | null
+): VacanteOperativaFuturaSeguimiento | null {
+  const normalized = String(value ?? '').trim().toUpperCase()
+  if (
+    normalized === 'NUEVA' ||
+    normalized === 'EN_REVISION' ||
+    normalized === 'EN_REASIGNACION' ||
+    normalized === 'RESUELTA' ||
+    normalized === 'DESCARTADA'
+  ) {
+    return normalized
+  }
+
+  return null
+}
+
+export async function actualizarEstadoVacanteOperativaFutura(
+  _prevState: ActualizarVacanteOperativaFuturaState,
+  formData: FormData
+): Promise<ActualizarVacanteOperativaFuturaState> {
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR'])
+  const service = createServiceClient() as TypedSupabaseClient
+  const vacanteId = String(formData.get('vacante_id') ?? '').trim()
+  const estadoSeguimiento = normalizeVacanteSeguimiento(formData.get('estado_seguimiento'))
+
+  if (!vacanteId) {
+    return buildVacanteOperativaState({
+      message: 'Selecciona una vacante operativa valida.',
+    })
+  }
+
+  if (!estadoSeguimiento) {
+    return buildVacanteOperativaState({
+      message: 'Selecciona un estado de seguimiento valido.',
+    })
+  }
+
+  const { data: currentVacancy, error: fetchError } = await service
+    .from('vacante_operativa_futura')
+    .select('id, cuenta_cliente_id, estado_seguimiento, metadata')
+    .eq('id', vacanteId)
+    .maybeSingle()
+
+  if (fetchError || !currentVacancy) {
+    return buildVacanteOperativaState({
+      message: fetchError?.message ?? 'La vacante operativa ya no existe.',
+    })
+  }
+
+  if (
+    actor.cuentaClienteId &&
+    currentVacancy.cuenta_cliente_id &&
+    currentVacancy.cuenta_cliente_id !== actor.cuentaClienteId
+  ) {
+    return buildVacanteOperativaState({
+      message: 'No tienes acceso a esta vacante operativa.',
+    })
+  }
+
+  const metadata =
+    currentVacancy.metadata &&
+    typeof currentVacancy.metadata === 'object' &&
+    !Array.isArray(currentVacancy.metadata)
+      ? (currentVacancy.metadata as Record<string, unknown>)
+      : {}
+  const previousState = currentVacancy.estado_seguimiento as VacanteOperativaFuturaSeguimiento
+  const now = new Date().toISOString()
+
+  const { error: updateError } = await service
+    .from('vacante_operativa_futura')
+    .update({
+      estado_seguimiento: estadoSeguimiento,
+      metadata: {
+        ...metadata,
+        seguimiento: {
+          estado_anterior: previousState,
+          estado_nuevo: estadoSeguimiento,
+          actualizado_en: now,
+          actualizado_por_usuario_id: actor.usuarioId,
+          actualizado_por_puesto: actor.puesto,
+        },
+      },
+      updated_at: now,
+    })
+    .eq('id', vacanteId)
+
+  if (updateError) {
+    return buildVacanteOperativaState({
+      message: updateError.message ?? 'No fue posible actualizar el seguimiento de la vacante.',
+    })
+  }
+
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType: 'vacante_operativa_futura_actualizada',
+      modules: ['asignaciones', 'empleados', 'dashboard', 'pdvs', 'reportes'],
+      surfaces: ['panel', 'tabla', 'insights', 'all'],
+      scopes: [
+        buildUiChangeScope('global'),
+        buildUiChangeScope('cuenta', actor.cuentaClienteId ?? currentVacancy.cuenta_cliente_id ?? null),
+        buildUiChangeScope('empleado', actor.empleadoId),
+      ],
+      cuentaClienteId: actor.cuentaClienteId ?? currentVacancy.cuenta_cliente_id ?? null,
+      empleadoId: actor.empleadoId,
+      roleTargets: ['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR', 'SUPERVISOR'],
+      metadata: {
+        source: 'vacante_operativa_futura',
+        vacante_id: vacanteId,
+        estado_seguimiento: estadoSeguimiento,
+      },
+    }),
+    { service }
+  )
+
+  return buildVacanteOperativaState({
+    ok: true,
+    message: `Seguimiento actualizado a ${estadoSeguimiento}.`,
+  })
 }
 
 

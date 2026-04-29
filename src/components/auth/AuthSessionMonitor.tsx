@@ -1,80 +1,38 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
-import {
-  AUTH_CONTEXT_POLL_INTERVAL_MS,
-  getAuthSessionContextStatus,
-} from '@/lib/auth/sessionContext'
+import { getAuthSessionContextStatus } from '@/lib/auth/sessionContext'
 import { isSupabaseAuthNetworkError } from '@/lib/supabase/authClientErrors'
 
-const AUTH_CONTEXT_FOCUS_CHECK_DEBOUNCE_MS = 15 * 1000
-
-function pageCanSyncSession() {
-  if (typeof document === 'undefined') {
-    return true
-  }
-
-  return document.visibilityState === 'visible' && document.hasFocus()
-}
-
 export function AuthSessionMonitor() {
-  const router = useRouter()
-  const lastCheckAtRef = useRef(0)
-  const pendingCheckRef = useRef(false)
-  const pendingRefreshRef = useRef(false)
-
   useEffect(() => {
     const supabase = createClient()
-    let checking = false
-
-    const flushPendingRefresh = () => {
-      if (!pendingRefreshRef.current || !pageCanSyncSession()) {
-        return
-      }
-
-      pendingRefreshRef.current = false
-      router.refresh()
+    let active = true
+    const windowWithIdleCallbacks = window as Window & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number
+      cancelIdleCallback?: (handle: number) => void
     }
 
-    const sincronizarContexto = async (force = false) => {
-      if (checking) {
-        pendingCheckRef.current = true
+    const sincronizarContexto = async (session: Session | null) => {
+      if (!active) {
         return
       }
-
-      if (!pageCanSyncSession()) {
-        pendingCheckRef.current = true
-        return
-      }
-
-      const now = Date.now()
-      if (!force && now - lastCheckAtRef.current < AUTH_CONTEXT_FOCUS_CHECK_DEBOUNCE_MS) {
-        return
-      }
-
-      checking = true
-      lastCheckAtRef.current = now
-      pendingCheckRef.current = false
 
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-        const user = session?.user ?? null
-
-        if (!session?.access_token || !user) {
+        if (!session?.access_token || !session.user) {
+          await supabase.auth.signOut()
+          window.location.replace('/login')
           return
         }
 
         const status = getAuthSessionContextStatus({
           accessToken: session.access_token,
-          appMetadata: user.app_metadata,
+          appMetadata: session.user.app_metadata,
         })
 
         if (!status.isStale) {
-          flushPendingRefresh()
           return
         }
 
@@ -98,12 +56,6 @@ export function AuthSessionMonitor() {
           window.location.replace('/login')
           return
         }
-
-        if (pageCanSyncSession()) {
-          router.refresh()
-        } else {
-          pendingRefreshRef.current = true
-        }
       } catch (error) {
         if (isSupabaseAuthNetworkError(error)) {
           if (process.env.NODE_ENV !== 'production') {
@@ -113,44 +65,41 @@ export function AuthSessionMonitor() {
         }
 
         console.error('AuthSessionMonitor encontro un error inesperado al validar la sesion.', error)
-      } finally {
-        checking = false
-
-        if (pendingCheckRef.current && pageCanSyncSession()) {
-          window.setTimeout(() => {
-            void sincronizarContexto(true)
-          }, 0)
-        }
       }
     }
 
-    void sincronizarContexto(true)
-
-    const intervalId = window.setInterval(() => {
-      void sincronizarContexto(false)
-    }, AUTH_CONTEXT_POLL_INTERVAL_MS)
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        flushPendingRefresh()
-        void sincronizarContexto(true)
-      }
+    const runInitialCheck = () => {
+      void supabase.auth.getSession().then(({ data }) => {
+        void sincronizarContexto(data.session ?? null)
+      })
     }
 
-    const handleWindowFocus = () => {
-      flushPendingRefresh()
-      void sincronizarContexto(true)
+    let timeoutId: number | null = null
+    let idleCallbackId: number | null = null
+
+    if (windowWithIdleCallbacks.requestIdleCallback) {
+      idleCallbackId = windowWithIdleCallbacks.requestIdleCallback(() => {
+        runInitialCheck()
+      }, { timeout: 2500 })
+    } else {
+      timeoutId = window.setTimeout(runInitialCheck, 1500)
     }
 
-    window.addEventListener('focus', handleWindowFocus)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
+    const { data: subscriptionData } = supabase.auth.onAuthStateChange((_event, session) => {
+      void sincronizarContexto(session)
+    })
 
     return () => {
-      window.clearInterval(intervalId)
-      window.removeEventListener('focus', handleWindowFocus)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      active = false
+      if (idleCallbackId !== null) {
+        windowWithIdleCallbacks.cancelIdleCallback?.(idleCallbackId)
+      }
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+      subscriptionData.subscription.unsubscribe()
     }
-  }, [router])
+  }, [])
 
   return null
 }

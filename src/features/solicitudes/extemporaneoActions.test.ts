@@ -20,6 +20,8 @@ const {
 
 vi.mock('next/cache', () => ({
   revalidatePath: revalidatePathMock,
+  revalidateTag: vi.fn(),
+  unstable_cache: vi.fn((fn) => fn),
 }))
 
 vi.mock('@/lib/auth/session', () => ({
@@ -96,6 +98,8 @@ function createRegistroService() {
     },
   }
 
+  const tableObjects = new Map<string, any>()
+
   const service = {
     storage: {
       createBucket() {
@@ -103,13 +107,18 @@ function createRegistroService() {
       },
     },
     from(table: string) {
+      if (tableObjects.has(table)) {
+        return tableObjects.get(table)
+      }
+
+      let builder: any = {}
       if (table === 'asignacion_diaria_resuelta') {
-        return {
+        builder = {
           select() {
-            return this
+            return builder
           },
           eq() {
-            return this
+            return builder
           },
           maybeSingle() {
             return Promise.resolve({
@@ -125,18 +134,16 @@ function createRegistroService() {
             })
           },
         }
-      }
-
-      if (table === 'asistencia') {
-        return {
+      } else if (table === 'asistencia') {
+        builder = {
           select() {
-            return this
+            return builder
           },
           eq() {
-            return this
+            return builder
           },
           order() {
-            return this
+            return builder
           },
           limit() {
             return Promise.resolve({
@@ -155,15 +162,13 @@ function createRegistroService() {
             })
           },
         }
-      }
-
-      if (table === 'producto') {
-        return {
+      } else if (table === 'producto') {
+        builder = {
           select() {
-            return this
+            return builder
           },
           eq() {
-            return this
+            return builder
           },
           maybeSingle() {
             return Promise.resolve({
@@ -178,15 +183,13 @@ function createRegistroService() {
             })
           },
         }
-      }
-
-      if (table === 'empleado') {
-        return {
+      } else if (table === 'empleado') {
+        builder = {
           select() {
-            return this
+            return builder
           },
           eq() {
-            return this
+            return builder
           },
           maybeSingle() {
             return Promise.resolve({
@@ -198,33 +201,26 @@ function createRegistroService() {
             })
           },
         }
-      }
-
-      if (table === 'registro_extemporaneo') {
-        return {
+      } else if (table === 'registro_extemporaneo') {
+        builder = {
           select(_columns?: string, options?: { count?: 'exact'; head?: boolean }) {
-            if (options?.head) {
-              return this
-            }
-
-            return this
+            return builder
           },
           eq() {
-            return this
+            return builder
           },
           gte() {
-            return this
+            return builder
           },
           lte() {
-            return this
+            return builder
           },
-          maybeSingle() {
-            duplicateCheckCount += 1
-            return Promise.resolve({
-              data: duplicateCheckCount === 1 ? null : registroRow,
+          maybeSingle: vi.fn(() =>
+            Promise.resolve({
+              data: null,
               error: null,
             })
-          },
+          ),
           insert(payload: Record<string, unknown>) {
             inserts.push(payload)
             return {
@@ -255,18 +251,25 @@ function createRegistroService() {
             }).then(resolve)
           },
         }
-      }
-
-      if (table === 'audit_log') {
-        return {
+      } else if (table === 'audit_log') {
+        builder = {
           insert(payload: Record<string, unknown>) {
             audits.push(payload)
             return Promise.resolve({ error: null })
           },
         }
+      } else {
+        throw new Error(`Unexpected table ${table}`)
       }
 
-      throw new Error(`Unexpected table ${table}`)
+      tableObjects.set(table, builder)
+      return builder
+    },
+    rpc() {
+      return Promise.resolve({
+        data: { touched: true },
+        error: null,
+      })
     },
   }
 
@@ -287,7 +290,11 @@ describe('extemporaneo actions', () => {
       empleadoId: 'emp-1',
     })
 
-    const { service, inserts, audits } = createRegistroService()
+    const { service, inserts, audits, registroRow } = createRegistroService()
+    vi.mocked(service.from('registro_extemporaneo').maybeSingle).mockResolvedValue({
+      data: null,
+      error: null,
+    })
     createServiceClientMock.mockReturnValue(service)
 
     const formData = new FormData()
@@ -344,7 +351,11 @@ describe('extemporaneo actions', () => {
       context: {},
     })
 
-    const { service, updates, audits } = createRegistroService()
+    const { service, updates, audits, registroRow } = createRegistroService()
+    vi.mocked(service.from('registro_extemporaneo').maybeSingle).mockResolvedValue({
+      data: registroRow,
+      error: null,
+    })
     createServiceClientMock.mockReturnValue(service)
 
     const formData = new FormData()
@@ -382,6 +393,10 @@ describe('extemporaneo actions', () => {
     })
 
     const registro = createRegistroService()
+    vi.mocked(registro.service.from('registro_extemporaneo').maybeSingle).mockResolvedValue({
+      data: null,
+      error: null,
+    })
     createServiceClientMock.mockReturnValue(registro.service)
 
     const formData = new FormData()
@@ -433,6 +448,10 @@ describe('extemporaneo actions', () => {
         context: {},
       })
 
+    vi.mocked(registro.service.from('registro_extemporaneo').maybeSingle).mockResolvedValue({
+      data: registro.registroRow,
+      error: null,
+    })
     const approveFormData = new FormData()
     approveFormData.set('registro_extemporaneo_id', 'reg-1')
     approveFormData.set('decision', 'APROBAR')

@@ -1,5 +1,3 @@
-export const runtime = 'edge';
-import * as XLSX from 'xlsx'
 import { NextRequest, NextResponse } from 'next/server'
 import { obtenerActorActual } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
@@ -28,7 +26,8 @@ function buildCsvSignaturePreamble(payload: Awaited<ReturnType<typeof collectBit
   return new TextEncoder().encode(`\uFEFF${lines.join('\n')}\n`)
 }
 
-function buildXlsxBuffer(payload: Awaited<ReturnType<typeof collectBitacoraExportPayload>>) {
+async function buildXlsxBuffer(payload: Awaited<ReturnType<typeof collectBitacoraExportPayload>>) {
+  const XLSX = await import('xlsx')
   // Hoja principal de bitácora
   const wsData = [payload.headers, ...payload.rows]
   const ws = XLSX.utils.aoa_to_sheet(wsData)
@@ -77,7 +76,7 @@ export async function GET(request: NextRequest) {
     })
 
     if (format === 'xlsx') {
-      const buf = buildXlsxBuffer(payload)
+      const buf = await buildXlsxBuffer(payload)
       return new Response(buf, {
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

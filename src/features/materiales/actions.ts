@@ -1,6 +1,5 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import {
@@ -10,6 +9,8 @@ import {
 } from '@/lib/files/documentOptimization'
 import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
 import { createServiceClient } from '@/lib/supabase/server'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
 import { computeSHA256 } from '@/lib/files/sha256'
 import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
 import { analyzeMaterialDistributionWithGemini } from './lib/materialDistributionGemini'
@@ -321,6 +322,44 @@ async function insertAuditLog(
   })
 }
 
+async function publishMaterialesPanelChange(
+  service: TypedSupabaseClient,
+  actor: { cuentaClienteId: string | null; empleadoId: string; usuarioId: string; puesto: Puesto },
+  input: {
+    eventType: string
+    cuentaClienteId?: string | null
+    pdvId?: string | null
+    period?: string | null
+    metadata?: Record<string, unknown> | null
+  }
+) {
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType: input.eventType,
+      modules: ['materiales', 'dashboard', 'reportes'],
+      surfaces: ['panel', 'insights'],
+      scopes: [
+        buildUiChangeScope('global'),
+        buildUiChangeScope('cuenta', input.cuentaClienteId ?? actor.cuentaClienteId ?? null),
+        buildUiChangeScope('empleado', actor.empleadoId),
+        buildUiChangeScope('supervisor', actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null),
+        buildUiChangeScope('pdv', input.pdvId ?? null),
+        buildUiChangeScope('periodo', input.period ?? null),
+      ],
+      cuentaClienteId: input.cuentaClienteId ?? actor.cuentaClienteId ?? null,
+      empleadoId: actor.empleadoId,
+      supervisorEmpleadoId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+      roleTargets: ['ADMINISTRADOR', 'LOGISTICA', 'COORDINADOR', 'SUPERVISOR', 'DERMOCONSEJERO'],
+      metadata: {
+        ...(input.metadata ?? {}),
+        periodo: input.period ?? null,
+        pdv_id: input.pdvId ?? null,
+      },
+    }),
+    { service }
+  )
+}
+
 async function cancelPreviewLotsByActor(
   service: TypedSupabaseClient,
   usuarioId: string,
@@ -608,7 +647,14 @@ export async function guardarMaterialCatalogo(
       cuentaClienteId,
     })
 
-    revalidatePath('/materiales')
+    await publishMaterialesPanelChange(service, actor, {
+      eventType: 'material_catalogo_guardado',
+      cuentaClienteId,
+      metadata: {
+        material_nombre: nombre,
+        material_tipo: tipo,
+      },
+    })
     return buildState({ ok: true, message: 'Catalogo promocional actualizado.' })
   } catch (error) {
     return buildState({
@@ -737,7 +783,15 @@ export async function importarDistribucionMateriales(
       cuentaClienteId,
     })
 
-    revalidatePath('/materiales')
+    await publishMaterialesPanelChange(service, actor, {
+      eventType: 'preview_lote_materiales_creado',
+      cuentaClienteId,
+      period: preview.resolvedMonth,
+      metadata: {
+        lote_id: createdLot.id,
+        mes_operacion: preview.resolvedMonth,
+      },
+    })
     return buildImportState({
       ok: true,
       message: 'Preview generado. Revisa reglas, advertencias y match de PDV antes de confirmar.',
@@ -1066,9 +1120,16 @@ export async function confirmarDistribucionMateriales(
       cuentaClienteId: lote.cuenta_cliente_id,
     })
 
-    revalidatePath('/materiales')
-    revalidatePath('/dashboard')
-    revalidatePath('/reportes')
+    await publishMaterialesPanelChange(service, actor, {
+      eventType: 'lote_materiales_confirmado',
+      cuentaClienteId: lote.cuenta_cliente_id,
+      period: confirmedMonth,
+      metadata: {
+        lote_id: lote.id,
+        mes_operacion: confirmedMonth,
+        pdv_count: confirmedPackageCount,
+      },
+    })
     return buildState({ ok: true, message: 'Lote mensual confirmado. La dispersión quedó pendiente de recepción.' })
   } catch (error) {
     return buildState({
@@ -1138,7 +1199,13 @@ export async function descartarPreviewMateriales(
       cuentaClienteId: lote.cuenta_cliente_id,
     })
 
-    revalidatePath('/materiales')
+    await publishMaterialesPanelChange(service, actor, {
+      eventType: 'preview_lote_materiales_descartado',
+      cuentaClienteId: lote.cuenta_cliente_id,
+      metadata: {
+        lote_id: lote.id,
+      },
+    })
     return buildState({ ok: true, message: 'Preview descartado. Ya puedes cargar un nuevo archivo.' })
   } catch (error) {
     return buildState({
@@ -1341,9 +1408,15 @@ export async function confirmarRecepcionMaterial(
       cuentaClienteId,
     })
 
-    revalidatePath('/materiales')
-    revalidatePath('/dashboard')
-    revalidatePath('/reportes')
+    await publishMaterialesPanelChange(service, actor, {
+      eventType: 'recepcion_material_confirmada',
+      cuentaClienteId,
+      pdvId: distribution.pdv_id,
+      metadata: {
+        distribucion_id: distribucionId,
+        estado,
+      },
+    })
     return buildState({ ok: true, message: 'Recepción formal confirmada en tienda.' })
   } catch (error) {
     return buildState({
@@ -1480,74 +1553,42 @@ export async function registrarEntregaPromocional(
       throw new Error('No fue posible consolidar la evidencia de entrega del material.')
     }
 
-    const { data: created, error } = await service
-      .from('material_entrega_promocional')
-      .insert({
-        cuenta_cliente_id: cuentaClienteId,
-        distribucion_id: distribucionId,
-        distribucion_detalle_id: distribucionDetalleId,
-        material_catalogo_id: materialCatalogoId,
-        empleado_id: actor.empleadoId,
-        pdv_id: pdvId,
-        cantidad_entregada: cantidadEntregada,
-        evidencia_material_url: evidenciaPromocionalStored.url,
-        evidencia_material_hash: evidenciaPromocionalStored.hash,
-        evidencia_pdv_url: evidenciaPdvStored.url,
-        evidencia_pdv_hash: evidenciaPdvStored.hash,
-        ticket_compra_url: ticketStored?.url ?? null,
-        ticket_compra_hash: ticketStored?.hash ?? null,
-        observaciones,
-        metadata: {
-          capturado_desde: 'modulo_dermoconsejo',
-          fecha_captura_local: new Date().toISOString(),
-          evidencia_material_capturada_en: evidenciaMaterialCapturadaEn,
-          evidencia_pdv_capturada_en: evidenciaPdvCapturadaEn,
-          ticket_compra_capturado_en: ticketCompraCapturadoEn,
-        },
-      })
-      .select('id')
-      .maybeSingle()
-
-    if (error || !created?.id) {
-      throw new Error(error?.message ?? 'No fue posible registrar la entrega del material.')
+    const rpcPayload = {
+      cuenta_cliente_id: cuentaClienteId,
+      distribucion_id: distribucionId,
+      distribucion_detalle_id: distribucionDetalleId,
+      material_catalogo_id: materialCatalogoId,
+      empleado_id: actor.empleadoId,
+      pdv_id: pdvId,
+      cantidad_entregada: cantidadEntregada,
+      evidencia_material_url: evidenciaPromocionalStored.url,
+      evidencia_material_hash: evidenciaPromocionalStored.hash,
+      evidencia_pdv_url: evidenciaPdvStored.url,
+      evidencia_pdv_hash: evidenciaPdvStored.hash,
+      ticket_compra_url: ticketStored?.url ?? null,
+      ticket_compra_hash: ticketStored?.hash ?? null,
+      observaciones,
+      material_nombre_snapshot: detalle.material_nombre_snapshot ?? 'Entrega a cliente final',
+      metadata: {
+        capturado_desde: 'modulo_dermoconsejo',
+        fecha_captura_local: new Date().toISOString(),
+        evidencia_material_capturada_en: evidenciaMaterialCapturadaEn,
+        evidencia_pdv_capturada_en: evidenciaPdvCapturadaEn,
+        ticket_compra_capturado_en: ticketCompraCapturadoEn,
+      },
     }
 
-    const { error: movementInsertError } = await service.from('material_inventario_movimiento').insert({
-      cuenta_cliente_id: cuentaClienteId,
-      pdv_id: pdvId,
-      material_catalogo_id: materialCatalogoId,
-      distribucion_id: detalle.distribucion_id,
-      distribucion_detalle_id: distribucionDetalleId,
-      empleado_id: actor.empleadoId,
-      tipo_movimiento: 'ENTREGA_CLIENTE',
-      sentido: 'SALIDA',
-      cantidad: cantidadEntregada,
-      cantidad_delta: -cantidadEntregada,
-      motivo: detalle.material_nombre_snapshot ?? 'Entrega a cliente final',
-      observaciones,
-      metadata: {
-        entrega_id: created.id,
-      },
+    const { data: rpcResult, error: rpcError } = await service.rpc('rpc_registrar_entrega_promocional', {
+      p_datos: rpcPayload,
     })
 
-    if (movementInsertError) {
-      throw new Error(movementInsertError.message ?? 'No fue posible descontar el inventario del PDV.')
-    }
-
-    const { error: updateError } = await service
-      .from('material_distribucion_detalle')
-      .update({
-        cantidad_entregada: Number(detalle.cantidad_entregada ?? 0) + cantidadEntregada,
-      })
-      .eq('id', distribucionDetalleId)
-
-    if (updateError) {
-      throw new Error(updateError.message ?? 'No fue posible actualizar el saldo del detalle de dispersión.')
+    if (rpcError || !rpcResult?.ok) {
+      throw new Error(rpcError?.message ?? 'No fue posible registrar la entrega mediante RPC.')
     }
 
     await insertAuditLog(service, {
       tabla: 'material_entrega_promocional',
-      registroId: created.id,
+      registroId: rpcResult.id,
       payload: {
         evento: 'material_entregado_cliente',
         material_catalogo_id: materialCatalogoId,
@@ -1558,9 +1599,15 @@ export async function registrarEntregaPromocional(
       cuentaClienteId,
     })
 
-    revalidatePath('/materiales')
-    revalidatePath('/dashboard')
-    revalidatePath('/reportes')
+    await publishMaterialesPanelChange(service, actor, {
+      eventType: 'material_entregado_cliente',
+      cuentaClienteId,
+      pdvId,
+      metadata: {
+        distribucion_id: distribucionId,
+        material_catalogo_id: materialCatalogoId,
+      },
+    })
     return buildState({ ok: true, message: 'Entrega de material registrada.' })
   } catch (error) {
     return buildState({
@@ -1695,9 +1742,14 @@ export async function registrarEvidenciaMercadeoMaterial(
       cuentaClienteId,
     })
 
-    revalidatePath('/materiales')
-    revalidatePath('/dashboard')
-    revalidatePath('/reportes')
+    await publishMaterialesPanelChange(service, actor, {
+      eventType: 'evidencia_mercadeo_cargada',
+      cuentaClienteId,
+      pdvId: distribution.pdv_id,
+      metadata: {
+        distribucion_id: distribution.id,
+      },
+    })
     return buildState({ ok: true, message: 'Evidencia de mercadeo registrada.' })
   } catch (error) {
     return buildState({
@@ -1788,7 +1840,6 @@ export async function registrarConteoJornadaMaterial(
 
     const conteoId = conteoRaw.id
     const detailPayload: Array<Record<string, unknown>> = []
-    const neutralMovements: Array<Record<string, unknown>> = []
 
     for (const [materialCatalogoId, summary] of balanceByMaterial.entries()) {
       const cantidadContada = normalizeZeroOrPositiveInteger(
@@ -1796,130 +1847,39 @@ export async function registrarConteoJornadaMaterial(
         `Conteo de ${summary.nombre}`
       )
       detailPayload.push({
-        conteo_id: conteoId,
         material_catalogo_id: materialCatalogoId,
         cantidad_contada: cantidadContada,
-        diferencia_detectada: null,
         metadata: {
           nombre_material: summary.nombre,
           tipo_material: summary.tipo,
         },
       })
-      neutralMovements.push({
+    }
+
+    const { data: rpcResult, error: rpcError } = await service.rpc('rpc_registrar_conteo_jornada', {
+      p_datos: {
         cuenta_cliente_id: cuentaClienteId,
         pdv_id: pdvId,
-        material_catalogo_id: materialCatalogoId,
-        conteo_jornada_id: conteoId,
         empleado_id: actor.empleadoId,
-        tipo_movimiento: momento === 'APERTURA' ? 'APERTURA_JORNADA' : 'CIERRE_JORNADA',
-        sentido: 'NEUTRO',
-        cantidad: cantidadContada,
-        cantidad_delta: 0,
-        motivo: `Conteo de ${momento.toLowerCase()}`,
+        fecha_operacion: fechaOperacion,
+        momento,
         observaciones,
+        clasificacion_diferencia: clasificacionDiferencia,
+        observacion_diferencia: observacionDiferencia,
         metadata: {
-          nombre_material: summary.nombre,
+          capturado_desde: 'materiales_conteo_jornada',
         },
-      })
-    }
+        detalles: detailPayload,
+      },
+    })
 
-    await service
-      .from('material_inventario_movimiento')
-      .delete()
-      .eq('conteo_jornada_id', conteoId)
-      .in('tipo_movimiento', ['APERTURA_JORNADA', 'CIERRE_JORNADA', 'AJUSTE_FUERA_TURNO', 'MERMA'])
-
-    const { error: detailUpsertError } = await service
-      .from('material_conteo_jornada_detalle')
-      .upsert(detailPayload, { onConflict: 'conteo_id,material_catalogo_id' })
-
-    if (detailUpsertError) {
-      throw new Error(detailUpsertError.message ?? 'No fue posible guardar el detalle del conteo.')
-    }
-
-    const openingAdjustments: Array<Record<string, unknown>> = []
-    if (momento === 'APERTURA') {
-      const { data: previousCloseRaw, error: previousCloseError } = await service
-        .from('material_conteo_jornada')
-        .select('id, fecha_operacion')
-        .eq('pdv_id', pdvId)
-        .eq('momento', 'CIERRE')
-        .lt('fecha_operacion', fechaOperacion)
-        .order('fecha_operacion', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (previousCloseError) {
-        throw new Error(previousCloseError.message ?? 'No fue posible consultar el cierre anterior.')
-      }
-
-      if (previousCloseRaw?.id) {
-        const { data: previousDetailsRaw, error: previousDetailsError } = await service
-          .from('material_conteo_jornada_detalle')
-          .select('material_catalogo_id, cantidad_contada')
-          .eq('conteo_id', previousCloseRaw.id)
-          .limit(500)
-
-        if (previousDetailsError) {
-          throw new Error(previousDetailsError.message ?? 'No fue posible comparar contra el cierre previo.')
-        }
-
-        const previousByMaterial = new Map(
-          (
-            (previousDetailsRaw ?? []) as Array<{
-              material_catalogo_id: string
-              cantidad_contada: number
-            }>
-          ).map((item) => [item.material_catalogo_id, item.cantidad_contada])
-        )
-
-        let hasDifference = false
-        for (const item of detailPayload) {
-          const materialCatalogoId = String(item.material_catalogo_id)
-          const currentCount = Number(item.cantidad_contada)
-          const previousCount = Number(previousByMaterial.get(materialCatalogoId) ?? 0)
-          const delta = currentCount - previousCount
-          if (delta === 0) {
-            continue
-          }
-          hasDifference = true
-
-          openingAdjustments.push({
-            cuenta_cliente_id: cuentaClienteId,
-            pdv_id: pdvId,
-            material_catalogo_id: materialCatalogoId,
-            conteo_jornada_id: conteoId,
-            empleado_id: actor.empleadoId,
-            tipo_movimiento: clasificacionDiferencia === 'MERMA' ? 'MERMA' : 'AJUSTE_FUERA_TURNO',
-            sentido: delta > 0 ? 'ENTRADA' : 'SALIDA',
-            cantidad: Math.abs(delta),
-            cantidad_delta: delta,
-            motivo: observacionDiferencia ?? 'Diferencia entre cierre y apertura',
-            observaciones: observacionDiferencia,
-            metadata: {
-              clasificacion_diferencia: clasificacionDiferencia ?? 'AJUSTE_FUERA_TURNO',
-              fecha_cierre_referencia: previousCloseRaw.fecha_operacion,
-            },
-          })
-        }
-
-        if (hasDifference && (!clasificacionDiferencia || !observacionDiferencia)) {
-          throw new Error('La apertura tiene diferencias contra el cierre previo; registra clasificación y explicación.')
-        }
-      }
-    }
-
-    const allMovements = [...neutralMovements, ...openingAdjustments]
-    if (allMovements.length > 0) {
-      const { error: insertMovementError } = await service.from('material_inventario_movimiento').insert(allMovements)
-      if (insertMovementError) {
-        throw new Error(insertMovementError.message ?? 'No fue posible registrar el conteo en el ledger de inventario.')
-      }
+    if (rpcError || !rpcResult?.ok) {
+      throw new Error(rpcError?.message ?? 'No fue posible registrar el conteo mediante RPC.')
     }
 
     await insertAuditLog(service, {
       tabla: 'material_conteo_jornada',
-      registroId: conteoId,
+      registroId: rpcResult.id,
       payload: {
         evento: 'conteo_jornada_material_registrado',
         momento,
@@ -1929,9 +1889,15 @@ export async function registrarConteoJornadaMaterial(
       cuentaClienteId,
     })
 
-    revalidatePath('/materiales')
-    revalidatePath('/dashboard')
-    revalidatePath('/reportes')
+    await publishMaterialesPanelChange(service, actor, {
+      eventType: 'conteo_jornada_material_registrado',
+      cuentaClienteId,
+      pdvId,
+      metadata: {
+        fecha_operacion: fechaOperacion,
+        momento,
+      },
+    })
     return buildState({ ok: true, message: `Conteo de ${momento.toLowerCase()} registrado.` })
   } catch (error) {
     return buildState({

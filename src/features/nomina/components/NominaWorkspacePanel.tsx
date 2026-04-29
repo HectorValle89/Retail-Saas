@@ -1,10 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { useActionState, useEffect, useState, type ReactNode } from 'react'
+import { useActionState, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Card } from '@/components/ui/card'
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { ModalPanel } from '@/components/ui/modal-panel'
+import type { ActorActual } from '@/lib/auth/session'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import {
   CancelarAltaForm,
   CerrarBajaEmpleadoNominaForm,
@@ -57,14 +60,42 @@ function buildAttendanceExportHref(month: string) {
 }
 
 export function NominaWorkspacePanel({
-  data,
+  actor,
+  data: initialData,
   initialInbox = 'ALL',
   compact = false,
 }: {
+  actor: ActorActual
   data: NominaWorkspaceData
   initialInbox?: string
   compact?: boolean
 }) {
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    const response = await fetch('/api/nomina/panel', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    })
+    const payload = (await response.json()) as { data?: NominaWorkspaceData; message?: string }
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de nomina.')
+    }
+
+    return payload.data
+  }, [])
+
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'nomina',
+    surfaces: ['panel', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 650,
+  })
+
   const [inboxFilter, setInboxFilter] = useState<PayrollInboxLaneKey | 'ALL'>(
     normalizePayrollInboxKey(initialInbox)
   )
@@ -87,11 +118,12 @@ export function NominaWorkspacePanel({
         </Card>
       )}
 
-      <div className={`grid gap-4 ${compact ? 'md:grid-cols-2 xl:grid-cols-5' : 'md:grid-cols-3 xl:grid-cols-5'}`}>
-        <MetricCard label="Altas IMSS" value={String(data.summary.altasImssPendientes)} />
-        <MetricCard label="En proceso" value={String(data.summary.altasEnProceso)} />
-        <MetricCard label="Observadas" value={String(data.summary.altasObservadas)} />
+      <div className={`grid gap-4 ${compact ? 'md:grid-cols-2 xl:grid-cols-6' : 'md:grid-cols-3 xl:grid-cols-6'}`}>
+        <MetricCard label="Altas pendientes" value={String(data.summary.altasPendientes)} />
         <MetricCard label="Bajas pendientes" value={String(data.summary.bajasPendientes)} />
+        <MetricCard label="Bajas devueltas" value={String(data.summary.bajasDevueltas)} />
+        <MetricCard label="Altas devueltas" value={String(data.summary.devueltasAReclutamiento)} />
+        <MetricCard label="Cerradas" value={String(data.summary.movimientosCerrados)} />
         <MetricCard label="Incapacidades" value={String(data.summary.incapacidadesPendientes)} />
       </div>
 
@@ -101,7 +133,7 @@ export function NominaWorkspacePanel({
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">Canvas de altas</p>
             <h2 className="mt-2 text-xl font-semibold text-slate-950">Flujo IMSS y handoff de reclutamiento</h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-500">
-              Este canvas concentra las altas pendientes, altas en proceso, observaciones de nómina y cierres institucionales.
+              Este canvas concentra las altas pendientes, bajas pendientes, bajas devueltas, altas devueltas y cierres institucionales.
             </p>
           </div>
           <span className="inline-flex items-center justify-center rounded-full bg-[var(--module-primary)] px-4 py-2 text-sm font-semibold text-white">
@@ -376,6 +408,8 @@ function PayrollTicketModal({
   const employee = item.employee
   const [cancelModalOpen, setCancelModalOpen] = useState(false)
   const canCancelAlta = item.movementType === 'ALTA' && (
+    item.stage === 'EN_GESTION' ||
+    item.stage === 'ONBOARDING' ||
     item.stage === 'PENDIENTE_IMSS_NOMINA' ||
     item.stage === 'EN_FLUJO_IMSS' ||
     item.stage === 'RECLUTAMIENTO_CORRECCION_ALTA' ||
@@ -439,14 +473,18 @@ function PayrollTicketModal({
                   ]}
                 />
               )
-            ) : item.stage === 'PENDIENTE_ACCESO_ADMIN' ? (
-              <ReadOnlyWorkflowCard
-                lines={[
-                  'Alta IMSS cerrada.',
-                  'Administracion ya puede crear el acceso provisional.',
-                  `estado IMSS: ${employee.imssEstado}`,
-                ]}
-              />
+          ) : item.stage === 'ONBOARDING' || item.stage === 'PENDIENTE_ACCESO_ADMIN' || item.stage === 'ALTA_IMSS_CERRADA' ? (
+            <ReadOnlyWorkflowCard
+              lines={[
+                item.stage === 'ALTA_IMSS_CERRADA'
+                  ? 'Alta finalizada.'
+                  : 'Alta IMSS cerrada.',
+                item.stage === 'ALTA_IMSS_CERRADA'
+                  ? 'Administracion ya genero el acceso provisional y el caso quedo cerrado.'
+                  : 'El expediente ya fue entregado a Administracion para crear usuario, password y QR.',
+                `estado IMSS: ${employee.imssEstado}`,
+              ]}
+            />
             ) : (
               <ImssEstadoForm empleado={employee} />
             )}

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CuentaCliente } from '@/types/database'
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
 import { buildReportWindowMetadata, resolveReportWindow, resolveTimestampAgainstReportWindow } from '@/lib/operations/reportWindow'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,8 +26,8 @@ interface LovePdvRow {
   zona: string | null
   cadena_id: string | null
   ciudad:
-    | { nombre: string | null; estado: string | null }
-    | Array<{ nombre: string | null; estado: string | null }>
+    | { nombre: string | null }
+    | Array<{ nombre: string | null }>
     | null
 }
 
@@ -287,7 +288,7 @@ export async function resolveLoveOperationalContext(
       .maybeSingle(),
     service
       .from('pdv')
-      .select('id, nombre, clave_btl, zona, cadena_id, ciudad:ciudad_id(nombre, estado)')
+      .select('id, nombre, clave_btl, zona, cadena_id, ciudad:ciudad_id(nombre)')
       .eq('id', pdvId)
       .maybeSingle(),
   ])
@@ -304,9 +305,10 @@ export async function resolveLoveOperationalContext(
   }
 
   const pdvCity = getFirst(pdv.ciudad)
+  const pdvState = resolveMexicoStateFromCity(pdvCity?.nombre ?? null)
   const reportWindow = resolveReportWindow({
     operationDate: asistencia.fecha_operacion,
-    pdvState: pdvCity?.estado ?? null,
+    pdvState,
     checkInUtc: asistencia.check_in_utc,
     checkOutUtc: asistencia.check_out_utc,
   })
@@ -346,7 +348,7 @@ export async function resolveLoveOperationalContext(
     pdvNombre: pdv.nombre ?? null,
     zona: pdv.zona ?? null,
     cadena: cadenaNombre,
-    pdvEstado: pdvCity?.estado ?? null,
+    pdvEstado: pdvState,
     timezone: reportWindow.timezone,
     qr,
   }

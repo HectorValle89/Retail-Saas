@@ -1,22 +1,15 @@
-const CACHE_NAME_APP_SHELL = "retail-app-shell-v2"
-const CACHE_NAME_STATIC = "retail-static-v2"
-const CACHE_NAME_DATA = "retail-data-v2"
-const CACHE_NAME_CATALOGS = "retail-catalogs-v2"
-const CACHE_NAME_THUMBNAILS = "retail-thumbnails-v2"
+// Bump this version whenever we deploy a new build.
+// This forces the SW caches to rotate, preventing stale HTML/JS/CSS mismatches.
+const CACHE_NAME_APP_SHELL = "retail-app-shell-v5"
+const CACHE_NAME_STATIC = "retail-static-v6"
+const CACHE_NAME_DATA = "retail-data-v5"
+const CACHE_NAME_CATALOGS = "retail-catalogs-v5"
+const CACHE_NAME_THUMBNAILS = "retail-thumbnails-v5"
 const OFFLINE_URL = "/offline"
 const STATIC_ASSETS = ["/manifest.webmanifest"]
-const PRECACHE_ROUTES = [
-  "/",
-  "/offline",
-  "/dashboard",
-  "/asistencias",
-  "/ventas",
-  "/reportes",
-  "/rutas",
-  "/clientes",
-  "/nomina",
-  "/campanas",
-]
+// We only precache a minimal offline fallback. Operational routes are SSR + auth-gated and
+// precaching them can lead to stale redirects or outdated chunks after a deploy.
+const PRECACHE_ROUTES = ["/offline"]
 const CATALOG_TTL_MS = 60 * 60 * 1000
 const THUMBNAIL_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const META_SUFFIX = "::meta"
@@ -49,6 +42,11 @@ const LEGACY_CACHE_NAMES = [
   "retail-static-v1",
   "retail-data-v1",
   "retail-catalogs-v1",
+  "retail-app-shell-v4",
+  "retail-static-v4",
+  "retail-data-v4",
+  "retail-catalogs-v4",
+  "retail-thumbnails-v4",
 ]
 const CACHE_NAMES = [
   CACHE_NAME_APP_SHELL,
@@ -177,7 +175,9 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (event.request.mode === "navigate") {
-    event.respondWith(networkFirst(event, CACHE_NAME_APP_SHELL))
+    // Do not cache navigations (HTML). Caching SSR documents can lead to stale chunk references after a deploy,
+    // which manifests as "bugged" navigation until the caches are cleared.
+    event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE_URL)))
     return
   }
 

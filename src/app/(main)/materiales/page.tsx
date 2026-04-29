@@ -1,5 +1,3 @@
-export const runtime = 'edge';
-import { createClient } from '@/lib/supabase/server'
 import { requerirActorActivo } from '@/lib/auth/session'
 import { MaterialesPanel } from '@/features/materiales/components/MaterialesPanel'
 import { obtenerPanelMateriales } from '@/features/materiales/services/materialService'
@@ -10,8 +8,7 @@ export const metadata = {
 
 export default async function MaterialesPage() {
   const actor = await requerirActorActivo()
-  const supabase = await createClient()
-  const data = await obtenerPanelMateriales(supabase, actor)
+  const data = await obtenerPanelMateriales(actor)
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -26,8 +23,7 @@ export default async function MaterialesPage() {
         </p>
       </header>
 
-      <MaterialesPanel data={data} />
+      <MaterialesPanel actor={actor} data={data} />
     </div>
   )
 }
-

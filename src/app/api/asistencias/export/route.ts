@@ -1,5 +1,3 @@
-export const runtime = 'edge';
-import * as XLSX from 'xlsx'
 import { NextRequest, NextResponse } from 'next/server'
 import { obtenerActorActual } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
@@ -21,6 +19,7 @@ function buildCsv(payload: Awaited<ReturnType<typeof buildAttendanceAdminExportP
 }
 
 async function buildXlsx(payload: Awaited<ReturnType<typeof buildAttendanceAdminExportPayload>>) {
+  const XLSX = await import('xlsx')
   const rows = [...payload.leadingRows, payload.headers, ...payload.rows, ...payload.footerRows]
   const ws = XLSX.utils.aoa_to_sheet(rows)
 
@@ -88,4 +87,3 @@ export async function GET(request: NextRequest) {
     )
   }
 }
-

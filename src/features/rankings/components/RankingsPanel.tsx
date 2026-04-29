@@ -2,9 +2,14 @@
 
 import type { ReactNode } from 'react'
 import Link from 'next/link'
+import { useCallback, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
+import type { ActorActual } from '@/lib/auth/session'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import type { RankingDcItem, RankingPanelData, RankingPdvItem, RankingQuotaZonaItem, RankingSupervisorItem, RankingZonaItem } from '../services/rankingService'
 
 function formatCurrency(value: number) {
@@ -33,7 +38,47 @@ function buildHref(data: RankingPanelData, overrides: Record<string, string>) {
   return `/ranking?${params.toString()}`
 }
 
-export function RankingsPanel({ data }: { data: RankingPanelData }) {
+export function RankingsPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: RankingPanelData
+}) {
+  const searchParams = useSearchParams()
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(
+    async (signal: AbortSignal) => {
+      const params = new URLSearchParams()
+      params.set('periodo', searchParams.get('periodo') ?? initialData.filtros.periodo)
+      params.set('corte', searchParams.get('corte') ?? initialData.filtros.corte)
+      params.set('zona', searchParams.get('zona') ?? initialData.filtros.zona)
+      params.set('supervisorId', searchParams.get('supervisorId') ?? initialData.filtros.supervisorId)
+
+      const response = await fetch(`/api/ranking/panel?${params.toString()}`, {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal,
+      })
+      const payload = (await response.json()) as { data?: RankingPanelData; message?: string }
+
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.message ?? 'No fue posible refrescar el ranking.')
+      }
+
+      return payload.data
+    },
+    [initialData, searchParams]
+  )
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'ranking',
+    surfaces: ['panel', 'tabla', 'shell', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 850,
+  })
   return (
     <div className="space-y-6">
       <Card className="border-slate-200 bg-slate-50">

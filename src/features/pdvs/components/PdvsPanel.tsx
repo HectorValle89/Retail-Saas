@@ -1,14 +1,17 @@
 'use client';
 
-import { useActionState, useEffect, useState, useTransition, type ReactNode } from 'react';
+import { useActionState, useCallback, useEffect, useMemo, useState, useTransition, type ReactNode } from 'react';
 import { useFormStatus } from 'react-dom';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { MexicoMap, type MexicoMapPoint } from '@/components/maps/MexicoMap';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
 import { ModalPanel } from '@/components/ui/modal-panel';
 import { Select } from '@/components/ui/select';
+import type { ActorActual } from '@/lib/auth/session';
+import { useScopedWidgetData } from '@/lib/ui-change/client';
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
 import {
   actualizarGeocercaPdv,
   actualizarHorarioPdv,
@@ -20,6 +23,7 @@ import { ESTADO_PDV_INICIAL, type PdvCreateDraft } from '../state';
 import type {
   PdvCadenaOption,
   PdvCiudadOption,
+  PdvDetalleItem,
   PdvHorarioItem,
   PdvListadoItem,
   PdvSupervisorOption,
@@ -99,17 +103,46 @@ function getHorarioLabel(mode: PdvListadoItem['horarioMode']) {
 }
 
 export function PdvsPanel({
-  data,
+  actor,
+  data: initialData,
   canEdit,
   actorPuesto,
 }: {
+  actor: ActorActual;
   data: PdvsPanelData;
   canEdit: boolean;
   actorPuesto: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [isNavigating, startTransition] = useTransition();
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
+  const queryString = searchParams.toString();
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    const response = await fetch(queryString ? `/api/pdvs/panel?${queryString}` : '/api/pdvs/panel', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    });
+    const payload = (await response.json()) as { data?: PdvsPanelData; message?: string };
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de PDVs.');
+    }
+
+    return payload.data;
+  }, [queryString]);
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'pdvs',
+    surfaces: ['panel', 'tabla', 'shell', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 650,
+  });
+
   const [search, setSearch] = useState(data.filters.search);
   const [cadenaFilter, setCadenaFilter] = useState(data.filters.cadenaId || 'ALL');
   const [ciudadFilter, setCiudadFilter] = useState(data.filters.ciudadId || 'ALL');
@@ -122,6 +155,20 @@ export function PdvsPanel({
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [toast, setToast] = useState<{ tone: 'success' | 'error' | 'info'; message: string } | null>(null);
   const selectedPdv = data.pdvs.find((pdv) => pdv.id === detailPdvId) ?? null;
+  const [detailData, setDetailData] = useState<PdvDetalleItem | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSearch(data.filters.search);
+    setCadenaFilter(data.filters.cadenaId || 'ALL');
+    setCiudadFilter(data.filters.ciudadId || 'ALL');
+    setEstadoFilter(data.filters.estado || 'ALL');
+    setZonaFilter(data.filters.zona || 'ALL');
+    setSupervisorFilter(data.filters.supervisorId || 'ALL');
+    setEstatusFilter(data.filters.estatus || 'ALL');
+    setSelectedPdvId(data.hasActiveFilters ? data.pdvs[0]?.id ?? null : null);
+  }, [data.filters, data.hasActiveFilters, data.pdvs]);
 
   useEffect(() => {
     if (!toast) {
@@ -131,6 +178,49 @@ export function PdvsPanel({
     const timeout = window.setTimeout(() => setToast(null), 2800);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    if (!detailPdvId) {
+      setDetailData(null);
+      setDetailLoading(false);
+      setDetailError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setDetailLoading(true);
+    setDetailError(null);
+
+    void fetch(`/api/pdvs/${detailPdvId}/detail`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = (await response.json()) as { data?: PdvDetalleItem | null; message?: string };
+
+        if (!response.ok || !payload.data) {
+          throw new Error(payload.message ?? 'No fue posible cargar el detalle del PDV.');
+        }
+
+        return payload.data;
+      })
+      .then((detail) => {
+        setDetailData(detail);
+        setDetailLoading(false);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setDetailData(null);
+        setDetailError(error instanceof Error ? error.message : 'No fue posible cargar el detalle del PDV.');
+        setDetailLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [detailPdvId]);
 
   const applyFilters = () => {
     const params = new URLSearchParams();
@@ -450,6 +540,9 @@ export function PdvsPanel({
           open
           onClose={() => setDetailPdvId(null)}
           pdv={selectedPdv}
+          detail={detailData}
+          detailLoading={detailLoading}
+          detailError={detailError}
           data={data}
           canEdit={canEdit}
         />
@@ -563,8 +656,8 @@ function PdvRow({
             className={getHorarioTone(pdv.horarioMode)}
           />
           <div className="mt-2 text-xs text-slate-500">
-            {pdv.horarios[0]
-              ? `${formatTime(pdv.horarios[0].horaEntrada)} - ${formatTime(pdv.horarios[0].horaSalida)}`
+            {pdv.horarioEntrada || pdv.horarioSalida
+              ? `${formatTime(pdv.horarioEntrada)} - ${formatTime(pdv.horarioSalida)}`
               : 'Sin horario efectivo'}
           </div>
         </td>
@@ -640,7 +733,17 @@ function PdvRow({
                 title="Horario"
                 description="Horario efectivo del PDV, con herencia desde cadena o reglas personalizadas."
               >
-                <HorarioSummary horarios={pdv.horarios} />
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  <p className="font-medium text-slate-900">{getHorarioLabel(pdv.horarioMode)}</p>
+                  <p className="mt-1">
+                    {pdv.horarioEntrada || pdv.horarioSalida
+                      ? `${formatTime(pdv.horarioEntrada)} - ${formatTime(pdv.horarioSalida)}`
+                      : 'Sin horario efectivo en la ficha base.'}
+                  </p>
+                  <p className="mt-2 text-xs text-slate-500">
+                    El historial completo de horarios se carga solo al abrir el modal de detalle.
+                  </p>
+                </div>
                 {canEdit && (
                   <div className="mt-4">
                     <HorarioForm data={data} pdv={pdv} />
@@ -674,16 +777,23 @@ function PdvDetailModal({
   open,
   onClose,
   pdv,
+  detail,
+  detailLoading,
+  detailError,
   data,
   canEdit,
 }: {
   open: boolean;
   onClose: () => void;
   pdv: PdvListadoItem;
+  detail: PdvDetalleItem | null;
+  detailLoading: boolean;
+  detailError: string | null;
   data: PdvsPanelData;
   canEdit: boolean;
 }) {
   const [tab, setTab] = useState<'general' | 'geocerca' | 'horario'>('general');
+  const detailPdv = detail ?? null;
 
   return (
     <ModalPanel
@@ -771,11 +881,23 @@ function PdvDetailModal({
         {tab === 'horario' ? (
           <div className="grid gap-4 xl:grid-cols-1">
             <DetailCard title="Horario" description="Horario efectivo y herencia.">
-              <HorarioSummary horarios={pdv.horarios} />
-              {canEdit ? (
-                <div className="mt-4">
-                  <HorarioForm data={data} pdv={pdv} />
+              {detailLoading ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                  Cargando detalle de horario...
                 </div>
+              ) : detailError ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                  {detailError}
+                </div>
+              ) : detailPdv ? (
+                <>
+                  <HorarioSummary horarios={detailPdv.horarios} />
+                  {canEdit ? (
+                    <div className="mt-4">
+                      <HorarioForm data={data} pdv={pdv} detail={detailPdv} />
+                    </div>
+                  ) : null}
+                </>
               ) : null}
             </DetailCard>
           </div>
@@ -1157,7 +1279,15 @@ function GeocercaForm({ data, pdv }: { data: PdvsPanelData; pdv: PdvListadoItem 
     </form>
   );
 }
-function HorarioForm({ data, pdv }: { data: PdvsPanelData; pdv: PdvListadoItem }) {
+function HorarioForm({
+  data,
+  pdv,
+  detail,
+}: {
+  data: PdvsPanelData;
+  pdv: PdvListadoItem;
+  detail?: PdvDetalleItem | null;
+}) {
   const [state, formAction] = useActionState(actualizarHorarioPdv, ESTADO_PDV_INICIAL);
   const [mode, setMode] = useState<'CADENA' | 'PERSONALIZADO'>(
     pdv.horarioMode === 'CADENA' ? 'CADENA' : 'PERSONALIZADO'
@@ -1179,7 +1309,7 @@ function HorarioForm({ data, pdv }: { data: PdvsPanelData; pdv: PdvListadoItem }
           { value: 'PERSONALIZADO', label: 'Personalizado' },
         ]}
       />
-      <ScheduleFields mode={mode} turnosCadena={data.turnosCadena} pdv={pdv} />
+      <ScheduleFields mode={mode} turnosCadena={data.turnosCadena} pdv={detail ?? pdv} />
       <SubmitButton
         idleLabel="Actualizar horario"
         pendingLabel="Guardando..."
@@ -1222,15 +1352,19 @@ function ScheduleFields({
 }: {
   mode: 'CADENA' | 'PERSONALIZADO';
   turnosCadena: PdvTurnoCatalogOption[];
-  pdv?: PdvListadoItem;
+  pdv?: PdvListadoItem | PdvDetalleItem;
 }) {
+  const horarioEntries =
+    pdv && 'horarios' in pdv && Array.isArray(pdv.horarios) ? pdv.horarios : [];
+  const horarioDetalle = horarioEntries[0] ?? null;
+
   if (mode === 'CADENA') {
     return (
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Select
           label="Turno catalogo cadena"
           name="turno_nomenclatura"
-          defaultValue={pdv?.horarios[0]?.code ?? ''}
+          defaultValue={horarioDetalle?.code ?? ''}
           options={[
             {
               value: '',
@@ -1252,27 +1386,27 @@ function ScheduleFields({
       <Input
         label="Codigo turno"
         name="turno_nomenclatura"
-        defaultValue={pdv?.horarios[0]?.code ?? ''}
+        defaultValue={horarioDetalle?.code ?? ''}
         placeholder="Opcional"
       />
       <Input
         label="Hora entrada"
         name="hora_entrada"
         type="time"
-        defaultValue={pdv?.horarios[0]?.horaEntrada ?? pdv?.horarioEntrada ?? ''}
+        defaultValue={horarioDetalle?.horaEntrada ?? pdv?.horarioEntrada ?? ''}
         required
       />
       <Input
         label="Hora salida"
         name="hora_salida"
         type="time"
-        defaultValue={pdv?.horarios[0]?.horaSalida ?? pdv?.horarioSalida ?? ''}
+        defaultValue={horarioDetalle?.horaSalida ?? pdv?.horarioSalida ?? ''}
         required
       />
       <Input
         label="Observaciones"
         name="horario_observaciones"
-        defaultValue={pdv?.horarios[0]?.observations ?? ''}
+        defaultValue={horarioDetalle?.observations ?? ''}
         placeholder="Opcional"
       />
     </div>
@@ -1377,8 +1511,10 @@ function CoverageMap({
   );
 }
 
-function HorarioSummary({ horarios }: { horarios: PdvHorarioItem[] }) {
-  if (horarios.length === 0) {
+function HorarioSummary({ horarios }: { horarios?: PdvHorarioItem[] | null }) {
+  const horarioEntries = Array.isArray(horarios) ? horarios : [];
+
+  if (horarioEntries.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
         El PDV no tiene horario efectivo configurado.
@@ -1388,7 +1524,7 @@ function HorarioSummary({ horarios }: { horarios: PdvHorarioItem[] }) {
 
   return (
     <div className="space-y-3">
-      {horarios.map((item) => (
+      {horarioEntries.map((item) => (
         <div
           key={item.id}
           className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600"

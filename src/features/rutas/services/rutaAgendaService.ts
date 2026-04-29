@@ -14,6 +14,7 @@ import {
   type RutaAgendaExecutionState,
   type RutaAgendaImpactMode,
 } from '../lib/routeAgenda'
+import { getIsoDateInMexicoCity } from '@/lib/geo/mexicoStateTimezone'
 
 export interface RutaAgendaBaseVisitInput {
   id: string
@@ -49,6 +50,8 @@ export interface RutaAgendaEventRecord {
   sede: string | null
   horaInicio: string | null
   horaFin: string | null
+  selfieUrl?: string | null
+  evidenciaUrl?: string | null
   checkInAt: string | null
   checkOutAt: string | null
   metadata: unknown
@@ -94,6 +97,8 @@ export interface RutaAgendaEventItem {
   sede: string | null
   horaInicio: string | null
   horaFin: string | null
+  selfieUrl: string | null
+  evidenciaUrl: string | null
   displacedVisitIds: string[]
   checkInAt: string | null
   checkOutAt: string | null
@@ -162,6 +167,8 @@ export function normalizeAgendaEventRecord(record: RutaAgendaEventRecord): RutaA
     sede: record.sede,
     horaInicio: record.horaInicio,
     horaFin: record.horaFin,
+    selfieUrl: record.selfieUrl ?? null,
+    evidenciaUrl: record.evidenciaUrl ?? null,
     displacedVisitIds: metadata.displacedVisitIds,
     checkInAt: metadata.checkIn.at ?? record.checkInAt,
     checkOutAt: metadata.checkOut.at ?? record.checkOutAt,
@@ -174,7 +181,7 @@ export function resolveAgendaOperativaSupervisorDia({
   visitasPlaneadas,
   agendaEventos,
   pendientesPersistidos,
-  today = new Date().toISOString().slice(0, 10),
+  today = getIsoDateInMexicoCity(),
 }: {
   fecha: string
   visitasPlaneadas: RutaAgendaBaseVisitInput[]

@@ -1,4 +1,8 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase/server'
+import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
 import type { CuentaCliente, Empleado, FormacionEvento, Gasto, Pdv } from '@/types/database'
 
 type MaybeMany<T> = T | T[] | null
@@ -128,11 +132,16 @@ function formatPeriodo(fecha: string) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TypedSupabaseClient = SupabaseClient<any>
 
-export async function obtenerPanelGastos(
+type GastoPanelLoadOptions = {
+  serviceClient?: TypedSupabaseClient
+  cacheKeyParts?: Array<string | number | null | undefined>
+  cacheTags?: string[]
+  revalidateSeconds?: number
+}
+
+async function loadPanelGastos(
   supabase: TypedSupabaseClient,
-  options?: {
-    serviceClient?: TypedSupabaseClient
-  }
+  options?: GastoPanelLoadOptions
 ): Promise<GastosPanelData> {
   const client = options?.serviceClient ?? supabase
 
@@ -276,4 +285,38 @@ export async function obtenerPanelGastos(
     })),
     infraestructuraLista: true,
   }
+}
+
+export async function obtenerPanelGastos(
+  actorOrSupabase: ActorActual | TypedSupabaseClient,
+  options?: GastoPanelLoadOptions
+): Promise<GastosPanelData> {
+  if (!('from' in actorOrSupabase)) {
+    const actor = actorOrSupabase
+    const serviceClient = options?.serviceClient ?? (createServiceClient() as TypedSupabaseClient)
+    const cacheKey = [
+      'gastos',
+      actor.cuentaClienteId ?? 'global',
+      actor.puesto,
+      actor.empleadoId,
+      ...(options?.cacheKeyParts ?? []),
+    ].map((item) => String(item ?? ''))
+
+    return unstable_cache(
+      () => loadPanelGastos(serviceClient, options),
+      cacheKey,
+      {
+        tags:
+          options?.cacheTags ?? buildModuleCacheTags({
+            module: 'gastos',
+            accountId: actor.cuentaClienteId ?? null,
+            employeeId: actor.empleadoId,
+            supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+          }),
+        revalidate: options?.revalidateSeconds ?? 120,
+      }
+    )()
+  }
+
+  return loadPanelGastos(actorOrSupabase, options)
 }

@@ -1,7 +1,8 @@
 // import path from 'node:path'
 import JSZip from 'jszip'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import * as XLSX from 'xlsx'
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const XLSX = require('xlsx') as typeof import('xlsx')
 import { computeSHA256 } from '@/lib/files/sha256'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -247,7 +248,7 @@ function findCanonicalHeaderKey(headers: string[], canonicalKey: string) {
   return headers.find((header) => normalizedAliases.includes(normalizeHeader(header))) ?? null
 }
 
-function selectManifestSheet(workbook: XLSX.WorkBook) {
+function selectManifestSheet(workbook: import('xlsx').WorkBook) {
   const candidates = workbook.SheetNames.filter((name) => {
     const sheet = workbook.Sheets[name]
     if (!sheet) {

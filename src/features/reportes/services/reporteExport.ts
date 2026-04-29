@@ -13,6 +13,7 @@ import type {
   Empleado,
   Pdv,
 } from '@/types/database'
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
 import {
   obtenerPanelReportes,
   type ReportesPanelData,
@@ -86,7 +87,9 @@ type ExportEmployeeRow = Pick<Empleado, 'id' | 'id_nomina' | 'nombre_completo' |
 type ExportAttendanceRow = Pick<Asistencia, 'empleado_id' | 'fecha_operacion' | 'estatus' | 'check_in_utc'>
 type ExportCuentaClienteRow = Pick<CuentaCliente, 'id' | 'nombre'>
 type ExportCadenaRow = Pick<Cadena, 'id' | 'nombre'>
-type ExportCiudadRow = Pick<Ciudad, 'id' | 'nombre' | 'estado'>
+type ExportCiudadRow = Pick<Ciudad, 'id' | 'nombre'> & {
+  estado?: string | null
+}
 
 type ExportPdvRow = Pick<Pdv, 'id' | 'nombre' | 'clave_btl' | 'horario_entrada' | 'horario_salida'> & {
   cadena: MaybeMany<ExportCadenaRow>
@@ -375,6 +378,14 @@ function isRestLikeDay(day: MaterializedCalendarDay, referenceAssignment: Export
     return false
   }
 
+  const flags = day.flags && typeof day.flags === 'object' && !Array.isArray(day.flags)
+    ? (day.flags as Record<string, unknown>)
+    : {}
+
+  if (Boolean(flags.descanso_override ?? flags.descanso_override_id)) {
+    return true
+  }
+
   const descansoCode = String(referenceAssignment?.dia_descanso ?? '').trim().toUpperCase()
   const weekday = weekdayCodeFromDate(day.fecha)
   if (descansoCode && weekday === descansoCode) {
@@ -607,7 +618,7 @@ async function collectOperationalCalendarExportPayload(
     referencePdvIds.size > 0
       ? supabase
           .from('pdv')
-          .select('id, nombre, clave_btl, horario_entrada, horario_salida, cadena:cadena_id(id, nombre), ciudad:ciudad_id(id, nombre, estado)')
+          .select('id, nombre, clave_btl, horario_entrada, horario_salida, cadena:cadena_id(id, nombre), ciudad:ciudad_id(id, nombre)')
           .in('id', Array.from(referencePdvIds))
       : Promise.resolve({ data: [], error: null }),
     referenceCuentaIds.size > 0
@@ -691,7 +702,7 @@ async function collectOperationalCalendarExportPayload(
       employee.supervisorNombre ?? 'Sin supervisor',
       employee.coordinadorNombre ?? 'Sin coordinador',
       obtenerPrimero(referencePdv?.ciudad)?.nombre ?? '',
-      obtenerPrimero(referencePdv?.ciudad)?.estado ?? '',
+      obtenerPrimero(referencePdv?.ciudad)?.estado ?? resolveMexicoStateFromCity(obtenerPrimero(referencePdv?.ciudad)?.nombre ?? null) ?? '',
       horario,
       formatWeekdays(referenceAssignment?.dias_laborales ?? null),
       String(referenceAssignment?.dia_descanso ?? '').trim().toUpperCase(),
@@ -745,12 +756,11 @@ export async function collectReportExportPayload(
     return collectOperationalCalendarExportPayload(supabase, periodo)
   }
 
-  const firstPage = await obtenerPanelReportes(supabase, {
-    actor,
+  const firstPage = await obtenerPanelReportes(actor, {
     period: periodo,
     page: 1,
     pageSize: 100,
-  })
+  }, supabase)
 
   if (!firstPage.infraestructuraLista) {
     throw new Error(firstPage.mensajeInfraestructura ?? 'No fue posible preparar la exportacion.')
@@ -758,12 +768,11 @@ export async function collectReportExportPayload(
 
   const rows = [...mapSectionRows(section, firstPage)]
   for (let page = 2; page <= firstPage.paginacion.totalPages; page += 1) {
-    const chunk = await obtenerPanelReportes(supabase, {
-      actor,
+    const chunk = await obtenerPanelReportes(actor, {
       period: periodo,
       page,
       pageSize: 100,
-    })
+    }, supabase)
     rows.push(...mapSectionRows(section, chunk))
   }
 
@@ -773,9 +782,6 @@ export async function collectReportExportPayload(
     rows,
   }
 }
-
-
-
 
 
 

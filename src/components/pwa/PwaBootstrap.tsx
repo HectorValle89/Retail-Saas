@@ -3,7 +3,6 @@
 import { X } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { useOfflineSync } from '@/hooks/useOfflineSync'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -13,13 +12,13 @@ interface BeforeInstallPromptEvent extends Event {
 const PWA_INSTALL_DISMISSED_KEY = 'retail.pwa.install-dismissed'
 
 export function PwaBootstrap() {
-  const offline = useOfflineSync()
   const isLocalHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [serviceWorkerReady, setServiceWorkerReady] = useState(false)
   const [isInstalling, setIsInstalling] = useState(false)
   const [isStandalone, setIsStandalone] = useState(false)
   const [isMobileBrowser, setIsMobileBrowser] = useState(false)
+  const [isOnline, setIsOnline] = useState(true)
   const [isIos, setIsIos] = useState(false)
   const [showInstallHelp, setShowInstallHelp] = useState(false)
   const [isDismissed, setIsDismissed] = useState(false)
@@ -33,14 +32,46 @@ export function PwaBootstrap() {
       return
     }
 
-    navigator.serviceWorker
-      .register('/sw.js')
-      .then(() => {
-        setServiceWorkerReady(true)
-      })
-      .catch(() => {
-        setServiceWorkerReady(false)
-      })
+    let cancelled = false
+    const windowWithIdleCallbacks = window as Window & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number
+      cancelIdleCallback?: (handle: number) => void
+    }
+
+    const registerServiceWorker = () => {
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then(() => {
+          if (!cancelled) {
+            setServiceWorkerReady(true)
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setServiceWorkerReady(false)
+          }
+        })
+    }
+
+    const scheduleRegistration = () => {
+      if (windowWithIdleCallbacks.requestIdleCallback) {
+        const idleCallback = windowWithIdleCallbacks.requestIdleCallback(() => {
+          registerServiceWorker()
+        })
+
+        return () => windowWithIdleCallbacks.cancelIdleCallback?.(idleCallback)
+      }
+
+      const timeoutId = window.setTimeout(registerServiceWorker, 2000)
+      return () => window.clearTimeout(timeoutId)
+    }
+
+    const cancelScheduledRegistration = scheduleRegistration()
+
+    return () => {
+      cancelled = true
+      cancelScheduledRegistration?.()
+    }
   }, [isLocalHost])
 
   useEffect(() => {
@@ -62,6 +93,7 @@ export function PwaBootstrap() {
 
     setIsStandalone(standalone)
     setIsIos(/iphone|ipad|ipod/.test(userAgent))
+    setIsOnline(window.navigator.onLine)
     syncViewportFlags(compactViewportQuery.matches)
 
     const handleBeforeInstallPrompt = (event: Event) => {
@@ -82,13 +114,21 @@ export function PwaBootstrap() {
       syncViewportFlags(event.matches)
     }
 
+    const handleOnlineChange = () => {
+      setIsOnline(window.navigator.onLine)
+    }
+
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
     window.addEventListener('appinstalled', handleAppInstalled)
+    window.addEventListener('online', handleOnlineChange)
+    window.addEventListener('offline', handleOnlineChange)
     compactViewportQuery.addEventListener('change', handleViewportChange)
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
       window.removeEventListener('appinstalled', handleAppInstalled)
+      window.removeEventListener('online', handleOnlineChange)
+      window.removeEventListener('offline', handleOnlineChange)
       compactViewportQuery.removeEventListener('change', handleViewportChange)
     }
   }, [isLocalHost])
@@ -124,6 +164,10 @@ export function PwaBootstrap() {
     !isStandalone &&
     (Boolean(installPrompt) || isMobileBrowser)
 
+  // El usuario solicito remover este prompt visual
+  return null
+
+  /*
   if (!serviceWorkerReady || !installAssistAvailable || isDismissed) {
     return null
   }
@@ -138,7 +182,7 @@ export function PwaBootstrap() {
             </p>
             <h2 className="mt-2 text-base font-semibold text-slate-950">Instalar app</h2>
             <p className="mt-1 text-sm text-slate-600">
-              {offline.isOnline
+              {isOnline
                 ? 'La instalacion te da acceso rapido y la sincronizacion en campo sigue funcionando automaticamente.'
                 : 'Puedes instalarla aun sin red. Cuando vuelva la conexion, la cola local intentara sincronizarse sola.'}
             </p>
@@ -180,4 +224,5 @@ export function PwaBootstrap() {
       </div>
     </div>
   )
+  */
 }

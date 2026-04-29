@@ -6,8 +6,8 @@ const serviceWorkerSource = readFileSync(resolve(process.cwd(), 'public/sw.js'),
 
 describe('service worker cache strategies', () => {
   it('uses cache-first for static assets and thumbnails', () => {
-    expect(serviceWorkerSource).toContain('const CACHE_NAME_STATIC = "retail-static-v2"')
-    expect(serviceWorkerSource).toContain('const CACHE_NAME_THUMBNAILS = "retail-thumbnails-v2"')
+    expect(serviceWorkerSource).toContain('const CACHE_NAME_STATIC = "retail-static-v6"')
+    expect(serviceWorkerSource).toContain('const CACHE_NAME_THUMBNAILS = "retail-thumbnails-v5"')
     expect(serviceWorkerSource).toContain(
       'event.respondWith(cacheFirstWithTtl(event, CACHE_NAME_STATIC))'
     )
@@ -17,7 +17,7 @@ describe('service worker cache strategies', () => {
   })
 
   it('uses stale-while-revalidate for catalogs with one-hour ttl', () => {
-    expect(serviceWorkerSource).toContain('const CACHE_NAME_CATALOGS = "retail-catalogs-v2"')
+    expect(serviceWorkerSource).toContain('const CACHE_NAME_CATALOGS = "retail-catalogs-v5"')
     expect(serviceWorkerSource).toContain('const CATALOG_TTL_MS = 60 * 60 * 1000')
     expect(serviceWorkerSource).toContain(
       'event.respondWith(staleWhileRevalidateWithTtl(event, CACHE_NAME_CATALOGS, CATALOG_TTL_MS))'
@@ -25,9 +25,9 @@ describe('service worker cache strategies', () => {
   })
 
   it('uses network-first for navigations and operational data with offline fallback', () => {
-    expect(serviceWorkerSource).toContain('const CACHE_NAME_APP_SHELL = "retail-app-shell-v2"')
-    expect(serviceWorkerSource).toContain('const CACHE_NAME_DATA = "retail-data-v2"')
-    expect(serviceWorkerSource).toContain('event.respondWith(networkFirst(event, CACHE_NAME_APP_SHELL))')
+    expect(serviceWorkerSource).toContain('const CACHE_NAME_APP_SHELL = "retail-app-shell-v5"')
+    expect(serviceWorkerSource).toContain('const CACHE_NAME_DATA = "retail-data-v5"')
+    expect(serviceWorkerSource).toContain('event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE_URL)))')
     expect(serviceWorkerSource).toContain('event.respondWith(networkFirst(event, CACHE_NAME_DATA))')
     expect(serviceWorkerSource).toContain('return caches.match(OFFLINE_URL)')
   })
@@ -42,8 +42,8 @@ describe('service worker cache strategies', () => {
   })
 
   it('versions caches and coordinates foreground sync confirmations from the service worker when background sync fires', () => {
-    expect(serviceWorkerSource).toContain('const CACHE_NAME_APP_SHELL = "retail-app-shell-v2"')
-    expect(serviceWorkerSource).toContain('const CACHE_NAME_STATIC = "retail-static-v2"')
+    expect(serviceWorkerSource).toContain('const CACHE_NAME_APP_SHELL = "retail-app-shell-v5"')
+    expect(serviceWorkerSource).toContain('const CACHE_NAME_STATIC = "retail-static-v6"')
     expect(serviceWorkerSource).toContain('const OFFLINE_SYNC_TAG = "retail-offline-sync"')
     expect(serviceWorkerSource).toContain('const OFFLINE_SYNC_COMPLETE = "OFFLINE_SYNC_COMPLETE"')
     expect(serviceWorkerSource).toContain('self.addEventListener("sync", (event) => {')

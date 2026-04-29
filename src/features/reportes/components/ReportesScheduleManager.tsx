@@ -1,8 +1,11 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import type { ActorActual } from '@/lib/auth/session'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import { desactivarReporteProgramado, programarReporteAutomatico } from '../actions'
 import { ESTADO_REPORTE_PROGRAMADO_INICIAL } from '../state'
 import type { ProgramacionReportesData } from '../services/reporteScheduleService'
@@ -32,8 +35,38 @@ function formatTimestamp(value: string | null) {
   }).format(new Date(value))
 }
 
-export function ReportesScheduleManager({ data }: { data: ProgramacionReportesData }) {
+export function ReportesScheduleManager({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: ProgramacionReportesData
+}) {
   const [state, formAction] = useActionState(programarReporteAutomatico, ESTADO_REPORTE_PROGRAMADO_INICIAL)
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    const response = await fetch('/api/reportes/schedules', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    })
+    const payload = (await response.json()) as { data?: ProgramacionReportesData; message?: string }
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar la programacion de reportes.')
+    }
+
+    return payload.data
+  }, [])
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'reportes',
+    surfaces: ['schedule'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 500,
+  })
 
   return (
     <div className="space-y-6">
@@ -116,6 +149,4 @@ export function ReportesScheduleManager({ data }: { data: ProgramacionReportesDa
 function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: React.ReactNode }) {
   return <div><label htmlFor={htmlFor} className="mb-1.5 block text-sm font-medium text-slate-900">{label}</label>{children}</div>
 }
-
-
 

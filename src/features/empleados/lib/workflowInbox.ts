@@ -1,12 +1,22 @@
+import {
+  resolveRecruitingAltaPipelineStage,
+  resolveRecruitingBajaPipelineStage,
+} from './recruitingPipeline'
+
 export type EmpleadoWorkflowStage =
+  | 'NUEVOS'
+  | 'EXPEDIENTE'
+  | 'EN_GESTION'
+  | 'ONBOARDING'
+  | 'ALTA_CANCELADA'
   | 'PENDIENTE_COORDINACION'
   | 'SELECCION_APROBADA'
   | 'PENDIENTE_IMSS_NOMINA'
   | 'EN_FLUJO_IMSS'
   | 'PENDIENTE_VALIDACION_FINAL'
   | 'PENDIENTE_ACCESO_ADMIN'
+  | 'ALTA_IMSS_CERRADA'
   | 'RECLUTAMIENTO_CORRECCION_ALTA'
-  | 'ALTA_CANCELADA'
   | 'PENDIENTE_BAJA_IMSS'
   | 'RECLUTAMIENTO_CORRECCION_BAJA'
   | 'BAJA_IMSS_CERRADA'
@@ -14,18 +24,12 @@ export type EmpleadoWorkflowStage =
 export type EmployeeMovementType = 'ALTA' | 'BAJA'
 
 export type RecruitingInboxLaneKey =
-  | 'altas-nuevas'
-  | 'en-revision'
-  | 'devueltas-por-nomina'
-  | 'cancelados'
-  | 'bajas-solicitadas'
-  | 'bajas-devueltas'
+  | 'cancelados-devueltos'
 
 export type PayrollInboxLaneKey =
   | 'altas-imss'
-  | 'altas-en-proceso'
-  | 'altas-observadas'
   | 'bajas-pendientes'
+  | 'bajas-devueltas'
   | 'devueltas-a-reclutamiento'
   | 'cerradas'
 
@@ -44,10 +48,17 @@ export interface WorkflowInboxEmployee {
   imssEstado: string
   imssObservaciones: string | null
   workflowStage: string | null
+  onboarding: {
+    accesosExternosStatus: string | null
+    expedienteCompletoRecibido: boolean
+    contratoStatus: string | null
+  }
   documentosCount: number
   documentos: readonly unknown[]
   adminAccessPending: boolean
   estadoCuenta: string | null
+  recruitmentSource?: string | null
+  candidateProfileSource?: string | null
   workflowCancelReason?: string | null
   workflowCancelAt?: string | null
   workflowCancelFromStage?: string | null
@@ -84,56 +95,32 @@ export type EmployeeRecruitingInboxData<TEmployee extends WorkflowInboxEmployee 
 export type EmployeePayrollInboxData<TEmployee extends WorkflowInboxEmployee = WorkflowInboxEmployee> = Array<InboxLane<PayrollInboxLaneKey, TEmployee>>
 
 const RECRUITING_LANES: Record<RecruitingInboxLaneKey, { label: string; description: string }> = {
-  'altas-nuevas': {
-    label: 'Altas nuevas',
-    description: 'Expedientes listos para enviar o ya enviados a Nomina.',
-  },
-  'en-revision': {
-    label: 'En revision',
-    description: 'Expedientes observados internamente antes del envio.',
-  },
-  'devueltas-por-nomina': {
-    label: 'Devueltas por Nomina',
-    description: 'Altas devueltas para corregir datos o soportes.',
-  },
-  cancelados: {
-    label: 'Cancelados',
-    description: 'Candidatos que declinaron o cuyo alta se detuvo antes del cierre final.',
-  },
-  'bajas-solicitadas': {
-    label: 'Bajas solicitadas',
-    description: 'Bajas enviadas a Nomina y pendientes de cierre institucional.',
-  },
-  'bajas-devueltas': {
-    label: 'Bajas devueltas',
-    description: 'Solicitudes de baja devueltas para correccion.',
+  'cancelados-devueltos': {
+    label: 'Cancelados / Devueltos',
+    description: 'Altas detenidas o regresadas al flujo que pueden reactivarse con trazabilidad.',
   },
 }
 
 const PAYROLL_LANES: Record<PayrollInboxLaneKey, { label: string; description: string }> = {
   'altas-imss': {
     label: 'Altas IMSS pendientes',
-    description: 'Expedientes listos para iniciar o completar alta IMSS.',
-  },
-  'altas-en-proceso': {
-    label: 'Altas en proceso',
-    description: 'Altas IMSS abiertas y todavia sin cierre.',
-  },
-  'altas-observadas': {
-    label: 'Altas con error',
-    description: 'Altas con incidencias o soportes incompletos.',
+    description: 'Altas enviadas desde Reclutamiento que Nomina debe revisar y cerrar.',
   },
   'bajas-pendientes': {
     label: 'Bajas pendientes',
     description: 'Bajas recibidas por Nomina para cierre institucional.',
   },
+  'bajas-devueltas': {
+    label: 'Bajas devueltas',
+    description: 'Bajas regresadas a Reclutamiento por documentos incompletos o inconsistentes.',
+  },
   'devueltas-a-reclutamiento': {
     label: 'Devueltas a Reclutamiento',
-    description: 'Movimientos observados por Nomina y devueltos.',
+    description: 'Altas devueltas a Reclutamiento para correccion.',
   },
   cerradas: {
     label: 'Cerradas',
-    description: 'Movimientos ya cerrados o listos para Administracion.',
+    description: 'Movimientos ya cerrados, finalizados o listos para Administracion.',
   },
 }
 
@@ -158,25 +145,21 @@ function buildItem<TEmployee extends WorkflowInboxEmployee>(employee: TEmployee)
       ? employee.workflowStage === 'BAJA_IMSS_CERRADA'
         ? 'Baja cerrada'
         : employee.workflowStage === 'RECLUTAMIENTO_CORRECCION_BAJA'
-          ? 'Baja observada'
+          ? 'Baja devuelta'
           : 'Baja pendiente'
       : employee.workflowStage === 'ALTA_CANCELADA'
         ? 'Alta cancelada'
-      : employee.workflowStage === 'PENDIENTE_COORDINACION'
-        ? 'Pendiente coordinacion'
-      : employee.workflowStage === 'PENDIENTE_VALIDACION_FINAL'
-        ? 'Pendiente validacion final'
-      : employee.workflowStage === 'SELECCION_APROBADA'
-        ? 'Seleccion aprobada'
-      : employee.workflowStage === 'PENDIENTE_ACCESO_ADMIN'
-        ? 'Alta IMSS cerrada'
+        : employee.workflowStage === 'ONBOARDING' || employee.workflowStage === 'PENDIENTE_VALIDACION_FINAL'
+          ? 'Onboarding'
+          : employee.workflowStage === 'EN_GESTION' || employee.workflowStage === 'PENDIENTE_IMSS_NOMINA' || employee.workflowStage === 'EN_FLUJO_IMSS'
+            ? 'En gestión'
         : employee.workflowStage === 'RECLUTAMIENTO_CORRECCION_ALTA'
-          ? 'Alta observada'
-          : employee.imssEstado === 'ERROR'
-            ? 'Alta con error'
-            : employee.imssEstado === 'EN_PROCESO'
-              ? 'Alta en proceso'
-              : 'Alta pendiente'
+          ? 'Alta devuelta'
+      : employee.workflowStage === 'PENDIENTE_ACCESO_ADMIN'
+        ? 'Alta cerrada'
+        : employee.workflowStage === 'ALTA_IMSS_CERRADA'
+          ? 'Alta finalizada'
+        : 'Alta pendiente'
 
   const documentsSummary =
     employee.documentosCount === 1 ? '1 documento' : `${employee.documentosCount} documentos`
@@ -227,19 +210,24 @@ function buildPayrollLane<TEmployee extends WorkflowInboxEmployee>(
 }
 
 export function normalizeWorkflowStage(value: string | null | undefined): EmpleadoWorkflowStage | null {
-  switch (value) {
+  switch (value?.trim().toUpperCase()) {
+    case 'NUEVOS':
+    case 'EXPEDIENTE':
+    case 'EN_GESTION':
+    case 'ONBOARDING':
+    case 'ALTA_CANCELADA':
     case 'PENDIENTE_COORDINACION':
+    case 'SELECCION_APROBADA':
     case 'PENDIENTE_IMSS_NOMINA':
     case 'EN_FLUJO_IMSS':
-    case 'SELECCION_APROBADA':
     case 'PENDIENTE_VALIDACION_FINAL':
     case 'PENDIENTE_ACCESO_ADMIN':
+    case 'ALTA_IMSS_CERRADA':
     case 'RECLUTAMIENTO_CORRECCION_ALTA':
-    case 'ALTA_CANCELADA':
     case 'PENDIENTE_BAJA_IMSS':
     case 'RECLUTAMIENTO_CORRECCION_BAJA':
     case 'BAJA_IMSS_CERRADA':
-      return value
+      return value.trim().toUpperCase() as EmpleadoWorkflowStage
     default:
       return null
   }
@@ -247,13 +235,10 @@ export function normalizeWorkflowStage(value: string | null | undefined): Emplea
 
 export function normalizeRecruitingInboxKey(value: string | null | undefined): RecruitingInboxLaneKey | 'ALL' {
   switch (value) {
-    case 'altas-nuevas':
-    case 'en-revision':
-    case 'devueltas-por-nomina':
+    case 'cancelados-devueltos':
     case 'cancelados':
-    case 'bajas-solicitadas':
-    case 'bajas-devueltas':
-      return value
+    case 'devueltos':
+      return 'cancelados-devueltos'
     default:
       return 'ALL'
   }
@@ -262,9 +247,8 @@ export function normalizeRecruitingInboxKey(value: string | null | undefined): R
 export function normalizePayrollInboxKey(value: string | null | undefined): PayrollInboxLaneKey | 'ALL' {
   switch (value) {
     case 'altas-imss':
-    case 'altas-en-proceso':
-    case 'altas-observadas':
     case 'bajas-pendientes':
+    case 'bajas-devueltas':
     case 'devueltas-a-reclutamiento':
     case 'cerradas':
       return value
@@ -282,39 +266,15 @@ export function buildRecruitingInbox<TEmployee extends WorkflowInboxEmployee>(
 export function buildRecruitingInbox<TEmployee extends WorkflowInboxEmployee>(
   employees: TEmployee[]
 ): EmployeeRecruitingInboxData<TEmployee> {
-  const altasNuevas = employees.filter(
-    (employee) =>
-      employee.workflowStage === 'PENDIENTE_COORDINACION' ||
-      employee.workflowStage === 'SELECCION_APROBADA' ||
-      employee.workflowStage === 'PENDIENTE_IMSS_NOMINA' ||
-      (employee.expedienteEstado === 'EN_REVISION' && !employee.workflowStage)
-  )
-  const enRevision = employees.filter(
-    (employee) =>
-      employee.workflowStage === 'PENDIENTE_VALIDACION_FINAL' ||
-      (employee.expedienteEstado === 'EN_REVISION' &&
-        employee.workflowStage !== 'RECLUTAMIENTO_CORRECCION_ALTA')
-  )
-  const devueltas = employees.filter(
-    (employee) => employee.workflowStage === 'RECLUTAMIENTO_CORRECCION_ALTA'
-  )
-  const cancelados = employees.filter(
-    (employee) => employee.workflowStage === 'ALTA_CANCELADA'
-  )
-  const bajasSolicitadas = employees.filter(
-    (employee) => employee.workflowStage === 'PENDIENTE_BAJA_IMSS'
-  )
-  const bajasDevueltas = employees.filter(
-    (employee) => employee.workflowStage === 'RECLUTAMIENTO_CORRECCION_BAJA'
-  )
-
   return [
-    buildRecruitingLane('altas-nuevas', altasNuevas),
-    buildRecruitingLane('en-revision', enRevision),
-    buildRecruitingLane('devueltas-por-nomina', devueltas),
-    buildRecruitingLane('cancelados', cancelados),
-    buildRecruitingLane('bajas-solicitadas', bajasSolicitadas),
-    buildRecruitingLane('bajas-devueltas', bajasDevueltas),
+    buildRecruitingLane(
+      'cancelados-devueltos',
+      employees.filter(
+        (employee) =>
+          resolveRecruitingAltaPipelineStage(employee) === 'CANCELADOS' ||
+          resolveRecruitingBajaPipelineStage(employee) === 'BAJAS_DEVUELTAS'
+      )
+    ),
   ]
 }
 
@@ -328,35 +288,33 @@ export function buildPayrollInbox<TEmployee extends WorkflowInboxEmployee>(
   employees: TEmployee[]
 ): EmployeePayrollInboxData<TEmployee> {
   const altasPendientes = employees.filter(
-    (employee) => employee.workflowStage === 'PENDIENTE_IMSS_NOMINA'
-  )
-  const altasEnProceso = employees.filter(
-    (employee) => employee.workflowStage === 'EN_FLUJO_IMSS'
-  )
-  const altasObservadas = employees.filter(
-    (employee) => employee.imssEstado === 'ERROR'
+    (employee) =>
+      employee.workflowStage === 'EN_GESTION' ||
+      employee.workflowStage === 'PENDIENTE_IMSS_NOMINA' ||
+      employee.workflowStage === 'EN_FLUJO_IMSS'
   )
   const bajasPendientes = employees.filter(
     (employee) => employee.workflowStage === 'PENDIENTE_BAJA_IMSS'
   )
-  const devueltas = employees.filter(
-    (employee) =>
-      employee.workflowStage === 'RECLUTAMIENTO_CORRECCION_ALTA' ||
-      employee.workflowStage === 'RECLUTAMIENTO_CORRECCION_BAJA'
+  const altasDevueltas = employees.filter(
+    (employee) => employee.workflowStage === 'RECLUTAMIENTO_CORRECCION_ALTA'
+  )
+  const bajasDevueltas = employees.filter(
+    (employee) => employee.workflowStage === 'RECLUTAMIENTO_CORRECCION_BAJA'
   )
   const cerradas = employees.filter(
     (employee) =>
+      employee.workflowStage === 'ONBOARDING' ||
       employee.workflowStage === 'PENDIENTE_VALIDACION_FINAL' ||
       employee.workflowStage === 'PENDIENTE_ACCESO_ADMIN' ||
-      employee.workflowStage === 'BAJA_IMSS_CERRADA'
+      employee.workflowStage === 'ALTA_IMSS_CERRADA'
   )
 
   return [
     buildPayrollLane('altas-imss', altasPendientes),
-    buildPayrollLane('altas-en-proceso', altasEnProceso),
-    buildPayrollLane('altas-observadas', altasObservadas),
     buildPayrollLane('bajas-pendientes', bajasPendientes),
-    buildPayrollLane('devueltas-a-reclutamiento', devueltas),
+    buildPayrollLane('bajas-devueltas', bajasDevueltas),
+    buildPayrollLane('devueltas-a-reclutamiento', altasDevueltas),
     buildPayrollLane('cerradas', cerradas),
   ]
 }

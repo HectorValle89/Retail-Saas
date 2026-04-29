@@ -95,6 +95,18 @@ body {
   line-height: 1.6;
 }
 
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: #f1f5f9;
+  font: inherit;
+}
+
+.leaflet-control-container .leaflet-top,
+.leaflet-control-container .leaflet-bottom {
+  z-index: 400;
+}
+
 *:focus-visible {
   outline: 2px solid rgba(44, 182, 125, 0.4);
   outline-offset: 3px;

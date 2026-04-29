@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveAgendaOperativaSupervisorDia } from './rutaAgendaService'
 
 describe('rutaAgendaService', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('desplaza visitas planeadas y genera pendientes justificadas cuando un evento aprobado reemplaza el dia', () => {
     const result = resolveAgendaOperativaSupervisorDia({
       fecha: '2026-03-26',
@@ -107,5 +111,35 @@ describe('rutaAgendaService', () => {
       clasificacion: 'INJUSTIFICADA',
       estado: 'PENDIENTE',
     })
+  })
+
+  it('usa la fecha operativa de Mexico cuando no se pasa today y evita falsos atrasos', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-13T02:30:00.000Z'))
+
+    const result = resolveAgendaOperativaSupervisorDia({
+      fecha: '2026-04-12',
+      visitasPlaneadas: [
+        {
+          id: 'visit-4',
+          rutaId: 'route-1',
+          pdvId: 'pdv-4',
+          pdv: 'PDV Cuatro',
+          zona: 'Sur',
+          diaSemana: 7,
+          diaLabel: 'Domingo',
+          orden: 1,
+          estatus: 'PLANIFICADA',
+          checkInAt: null,
+          checkOutAt: null,
+          comentarios: null,
+          completadaEn: null,
+        },
+      ],
+      agendaEventos: [],
+      pendientesPersistidos: [],
+    })
+
+    expect(result.pendientesInjustificadasCount).toBe(0)
   })
 })

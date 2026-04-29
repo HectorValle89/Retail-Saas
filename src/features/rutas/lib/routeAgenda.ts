@@ -175,7 +175,7 @@ export function getAgendaImpactLabel(mode: RutaAgendaImpactMode) {
 export function getAgendaTypeLabel(type: RutaAgendaEventType) {
   switch (type) {
     case 'VISITA_ADICIONAL':
-      return 'Visita adicional'
+      return 'Visita adicional / cambio de tienda'
     case 'OFICINA':
       return 'Oficina'
     case 'FIRMA_CONTRATO':

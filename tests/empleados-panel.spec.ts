@@ -211,7 +211,7 @@ test('consolida empleados, documentos y filtros auxiliares del panel', async () 
         },
         {
           clave: 'integraciones.ocr.preferred_model',
-          valor: 'gemini-2.5-flash',
+          valor: 'gemini-2.5-flash-lite',
         },
       ],
       error: null,

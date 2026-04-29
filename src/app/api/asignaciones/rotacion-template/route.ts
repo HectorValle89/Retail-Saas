@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import { NextResponse } from 'next/server'
 import { obtenerActorActual } from '@/lib/auth/session'
 import {
@@ -30,9 +29,8 @@ export async function GET() {
     })
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'No fue posible generar la plantilla de rotaciÃ³n maestra.' },
+      { error: error instanceof Error ? error.message : 'No fue posible generar la plantilla de rotación maestra.' },
       { status: 500 }
     )
   }
 }
-

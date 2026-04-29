@@ -1,3 +1,5 @@
+import { getGeolocationPermissionRecoveryState, type PermissionRecoveryState } from '@/lib/device/permissionRecovery'
+
 export type AttendanceGpsState =
   | 'PENDIENTE'
   | 'DENTRO_GEOCERCA'
@@ -28,6 +30,12 @@ export interface SelfieCapture {
   originalBytes: number
   targetBytes: number
   targetMet: boolean
+}
+
+export interface AttendancePositionCaptureResult {
+  position: CapturedPosition
+  estadoGps: AttendanceGpsState
+  recoveryState: PermissionRecoveryState | null
 }
 
 export function getLocalDateValue() {
@@ -122,11 +130,13 @@ export async function stampAttendanceSelfie(
     latitude,
     longitude,
     flowLabel,
+    hideGpsCoordinates,
   }: {
     capturedAt: string
     latitude: number | null
     longitude: number | null
     flowLabel: 'Check-in' | 'Check-out' | 'Evidencia'
+    hideGpsCoordinates?: boolean
   }
 ) {
   const imageSource = await loadImageSource(file)
@@ -149,7 +159,9 @@ export async function stampAttendanceSelfie(
   const lines = [
     `${flowLabel} Beteele One`,
     `Captura: ${new Date(capturedAt).toLocaleString('es-MX')}`,
-    latitude !== null && longitude !== null
+    hideGpsCoordinates
+      ? 'Ubicacion registrada internamente'
+      : latitude !== null && longitude !== null
       ? `GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
       : 'GPS: no disponible',
   ]
@@ -199,10 +211,7 @@ export async function captureAttendancePosition({
   geocercaLatitud: number | null
   geocercaLongitud: number | null
   geocercaRadioMetros: number | null
-}): Promise<{
-  position: CapturedPosition
-  estadoGps: AttendanceGpsState
-}> {
+}): Promise<AttendancePositionCaptureResult> {
   if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
     return {
       position: {
@@ -214,18 +223,21 @@ export async function captureAttendancePosition({
         capturadaEn: new Date().toISOString(),
       },
       estadoGps: 'SIN_GPS',
+      recoveryState: getGeolocationPermissionRecoveryState(
+        new Error('Este navegador no soporta geolocalizacion.')
+      ),
     }
   }
 
-  const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+  const positionOrError = await new Promise<GeolocationPosition>((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(resolve, reject, {
       enableHighAccuracy: true,
       timeout: 15000,
       maximumAge: 0,
     })
-  }).catch(() => null)
+  }).catch((error) => ({ error }))
 
-  if (!position) {
+  if (!('coords' in positionOrError)) {
     return {
       position: {
         latitud: null,
@@ -236,12 +248,15 @@ export async function captureAttendancePosition({
         capturadaEn: new Date().toISOString(),
       },
       estadoGps: 'SIN_GPS',
+      recoveryState: getGeolocationPermissionRecoveryState(positionOrError.error),
     }
   }
 
-  const latitud = position.coords.latitude
-  const longitud = position.coords.longitude
-  const precision = Number.isFinite(position.coords.accuracy) ? Number(position.coords.accuracy) : null
+  const latitud = positionOrError.coords.latitude
+  const longitud = positionOrError.coords.longitude
+  const precision = Number.isFinite(positionOrError.coords.accuracy)
+    ? Number(positionOrError.coords.accuracy)
+    : null
 
   if (
     geocercaLatitud === null ||
@@ -261,6 +276,7 @@ export async function captureAttendancePosition({
         capturadaEn: new Date().toISOString(),
       },
       estadoGps: 'PENDIENTE',
+      recoveryState: null,
     }
   }
 
@@ -277,5 +293,6 @@ export async function captureAttendancePosition({
       capturadaEn: new Date().toISOString(),
     },
     estadoGps: dentroGeocerca ? 'DENTRO_GEOCERCA' : 'FUERA_GEOCERCA',
+    recoveryState: null,
   }
 }

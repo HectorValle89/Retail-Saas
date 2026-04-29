@@ -1,5 +1,4 @@
 // import path from 'node:path' // Disabled for Edge
-import { PDFDocument } from 'pdf-lib'
 import {
   PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
   PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY,
@@ -193,6 +192,7 @@ async function optimizePdfDocumentLocal(
   const pdfTargetBytes = targets?.pdfTargetBytes ?? EXPEDIENTE_PDF_TARGET_BYTES
 
   try {
+    const { PDFDocument } = await import('pdf-lib')
     const source = await PDFDocument.load(buffer)
     const optimized = await PDFDocument.create()
     const pages = await optimized.copyPages(source, source.getPageIndices())

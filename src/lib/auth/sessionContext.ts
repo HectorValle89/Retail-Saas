@@ -76,6 +76,32 @@ export function readAuthContextUpdatedAt(appMetadata: unknown) {
   return readTimestamp(asRecord(metadata.claims)?.auth_context_updated_at)
 }
 
+function readClaimIssuedAt(claims: unknown) {
+  const payload = asRecord(claims)
+
+  if (!payload) {
+    return null
+  }
+
+  const issuedAt = payload.iat
+
+  if (typeof issuedAt !== 'number' || !Number.isFinite(issuedAt)) {
+    return null
+  }
+
+  return issuedAt * 1000
+}
+
+function readAuthContextUpdatedAtFromClaims(claims: unknown) {
+  const payload = asRecord(claims)
+
+  if (!payload) {
+    return null
+  }
+
+  return readAuthContextUpdatedAt(payload.app_metadata ?? payload)
+}
+
 export interface AuthSessionContextStatus {
   issuedAtMs: number | null
   contextUpdatedAtMs: number | null
@@ -94,6 +120,36 @@ export function getAuthSessionContextStatus({
 }): AuthSessionContextStatus {
   const issuedAtMs = readAccessTokenIssuedAt(accessToken)
   const contextUpdatedAtMs = readAuthContextUpdatedAt(appMetadata)
+
+  if (!issuedAtMs || !contextUpdatedAtMs) {
+    return {
+      issuedAtMs,
+      contextUpdatedAtMs,
+      isStale: false,
+      exceededGraceWindow: false,
+    }
+  }
+
+  const isStale = issuedAtMs < contextUpdatedAtMs
+
+  return {
+    issuedAtMs,
+    contextUpdatedAtMs,
+    isStale,
+    exceededGraceWindow:
+      isStale && now - contextUpdatedAtMs >= AUTH_CONTEXT_INVALIDATION_WINDOW_MS,
+  }
+}
+
+export function getAuthSessionContextStatusFromClaims({
+  claims,
+  now = Date.now(),
+}: {
+  claims: unknown
+  now?: number
+}): AuthSessionContextStatus {
+  const issuedAtMs = readClaimIssuedAt(claims)
+  const contextUpdatedAtMs = readAuthContextUpdatedAtFromClaims(claims)
 
   if (!issuedAtMs || !contextUpdatedAtMs) {
     return {

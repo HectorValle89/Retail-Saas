@@ -1,8 +1,6 @@
-export const runtime = 'edge';
-import { createClient } from '@/lib/supabase/server'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { RutaSemanalPanel } from '@/features/rutas/components/RutaSemanalPanel'
-import { obtenerPanelRutaSemanal } from '@/features/rutas/services/rutaSemanalService'
+import { obtenerPanelRutaSemanalParaActor } from '@/features/rutas/services/rutaSemanalService'
 
 export const metadata = {
   title: 'Ruta semanal | Field Force Platform',
@@ -25,7 +23,6 @@ function pickString(value: string | string[] | undefined) {
 
 export default async function RutaSemanalPage({ searchParams }: RutaSemanalPageProps) {
   const actor = await requerirPuestosActivos([...RUTA_SEMANAL_ROLES])
-  const supabase = await createClient()
   const params = (await searchParams) ?? {}
   const rawTab = pickString(params.tab)
   const initialTab: SupervisorRouteTab | WarRoomTab =
@@ -36,7 +33,7 @@ export default async function RutaSemanalPage({ searchParams }: RutaSemanalPageP
       : rawTab === 'routes' || rawTab === 'coverage' || rawTab === 'quotas' || rawTab === 'reach'
         ? rawTab
         : 'quotas'
-  const data = await obtenerPanelRutaSemanal(supabase, actor)
+  const data = await obtenerPanelRutaSemanalParaActor(actor)
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -51,8 +48,7 @@ export default async function RutaSemanalPage({ searchParams }: RutaSemanalPageP
         </p>
       </header>
 
-      <RutaSemanalPanel data={data} actorPuesto={actor.puesto} initialTab={initialTab} />
+      <RutaSemanalPanel actor={actor} data={data} actorPuesto={actor.puesto} initialTab={initialTab} />
     </div>
   )
 }
-

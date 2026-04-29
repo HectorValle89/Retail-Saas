@@ -1,4 +1,8 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
+import { createServiceClient } from '@/lib/supabase/server'
 import type { CuentaCliente, CuentaClientePdv } from '@/types/database'
 
 type MaybeMany<T> = T | T[] | null
@@ -62,6 +66,29 @@ export interface ClientesPanelData {
   mensajeInfraestructura?: string
 }
 
+interface ObtenerPanelClientesOptions {
+  scopeAccountId?: string | null
+}
+
+function isSupabaseClient(value: unknown): value is SupabaseClient {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'from' in value &&
+      typeof (value as { from?: unknown }).from === 'function'
+  )
+}
+
+function isActorActual(value: unknown): value is ActorActual {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'empleadoId' in value &&
+      'usuarioId' in value &&
+      'puesto' in value
+  )
+}
+
 interface CuentaClienteAcumulado {
   pdvsActivos: Set<string>
   pdvsHistoricos: Set<string>
@@ -90,7 +117,7 @@ const obtenerTextoConfiguracion = (valor: unknown, clave: string) => {
 
 const normalizarFecha = (fecha: string | null) => fecha ?? null
 
-export async function obtenerPanelClientes(
+async function obtenerPanelClientesUncached(
   supabase: SupabaseClient,
   scopeAccountId: string | null = null
 ): Promise<ClientesPanelData> {
@@ -231,4 +258,71 @@ export async function obtenerPanelClientes(
     })),
     infraestructuraLista: true,
   }
+}
+
+const CLIENTES_PANEL_REVALIDATE_SECONDS = 90
+
+function buildClientesCacheKey(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
+  options: ObtenerPanelClientesOptions
+) {
+  return JSON.stringify({
+    cuentaClienteId: actor.cuentaClienteId ?? null,
+    empleadoId: actor.empleadoId,
+    puesto: actor.puesto,
+    scopeAccountId: options.scopeAccountId ?? actor.cuentaClienteId ?? null,
+  })
+}
+
+function buildClientesCacheTags(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
+  options: ObtenerPanelClientesOptions
+) {
+  return buildModuleCacheTags({
+    module: 'clientes',
+    accountId: options.scopeAccountId ?? actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+  })
+}
+
+export async function obtenerPanelClientes(
+  actorOrSupabase: ActorActual | SupabaseClient,
+  scopeAccountIdOrActor: string | ActorActual | null = null,
+  customSupabase?: SupabaseClient
+): Promise<ClientesPanelData> {
+  if (isSupabaseClient(actorOrSupabase)) {
+    const scopeAccountId =
+      typeof scopeAccountIdOrActor === 'string' || scopeAccountIdOrActor === null
+        ? scopeAccountIdOrActor
+        : scopeAccountIdOrActor.cuentaClienteId ?? null
+
+    return obtenerPanelClientesUncached(actorOrSupabase, scopeAccountId)
+  }
+
+  const actor = actorOrSupabase
+  const options: ObtenerPanelClientesOptions = {
+    scopeAccountId:
+      typeof scopeAccountIdOrActor === 'string'
+        ? scopeAccountIdOrActor
+        : actor.cuentaClienteId ?? null,
+  }
+
+  if (customSupabase) {
+    return obtenerPanelClientesUncached(customSupabase, options.scopeAccountId ?? null)
+  }
+
+  const cacheKey = buildClientesCacheKey(actor, options)
+
+  return unstable_cache(
+    async () => {
+      const service = createServiceClient() as unknown as SupabaseClient
+      return obtenerPanelClientesUncached(service, options.scopeAccountId ?? null)
+    },
+    ['clientes:panel', cacheKey],
+    {
+      tags: buildClientesCacheTags(actor, options),
+      revalidate: CLIENTES_PANEL_REVALIDATE_SECONDS,
+    }
+  )()
 }

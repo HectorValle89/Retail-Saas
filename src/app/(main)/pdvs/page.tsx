@@ -1,8 +1,6 @@
-export const runtime = 'edge';
-import { createClient } from '@/lib/supabase/server'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { PdvsPanel } from '@/features/pdvs/components/PdvsPanel'
-import { hasActivePdvsPanelFilters, normalizePdvsPanelFilters, obtenerPanelPdvs, obtenerPdvsPanelShell } from '@/features/pdvs/services/pdvService'
+import { normalizePdvsPanelFilters, obtenerPanelPdvsParaActor } from '@/features/pdvs/services/pdvService'
 
 export const metadata = {
   title: 'PDVs | Field Force Platform',
@@ -38,10 +36,7 @@ export default async function PdvsPage({ searchParams }: PdvsPageProps) {
     supervisorId: readSearchParam(params.supervisor),
     estatus: readSearchParam(params.estatus),
   })
-  const supabase = await createClient()
-  const data = hasActivePdvsPanelFilters(filters)
-    ? await obtenerPanelPdvs(supabase, filters)
-    : await obtenerPdvsPanelShell(supabase, filters)
+  const data = await obtenerPanelPdvsParaActor(actor, filters)
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -55,8 +50,7 @@ export default async function PdvsPage({ searchParams }: PdvsPageProps) {
         </p>
       </header>
 
-      <PdvsPanel data={data} canEdit={actor.puesto === 'ADMINISTRADOR'} actorPuesto={actor.puesto} />
+      <PdvsPanel actor={actor} data={data} canEdit={actor.puesto === 'ADMINISTRADOR'} actorPuesto={actor.puesto} />
     </div>
   )
 }
-

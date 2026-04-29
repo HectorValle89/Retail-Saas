@@ -1,6 +1,4 @@
-export const runtime = 'edge';
 import { requerirAdministradorActivo } from '@/lib/auth/session'
-import { createClient } from '@/lib/supabase/server'
 import { ReglasPanel } from '@/features/reglas/components/ReglasPanel'
 import { obtenerPanelReglas } from '@/features/reglas/services/reglaService'
 
@@ -9,9 +7,8 @@ export const metadata = {
 }
 
 export default async function ReglasPage() {
-  await requerirAdministradorActivo()
-  const supabase = await createClient()
-  const data = await obtenerPanelReglas(supabase)
+  const actor = await requerirAdministradorActivo()
+  const data = await obtenerPanelReglas(actor)
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -26,8 +23,7 @@ export default async function ReglasPage() {
         </p>
       </header>
 
-      <ReglasPanel data={data} />
+      <ReglasPanel actor={actor} data={data} />
     </div>
   )
 }
-

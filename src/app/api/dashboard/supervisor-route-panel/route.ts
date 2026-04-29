@@ -1,10 +1,8 @@
-export const runtime = 'edge';
 import { NextResponse } from 'next/server'
 import { requerirActorActivo } from '@/lib/auth/session'
-import { createClient } from '@/lib/supabase/server'
-import { obtenerPanelRutaSemanal } from '@/features/rutas/services/rutaSemanalService'
+import { obtenerPanelRutaSemanalParaActor } from '@/features/rutas/services/rutaSemanalService'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const actor = await requerirActorActivo()
 
@@ -12,7 +10,14 @@ export async function GET() {
       return NextResponse.json({ message: 'No autorizado.' }, { status: 403 })
     }
 
-    const data = await obtenerPanelRutaSemanal(await createClient(), actor)
+    const requestUrl = new URL(request.url)
+    const cacheBuster = requestUrl.searchParams.get('refresh')
+    const focus = requestUrl.searchParams.get('focus')
+    const includePlanningCatalog = focus !== 'ruta-history'
+    const data = await obtenerPanelRutaSemanalParaActor(actor, {
+      cacheBuster,
+      includePlanningCatalog,
+    })
     return NextResponse.json({ data })
   } catch (error) {
     return NextResponse.json(
@@ -24,4 +29,3 @@ export async function GET() {
     )
   }
 }
-

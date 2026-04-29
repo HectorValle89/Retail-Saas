@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useEffect, useMemo, useState } from 'react'
+import { startTransition, useActionState, useCallback, useEffect, useMemo, useState, useTransition, type ReactNode } from 'react'
 import { useFormStatus } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -10,9 +10,22 @@ import { MexicoMap, type MexicoMapPoint } from '@/components/maps/MexicoMap'
 import { ModalPanel } from '@/components/ui/modal-panel'
 import { PremiumLineIcon } from '@/components/ui/premium-icons'
 import { Select } from '@/components/ui/select'
+import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog'
+import {
+  calcularHashArchivo,
+  captureAttendancePosition,
+  stampAttendanceSelfie,
+  type AttendanceGpsState,
+  type CapturedPosition,
+} from '@/features/asistencias/lib/attendanceCapture'
+import type { ActorActual } from '@/lib/auth/session'
+import { injectDirectR2Upload } from '@/lib/storage/directR2Client'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor, type UiChangeVersionRow } from '@/lib/ui-change/types'
 import {
   actualizarControlRutaSemanal,
   guardarPlaneacionRutaSemanalCanvas,
+  registrarEvidenciaEventoAgendaRutaSemanal,
   registrarEventoAgendaRutaSemanal,
   registrarInicioVisitaRutaSemanal,
   registrarSalidaVisitaRutaSemanal,
@@ -20,7 +33,20 @@ import {
   resolverSolicitudCambioRutaSemanal,
   solicitarCambioRutaSemanal,
 } from '../actions'
-import { getNextWeekStartIso, getWeekDayLabel, getWeekEndIso, normalizeWeekStart, WEEK_DAY_OPTIONS } from '../lib/weeklyRoute'
+import { SupervisorTodayRouteSheet } from './SupervisorTodayRouteSheet'
+import {
+  getWeekStartIso,
+  getWeekDayLabel,
+  getWeekEndIso,
+  normalizeWeekStart,
+  WEEK_DAY_OPTIONS,
+} from '../lib/weeklyRoute'
+import {
+  getCoordinatorInitialWeekStart,
+  getCurrentOrFutureRoutes,
+  getPlanningRouteForWeek,
+  isApprovedOperationalRoute,
+} from '../lib/routeWorkspace'
 import type { RutaApprovalState } from '../lib/routeWorkflow'
 import { ESTADO_RUTA_INICIAL } from '../state'
 import type {
@@ -36,10 +62,41 @@ import type {
 } from '../services/rutaSemanalService'
 
 type WarRoomTab = 'quotas' | 'routes' | 'coverage' | 'reach'
-type SupervisorRouteTab = 'agenda' | 'planning' | 'history'
+type SupervisorRouteTab = 'agenda' | 'planning' | 'corrections' | 'history'
 type CoordinatorKanbanColumnKey = 'ENVIADAS' | 'AJUSTES' | 'PUBLICADAS' | 'CERRADAS'
 
 type UnifiedDayEditorMode = 'CHANGE' | 'EVENT'
+
+function scheduleEffectStateUpdate(update: () => void) {
+  let cancelled = false
+  const run = () => {
+    if (!cancelled) {
+      startTransition(update)
+    }
+  }
+
+  if (typeof queueMicrotask === 'function') {
+    queueMicrotask(run)
+    return () => {
+      cancelled = true
+    }
+  }
+
+  const timeoutId = window.setTimeout(run, 0)
+  return () => {
+    cancelled = true
+    window.clearTimeout(timeoutId)
+  }
+}
+
+interface AgendaEventEvidenceDraft {
+  file: File
+  previewUrl: string
+  hash: string
+  capturedAt: string
+  position: CapturedPosition
+  gpsState: AttendanceGpsState
+}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('es-MX', {
@@ -188,18 +245,6 @@ function getCoordinatorApprovalStateForColumn(
   return null
 }
 
-function isSupervisorPlannedRoute(route: RutaSemanalItem) {
-  return route.totalVisitas > 0
-}
-
-function isApprovedOperationalRoute(route: RutaSemanalItem) {
-  return (
-    isSupervisorPlannedRoute(route) &&
-    route.approvalState === 'APROBADA' &&
-    (route.estatus === 'PUBLICADA' || route.estatus === 'EN_PROGRESO' || route.estatus === 'CERRADA')
-  )
-}
-
 function getProgressBarWidth(value: number) {
   const normalized = Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0
   return `${Math.max(normalized > 0 ? 8 : 0, normalized)}%`
@@ -218,20 +263,53 @@ function normalizeWarRoomTab(value: WarRoomTab | SupervisorRouteTab | undefined)
 function normalizeSupervisorRouteTab(
   value: WarRoomTab | SupervisorRouteTab | undefined
 ): SupervisorRouteTab {
-  return value === 'agenda' || value === 'planning' || value === 'history' ? value : 'agenda'
+  return value === 'agenda' || value === 'planning' || value === 'corrections' || value === 'history'
+    ? value
+    : 'agenda'
 }
 
 export function RutaSemanalPanel({
-  data,
+  actor,
+  data: initialData,
   actorPuesto,
   initialTab = 'quotas',
   hideSupervisorTabs = false,
 }: {
+  actor: ActorActual
   data: RutaSemanalPanelData
   actorPuesto: string
   initialTab?: WarRoomTab | SupervisorRouteTab
   hideSupervisorTabs?: boolean
 }) {
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(async (signal: AbortSignal, _change: UiChangeVersionRow) => {
+    void _change
+
+    const response = await fetch('/api/ruta-semanal/panel', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    })
+    const payload = (await response.json()) as { data?: RutaSemanalPanelData; message?: string }
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar la ruta semanal.')
+    }
+
+    return payload.data
+  }, [])
+
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'ruta-semanal',
+    surfaces: ['panel'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 5000,
+    refreshOnMount: false,
+  })
+
   if (actorPuesto === 'COORDINADOR' || actorPuesto === 'ADMINISTRADOR') {
     return (
       <CoordinatorWarRoom
@@ -261,6 +339,15 @@ function CoordinatorWarRoom({
   actorPuesto: string
   initialTab: WarRoomTab
 }) {
+  const minimumVisibleWeekStart = normalizeWeekStart(data.semanaActualInicio)
+  const visibleCoordinatorRoutes = useMemo(
+    () => getCurrentOrFutureRoutes(data.rutas, minimumVisibleWeekStart),
+    [data.rutas, minimumVisibleWeekStart]
+  )
+  const coordinatorDefaultWeekStart = useMemo(
+    () => getCoordinatorInitialWeekStart(visibleCoordinatorRoutes, minimumVisibleWeekStart),
+    [visibleCoordinatorRoutes, minimumVisibleWeekStart]
+  )
   const [activeTab, setActiveTab] = useState<WarRoomTab>(initialTab)
   const [quotaFilters, setQuotaFilters] = useState({
     supervisorEmpleadoId: data.warRoom.supervisors[0]?.supervisorEmpleadoId ?? '',
@@ -273,7 +360,7 @@ function CoordinatorWarRoom({
     storeType: 'TODOS',
     applied: false,
   })
-  const [selectedWeekStart, setSelectedWeekStart] = useState<string>(normalizeWeekStart(data.semanaActualInicio))
+  const [selectedWeekStart, setSelectedWeekStart] = useState<string>(coordinatorDefaultWeekStart)
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
   const [selectedCoverageSupervisorId, setSelectedCoverageSupervisorId] = useState<string>(
     data.warRoom.supervisors[0]?.supervisorEmpleadoId ?? ''
@@ -335,11 +422,11 @@ function CoordinatorWarRoom({
     null
 
   const filteredRoutes = useMemo(
-    () => data.rutas.filter((route) => route.semanaInicio === selectedWeekStart),
-    [data.rutas, selectedWeekStart]
+    () => visibleCoordinatorRoutes.filter((route) => route.semanaInicio === selectedWeekStart),
+    [visibleCoordinatorRoutes, selectedWeekStart]
   )
   const routeBoardRoutes = useMemo(
-    () => filteredRoutes.filter((route) => isSupervisorPlannedRoute(route)),
+    () => filteredRoutes.filter((route) => route.totalVisitas > 0),
     [filteredRoutes]
   )
   const coverageRoutes = useMemo(
@@ -365,15 +452,37 @@ function CoordinatorWarRoom({
 
   useEffect(() => {
     if (!routeBoardRoutes.some((route) => route.id === selectedRouteId)) {
-      setSelectedRouteId(routeBoardRoutes[0]?.id ?? null)
+      return scheduleEffectStateUpdate(() => {
+        setSelectedRouteId(routeBoardRoutes[0]?.id ?? null)
+      })
     }
   }, [routeBoardRoutes, selectedRouteId])
 
   useEffect(() => {
+    if (selectedWeekStart < minimumVisibleWeekStart) {
+      return scheduleEffectStateUpdate(() => {
+        setSelectedWeekStart(minimumVisibleWeekStart)
+      })
+    }
+
+    const selectedWeekHasVisibleRoutes = visibleCoordinatorRoutes.some(
+      (route) => route.semanaInicio === selectedWeekStart && route.totalVisitas > 0
+    )
+
+    if (!selectedWeekHasVisibleRoutes && selectedWeekStart !== coordinatorDefaultWeekStart) {
+      return scheduleEffectStateUpdate(() => {
+        setSelectedWeekStart(coordinatorDefaultWeekStart)
+      })
+    }
+  }, [coordinatorDefaultWeekStart, minimumVisibleWeekStart, selectedWeekStart, visibleCoordinatorRoutes])
+
+  useEffect(() => {
     if (!coverageRoutes.some((route) => route.id === expandedCoverageRouteId)) {
-      setExpandedCoverageRouteId(coverageRoutes[0]?.id ?? null)
-      setSelectedCoverageDayNumber(null)
-      setSelectedCoverageVisitId(null)
+      return scheduleEffectStateUpdate(() => {
+        setExpandedCoverageRouteId(coverageRoutes[0]?.id ?? null)
+        setSelectedCoverageDayNumber(null)
+        setSelectedCoverageVisitId(null)
+      })
     }
   }, [coverageRoutes, expandedCoverageRouteId])
 
@@ -383,18 +492,20 @@ function CoordinatorWarRoom({
       : []
 
     if (visibleDays.length === 0) {
-      if (selectedCoverageDayNumber !== null) {
-        setSelectedCoverageDayNumber(null)
-      }
-      if (selectedCoverageVisitId !== null) {
-        setSelectedCoverageVisitId(null)
+      if (selectedCoverageDayNumber !== null || selectedCoverageVisitId !== null) {
+        return scheduleEffectStateUpdate(() => {
+          setSelectedCoverageDayNumber(null)
+          setSelectedCoverageVisitId(null)
+        })
       }
       return
     }
 
     if (selectedCoverageDayNumber === null || !visibleDays.includes(selectedCoverageDayNumber)) {
-      setSelectedCoverageDayNumber(visibleDays[0] ?? null)
-      setSelectedCoverageVisitId(null)
+      return scheduleEffectStateUpdate(() => {
+        setSelectedCoverageDayNumber(visibleDays[0] ?? null)
+        setSelectedCoverageVisitId(null)
+      })
     }
   }, [expandedCoverageRoute, selectedCoverageDayNumber, selectedCoverageVisitId])
 
@@ -580,8 +691,13 @@ function CoordinatorWarRoom({
             selectedRouteId={selectedRouteId}
             onSelectRoute={setSelectedRouteId}
             selectedWeekStart={selectedWeekStart}
-            onPreviousWeek={() => setSelectedWeekStart((current) => shiftWeekStart(current, -1))}
+            onPreviousWeek={() =>
+              setSelectedWeekStart((current) =>
+                current <= minimumVisibleWeekStart ? minimumVisibleWeekStart : shiftWeekStart(current, -1)
+              )
+            }
             onNextWeek={() => setSelectedWeekStart((current) => shiftWeekStart(current, 1))}
+            canGoToPreviousWeek={selectedWeekStart > minimumVisibleWeekStart}
           />
 
           <Card className="space-y-5">
@@ -600,7 +716,7 @@ function CoordinatorWarRoom({
             </div>
             {selectedRoute ? (
               <>
-                <RouteWorkflowCard route={selectedRoute} canReview={data.warRoom.metadataColumnAvailable} />
+                <RouteWorkflowCard route={selectedRoute} canReview={data.warRoom.metadataColumnAvailable || !data.puedeEditar} />
                 <RouteMapByDay route={selectedRoute} />
                 <AgendaApprovalsCard
                   route={selectedRoute}
@@ -675,7 +791,16 @@ function CoordinatorWarRoom({
                   }
                 />
                 <div className="flex gap-3 self-end">
-                  <Button type="button" variant="secondary" onClick={() => setSelectedWeekStart((current) => shiftWeekStart(current, -1))}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() =>
+                      setSelectedWeekStart((current) =>
+                        current <= minimumVisibleWeekStart ? minimumVisibleWeekStart : shiftWeekStart(current, -1)
+                      )
+                    }
+                    disabled={selectedWeekStart <= minimumVisibleWeekStart}
+                  >
                     Semana anterior
                   </Button>
                   <Button type="button" variant="secondary" onClick={() => setSelectedWeekStart((current) => shiftWeekStart(current, 1))}>
@@ -725,10 +850,26 @@ function SupervisorRouteOperations({
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(
     data.rutaSemanaActual?.id ?? data.rutas[0]?.id ?? null
   )
+  const [selectedCorrectionRouteId, setSelectedCorrectionRouteId] = useState<string | null>(
+    data.rutasCorrecciones[0]?.id ?? null
+  )
+  const [selectedHistoryRouteId, setSelectedHistoryRouteId] = useState<string | null>(
+    data.rutasHistoricasMesActual[0]?.id ?? null
+  )
+  const [activeModal, setActiveModal] = useState<SupervisorRouteTab | 'today' | null>(null)
+  const [operationNotice, setOperationNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
   const selectedRoute =
     data.rutas.find((item) => item.id === selectedRouteId) ??
     data.rutaSemanaActual ??
     data.rutas[0] ??
+    null
+  const selectedCorrectionRoute =
+    data.rutasCorrecciones.find((item) => item.id === selectedCorrectionRouteId) ??
+    data.rutasCorrecciones[0] ??
+    null
+  const selectedHistoryRoute =
+    data.rutasHistoricasMesActual.find((item) => item.id === selectedHistoryRouteId) ??
+    data.rutasHistoricasMesActual[0] ??
     null
 
   useEffect(() => {
@@ -736,8 +877,22 @@ function SupervisorRouteOperations({
   }, [initialTab])
 
   useEffect(() => {
-    setSelectedRouteId(data.rutaSemanaActual?.id ?? data.rutas[0]?.id ?? null)
-  }, [data.rutaSemanaActual?.id, data.rutas])
+    if (!data.rutas.some((item) => item.id === selectedRouteId)) {
+      setSelectedRouteId(data.rutaSemanaActual?.id ?? data.rutas[0]?.id ?? null)
+    }
+  }, [data.rutaSemanaActual?.id, data.rutas, selectedRouteId])
+
+  useEffect(() => {
+    if (!data.rutasCorrecciones.some((item) => item.id === selectedCorrectionRouteId)) {
+      setSelectedCorrectionRouteId(data.rutasCorrecciones[0]?.id ?? null)
+    }
+  }, [data.rutasCorrecciones, selectedCorrectionRouteId])
+
+  useEffect(() => {
+    if (!data.rutasHistoricasMesActual.some((item) => item.id === selectedHistoryRouteId)) {
+      setSelectedHistoryRouteId(data.rutasHistoricasMesActual[0]?.id ?? null)
+    }
+  }, [data.rutasHistoricasMesActual, selectedHistoryRouteId])
 
   return (
     <div className="space-y-6">
@@ -769,85 +924,275 @@ function SupervisorRouteOperations({
         </Card>
       )}
 
-      {!hideTabs ? (
-        <Card className="border-slate-200 bg-white">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
-                Ruta semanal para {actorPuesto.toLowerCase()}
-              </p>
-              <h2 className="mt-2 text-xl font-semibold text-slate-950">Operacion y planeacion del supervisor</h2>
-              <p className="mt-2 text-sm text-slate-500">
-                Separamos agenda activa, planeacion semanal y trazabilidad de correcciones para no mezclar flujos.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <SupervisorRouteTabButton
-                active={activeTab === 'agenda'}
-                label="Agenda operativa"
-                icon="calendar"
-                onClick={() => setActiveTab('agenda')}
-              />
-              <SupervisorRouteTabButton
-                active={activeTab === 'planning'}
-                label="Definir ruta semanal"
-                icon="route"
-                onClick={() => setActiveTab('planning')}
-              />
-              <SupervisorRouteTabButton
-                active={activeTab === 'history'}
-                label="Correcciones e historicos"
-                icon="reports"
-                onClick={() => setActiveTab('history')}
-              />
-            </div>
-          </div>
+      {operationNotice ? (
+        <Card
+          className={`border ${
+            operationNotice.tone === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+              : 'border-rose-200 bg-rose-50 text-rose-900'
+          }`}
+        >
+          <p className="text-sm font-semibold">{operationNotice.message}</p>
         </Card>
       ) : null}
 
-      {activeTab === 'agenda' ? (
+      {!hideTabs ? (
+        <>
+          <SupervisorOperationsHub
+            data={data}
+            actorPuesto={actorPuesto}
+            onOpen={(target) => {
+              setOperationNotice(null)
+              setActiveModal(target)
+            }}
+          />
+
+          <SupervisorWorkspaceModal
+            open={activeModal === 'today'}
+            onClose={() => setActiveModal(null)}
+            title="Mi Ruta Hoy"
+            subtitle="Ruta aprobada del dia, llegada, checklist opcional y cierre de visitas."
+          >
+          <SupervisorTodayRouteSheet
+            data={{
+              semanaActualInicio: data.semanaActualInicio,
+              semanaActualFin: data.semanaActualFin,
+              visitasHoy: data.visitasHoy,
+              eventosHoy: data.agendaHoy?.eventos ?? [],
+              agendaInfrastructureAvailable: data.agendaInfrastructureAvailable,
+              agendaInfrastructureMessage: data.agendaInfrastructureMessage,
+              infraestructuraLista: data.infraestructuraLista,
+              mensajeInfraestructura: data.mensajeInfraestructura,
+            }}
+            onSuccess={(message) => setOperationNotice({ tone: 'success', message })}
+            onError={(message) => setOperationNotice({ tone: 'error', message })}
+            dayEventActionSlot={
+              data.agendaHoy ? (
+                <AgendaOperativaOverviewCard
+                  routeId={selectedRoute?.id ?? data.rutaSemanaActual?.id ?? null}
+                  agendaHoy={data.agendaHoy}
+                  pdvsDisponibles={data.pdvsDisponibles}
+                  agendaInfrastructureAvailable={data.agendaInfrastructureAvailable}
+                  agendaInfrastructureMessage={data.agendaInfrastructureMessage}
+                />
+              ) : null
+            }
+          />
+        </SupervisorWorkspaceModal>
+
+          <SupervisorWorkspaceModal
+            open={activeModal === 'planning'}
+            onClose={() => setActiveModal(null)}
+            title="Modificar Ruta Del Dia"
+            subtitle="Fuerza mayor y ajustes operativos sin aprobacion previa, con notificacion a coordinacion."
+          >
+            {data.puedeEditar && selectedRoute ? (
+              <UnifiedDayEditorCard
+                route={selectedRoute}
+                agendaHoy={data.agendaHoy}
+                agendaEvents={data.agendaSemanaActual
+                  .flatMap((day) => day.eventos)
+                  .filter((item) => item.routeId === selectedRoute.id)}
+                pendingRepositions={data.agendaPendientesReposicion}
+                agendaInfrastructureAvailable={data.agendaInfrastructureAvailable}
+                agendaInfrastructureMessage={data.agendaInfrastructureMessage}
+                metadataEnabled={data.warRoom.metadataColumnAvailable}
+                pdvsDisponibles={data.pdvsDisponibles}
+              />
+            ) : data.puedeEditar ? (
+              <EmptyState copy="No hay ruta aprobada seleccionada para modificar el dia operativo." />
+            ) : (
+              <EmptyState copy="Solo el supervisor puede modificar su ruta del dia." />
+            )}
+          </SupervisorWorkspaceModal>
+
+          <SupervisorWorkspaceModal
+            open={activeModal === 'corrections'}
+            onClose={() => setActiveModal(null)}
+            title="Correcciones"
+            subtitle="Rutas aprobadas que aun no estan en progreso y pueden corregirse con trazabilidad."
+          >
+            <SupervisorCorrectionsWorkspace
+              data={data}
+              selectedRouteId={selectedCorrectionRouteId}
+              onSelectRoute={setSelectedCorrectionRouteId}
+              selectedRoute={selectedCorrectionRoute}
+            />
+          </SupervisorWorkspaceModal>
+
+          <SupervisorWorkspaceModal
+            open={activeModal === 'history'}
+            onClose={() => setActiveModal(null)}
+            title="Historicos Del Mes"
+            subtitle="Visitas normales y eventos no comunes registrados durante el mes actual."
+          >
+            <SupervisorHistoryWorkspace
+              data={data}
+              selectedRouteId={selectedHistoryRouteId}
+              onSelectRoute={setSelectedHistoryRouteId}
+              selectedRoute={selectedHistoryRoute}
+            />
+          </SupervisorWorkspaceModal>
+        </>
+      ) : activeTab === 'agenda' ? (
         <SupervisorAgendaWorkspace data={data} selectedRoute={selectedRoute} />
       ) : activeTab === 'planning' ? (
         data.puedeEditar ? (
-          <PlanificarRutaCard data={data} />
+          <PlanificarRutaCard
+            data={data}
+            onOpenCorrections={(routeId) => {
+              setSelectedCorrectionRouteId(routeId)
+              setActiveTab('corrections')
+            }}
+            onOpenHistory={(routeId) => {
+              setSelectedHistoryRouteId(routeId)
+              setActiveTab('history')
+            }}
+          />
         ) : (
           <EmptyState copy="Solo el supervisor puede definir la ruta semanal desde esta pestaña." />
         )
+      ) : activeTab === 'corrections' ? (
+        <SupervisorCorrectionsWorkspace
+          data={data}
+          selectedRouteId={selectedCorrectionRouteId}
+          onSelectRoute={setSelectedCorrectionRouteId}
+          selectedRoute={selectedCorrectionRoute}
+        />
       ) : (
         <SupervisorHistoryWorkspace
           data={data}
-          selectedRouteId={selectedRouteId}
-          onSelectRoute={setSelectedRouteId}
-          selectedRoute={selectedRoute}
+          selectedRouteId={selectedHistoryRouteId}
+          onSelectRoute={setSelectedHistoryRouteId}
+          selectedRoute={selectedHistoryRoute}
         />
       )}
     </div>
   )
 }
 
-function SupervisorRouteTabButton({
-  active,
-  label,
+function SupervisorWorkspaceModal({
+  open,
+  onClose,
+  title,
+  subtitle,
+  children,
+}: {
+  open: boolean
+  onClose: () => void
+  title: string
+  subtitle: string
+  children: ReactNode
+}) {
+  return (
+    <ModalPanel
+      open={open}
+      onClose={onClose}
+      title={title}
+      subtitle={subtitle}
+      maxWidthClassName="max-w-[min(1180px,calc(100vw-24px))]"
+    >
+      <div className="min-h-[68vh]">{children}</div>
+    </ModalPanel>
+  )
+}
+
+function SupervisorOperationsHub({
+  data,
+  actorPuesto,
+  onOpen,
+}: {
+  data: RutaSemanalPanelData
+  actorPuesto: string
+  onOpen: (target: SupervisorRouteTab | 'today') => void
+}) {
+  const todayCompleted = data.visitasHoy.filter((visit) => visit.estatus === 'COMPLETADA').length
+  const currentMonthVisits = data.rutasHistoricasMesActual.reduce((count, route) => count + route.totalVisitas, 0)
+  const activeEvents = data.agendaHoy?.eventos.length ?? 0
+
+  return (
+    <Card className="border-slate-200 bg-white">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-2xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
+            Centro operativo para {actorPuesto.toLowerCase()}
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-950">Supervisor en campo</h2>
+          <p className="mt-2 text-sm text-slate-500">
+            Abre cada flujo en su propia ventana para revisar la ruta aprobada, atender fuerza mayor, corregir
+            semanas vigentes y consultar historicos sin saturar la pantalla principal.
+          </p>
+        </div>
+        <div className="grid w-full gap-3 sm:grid-cols-3 lg:max-w-xl">
+          <MiniStat label="Hoy" value={`${todayCompleted}/${data.visitasHoy.length}`} />
+          <MiniStat label="Eventos" value={String(activeEvents)} />
+          <MiniStat label="Mes" value={String(currentMonthVisits)} />
+        </div>
+      </div>
+
+        <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <SupervisorHubButton
+            title="Mi Ruta Hoy"
+            description="Ver ruta aprobada, abrir tiendas y cerrar visitas."
+            icon="route"
+            metric={`${data.visitasHoy.length} visita(s)`}
+            onClick={() => onOpen('today')}
+          />
+        <SupervisorHubButton
+          title="Modificar Ruta"
+          description="Registrar fuerza mayor sin aprobacion previa."
+          icon="route"
+          metric="Notifica coordinacion"
+          onClick={() => onOpen('planning')}
+        />
+        <SupervisorHubButton
+          title="Correcciones"
+          description="Ajustar rutas aprobadas que aun no inician."
+          icon="reports"
+          metric={`${data.rutasCorrecciones.length} editable(s)`}
+          onClick={() => onOpen('corrections')}
+        />
+        <SupervisorHubButton
+          title="Historicos"
+          description="Consultar visitas y eventos no comunes del mes."
+          icon="reports"
+          metric={`${data.rutasHistoricasMesActual.length} semana(s)`}
+          onClick={() => onOpen('history')}
+        />
+      </div>
+    </Card>
+  )
+}
+
+function SupervisorHubButton({
+  title,
+  description,
   icon,
+  metric,
   onClick,
 }: {
-  active: boolean
-  label: string
+  title: string
+  description: string
   icon: 'reports' | 'calendar' | 'route'
+  metric: string
   onClick: () => void
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${
-        active
-          ? 'border-[var(--module-border)] bg-[var(--module-soft-bg)] text-[var(--module-text)]'
-          : 'border-slate-200 bg-white text-slate-600 hover:border-[var(--module-border)] hover:text-slate-950'
-      }`}
+      className="flex min-h-[180px] flex-col justify-between rounded-[24px] border border-slate-200 bg-slate-50 p-5 text-left transition hover:-translate-y-0.5 hover:border-[var(--module-border)] hover:bg-white hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
     >
-      <PremiumLineIcon name={icon} className="h-4 w-4" strokeWidth={2} />
-      {label}
+      <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-[var(--module-text)] shadow-sm">
+        <PremiumLineIcon name={icon} className="h-5 w-5" strokeWidth={2} />
+      </span>
+      <span>
+        <span className="block text-base font-semibold text-slate-950">{title}</span>
+        <span className="mt-2 block text-sm leading-5 text-slate-500">{description}</span>
+      </span>
+      <span className="inline-flex w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+        {metric}
+      </span>
     </button>
   )
 }
@@ -860,7 +1205,7 @@ function SupervisorAgendaWorkspace({
   selectedRoute: RutaSemanalItem | null
 }) {
   const selectedAgendaEvents = selectedRoute
-    ? data.agendaEventosPendientesAprobacion.filter((item) => item.routeId === selectedRoute.id)
+    ? data.agendaSemanaActual.flatMap((day) => day.eventos).filter((item) => item.routeId === selectedRoute.id)
     : []
 
   return (
@@ -870,7 +1215,6 @@ function SupervisorAgendaWorkspace({
       <AgendaOperativaOverviewCard
         routeId={selectedRoute?.id ?? null}
         agendaHoy={data.agendaHoy}
-        pendientes={data.agendaPendientesReposicion}
         pdvsDisponibles={data.pdvsDisponibles}
         agendaInfrastructureAvailable={data.agendaInfrastructureAvailable}
         agendaInfrastructureMessage={data.agendaInfrastructureMessage}
@@ -893,6 +1237,124 @@ function SupervisorAgendaWorkspace({
   )
 }
 
+function SupervisorCorrectionsWorkspace({
+  data,
+  selectedRouteId,
+  onSelectRoute,
+  selectedRoute,
+}: {
+  data: RutaSemanalPanelData
+  selectedRouteId: string | null
+  onSelectRoute: (routeId: string) => void
+  selectedRoute: RutaSemanalItem | null
+}) {
+  return (
+    <div className="space-y-6">
+      <Card className="border-slate-200 bg-white">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
+              Correcciones
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">Rutas publicadas con ajustes vigentes</h2>
+            <p className="mt-2 text-sm text-slate-500">
+              Solo ves semanas aprobadas que todavia tienen dias operativos de hoy en adelante para modificar.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+              {data.rutasCorrecciones.length} ruta(s) editables
+            </span>
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid gap-6 xl:grid-cols-[0.78fr_1.22fr]">
+        <Card className="border-slate-200 bg-white">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Correcciones</p>
+              <h3 className="mt-2 text-lg font-semibold text-slate-950">Semanas publicadas</h3>
+            </div>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+              {data.rutasCorrecciones.length}
+            </span>
+          </div>
+          <div className="mt-4 space-y-3">
+            {data.rutasCorrecciones.length === 0 ? (
+              <EmptyState copy="No hay rutas publicadas con dias vigentes para modificar en este momento." />
+            ) : (
+              data.rutasCorrecciones.map((ruta) => (
+                <button
+                  key={ruta.id}
+                  type="button"
+                  onClick={() => onSelectRoute(ruta.id)}
+                  className={`w-full rounded-[24px] border px-4 py-4 text-left transition ${
+                    selectedRouteId === ruta.id
+                      ? 'border-slate-950 bg-slate-950 text-white'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">{ruta.supervisor ?? 'Supervisor sin nombre'}</p>
+                      <p className={`mt-1 text-xs ${selectedRouteId === ruta.id ? 'text-slate-300' : 'text-slate-400'}`}>
+                        {formatDate(ruta.semanaInicio)} - {formatDate(ruta.semanaFin)}
+                      </p>
+                    </div>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-medium ${
+                        selectedRouteId === ruta.id ? 'bg-white/10 text-white' : getRouteTone(ruta.estatus)
+                      }`}
+                    >
+                      {ruta.estatus}
+                    </span>
+                  </div>
+                  <div className={`mt-3 text-sm ${selectedRouteId === ruta.id ? 'text-slate-200' : 'text-slate-600'}`}>
+                    {ruta.visitasCompletadas}/{ruta.totalVisitas} visitas completadas
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                        selectedRouteId === ruta.id ? 'bg-white/10 text-white' : 'bg-emerald-100 text-emerald-700'
+                      }`}
+                    >
+                      {ruta.editableDayNumbers.length} dia(s) editable(s)
+                    </span>
+                    <span
+                      className={`text-xs font-semibold ${
+                        selectedRouteId === ruta.id ? 'text-slate-200' : 'text-slate-600'
+                      }`}
+                    >
+                      Modificar ruta
+                    </span>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </Card>
+
+        <div className="space-y-6">
+          {selectedRoute ? (
+            <>
+              <RouteWorkflowCard route={selectedRoute} canReview={false} />
+              <RouteChangeRequestCard
+                route={selectedRoute}
+                enabled={data.warRoom.metadataColumnAvailable}
+                pdvsDisponibles={data.pdvsDisponibles}
+              />
+              <RouteMapByDay route={selectedRoute} />
+            </>
+          ) : (
+            <EmptyState copy="Selecciona una ruta publicada para abrir el flujo de modificacion sobre dias vigentes." />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SupervisorHistoryWorkspace({
   data,
   selectedRouteId,
@@ -904,29 +1366,22 @@ function SupervisorHistoryWorkspace({
   onSelectRoute: (routeId: string) => void
   selectedRoute: RutaSemanalItem | null
 }) {
-  const selectedPendings = selectedRoute
-    ? data.agendaPendientesReposicion.filter((item) => item.routeId === selectedRoute.id)
-    : data.agendaPendientesReposicion
-
   return (
     <div className="space-y-6">
       <Card className="border-slate-200 bg-white">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
-              Correcciones e historicos
+              Historicos
             </p>
-            <h2 className="mt-2 text-xl font-semibold text-slate-950">Semanas enviadas y ajustes operativos</h2>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">Rutas del mes actual</h2>
             <p className="mt-2 text-sm text-slate-500">
-              Revisa semanas previas, cambios solicitados y tiendas que siguen pendientes de reposicion.
+              Aqui solo ves el corte del mes vigente en modo lectura, sin reposiciones ni formularios de cambio.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-              {data.rutas.length} semana(s)
-            </span>
-            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-              {data.agendaPendientesReposicion.length} pendiente(s)
+              {data.rutasHistoricasMesActual.length} ruta(s) del mes
             </span>
           </div>
         </div>
@@ -936,18 +1391,18 @@ function SupervisorHistoryWorkspace({
         <Card className="border-slate-200 bg-white">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Historial semanal</p>
-              <h3 className="mt-2 text-lg font-semibold text-slate-950">Semanas registradas</h3>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Corte mensual</p>
+              <h3 className="mt-2 text-lg font-semibold text-slate-950">Semanas visibles</h3>
             </div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-              {data.rutas.length}
+              {data.rutasHistoricasMesActual.length}
             </span>
           </div>
           <div className="mt-4 space-y-3">
-            {data.rutas.length === 0 ? (
-              <EmptyState copy="Todavia no hay rutas registradas. En cuanto agregues visitas, apareceran aqui." />
+            {data.rutasHistoricasMesActual.length === 0 ? (
+              <EmptyState copy="Todavia no hay rutas del mes actual para mostrar en historicos." />
             ) : (
-              data.rutas.map((ruta) => (
+              data.rutasHistoricasMesActual.map((ruta) => (
                 <button
                   key={ruta.id}
                   type="button"
@@ -991,57 +1446,11 @@ function SupervisorHistoryWorkspace({
           {selectedRoute ? (
             <>
               <RouteWorkflowCard route={selectedRoute} canReview={false} />
-              <RouteChangeRequestCard
-                route={selectedRoute}
-                enabled={data.warRoom.metadataColumnAvailable}
-                pdvsDisponibles={data.pdvsDisponibles}
-              />
+              <RouteMapByDay route={selectedRoute} />
             </>
           ) : (
-            <EmptyState copy="Selecciona una semana para ver su historial y las correcciones disponibles." />
+            <EmptyState copy="Selecciona una ruta del mes para revisar su detalle en modo lectura." />
           )}
-
-          <Card className="border-slate-200 bg-white">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Tiendas sin visita
-                </p>
-                <h3 className="mt-2 text-lg font-semibold text-slate-950">Pendientes de reposicion</h3>
-              </div>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                {selectedPendings.length}
-              </span>
-            </div>
-            <div className="mt-4 space-y-3">
-              {selectedPendings.length === 0 ? (
-                <EmptyState copy="No hay tiendas sin visita por ahora para la semana seleccionada." />
-              ) : (
-                selectedPendings.map((item) => (
-                  <div key={item.id} className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-950">{item.pdv ?? 'PDV sin nombre'}</p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {item.fechaOrigen} · {item.zona ?? 'Sin zona'}
-                        </p>
-                      </div>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                          item.clasificacion === 'JUSTIFICADA'
-                            ? 'bg-sky-100 text-sky-700'
-                            : 'bg-rose-100 text-rose-700'
-                        }`}
-                      >
-                        {item.clasificacion}
-                      </span>
-                    </div>
-                    <p className="mt-3 text-sm text-slate-600">{item.motivo}</p>
-                  </div>
-                ))
-              )}
-            </div>
-          </Card>
         </div>
       </div>
     </div>
@@ -1086,9 +1495,9 @@ function AgendaDigestCard({
     <Card className="border-slate-200 bg-white">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
-            Agenda operativa
-          </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
+              Eventos del dia
+            </p>
           <h2 className="mt-2 text-xl font-semibold text-slate-950">
             {agendaHoy ? `${agendaHoy.dayLabel} en ejecucion` : 'Sin agenda del dia'}
           </h2>
@@ -1128,7 +1537,7 @@ function AgendaTimelineCard({ events }: { events: RutaAgendaEventoItem[] }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Eventos en seguimiento</p>
-          <h3 className="mt-2 text-lg font-semibold text-slate-950">Agenda operativa de la semana</h3>
+          <h3 className="mt-2 text-lg font-semibold text-slate-950">Eventos y reposiciones de la semana</h3>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
           {events.length}
@@ -1137,7 +1546,7 @@ function AgendaTimelineCard({ events }: { events: RutaAgendaEventoItem[] }) {
 
       <div className="mt-4 space-y-3">
         {events.length === 0 ? (
-          <EmptyState copy="No hay eventos pendientes de aprobacion para esta ruta." />
+          <EmptyState copy="No hay eventos operativos registrados para esta ruta." />
         ) : (
           events.map((event) => (
             <div key={event.id} className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4">
@@ -1170,30 +1579,55 @@ function AgendaTimelineCard({ events }: { events: RutaAgendaEventoItem[] }) {
 
 function RouteMapByDay({ route }: { route: RutaSemanalItem }) {
   const dayOptions = useMemo(
-    () =>
-      Array.from(
-        new Map(
-          route.visitas.map((visit) => [
-            visit.diaSemana,
-            {
-              value: String(visit.diaSemana),
-              label: `${visit.diaLabel} · ${
-                route.visitas.filter((item) => item.diaSemana === visit.diaSemana).length
-              } visita(s)`,
-            },
-          ])
-        ).values()
-      ),
+    () => {
+      const counts = new Map<number, number>()
+      for (const visit of route.visitas) {
+        counts.set(visit.diaSemana, (counts.get(visit.diaSemana) ?? 0) + 1)
+      }
+
+      return WEEK_DAY_OPTIONS.filter((option) => counts.has(option.value)).map((option) => ({
+        value: option.value,
+        label: `${option.label} · ${counts.get(option.value) ?? 0} visita(s)`,
+        shortLabel: option.shortLabel,
+      }))
+    },
     [route.visitas]
   )
-  const [selectedDayNumber, setSelectedDayNumber] = useState<number>(route.visitas[0]?.diaSemana ?? 1)
+  const [selectedDayNumber, setSelectedDayNumber] = useState<number | null>(route.visitas[0]?.diaSemana ?? null)
 
-  useEffect(() => {
-    setSelectedDayNumber(route.visitas[0]?.diaSemana ?? 1)
-  }, [route.id, route.visitas])
+  const resolvedSelectedDayNumber = useMemo(() => {
+    if (selectedDayNumber !== null && dayOptions.some((option) => option.value === selectedDayNumber)) {
+      return selectedDayNumber
+    }
+
+    return dayOptions[0]?.value ?? null
+  }, [dayOptions, selectedDayNumber])
+
+  const selectedDayIndex = useMemo(
+    () => dayOptions.findIndex((option) => option.value === resolvedSelectedDayNumber),
+    [dayOptions, resolvedSelectedDayNumber]
+  )
+
+  const selectedDayOption = dayOptions[selectedDayIndex] ?? dayOptions[0] ?? null
+
+  const goToPreviousDay = () => {
+    if (selectedDayIndex <= 0) {
+      return
+    }
+
+    setSelectedDayNumber(dayOptions[selectedDayIndex - 1]?.value ?? resolvedSelectedDayNumber)
+  }
+
+  const goToNextDay = () => {
+    if (selectedDayIndex < 0 || selectedDayIndex >= dayOptions.length - 1) {
+      return
+    }
+
+    setSelectedDayNumber(dayOptions[selectedDayIndex + 1]?.value ?? resolvedSelectedDayNumber)
+  }
 
   const dayVisits = route.visitas
-    .filter((visit) => visit.diaSemana === selectedDayNumber)
+    .filter((visit) => visit.diaSemana === resolvedSelectedDayNumber)
     .sort((left, right) => left.orden - right.orden)
 
   return (
@@ -1203,21 +1637,70 @@ function RouteMapByDay({ route }: { route: RutaSemanalItem }) {
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mapa del dia</p>
           <h3 className="mt-2 text-lg font-semibold text-slate-950">Ruta programada por dia</h3>
           <p className="mt-2 text-sm text-slate-500">
-            Elige el dia de la semana para ver solo la secuencia programada de ese dia.
+            Usa anterior y siguiente para recorrer solo la secuencia programada de cada dia con visitas.
           </p>
         </div>
-        <div className="w-full max-w-xs">
-          <Select
-            label="Dia"
-            value={String(selectedDayNumber)}
-            onChange={(event) => setSelectedDayNumber(Number(event.target.value))}
-            options={dayOptions.length === 0 ? [{ value: '', label: 'Sin visitas' }] : dayOptions}
-          />
+        <div className="w-full max-w-md">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.45fr)_minmax(0,1fr)] gap-2 rounded-[22px] border border-slate-200 bg-slate-50 p-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={goToPreviousDay}
+              disabled={dayOptions.length === 0 || selectedDayIndex <= 0}
+              className="w-full justify-center rounded-[16px] border-slate-200 bg-white"
+              leftIcon={<span aria-hidden="true">{'<'}</span>}
+            >
+              Anterior
+            </Button>
+            <div className="flex min-w-0 flex-col items-center justify-center rounded-[16px] border border-dashed border-slate-200 bg-white px-3 py-2 text-center">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">DIA</p>
+              <p className="mt-1 truncate text-sm font-semibold text-slate-950" aria-live="polite">
+                {selectedDayOption?.label ?? 'Sin visitas'}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={goToNextDay}
+              disabled={dayOptions.length === 0 || selectedDayIndex < 0 || selectedDayIndex >= dayOptions.length - 1}
+              className="w-full justify-center rounded-[16px] border-slate-200 bg-white"
+              rightIcon={<span aria-hidden="true">{'>'}</span>}
+            >
+              Siguiente
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Los botones recorren solo los dias con visitas cargadas en esta ruta.
+          </p>
         </div>
       </div>
       <div className="mt-5">
         <RouteMap visits={dayVisits} />
       </div>
+
+      {dayVisits.length > 0 && (
+        <div className="mt-6 space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Secuencia de tiendas</p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            {dayVisits.map((visit, idx) => (
+              <div key={visit.id} className="flex items-center gap-4 rounded-[20px] border border-slate-100 bg-slate-50/50 p-4 transition hover:bg-white hover:shadow-sm">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-base font-bold text-white">
+                  {idx + 1}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-bold text-slate-900">{visit.pdv ?? 'Tienda sin nombre'}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-slate-500">{visit.direccion ?? 'Sin dirección registrada'}</p>
+                </div>
+                <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${getVisitTone(visit.estatus)}`}>
+                  {visit.estatus}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1229,6 +1712,7 @@ function CoordinatorRouteKanban({
   selectedWeekStart,
   onPreviousWeek,
   onNextWeek,
+  canGoToPreviousWeek,
 }: {
   routes: RutaSemanalItem[]
   selectedRouteId: string | null
@@ -1236,19 +1720,9 @@ function CoordinatorRouteKanban({
   selectedWeekStart: string
   onPreviousWeek: () => void
   onNextWeek: () => void
+  canGoToPreviousWeek: boolean
 }) {
-  const [draggedRouteId, setDraggedRouteId] = useState<string | null>(null)
-  const [pendingMove, setPendingMove] = useState<{
-    routeId: string
-    targetColumn: CoordinatorKanbanColumnKey
-  } | null>(null)
-  const [state, formAction] = useActionState(actualizarControlRutaSemanal, ESTADO_RUTA_INICIAL)
-
-  useEffect(() => {
-    if (state.ok) {
-      setPendingMove(null)
-    }
-  }, [state.ok])
+  const [activeColumn, setActiveColumn] = useState<CoordinatorKanbanColumnKey | null>(null)
 
   const grouped = useMemo(() => {
     const initial: Record<CoordinatorKanbanColumnKey, RutaSemanalItem[]> = {
@@ -1277,7 +1751,7 @@ function CoordinatorRouteKanban({
             </p>
             <h3 className="mt-2 text-lg font-semibold text-slate-950">Rutas de supervisores</h3>
             <p className="mt-2 text-sm text-slate-500">
-              Arrastra una ruta entre columnas para cambiar su estado. Las cerradas se alimentan por ejecucion y quedan solo lectura.
+              Selecciona una categoria para ver y gestionar las rutas enviadas por los supervisores.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1285,7 +1759,8 @@ function CoordinatorRouteKanban({
               <button
                 type="button"
                 onClick={onPreviousWeek}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-700 transition hover:border-slate-300 hover:bg-white"
+                disabled={!canGoToPreviousWeek}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-700 transition hover:border-slate-300 hover:bg-white disabled:cursor-not-allowed disabled:border-slate-100 disabled:bg-slate-100 disabled:text-slate-300"
                 aria-label="Semana anterior"
               >
                 ‹
@@ -1302,139 +1777,96 @@ function CoordinatorRouteKanban({
                 ›
               </button>
             </div>
-            {columns.map((column) => (
-              <span key={column} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                {getCoordinatorKanbanColumnLabel(column)} {grouped[column].length}
-              </span>
-            ))}
           </div>
         </div>
 
-        <div className="mt-5 grid gap-4 xl:grid-cols-4">
-          {columns.map((column) => {
-            const canDrop = getCoordinatorApprovalStateForColumn(column) !== null
-            return (
-              <div
-                key={column}
-                className={`rounded-[24px] border p-4 ${
-                  column === 'PUBLICADAS'
-                    ? 'border-emerald-200 bg-emerald-50/70'
-                    : column === 'AJUSTES'
-                      ? 'border-amber-200 bg-amber-50/70'
-                      : column === 'ENVIADAS'
-                        ? 'border-sky-200 bg-sky-50/70'
-                        : 'border-slate-200 bg-slate-50'
-                }`}
-                onDragOver={(event) => {
-                  if (canDrop) {
-                    event.preventDefault()
-                  }
-                }}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  if (!draggedRouteId || !canDrop) {
-                    return
-                  }
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {columns.map((column) => {
+          const count = grouped[column].length
+          const isActive = activeColumn === column
+          const colorClass = 
+            column === 'PUBLICADAS' ? 'bg-emerald-50 border-emerald-200 text-emerald-900' :
+            column === 'AJUSTES' ? 'bg-amber-50 border-amber-200 text-amber-900' :
+            column === 'ENVIADAS' ? 'bg-sky-50 border-sky-200 text-sky-900' :
+            'bg-slate-50 border-slate-200 text-slate-900'
 
-                  const route = routes.find((item) => item.id === draggedRouteId)
-                  if (!route || getCoordinatorKanbanColumn(route) === column) {
-                    return
-                  }
-
-                  setPendingMove({ routeId: route.id, targetColumn: column })
-                }}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-slate-950">{getCoordinatorKanbanColumnLabel(column)}</p>
-                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm">
-                    {grouped[column].length}
-                  </span>
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  {grouped[column].length === 0 ? (
-                    <div className="rounded-[18px] border border-dashed border-slate-300 bg-white/70 px-4 py-8 text-center text-sm text-slate-400">
-                      Sin rutas en esta columna.
-                    </div>
-                  ) : (
-                    grouped[column].map((route) => (
-                      <button
-                        key={route.id}
-                        type="button"
-                        draggable={column !== 'CERRADAS'}
-                        onDragStart={() => setDraggedRouteId(route.id)}
-                        onDragEnd={() => setDraggedRouteId(null)}
-                        onClick={() => onSelectRoute(route.id)}
-                        className={`w-full rounded-[20px] border px-4 py-4 text-left transition ${
-                          selectedRouteId === route.id
-                            ? 'border-slate-950 bg-slate-950 text-white'
-                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold">{route.supervisor ?? 'Supervisor sin nombre'}</p>
-                            <p className={`mt-1 text-xs ${selectedRouteId === route.id ? 'text-slate-300' : 'text-slate-500'}`}>
-                              {formatDate(route.semanaInicio)} - {formatDate(route.semanaFin)}
-                            </p>
-                          </div>
-                          <span
-                            className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
-                              selectedRouteId === route.id ? 'bg-white/10 text-white' : getRouteTone(route.estatus)
-                            }`}
-                          >
-                            {route.estatus}
-                          </span>
-                        </div>
-                        <div className={`mt-3 flex flex-wrap gap-3 text-xs ${selectedRouteId === route.id ? 'text-slate-200' : 'text-slate-500'}`}>
-                          <span>{route.totalVisitas} visitas</span>
-                          <span>{route.visitasCompletadas} hechas</span>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
+          return (
+            <button
+              key={column}
+              type="button"
+              onClick={() => setActiveColumn(column)}
+              className={`flex flex-col items-start gap-1 rounded-[24px] border p-5 text-left transition hover:shadow-md ${colorClass} ${isActive ? 'ring-2 ring-slate-950 ring-offset-2' : ''}`}
+            >
+              <span className="text-[11px] font-bold uppercase tracking-wider opacity-60">
+                {getCoordinatorKanbanColumnLabel(column)}
+              </span>
+              <div className="flex w-full items-center justify-between">
+                <span className="text-3xl font-bold">{count}</span>
+                <span className="text-xl opacity-30">
+                  {column === 'ENVIADAS' ? '📨' : column === 'AJUSTES' ? '✏️' : column === 'PUBLICADAS' ? '✅' : '📁'}
+                </span>
               </div>
-            )
-          })}
-        </div>
-      </Card>
+              <p className="mt-2 text-xs opacity-70">
+                {count === 1 ? '1 ruta disponible' : `${count} rutas disponibles`}
+              </p>
+            </button>
+          )
+        })}
+      </div>
 
       <ModalPanel
-        open={Boolean(pendingMove)}
-        onClose={() => setPendingMove(null)}
-        title="Mover ruta de estado"
-        subtitle="Confirmamos el cambio antes de actualizar el workflow operativo."
+        open={Boolean(activeColumn)}
+        onClose={() => setActiveColumn(null)}
+        title={`Rutas: ${getCoordinatorKanbanColumnLabel(activeColumn ?? 'ENVIADAS')}`}
+        subtitle={`Total de ${grouped[activeColumn ?? 'ENVIADAS'].length} rutas en este estado.`}
       >
-        {pendingMove ? (
-          <form action={formAction} className="space-y-4">
-            <input type="hidden" name="ruta_id" value={pendingMove.routeId} />
-            <input
-              type="hidden"
-              name="minimum_visits_per_pdv"
-              value={String(routes.find((item) => item.id === pendingMove.routeId)?.minimumVisitsPerPdv ?? 4)}
-            />
-            <input
-              type="hidden"
-              name="approval_state"
-              value={getCoordinatorApprovalStateForColumn(pendingMove.targetColumn) ?? ''}
-            />
-            <Input
-              label="Nota"
-              name="approval_note"
-              placeholder={`Motivo para mover a ${getCoordinatorKanbanColumnLabel(pendingMove.targetColumn)}`}
-            />
-            <div className="flex flex-wrap items-center gap-3">
-              <SubmitActionButton label="Confirmar movimiento" pendingLabel="Moviendo..." />
-              {state.message ? (
-                <span className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
-                  {state.message}
-                </span>
-              ) : null}
+        <div className="mt-4 space-y-3">
+          {grouped[activeColumn ?? 'ENVIADAS'].length === 0 ? (
+            <div className="py-12 text-center">
+              <p className="text-sm font-medium text-slate-500">No hay rutas en esta categoría.</p>
             </div>
-          </form>
-        ) : null}
+          ) : (
+            grouped[activeColumn ?? 'ENVIADAS'].map((route) => (
+              <button
+                key={route.id}
+                type="button"
+                onClick={() => {
+                  onSelectRoute(route.id)
+                  setActiveColumn(null)
+                }}
+                className={`w-full rounded-[24px] border p-5 text-left transition ${
+                  selectedRouteId === route.id
+                    ? 'border-slate-950 bg-slate-950 text-white shadow-lg'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-base font-bold">{route.supervisor ?? 'Supervisor sin nombre'}</p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <p className={`text-xs ${selectedRouteId === route.id ? 'text-slate-300' : 'text-slate-500'}`}>
+                        {formatDate(route.semanaInicio)} - {formatDate(route.semanaFin)}
+                      </p>
+                      <span className="h-1 w-1 rounded-full bg-slate-400 opacity-30" />
+                      <p className={`text-xs font-medium ${selectedRouteId === route.id ? 'text-slate-200' : 'text-slate-600'}`}>
+                        {route.totalVisitas} visitas
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-bold ${
+                      selectedRouteId === route.id ? 'bg-white/10 text-white' : getRouteTone(route.estatus)
+                    }`}
+                  >
+                    {route.estatus}
+                  </span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
       </ModalPanel>
+    </Card>
     </>
   )
 }
@@ -1497,7 +1929,7 @@ function UnifiedDayEditorCard({
   const [impactMode, setImpactMode] = useState<RutaAgendaEventoItem['modoImpacto']>('SUMA')
   const [selectedDisplacedVisitIds, setSelectedDisplacedVisitIds] = useState<string[]>([])
 
-  const buildDraftForDay = (dayNumber: number, sourceRoute = route) => {
+  const buildDraftForDay = useCallback((dayNumber: number, sourceRoute = route) => {
     if (
       sourceRoute.changeRequestState === 'PENDIENTE' &&
       sourceRoute.changeRequestTargetDayNumber === dayNumber &&
@@ -1517,17 +1949,19 @@ function UnifiedDayEditorCard({
       label: visit.pdv ?? 'PDV sin nombre',
       subtitle: visit.zona ?? 'Sin zona',
     }))
-  }
+  }, [route, visitsByDay])
 
   const [draftRoute, setDraftRoute] = useState(() => buildDraftForDay(selectedDayNumber))
 
   useEffect(() => {
     const nextDay = route.changeRequestTargetDayNumber ?? route.visitas[0]?.diaSemana ?? 1
-    setSelectedDayNumber(nextDay)
-    setSelectedVisitId(route.changeRequestState === 'PENDIENTE' ? route.changeRequestTargetVisitId ?? '' : '')
-    setChangeType(route.changeRequestState === 'PENDIENTE' ? route.changeRequestType : 'CAMBIO_DIA')
-    setDraftRoute(buildDraftForDay(nextDay, route))
-  }, [route.id, route.updatedAt])
+    return scheduleEffectStateUpdate(() => {
+      setSelectedDayNumber(nextDay)
+      setSelectedVisitId(route.changeRequestState === 'PENDIENTE' ? route.changeRequestTargetVisitId ?? '' : '')
+      setChangeType(route.changeRequestState === 'PENDIENTE' ? route.changeRequestType : 'CAMBIO_DIA')
+      setDraftRoute(buildDraftForDay(nextDay, route))
+    })
+  }, [buildDraftForDay, route])
 
   const operationDate = addDaysToWeek(route.semanaInicio, selectedDayNumber)
   const currentDayVisits = (visitsByDay.get(selectedDayNumber) ?? []).sort((left, right) => left.orden - right.orden)
@@ -1770,8 +2204,8 @@ function UnifiedDayEditorCard({
                   onChange={(event) => setEventType(event.target.value as RutaAgendaEventoItem['tipoEvento'])}
                   disabled={!agendaInfrastructureAvailable}
                   options={[
-                    { value: 'VISITA_ADICIONAL', label: 'Visita adicional' },
-                    { value: 'OFICINA', label: 'Oficina' },
+                    { value: 'VISITA_ADICIONAL', label: 'Visita adicional / cambio de tienda' },
+                    { value: 'OFICINA', label: 'Junta / oficina' },
                     { value: 'FIRMA_CONTRATO', label: 'Firma de contrato' },
                     { value: 'FORMACION', label: 'Formacion' },
                     { value: 'ENTREGA_NUEVA_DC', label: 'Entrega de nueva DC' },
@@ -2072,20 +2506,24 @@ function QuotaProgressList({
   useEffect(() => {
     const nextFromItems = Object.fromEntries(items.map((item) => [item.pdvId, item.quotaMensual]))
 
-    setDraftQuotas(() => {
-      if (state.ok && state.savedPdvMonthlyQuotas) {
-        return {
-          ...nextFromItems,
-          ...state.savedPdvMonthlyQuotas,
+    return scheduleEffectStateUpdate(() => {
+      setDraftQuotas(() => {
+        if (state.ok && state.savedPdvMonthlyQuotas) {
+          return {
+            ...nextFromItems,
+            ...state.savedPdvMonthlyQuotas,
+          }
         }
-      }
 
-      return nextFromItems
+        return nextFromItems
+      })
     })
   }, [items, state.ok, state.savedPdvMonthlyQuotas])
 
   useEffect(() => {
-    setResolvedRouteId(supervisor.rutaId ?? '')
+    return scheduleEffectStateUpdate(() => {
+      setResolvedRouteId(supervisor.rutaId ?? '')
+    })
   }, [supervisor.rutaId, supervisor.supervisorEmpleadoId, supervisor.weekStart])
 
   useEffect(() => {
@@ -2093,15 +2531,20 @@ function QuotaProgressList({
       return
     }
 
-    setDraftQuotas((current) => ({
-      ...current,
-      ...state.savedPdvMonthlyQuotas,
-    }))
-    onPersistedQuotasChange?.(state.savedPdvMonthlyQuotas)
+    const savedPdvMonthlyQuotas = state.savedPdvMonthlyQuotas
+    const savedRouteId = state.savedRouteId
 
-    if (state.savedRouteId) {
-      setResolvedRouteId(state.savedRouteId)
-    }
+    return scheduleEffectStateUpdate(() => {
+      setDraftQuotas((current) => ({
+        ...current,
+        ...savedPdvMonthlyQuotas,
+      }))
+      onPersistedQuotasChange?.(savedPdvMonthlyQuotas)
+
+      if (savedRouteId) {
+        setResolvedRouteId(savedRouteId)
+      }
+    })
   }, [onPersistedQuotasChange, state.ok, state.savedPdvMonthlyQuotas, state.savedRouteId])
 
 
@@ -2911,14 +3354,12 @@ function TodayRouteStrip({ visits }: { visits: RutaSemanalVisitItem[] }) {
 function AgendaOperativaOverviewCard({
   routeId,
   agendaHoy,
-  pendientes,
   pdvsDisponibles,
   agendaInfrastructureAvailable,
   agendaInfrastructureMessage,
 }: {
   routeId: string | null
   agendaHoy: RutaAgendaOperativaDia | null
-  pendientes: RutaPendienteReposicionItem[]
   pdvsDisponibles: RutaSemanalPanelData['pdvsDisponibles']
   agendaInfrastructureAvailable: boolean
   agendaInfrastructureMessage?: string
@@ -2930,149 +3371,30 @@ function AgendaOperativaOverviewCard({
   const [selectedDisplacedVisitIds, setSelectedDisplacedVisitIds] = useState<string[]>([])
 
   useEffect(() => {
-    setSelectedDate(agendaHoy?.fecha ?? '')
-    setSelectedDisplacedVisitIds([])
+    return scheduleEffectStateUpdate(() => {
+      setSelectedDate(agendaHoy?.fecha ?? '')
+      setSelectedDisplacedVisitIds([])
+    })
   }, [agendaHoy?.fecha])
 
   const currentDayVisits = agendaHoy?.visitasPlaneadas ?? []
 
   return (
-    <Card className="border-slate-200 bg-white">
-      <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
-                Agenda operativa dinamica
-              </p>
-              <h2 className="mt-2 text-xl font-semibold text-slate-950">
-                {agendaHoy ? `${agendaHoy.dayLabel} ${formatDate(agendaHoy.fecha)}` : 'Sin agenda resuelta'}
-              </h2>
-              <p className="mt-2 text-sm text-slate-500">
-                La ruta aprobada sigue siendo la base, pero aqui se resuelve lo planeado, lo ejecutado y lo que queda por reponer.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                Planeadas {agendaHoy?.planeadasCount ?? 0}
-              </span>
-              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                Ejecutadas {agendaHoy?.ejecutadasCount ?? 0}
-              </span>
-            </div>
-          </div>
-
-          {agendaHoy ? (
-            <>
-              <div className="grid gap-3 sm:grid-cols-4">
-                <MiniStat label="Planeadas" value={String(agendaHoy.planeadasCount)} />
-                <MiniStat label="Ejecutadas" value={String(agendaHoy.ejecutadasCount)} />
-                <MiniStat label="Pend. just." value={String(agendaHoy.pendientesJustificadasCount)} />
-                <MiniStat label="Pend. inj." value={String(agendaHoy.pendientesInjustificadasCount)} />
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-3">
-                <AgendaBlock
-                  title="Ruta base activa"
-                  emptyCopy="No hay visitas activas para este dia."
-                  items={agendaHoy.visitasActivas.map((visit) => ({
-                    key: visit.id,
-                    title: visit.pdv ?? 'PDV sin nombre',
-                    subtitle: `${visit.zona ?? 'Sin zona'} · Orden ${visit.orden}`,
-                    badge: visit.estatus,
-                    badgeTone: getVisitTone(visit.estatus),
-                  }))}
-                />
-                <AgendaBlock
-                  title="Eventos del dia"
-                  emptyCopy="Todavia no hay eventos operativos cargados."
-                  items={agendaHoy.eventos.map((event) => ({
-                    key: event.id,
-                    title: event.titulo,
-                    subtitle: `${event.tipoLabel} · ${event.impactoLabel}`,
-                    detail: event.pdv ?? event.sede ?? event.zona ?? 'Sin detalle',
-                    badge: event.estatusAprobacion,
-                    badgeTone: getAgendaApprovalTone(event.estatusAprobacion),
-                  }))}
-                />
-                <AgendaBlock
-                  title="Visitas desplazadas"
-                  emptyCopy="No hay visitas desplazadas por eventos aprobados."
-                  items={agendaHoy.visitasDesplazadas.map((visit) => ({
-                    key: visit.id,
-                    title: visit.pdv ?? 'PDV sin nombre',
-                    subtitle: `${visit.zona ?? 'Sin zona'} · ${visit.diaLabel}`,
-                    badge: 'Pend. reponer',
-                    badgeTone: 'bg-amber-100 text-amber-800',
-                  }))}
-                />
-              </div>
-            </>
-          ) : (
-            <EmptyState copy="Cuando exista ruta semanal visible para esta semana, aqui se resolvera la agenda del dia." />
-          )}
-
-          <div className="rounded-[22px] border border-slate-200 bg-slate-50 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-950">Pendientes por reponer</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Las visitas no realizadas quedan separadas por causa justificada o no justificada.
-                </p>
-              </div>
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
-                {pendientes.length} visibles
-              </span>
-            </div>
-            {pendientes.length === 0 ? (
-              <p className="mt-4 text-sm text-slate-500">No hay visitas pendientes de reposicion visibles.</p>
-            ) : (
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {pendientes.slice(0, 6).map((item) => (
-                  <div key={item.id} className="rounded-[18px] border border-slate-200 bg-white px-4 py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-950">{item.pdv ?? 'PDV sin nombre'}</p>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                          item.clasificacion === 'JUSTIFICADA'
-                            ? 'bg-sky-100 text-sky-700'
-                            : 'bg-rose-100 text-rose-700'
-                        }`}
-                      >
-                        {item.clasificacion}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {item.fechaOrigen} · {item.zona ?? 'Sin zona'}
-                    </p>
-                    <p className="mt-2 text-xs text-slate-600">{item.motivo}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <form action={formAction} className="rounded-[22px] border border-slate-200 bg-slate-50 p-4 space-y-4">
+    <Card className="border-slate-200 bg-white shadow-none">
+      <form action={formAction} className="space-y-3 rounded-[20px] border border-slate-200 bg-white p-3">
           <input type="hidden" name="ruta_id" value={routeId ?? ''} />
           <input
             type="hidden"
             name="displaced_visit_ids_json"
             value={JSON.stringify(selectedDisplacedVisitIds)}
           />
-          <div>
-            <p className="text-sm font-semibold text-slate-950">Agregar evento del dia</p>
-            <p className="mt-1 text-xs text-slate-500">
-              Registra visitas adicionales o eventos que se suman, sobreponen parcialmente o reemplazan la ruta aprobada.
-            </p>
-          </div>
           {!agendaInfrastructureAvailable && agendaInfrastructureMessage ? (
-            <div className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="rounded-[16px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               {agendaInfrastructureMessage}
             </div>
           ) : null}
           <Input
-            label="Fecha operativa"
+            label="Fecha"
             type="date"
             name="fecha_operacion"
             value={selectedDate}
@@ -3080,14 +3402,14 @@ function AgendaOperativaOverviewCard({
             disabled={!agendaInfrastructureAvailable}
           />
           <Select
-            label="Tipo de evento"
+            label="Tipo"
             name="tipo_evento"
             value={eventType}
             onChange={(event) => setEventType(event.target.value as RutaAgendaEventoItem['tipoEvento'])}
             disabled={!agendaInfrastructureAvailable}
             options={[
-              { value: 'VISITA_ADICIONAL', label: 'Visita adicional' },
-              { value: 'OFICINA', label: 'Oficina' },
+              { value: 'VISITA_ADICIONAL', label: 'Visita adicional / cambio de tienda' },
+              { value: 'OFICINA', label: 'Junta / oficina' },
               { value: 'FIRMA_CONTRATO', label: 'Firma de contrato' },
               { value: 'FORMACION', label: 'Formacion' },
               { value: 'ENTREGA_NUEVA_DC', label: 'Entrega de nueva DC' },
@@ -3097,7 +3419,7 @@ function AgendaOperativaOverviewCard({
             ]}
           />
           <Select
-            label="Impacto sobre la ruta"
+            label="Impacto"
             name="modo_impacto"
             value={impactMode}
             onChange={(event) => {
@@ -3119,14 +3441,18 @@ function AgendaOperativaOverviewCard({
           <Input
             label="Titulo"
             name="titulo"
-            placeholder="Ej. firma de contratos en oficina"
+            placeholder="Ej. Visita adicional"
             disabled={!agendaInfrastructureAvailable}
           />
-          <Input label="Descripcion" name="descripcion" placeholder="Contexto operativo del evento" disabled={!agendaInfrastructureAvailable} />
-          <Input label="Sede u observacion" name="sede" placeholder="Oficina central, centro de formacion, etc." disabled={!agendaInfrastructureAvailable} />
+          <Input
+            label="Descripcion"
+            name="descripcion"
+            placeholder="Motivo o nota breve"
+            disabled={!agendaInfrastructureAvailable}
+          />
           {eventType === 'VISITA_ADICIONAL' ? (
             <Select
-              label="PDV del evento"
+              label="PDV"
               name="pdv_id"
               disabled={!agendaInfrastructureAvailable}
               options={[
@@ -3140,10 +3466,10 @@ function AgendaOperativaOverviewCard({
 
           {impactMode !== 'SUMA' && currentDayVisits.length > 0 ? (
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                 Visitas desplazadas
               </p>
-              <div className="space-y-2 rounded-[18px] border border-slate-200 bg-white p-3">
+              <div className="space-y-2 rounded-[16px] border border-slate-200 bg-slate-50 p-2.5">
                 {currentDayVisits.map((visit) => {
                   const checked =
                     impactMode === 'REEMPLAZA_TOTAL' || selectedDisplacedVisitIds.includes(visit.id)
@@ -3163,9 +3489,7 @@ function AgendaOperativaOverviewCard({
                       />
                       <span>
                         <span className="font-medium text-slate-950">{visit.pdv ?? 'PDV sin nombre'}</span>
-                        <span className="mt-1 block text-xs text-slate-500">
-                          {visit.zona ?? 'Sin zona'} · Orden {visit.orden}
-                        </span>
+                        <span className="mt-0.5 block text-[11px] text-slate-500">{visit.zona ?? 'Sin zona'} · #{visit.orden}</span>
                       </span>
                     </label>
                   )
@@ -3173,60 +3497,259 @@ function AgendaOperativaOverviewCard({
               </div>
             </div>
           ) : null}
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input label="Hora inicio" name="hora_inicio" type="time" disabled={!agendaInfrastructureAvailable} />
-            <Input label="Hora fin" name="hora_fin" type="time" disabled={!agendaInfrastructureAvailable} />
-          </div>
           <SubmitActionButton
             label="Registrar evento"
             pendingLabel="Guardando..."
             disabled={!agendaHoy || !agendaInfrastructureAvailable}
           />
           {state.message && (
-            <p className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>
+            <p className={`text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>
           )}
-        </form>
-      </div>
+      </form>
     </Card>
   )
 }
 
-function AgendaBlock({
-  title,
-  emptyCopy,
-  items,
+export function SupervisorDayEventFormCard({
+  data,
 }: {
-  title: string
-  emptyCopy: string
-  items: Array<{
-    key: string
-    title: string
-    subtitle: string
-    detail?: string | null
-    badge: string
-    badgeTone: string
-  }>
+  data: RutaSemanalPanelData
 }) {
   return (
-    <div className="rounded-[22px] border border-slate-200 bg-slate-50 p-4">
-      <p className="text-sm font-semibold text-slate-950">{title}</p>
-      {items.length === 0 ? (
-        <p className="mt-4 text-sm text-slate-500">{emptyCopy}</p>
-      ) : (
-        <div className="mt-4 space-y-3">
-          {items.map((item) => (
-            <div key={item.key} className="rounded-[18px] border border-slate-200 bg-white px-4 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-slate-950">{item.title}</p>
-                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${item.badgeTone}`}>{item.badge}</span>
+    <AgendaOperativaOverviewCard
+      routeId={data.rutaSemanaActual?.id ?? null}
+      agendaHoy={data.agendaHoy}
+      pdvsDisponibles={data.pdvsDisponibles}
+      agendaInfrastructureAvailable={data.agendaInfrastructureAvailable}
+      agendaInfrastructureMessage={data.agendaInfrastructureMessage}
+    />
+  )
+}
+
+function AgendaEventEvidenceCenter({ events }: { events: RutaAgendaEventoItem[] }) {
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(() => events[0]?.id ?? null)
+  const [draft, setDraft] = useState<AgendaEventEvidenceDraft | null>(null)
+  const [comments, setComments] = useState(() => events[0]?.descripcion ?? '')
+  const [isCameraOpen, setIsCameraOpen] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const [state, setState] = useState<{ ok: boolean; message: string } | null>(null)
+  const selectedEvent = events.find((event) => event.id === selectedEventId) ?? events[0] ?? null
+
+  useEffect(() => {
+    return () => {
+      if (draft?.previewUrl) {
+        URL.revokeObjectURL(draft.previewUrl)
+      }
+    }
+  }, [draft])
+
+  const buildSilentGpsFallback = (): { position: CapturedPosition; estadoGps: AttendanceGpsState } => ({
+    position: {
+      latitud: null,
+      longitud: null,
+      precision: null,
+      distanciaMetros: null,
+      dentroGeocerca: null,
+      capturadaEn: new Date().toISOString(),
+    },
+    estadoGps: 'SIN_GPS',
+  })
+
+  const handleCapture = async (file: File) => {
+    const gpsCapture = await captureAttendancePosition({
+      geocercaLatitud: null,
+      geocercaLongitud: null,
+      geocercaRadioMetros: null,
+    }).catch(() => buildSilentGpsFallback())
+    const capturedAt = new Date().toISOString()
+    const stamped = await stampAttendanceSelfie(file, {
+      capturedAt,
+      latitude: gpsCapture.position.latitud,
+      longitude: gpsCapture.position.longitud,
+      flowLabel: 'Evidencia',
+      hideGpsCoordinates: true,
+    })
+    const hash = await calcularHashArchivo(stamped.file)
+    setDraft((current) => {
+      if (current?.previewUrl) {
+        URL.revokeObjectURL(current.previewUrl)
+      }
+      return {
+        file: stamped.file,
+        previewUrl: URL.createObjectURL(stamped.file),
+        hash,
+        capturedAt,
+        position: gpsCapture.position,
+        gpsState: gpsCapture.estadoGps,
+      }
+    })
+  }
+
+  const submitEvidence = () => {
+    if (!selectedEvent || !draft) {
+      setState({ ok: false, message: 'Primero selecciona un evento y toma la selfie.' })
+      return
+    }
+
+    if (!comments.trim()) {
+      setState({ ok: false, message: 'Agrega el motivo de la visita o evento.' })
+      return
+    }
+
+    startTransition(async () => {
+      const formData = new FormData()
+      formData.set('agenda_evento_id', selectedEvent.id)
+      formData.set('selfie_file', draft.file)
+      formData.set('latitud', String(draft.position.latitud ?? ''))
+      formData.set('longitud', String(draft.position.longitud ?? ''))
+      formData.set('distancia_metros', String(draft.position.distanciaMetros ?? ''))
+      formData.set('estado_gps', draft.gpsState)
+      formData.set('comments', comments)
+
+      try {
+        await injectDirectR2Upload(formData, draft.file, {
+          modulo: 'rutas',
+          removeFieldName: 'selfie_file',
+          fieldNames: {
+            objectKey: 'selfie_r2_object_key',
+            sha256: 'selfie_r2_sha256',
+            fileName: 'selfie_r2_file_name',
+            contentType: 'selfie_r2_type',
+            size: 'selfie_r2_size',
+          },
+          thumbnailFieldNames: {
+            objectKey: 'selfie_thumbnail_r2_object_key',
+            sha256: 'selfie_thumbnail_r2_sha256',
+            fileName: 'selfie_thumbnail_r2_file_name',
+            contentType: 'selfie_thumbnail_r2_type',
+            size: 'selfie_thumbnail_r2_size',
+          },
+        })
+      } catch (error) {
+        console.error('No fue posible subir la selfie del evento a R2.', error)
+      }
+
+      const result = await registrarEvidenciaEventoAgendaRutaSemanal(ESTADO_RUTA_INICIAL, formData)
+      setState({
+        ok: result.ok,
+        message: result.message ?? (result.ok ? 'Evidencia registrada.' : 'No fue posible registrar la evidencia.'),
+      })
+    })
+  }
+
+  if (events.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="mt-5 rounded-[22px] border border-slate-200 bg-slate-50 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-950">Evidencia de eventos no comunes</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Captura unica: selfie, motivo, fecha/hora y GPS en segundo plano para el historico operativo.
+          </p>
+        </div>
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+          {events.length} evento(s)
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="space-y-2">
+          {events.map((event) => (
+            <button
+              key={event.id}
+              type="button"
+              onClick={() => {
+                setSelectedEventId(event.id)
+                setDraft((current) => {
+                  if (current?.previewUrl) {
+                    URL.revokeObjectURL(current.previewUrl)
+                  }
+                  return null
+                })
+                setComments(event.descripcion ?? '')
+                setState(null)
+              }}
+              className={`w-full rounded-[18px] border px-4 py-3 text-left transition ${
+                selectedEvent?.id === event.id
+                  ? 'border-slate-950 bg-white shadow-sm'
+                  : 'border-slate-200 bg-white/70 hover:border-slate-300 hover:bg-white'
+              }`}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-950">{event.titulo}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {event.tipoLabel} · {event.pdv ?? event.sede ?? 'Lugar por confirmar'}
+                  </p>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getAgendaExecutionTone(event.estatusEjecucion)}`}>
+                  {event.estatusEjecucion}
+                </span>
               </div>
-              <p className="mt-1 text-xs text-slate-500">{item.subtitle}</p>
-              {item.detail ? <p className="mt-2 text-xs text-slate-600">{item.detail}</p> : null}
-            </div>
+            </button>
           ))}
         </div>
-      )}
+
+        <div className="rounded-[18px] border border-slate-200 bg-white p-4">
+          {selectedEvent ? (
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">{selectedEvent.titulo}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {selectedEvent.fechaOperacion} · {selectedEvent.horaInicio ?? 'Hora pendiente'}
+                </p>
+              </div>
+
+              {selectedEvent.selfieUrl || draft ? (
+                <div className="overflow-hidden rounded-[18px] border border-slate-200 bg-slate-50">
+                  <img
+                    src={draft?.previewUrl ?? selectedEvent.selfieUrl ?? ''}
+                    alt="Evidencia del evento"
+                    className="aspect-[4/5] w-full object-cover"
+                  />
+                </div>
+              ) : null}
+
+              <label className="block text-sm text-slate-700">
+                <span className="font-semibold">Motivo de la visita</span>
+                <textarea
+                  value={comments}
+                  onChange={(event) => setComments(event.target.value)}
+                  rows={3}
+                  className="mt-2 w-full rounded-[14px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+                />
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={() => setIsCameraOpen(true)}>
+                  Abrir selfie
+                </Button>
+                <Button type="button" variant="secondary" onClick={submitEvidence} disabled={!draft || isPending}>
+                  {isPending ? 'Guardando...' : 'Registrar evidencia'}
+                </Button>
+              </div>
+
+              {state?.message ? (
+                <p className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>
+              ) : null}
+            </div>
+          ) : (
+            <EmptyState copy="Selecciona un evento para registrar su evidencia." />
+          )}
+        </div>
+      </div>
+
+      <NativeCameraSelfieDialog
+        open={isCameraOpen}
+        title="Selfie del evento"
+        description="Toma una selfie para documentar la visita no comun. El GPS se intentara capturar en segundo plano."
+        captureLabel="Capturar selfie"
+        onClose={() => setIsCameraOpen(false)}
+        onCapture={handleCapture}
+      />
     </div>
   )
 }
@@ -3363,10 +3886,29 @@ function AgendaApprovalsCard({
   )
 }
 
-function PlanificarRutaCard({ data }: { data: RutaSemanalPanelData }) {
-  const minimumWeekStart = getNextWeekStartIso(data.semanaActualInicio)
+function PlanificarRutaCard({
+  data,
+  onOpenCorrections,
+  onOpenHistory,
+}: {
+  data: RutaSemanalPanelData
+  onOpenCorrections: (routeId: string) => void
+  onOpenHistory: (routeId: string) => void
+}) {
+  const minimumWeekStart = getWeekStartIso(data.semanaActualInicio)
   const [selectedWeekStart, setSelectedWeekStart] = useState(() => minimumWeekStart)
-  const route = data.rutas.find((item) => item.semanaInicio === selectedWeekStart) ?? null
+  const planningRoute = useMemo(
+    () => getPlanningRouteForWeek(data.rutas, selectedWeekStart),
+    [data.rutas, selectedWeekStart]
+  )
+  const approvedRoute = useMemo(
+    () => (planningRoute && isApprovedOperationalRoute(planningRoute) ? planningRoute : null),
+    [planningRoute]
+  )
+  const editableRoute = useMemo(
+    () => (planningRoute && !isApprovedOperationalRoute(planningRoute) ? planningRoute : null),
+    [planningRoute]
+  )
   const weekEnd = getWeekEndIso(selectedWeekStart)
   const pdvMap = useMemo(
     () =>
@@ -3383,7 +3925,7 @@ function PlanificarRutaCard({ data }: { data: RutaSemanalPanelData }) {
   )
   const initialDrafts = useMemo<WeeklyCanvasDraftVisit[]>(
     () =>
-      [...(route?.visitas ?? [])]
+      [...(editableRoute?.visitas ?? [])]
         .sort((left, right) => left.diaSemana - right.diaSemana || left.orden - right.orden)
         .map((visit) => ({
           clientId: visit.id,
@@ -3396,8 +3938,18 @@ function PlanificarRutaCard({ data }: { data: RutaSemanalPanelData }) {
           status: visit.estatus,
           locked: visit.estatus !== 'PLANIFICADA',
         })),
-    [route]
+    [editableRoute]
   )
+
+  const hasApprovedWeek = Boolean(approvedRoute)
+
+  useEffect(() => {
+    if (selectedWeekStart < minimumWeekStart) {
+      return scheduleEffectStateUpdate(() => {
+        setSelectedWeekStart(minimumWeekStart)
+      })
+    }
+  }, [minimumWeekStart, selectedWeekStart])
 
   return (
     <Card className="border-slate-200 bg-white">
@@ -3408,7 +3960,7 @@ function PlanificarRutaCard({ data }: { data: RutaSemanalPanelData }) {
           </p>
           <h2 className="mt-2 text-xl font-semibold text-slate-950">Carga operativa de visitas</h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-500">
-            Cada semana se envía una ruta distinta y queda pendiente de aprobacion de coordinacion.
+            Cada semana se envia una ruta distinta y queda pendiente de aprobacion de coordinacion.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -3417,33 +3969,82 @@ function PlanificarRutaCard({ data }: { data: RutaSemanalPanelData }) {
           </span>
           <span
             className={`rounded-full px-3 py-1 text-xs font-semibold ${
-              route
-                ? route.approvalState === 'APROBADA'
+              editableRoute
+                ? editableRoute.approvalState === 'APROBADA'
                   ? 'bg-emerald-100 text-emerald-700'
-                  : route.approvalState === 'CAMBIOS_SOLICITADOS'
+                  : editableRoute.approvalState === 'CAMBIOS_SOLICITADOS'
                     ? 'bg-amber-100 text-amber-800'
                     : 'bg-sky-100 text-sky-700'
                 : 'bg-slate-100 text-slate-600'
             }`}
           >
-            {route ? route.approvalState : 'Sin ruta enviada'}
+            {editableRoute ? editableRoute.approvalState : hasApprovedWeek ? 'Ruta aprobada' : 'Sin ruta enviada'}
           </span>
         </div>
       </div>
       <div className="mt-5">
-        <WeeklyRouteCanvasPlanner
-          key={`${route?.id ?? 'new'}-${selectedWeekStart}`}
-          weekStart={selectedWeekStart}
-          weekEnd={weekEnd}
-          minimumWeekStart={minimumWeekStart}
-          pdvsDisponibles={data.pdvsDisponibles}
-          pdvMap={pdvMap}
-          initialDrafts={initialDrafts}
-          route={route}
-          onWeekStartChange={(nextWeekStart) => setSelectedWeekStart(nextWeekStart)}
-        />
+        {hasApprovedWeek && approvedRoute ? (
+          <ApprovedRouteNotice
+            route={approvedRoute}
+            onOpenCorrections={() => onOpenCorrections(approvedRoute.id)}
+            onOpenHistory={() => onOpenHistory(approvedRoute.id)}
+            onStartPlanning={() => setSelectedWeekStart((current) => shiftWeekStart(current, 1))}
+          />
+        ) : (
+          <WeeklyRouteCanvasPlanner
+            key={`${editableRoute?.id ?? planningRoute?.id ?? 'new'}-${selectedWeekStart}`}
+            weekStart={selectedWeekStart}
+            weekEnd={weekEnd}
+            minimumWeekStart={minimumWeekStart}
+            pdvsDisponibles={data.pdvsDisponibles}
+            pdvMap={pdvMap}
+            initialDrafts={initialDrafts}
+            route={editableRoute}
+            onWeekStartChange={(nextWeekStart) => setSelectedWeekStart(nextWeekStart)}
+          />
+        )}
       </div>
     </Card>
+  )
+}
+
+function ApprovedRouteNotice({
+  route,
+  onOpenCorrections,
+  onOpenHistory,
+  onStartPlanning,
+}: {
+  route: RutaSemanalItem
+  onOpenCorrections: () => void
+  onOpenHistory: () => void
+  onStartPlanning: () => void
+}) {
+  const reviewLabel = route.hasEditableFutureDays ? 'Ir a correcciones' : 'Ver en historicos'
+  const reviewHandler = route.hasEditableFutureDays ? onOpenCorrections : onOpenHistory
+
+  return (
+    <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-3xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Ruta aprobada</p>
+          <h3 className="mt-2 text-lg font-semibold text-emerald-950">
+            {formatDate(route.semanaInicio)} - {formatDate(route.semanaFin)}
+          </h3>
+          <p className="mt-2 text-sm text-emerald-900/80">
+            Esta semana ya fue enviada y aprobada. Para evitar duplicados, ya no se muestra en la carga
+            operativa. Revisa la ruta en {route.hasEditableFutureDays ? 'Correcciones' : 'Historicos'} para seguir el flujo correcto.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Button type="button" variant="secondary" onClick={reviewHandler}>
+            {reviewLabel}
+          </Button>
+          <Button type="button" variant="outline" onClick={onStartPlanning}>
+            Definir otra semana
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -3631,15 +4232,19 @@ function WeeklyRouteCanvasPlanner({
           />
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)]">
-          <Input
-            label="Lunes de inicio"
-            type="date"
-            min={minimumWeekStart}
-            value={weekStart}
-            onChange={(event) => onWeekStartChange(normalizeWeekStart(event.target.value))}
-          />
-        </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)]">
+            <Input
+              label="Lunes de inicio"
+              type="date"
+              min={minimumWeekStart}
+              value={weekStart}
+              onChange={(event) => {
+                const nextWeekStart = normalizeWeekStart(event.target.value)
+                onWeekStartChange(nextWeekStart < minimumWeekStart ? minimumWeekStart : nextWeekStart)
+              }}
+              hint="Puedes elegir la semana actual o una futura para definir la ruta."
+            />
+          </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
           <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
@@ -3804,7 +4409,7 @@ function WeeklyRouteCanvasPlanner({
                         {formatDate(addDaysToWeek(weekStart, day.value))}
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
                       <span
                         className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
                           items.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-700'
@@ -3819,7 +4424,13 @@ function WeeklyRouteCanvasPlanner({
                       >
                         {items.length > 0 ? 'Con visitas' : 'Sin visitas'}
                       </span>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => openDayPicker(day.value)}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openDayPicker(day.value)}
+                        className="min-h-10 w-full justify-center px-4 sm:w-auto"
+                      >
                         Editar dia
                       </Button>
                       <Button
@@ -3828,6 +4439,7 @@ function WeeklyRouteCanvasPlanner({
                         size="sm"
                         onClick={() => clearDayDrafts(day.value)}
                         disabled={!items.some((item) => !item.locked)}
+                        className="min-h-10 w-full justify-center px-4 sm:w-auto"
                       >
                         Limpiar dia
                       </Button>
@@ -3913,9 +4525,16 @@ function WeeklyRouteCanvasPlanner({
                       </span>
                     </div>
                     {!item.locked ? (
-                      <div className="mt-3 flex items-center justify-between gap-2">
-                        <div className="flex gap-2">
-                          <Button type="button" variant="ghost" size="sm" disabled={index === 0} onClick={() => moveDraftWithinDay(item.clientId, 'up')}>
+                      <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-between">
+                        <div className="grid gap-2 sm:flex sm:flex-wrap">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={index === 0}
+                            onClick={() => moveDraftWithinDay(item.clientId, 'up')}
+                            className="min-h-10 w-full justify-center px-4 sm:w-auto"
+                          >
                             Subir
                           </Button>
                           <Button
@@ -3924,11 +4543,18 @@ function WeeklyRouteCanvasPlanner({
                             size="sm"
                             disabled={index === dayPickerDrafts.length - 1}
                             onClick={() => moveDraftWithinDay(item.clientId, 'down')}
+                            className="min-h-10 w-full justify-center px-4 sm:w-auto"
                           >
                             Bajar
                           </Button>
                         </div>
-                        <Button type="button" variant="ghost" size="sm" onClick={() => removeDraft(item.clientId)}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeDraft(item.clientId)}
+                          className="min-h-10 w-full justify-center px-4 sm:w-auto"
+                        >
                           Quitar
                         </Button>
                       </div>
@@ -3999,19 +4625,30 @@ function WeeklyRouteCanvasPlanner({
               })
             )}
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-3">
+          <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
             <Button
               type="button"
               variant="danger"
               onClick={clearSelectedDayDrafts}
               disabled={!hasEditableSelectedDayDrafts}
+              className="min-h-11 w-full justify-center px-4 sm:w-auto"
             >
               Limpiar dia
             </Button>
-            <Button type="button" variant="ghost" onClick={() => setIsDayPickerOpen(false)}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setIsDayPickerOpen(false)}
+              className="min-h-11 w-full justify-center px-4 sm:w-auto"
+            >
               Cancelar
             </Button>
-            <Button type="button" variant="secondary" onClick={saveDayDraft}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={saveDayDraft}
+              className="min-h-11 w-full justify-center px-4 sm:w-auto"
+            >
               Guardar borrador del dia
             </Button>
           </div>
@@ -4173,15 +4810,19 @@ function RouteChangeRequestCard({
   pdvsDisponibles: RutaSemanalPanelData['pdvsDisponibles']
 }) {
   const [state, formAction] = useActionState(solicitarCambioRutaSemanal, ESTADO_RUTA_INICIAL)
+  const editableDayNumbers = route.editableDayNumbers
   const dayOptions = Array.from(
     new Map(
-      route.visitas.map((visit) => [
-        visit.diaSemana,
-        {
-          value: String(visit.diaSemana),
-          label: `${visit.diaLabel} · ${route.visitas.filter((item) => item.diaSemana === visit.diaSemana).length} visita(s)`,
-        },
-      ])
+      editableDayNumbers.map((dayNumber) => {
+        const visitsForDay = route.visitas.filter((item) => item.diaSemana === dayNumber)
+        return [
+          dayNumber,
+          {
+            value: String(dayNumber),
+            label: `${getWeekDayLabel(dayNumber)} · ${visitsForDay.length} visita(s)`,
+          },
+        ]
+      })
     ).values()
   )
   const visitsByDay = useMemo(
@@ -4195,7 +4836,10 @@ function RouteChangeRequestCard({
     [route.visitas]
   )
   const [selectedDayNumber, setSelectedDayNumber] = useState<number>(
-    route.changeRequestTargetDayNumber ?? route.visitas[0]?.diaSemana ?? 1
+    route.changeRequestTargetDayNumber &&
+      editableDayNumbers.includes(route.changeRequestTargetDayNumber)
+      ? route.changeRequestTargetDayNumber
+      : editableDayNumbers[0] ?? 1
   )
   const [changeType, setChangeType] = useState<RutaSemanalItem['changeRequestType']>(
     route.changeRequestState === 'PENDIENTE' ? route.changeRequestType : 'CAMBIO_DIA'
@@ -4206,7 +4850,7 @@ function RouteChangeRequestCard({
   const [isStorePickerOpen, setIsStorePickerOpen] = useState(false)
   const [storeSearch, setStoreSearch] = useState('')
 
-  const buildDraftForDay = (dayNumber: number, sourceRoute = route) => {
+  const buildDraftForDay = useCallback((dayNumber: number, sourceRoute = route) => {
     if (
       sourceRoute.changeRequestState === 'PENDIENTE' &&
       sourceRoute.changeRequestTargetDayNumber === dayNumber &&
@@ -4226,17 +4870,23 @@ function RouteChangeRequestCard({
       label: visit.pdv ?? 'PDV sin nombre',
       subtitle: visit.zona ?? 'Sin zona',
     }))
-  }
+  }, [route, visitsByDay])
 
   const [draftRoute, setDraftRoute] = useState(() => buildDraftForDay(selectedDayNumber))
 
   useEffect(() => {
-    const nextDay = route.changeRequestTargetDayNumber ?? route.visitas[0]?.diaSemana ?? 1
-    setSelectedDayNumber(nextDay)
-    setChangeType(route.changeRequestState === 'PENDIENTE' ? route.changeRequestType : 'CAMBIO_DIA')
-    setSelectedVisitId(route.changeRequestState === 'PENDIENTE' ? route.changeRequestTargetVisitId ?? '' : '')
-    setDraftRoute(buildDraftForDay(nextDay, route))
-  }, [route.id, route.updatedAt])
+    const nextDay =
+      route.changeRequestTargetDayNumber &&
+      route.editableDayNumbers.includes(route.changeRequestTargetDayNumber)
+        ? route.changeRequestTargetDayNumber
+        : route.editableDayNumbers[0] ?? 1
+    return scheduleEffectStateUpdate(() => {
+      setSelectedDayNumber(nextDay)
+      setChangeType(route.changeRequestState === 'PENDIENTE' ? route.changeRequestType : 'CAMBIO_DIA')
+      setSelectedVisitId(route.changeRequestState === 'PENDIENTE' ? route.changeRequestTargetVisitId ?? '' : '')
+      setDraftRoute(buildDraftForDay(nextDay, route))
+    })
+  }, [buildDraftForDay, route])
 
   const currentDayVisits = visitsByDay.get(selectedDayNumber) ?? []
   const targetVisitOptions = currentDayVisits.map((visit) => ({
@@ -4342,6 +4992,10 @@ function RouteChangeRequestCard({
           La ruta ya se puede consultar, pero la solicitud formal de cambio se habilitara cuando la base
           local tenga la columna de metadata.
         </p>
+      ) : !route.hasEditableFutureDays ? (
+        <div className="mt-4 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+          Esta ruta ya no tiene dias vigentes para modificar. Solo pueden ajustarse dias actuales o futuros.
+        </div>
       ) : (
         <form action={formAction} className="mt-4 space-y-4">
           <input type="hidden" name="ruta_id" value={route.id} />
@@ -4381,7 +5035,6 @@ function RouteChangeRequestCard({
                 resetDraftForDay(nextDay, changeType)
               }}
               options={[
-                { value: '', label: 'Selecciona un dia...' },
                 ...dayOptions,
               ]}
             />

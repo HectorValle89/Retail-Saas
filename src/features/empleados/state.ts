@@ -1,3 +1,8 @@
+import type {
+  BajaMovimientoCanceladoSummary,
+  BajaVacanteImpactSummary,
+} from './services/bajaAsignacionImpactService'
+
 export interface EmpleadoOcrSnapshot {
   nombreCompleto: string | null
   curp: string | null
@@ -28,6 +33,9 @@ export interface EmpleadoActionState {
   temporaryEmail: string | null
   duplicatedUpload: boolean
   ocrSnapshot: EmpleadoOcrSnapshot | null
+  vacanteActual: BajaVacanteImpactSummary | null
+  vacantesFuturas: BajaVacanteImpactSummary[]
+  movimientosCancelados: BajaMovimientoCanceladoSummary[]
 }
 
 export interface CoberturaPdvOperativaActionState {
@@ -43,6 +51,9 @@ export const ESTADO_EMPLEADO_INICIAL: EmpleadoActionState = {
   temporaryEmail: null,
   duplicatedUpload: false,
   ocrSnapshot: null,
+  vacanteActual: null,
+  vacantesFuturas: [],
+  movimientosCancelados: [],
 }
 
 export const ESTADO_COBERTURA_PDV_OPERATIVA_INICIAL: CoberturaPdvOperativaActionState = {

@@ -102,7 +102,12 @@ test('convierte archivo legacy a rotacion oficial con grupos naturales y parejas
 
   const result = convertPdvRotationLegacyWorkbook(buffer, {
     accountIdentifier: 'isdin_mexico',
-    manualPairs: ISDIN_POR_CUBRIR_MANUAL_PAIRS,
+    manualPairs: [
+      {
+        code: 'ROT-ISDIN-MAN-001',
+        members: ['BTL-FAH-CUMB-WN', 'BTL-FAH-PLAZ-S5'],
+      },
+    ],
   })
 
   expect(result.issues).toEqual([])

@@ -1,5 +1,8 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
+import { createServiceClient } from '@/lib/supabase/server'
 import type {
   Asistencia,
   CuentaCliente,
@@ -24,6 +27,15 @@ import {
 } from '@/features/solicitudes/extemporaneoService'
 
 type MaybeMany<T> = T | T[] | null
+
+function isSupabaseClient(value: unknown): value is SupabaseClient {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'from' in value &&
+      typeof (value as { from?: unknown }).from === 'function'
+  )
+}
 
 type CuentaClienteRelacion = Pick<CuentaCliente, 'id' | 'nombre' | 'identificador'>
 type EmpleadoRelacion = Pick<
@@ -430,14 +442,42 @@ interface QueryWithOptionalIn<T> {
   limit: (count: number) => QueryResult<T>
 }
 
-export async function obtenerPanelLoveIsdin(
+interface ObtenerLoveIsdinPanelOptions {
+  actor?: ActorActual | null
+  serviceClient?: TypedSupabaseClient
+  page?: number
+  pageSize?: number
+}
+
+const LOVE_ISDIN_PANEL_REVALIDATE_SECONDS = 60
+
+function buildLoveIsdinCacheKey(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
+  options: ObtenerLoveIsdinPanelOptions
+) {
+  return JSON.stringify({
+    cuentaClienteId: actor.cuentaClienteId ?? null,
+    empleadoId: actor.empleadoId,
+    puesto: actor.puesto,
+    page: normalizePage(options.page),
+    pageSize: normalizePageSize(options.pageSize),
+  })
+}
+
+function buildLoveIsdinCacheTags(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>
+) {
+  return buildModuleCacheTags({
+    module: 'love-isdin',
+    accountId: actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+  })
+}
+
+async function obtenerPanelLoveIsdinUncached(
   supabase: TypedSupabaseClient,
-  options?: {
-    actor?: ActorActual
-    serviceClient?: TypedSupabaseClient
-    page?: number
-    pageSize?: number
-  }
+  options: ObtenerLoveIsdinPanelOptions = {}
 ): Promise<LoveIsdinPanelData> {
   const client = supabase
   const storageClient = options?.serviceClient ?? supabase
@@ -1351,4 +1391,34 @@ export async function obtenerPanelLoveIsdin(
     },
     infraestructuraLista: true,
   }
+}
+
+export async function obtenerPanelLoveIsdin(
+  actorOrSupabase: ActorActual | TypedSupabaseClient,
+  options?: ObtenerLoveIsdinPanelOptions,
+  customSupabase?: TypedSupabaseClient
+): Promise<LoveIsdinPanelData> {
+  if (isSupabaseClient(actorOrSupabase)) {
+    return obtenerPanelLoveIsdinUncached(actorOrSupabase, options)
+  }
+
+  const actor = actorOrSupabase
+  const resolvedOptions: ObtenerLoveIsdinPanelOptions = {
+    ...options,
+    actor,
+  }
+
+  if (customSupabase) {
+    return obtenerPanelLoveIsdinUncached(customSupabase, resolvedOptions)
+  }
+
+  const service = options?.serviceClient ?? createServiceClient()
+  return unstable_cache(
+    async () => obtenerPanelLoveIsdinUncached(service, { ...resolvedOptions, serviceClient: service }),
+    ['love-isdin-panel', buildLoveIsdinCacheKey(actor, resolvedOptions)],
+    {
+      revalidate: LOVE_ISDIN_PANEL_REVALIDATE_SECONDS,
+      tags: buildLoveIsdinCacheTags(actor),
+    }
+  )()
 }

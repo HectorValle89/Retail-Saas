@@ -1,5 +1,3 @@
-export const runtime = 'edge';
-import Link from 'next/link'
 import { Card } from '@/components/ui/card'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { readRequestAccountScope } from '@/lib/tenant/accountScope'
@@ -23,23 +21,22 @@ export default async function NuevaCampanaPage() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="max-w-3xl">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-orange-700">
-              Crear campaÃ±a
+              Crear campaña
             </p>
             <h1 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-slate-950">
               Nuevo borrador
             </h1>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              Esta superficie solo existe para crear una campaÃ±a nueva. La publicaciÃ³n y la ediciÃ³n de campaÃ±as
-              existentes se controlan desde operaciÃ³n y desde la ficha individual de cada campaÃ±a.
+              Esta superficie solo existe para crear una campaña nueva. La publicación y la edición de campañas
+              existentes se controlan desde operación y desde la ficha individual de cada campaña.
             </p>
           </div>
-          <Link
+          <a
             href="/campanas"
-            prefetch={false}
             className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-[var(--module-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--module-text)] transition hover:bg-[var(--module-soft-bg)]"
           >
-            Volver a operaciÃ³n
-          </Link>
+            Volver a operación
+          </a>
         </div>
       </header>
       {data.infraestructuraLista ? <CampanaEditorCard data={data} campaign={null} /> : null}
@@ -52,4 +49,3 @@ export default async function NuevaCampanaPage() {
     </div>
   )
 }
-

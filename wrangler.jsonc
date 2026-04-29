@@ -1,0 +1,80 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "beteele-one",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-04-10",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "beteele-one.com",
+      "custom_domain": true,
+    },
+    {
+      "pattern": "www.beteele-one.com",
+      "custom_domain": true,
+    },
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "R2_MEDIA",
+      "bucket_name": "beteele-media-prod",
+      "preview_bucket_name": "beteele-media-prod",
+    },
+  ],
+  "vars": {
+    "NEXT_PUBLIC_SUPABASE_URL": "https://jbdfutvkfvmaulmnfwkk.supabase.co",
+    "NEXT_PUBLIC_SITE_URL": "https://beteele-one.com",
+    "OCR_PROVIDER": "gemini",
+    "GEMINI_OCR_MODEL": "gemini-2.5-flash-lite",
+    "EMAIL_NOTIFICATIONS_ENABLED": "true",
+    "USUARIOS_FROM_EMAIL": "notify@beteele-one.com",
+    "TRANSACTIONAL_EMAIL_OVERRIDE_TO": "",
+    "CLOUDFLARE_ACCOUNT_ID": "183b83e136c90324b838d8bfa0c6c7d6",
+    "CLOUDFLARE_R2_BUCKET_NAME": "beteele-media-prod",
+    "RESEND_API_KEY": ""
+  },
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "beteele-one",
+    },
+  ],
+  "env": {
+    "dev": {
+      "name": "beteele-one-dev",
+      "workers_dev": true,
+
+      "r2_buckets": [
+        {
+          "binding": "R2_MEDIA",
+          "bucket_name": "beteele-media-prod",
+          "preview_bucket_name": "beteele-media-prod",
+        },
+      ],
+      "vars": {
+        "NEXT_PUBLIC_SUPABASE_URL": "https://jbdfutvkfvmaulmnfwkk.supabase.co",
+        "NEXT_PUBLIC_SITE_URL": "https://beteele-one-dev.hector-183.workers.dev",
+        "OCR_PROVIDER": "gemini",
+        "GEMINI_OCR_MODEL": "gemini-2.5-flash-lite",
+        "EMAIL_NOTIFICATIONS_ENABLED": "true",
+        "USUARIOS_FROM_EMAIL": "notify@beteele-one.com",
+        "TRANSACTIONAL_EMAIL_OVERRIDE_TO": "hector@artolagroup.com",
+        "CLOUDFLARE_ACCOUNT_ID": "183b83e136c90324b838d8bfa0c6c7d6",
+        "CLOUDFLARE_R2_BUCKET_NAME": "beteele-media-prod",
+        "RESEND_API_KEY": ""
+      },
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "beteele-one-dev",
+        },
+      ],
+    },
+  },
+}

@@ -15,13 +15,14 @@ Este documento detalla el estado actual de la arquitectura del proyecto Retail, 
 ## 🏗️ Análisis de Estructura (Feature-First)
 
 El proyecto sigue una estructura `src/features/`, lo cual es óptimo para el trabajo agéntico.
-- **Features Detectadas**: `auth`, `dashboard`, `appointments`, `lawyers`, `billing`, etc.
+- **Features Detectadas**: `auth`, `dashboard`, `empleados`, `asignaciones`, `asistencias`, `ventas`, `nomina`, `reportes`, `reclutamiento` (Nuevo).
 - **Cohesión**: Los componentes están colocalizados dentro de sus respectivas features.
 
 ## ⚠️ Deuda Técnica e Incidentes
 - **Arquitectura**: Falta de documentación de auditoría (Corregido con este archivo).
 - **Testing**: Se requiere validar la cobertura de Playwright en flujos críticos.
-- **Seguridad**: Pendiente auditoría de RLS en todas las tablas de Supabase.
+- **Seguridad**: RLS base implementado, pendiente auditoría profunda de mínimo privilegio.
+- **Modularización**: Exitosa extracción de `reclutamiento` desde `empleados`.
 
 ## 🎯 Plan de Acción
 1. [ ] Ejecutar auditoría de seguridad de Supabase.

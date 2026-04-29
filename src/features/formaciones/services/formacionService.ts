@@ -1,7 +1,10 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
 import { createServiceClient } from '@/lib/supabase/server'
 import type { Ciudad, Empleado, FormacionAsistencia, FormacionEvento, Pdv, SupervisorPdv } from '@/types/database'
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
 import {
   normalizeFormacionAttendanceMetadata,
   normalizeFormacionTargetingMetadata,
@@ -80,7 +83,7 @@ async function fetchFormacionPdvsWithCityStateCompatibility(service: TypedSupaba
         clave_btl,
         nombre,
         zona,
-        ciudad:ciudad_id(id, nombre, zona, estado),
+        ciudad:ciudad_id(id, nombre, zona),
         supervisor_pdv(
           id,
           activo,
@@ -440,17 +443,12 @@ function buildPdvGroups(pdvs: FormacionPdvScopeItem[]) {
     .sort((left, right) => left.stateName.localeCompare(right.stateName, 'es-MX'))
 }
 
-export async function obtenerPanelFormaciones(
+async function loadPanelFormaciones(
+  service: TypedSupabaseClient,
   actor: ActorActual,
-  options?: {
-    scopeAccountId?: string | null
-    serviceClient?: TypedSupabaseClient
-  }
+  targetAccountId: string | null,
+  puedeGestionar: boolean
 ): Promise<FormacionesPanelData> {
-  const service = options?.serviceClient ?? createServiceClient()
-  const targetAccountId = options?.scopeAccountId ?? actor.cuentaClienteId
-  const puedeGestionar = FORMACION_MANAGER_ROLES.includes(actor.puesto as (typeof FORMACION_MANAGER_ROLES)[number])
-
   const eventoQuery = service
     .from('formacion_evento')
     .select(
@@ -580,10 +578,11 @@ export async function obtenerPanelFormaciones(
         .filter((relation): relation is SupervisorPdvRow => Boolean(relation))
         .sort((left, right) => right.fecha_inicio.localeCompare(left.fecha_inicio))[0] ?? null
       const supervisor = getFirst(supervisorRelation?.empleado ?? null)
+      const ciudadEstado = resolveMexicoStateFromCity(ciudad?.nombre ?? null)
       const stateName =
         resolveFormacionPdvState({
           ciudadNombre: ciudad?.nombre ?? null,
-          ciudadEstado: ciudad?.estado ?? null,
+          ciudadEstado,
         }) ?? 'Sin estado'
 
       return {
@@ -740,4 +739,49 @@ export async function obtenerPanelFormaciones(
     pdvGroups: buildPdvGroups(pdvScope),
     infraestructuraLista: true,
   }
+}
+
+export async function obtenerPanelFormaciones(
+  actor: ActorActual,
+  options?: {
+    scopeAccountId?: string | null
+    serviceClient?: TypedSupabaseClient
+    cacheKeyParts?: Array<string | number | null | undefined>
+    cacheTags?: string[]
+    revalidateSeconds?: number
+  }
+): Promise<FormacionesPanelData> {
+  const service = options?.serviceClient ?? createServiceClient()
+  const targetAccountId = options?.scopeAccountId ?? actor.cuentaClienteId
+  const puedeGestionar = FORMACION_MANAGER_ROLES.includes(actor.puesto as (typeof FORMACION_MANAGER_ROLES)[number])
+
+  if (options?.serviceClient) {
+    return loadPanelFormaciones(service, actor, targetAccountId, puedeGestionar)
+  }
+
+  const cached = unstable_cache(
+    () => loadPanelFormaciones(service, actor, targetAccountId, puedeGestionar),
+    [
+      'formaciones-panel',
+      actor.cuentaClienteId ?? 'sin-cuenta',
+      actor.empleadoId,
+      actor.puesto,
+      targetAccountId ?? 'sin-scope',
+      ...(options?.cacheKeyParts ?? []),
+    ].map((value) => String(value)),
+    {
+      tags: [
+        ...buildModuleCacheTags({
+          module: 'formaciones',
+          accountId: targetAccountId,
+          employeeId: actor.empleadoId,
+          supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+        }),
+        ...(options?.cacheTags ?? []),
+      ],
+      revalidate: options?.revalidateSeconds ?? 180,
+    }
+  )
+
+  return cached()
 }

@@ -1,6 +1,6 @@
-export const runtime = 'edge';
-import { requerirAdministradorActivo } from '@/lib/auth/session'
-import { createClient } from '@/lib/supabase/server'
+import { requerirPuestosActivos } from '@/lib/auth/session'
+import { VisitasOperativasDemandCard } from '@/features/reportes/components/VisitasOperativasDemandCard'
+import { VisitasSupervisoresDemandCard } from '@/features/reportes/components/VisitasSupervisoresDemandCard'
 import { ReportesPanel } from '@/features/reportes/components/ReportesPanel'
 import { ReportesScheduleManager } from '@/features/reportes/components/ReportesScheduleManager'
 import { obtenerPanelReportes, obtenerPanelReportesShell } from '@/features/reportes/services/reporteService'
@@ -36,20 +36,22 @@ function resolveCurrentMonth() {
 }
 
 export default async function ReportesPage({ searchParams }: ReportesPageProps) {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR'])
   const params = (await searchParams) ?? {}
   const periodo = pickString(params.periodo)
   const page = parsePositiveInt(pickString(params.page), 1)
   const pageSize = parsePositiveInt(pickString(params.pageSize), 25)
-  const schedules = await obtenerProgramacionReportes(actor)
-  const data = periodo
-    ? await obtenerPanelReportes(await createClient(), {
-        actor,
+  const schedulesPromise =
+    actor.puesto === 'ADMINISTRADOR' ? obtenerProgramacionReportes(actor) : Promise.resolve(null)
+  const dataPromise = periodo
+    ? obtenerPanelReportes(actor, {
         period: periodo,
         page,
         pageSize,
       })
-    : obtenerPanelReportesShell(resolveCurrentMonth(), page, pageSize)
+    : Promise.resolve(obtenerPanelReportesShell(resolveCurrentMonth(), page, pageSize))
+
+  const [schedules, data] = await Promise.all([schedulesPromise, dataPromise])
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -59,13 +61,15 @@ export default async function ReportesPage({ searchParams }: ReportesPageProps) 
         </p>
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">Reportes</h1>
         <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-          Salida analitica consolidada para asistencia, ventas, campanas, cuotas, nomina y bitacora administrativa, con periodo obligatorio y paginacion operativa.
+          Salida analitica consolidada para asistencia, ventas, campanas, cuotas, nomina y bitacora administrativa, con periodo obligatorio, paginacion operativa y detalle de visitas/evidencias de supervisores bajo demanda.
         </p>
       </header>
 
       <div className="space-y-6">
-        <ReportesScheduleManager data={schedules} />
-        <ReportesPanel data={data} />
+        {actor.puesto === 'ADMINISTRADOR' && schedules ? <ReportesScheduleManager actor={actor} data={schedules} /> : null}
+        <VisitasOperativasDemandCard periodoInicial={data.filtros.periodo} />
+        <VisitasSupervisoresDemandCard periodoInicial={data.filtros.periodo} />
+        <ReportesPanel actor={actor} data={data} />
       </div>
     </div>
   )

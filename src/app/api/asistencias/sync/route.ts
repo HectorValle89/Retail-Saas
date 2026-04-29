@@ -25,6 +25,8 @@ import {
 } from '@/lib/geo/mexicoStateTimezone'
 import { sendOperationalPushNotification } from '@/lib/push/pushFanout'
 import { createServiceClient } from '@/lib/supabase/server'
+import { isFallbackableAttendanceRpcError } from './attendanceSyncErrors'
+import { resolveCheckInAssignmentForPersistence } from './assignmentPersistence'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TypedSupabaseClient = SupabaseClient<any>
@@ -354,16 +356,6 @@ async function registrarEventoAudit(
   })
 }
 
-function isMissingAttendanceRpcError(message: string | null | undefined) {
-  if (!message) {
-    return false
-  }
-
-  return /Could not find the function public\.rpc_registrar_asistencia_dc|rpc_registrar_asistencia_dc.*schema cache/i.test(
-    message
-  )
-}
-
 function buildAttendancePersistenceRow(
   record: Record<string, unknown>,
   metadata: Record<string, unknown>,
@@ -584,7 +576,7 @@ async function persistAttendanceRecord(
     }
   }
 
-  if (rpcError && !isMissingAttendanceRpcError(rpcError.message)) {
+  if (rpcError && !isFallbackableAttendanceRpcError(rpcError.message)) {
     throw new Error(rpcError.message)
   }
 
@@ -942,7 +934,7 @@ function resolveAttendanceStatusAfterBiometrics(
     : 'PENDIENTE_VALIDACION'
 }
 
-async function ensureActiveAssignmentForCheckIn(
+async function resolveActiveAssignmentForCheckIn(
   service: TypedSupabaseClient,
   {
     assignmentId,
@@ -956,37 +948,12 @@ async function ensureActiveAssignmentForCheckIn(
     fechaOperacion: string
   }
 ) {
-  if (!assignmentId) {
-    throw new Error('El check-in requiere una asignacion activa con PDV y horario de referencia.')
-  }
-
-  const { data: assignment, error: assignmentError } = await service
-    .from('asignacion')
-    .select('id, empleado_id, pdv_id, fecha_inicio, fecha_fin, horario_referencia, estado_publicacion')
-    .eq('id', assignmentId)
-    .maybeSingle()
-
-  if (assignmentError) {
-    throw new Error(assignmentError.message)
-  }
-
-  const assignmentStart = assignment?.fecha_inicio ?? null
-  const assignmentEnd = assignment?.fecha_fin ?? null
-  const isActiveByDate =
-    Boolean(assignmentStart) &&
-    assignmentStart <= fechaOperacion &&
-    (!assignmentEnd || assignmentEnd >= fechaOperacion)
-
-  if (
-    !assignment ||
-    assignment.empleado_id !== empleadoId ||
-    assignment.pdv_id !== pdvId ||
-    assignment.estado_publicacion !== 'PUBLICADA' ||
-    !assignment.horario_referencia ||
-    !isActiveByDate
-  ) {
-    throw new Error('El check-in requiere una asignacion activa con PDV y horario de referencia.')
-  }
+  return resolveCheckInAssignmentForPersistence(service as never, {
+    assignmentId,
+    empleadoId,
+    pdvId,
+    fechaOperacion,
+  })
 }
 
 export async function POST(request: Request) {
@@ -1140,12 +1107,27 @@ export async function POST(request: Request) {
 
     if (record.check_in_utc && !record.check_out_utc) {
       ensureNativeCheckInCapture(metadata, selfieCheckInFile)
-      await ensureActiveAssignmentForCheckIn(service, {
+      const activeAssignment = await resolveActiveAssignmentForCheckIn(service, {
         assignmentId: typeof record.asignacion_id === 'string' ? record.asignacion_id : null,
         empleadoId,
         pdvId,
         fechaOperacion: resolvedFechaOperacion,
       })
+
+      record.asignacion_id = activeAssignment.id
+      if (
+        typeof activeAssignment.cuenta_cliente_id === 'string' &&
+        activeAssignment.cuenta_cliente_id.length > 0
+      ) {
+        record.cuenta_cliente_id = activeAssignment.cuenta_cliente_id
+      }
+      if (
+        !resolvedSupervisorEmpleadoId &&
+        typeof activeAssignment.supervisor_empleado_id === 'string' &&
+        activeAssignment.supervisor_empleado_id.length > 0
+      ) {
+        resolvedSupervisorEmpleadoId = activeAssignment.supervisor_empleado_id
+      }
 
       const biometricEmployee = await resolveEmployeeBiometricContext(service, empleadoId)
       biometricEmployeeContext = biometricEmployee

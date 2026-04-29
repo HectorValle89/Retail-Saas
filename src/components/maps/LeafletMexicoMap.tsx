@@ -92,19 +92,56 @@ function FitMapToPoints({ points }: { points: MexicoMapPoint[] }) {
   const map = useMap();
 
   useEffect(() => {
-    if (points.length === 0) {
-      map.fitBounds(MEXICO_BOUNDS, { padding: [24, 24] });
-      return;
-    }
+    const fit = () => {
+      map.invalidateSize({ animate: false });
 
-    if (points.length === 1) {
-      map.setView([points[0].lat, points[0].lng], 11, { animate: false });
-      return;
-    }
+      if (points.length === 0) {
+        map.fitBounds(MEXICO_BOUNDS, { padding: [24, 24] });
+        return;
+      }
 
-    const bounds: LatLngBoundsExpression = points.map((item) => [item.lat, item.lng]);
-    map.fitBounds(bounds, { padding: [28, 28], maxZoom: 12 });
+      if (points.length === 1) {
+        map.setView([points[0].lat, points[0].lng], 11, { animate: false });
+        return;
+      }
+
+      const bounds: LatLngBoundsExpression = points.map((item) => [item.lat, item.lng]);
+      map.fitBounds(bounds, { padding: [28, 28], maxZoom: 12 });
+    };
+
+    const frameId = window.requestAnimationFrame(fit);
+    return () => window.cancelAnimationFrame(frameId);
   }, [map, points]);
+
+  return null;
+}
+
+function SyncMapSize() {
+  const map = useMap();
+
+  useEffect(() => {
+    const syncSize = () => {
+      map.invalidateSize({ animate: false });
+    };
+
+    syncSize();
+
+    const container = map.getContainer();
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            syncSize();
+          });
+
+    observer?.observe(container);
+    window.addEventListener('resize', syncSize);
+
+    return () => {
+      window.removeEventListener('resize', syncSize);
+      observer?.disconnect();
+    };
+  }, [map]);
 
   return null;
 }
@@ -160,6 +197,7 @@ export function LeafletMexicoMap({
         zoomControl
         scrollWheelZoom
         className="z-0 h-full w-full"
+        style={{ height: '100%', width: '100%' }}
       >
         <TileLayer
           key={tileProvider.id}
@@ -170,6 +208,7 @@ export function LeafletMexicoMap({
             tileerror: handleTileError,
           }}
         />
+        <SyncMapSize />
         <FitMapToPoints points={points} />
         {showPath && pathPoints.length > 1 ? (
           <Polyline

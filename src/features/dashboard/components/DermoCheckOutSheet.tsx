@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useOfflineSync } from '@/hooks/useOfflineSync'
+import type { PermissionRecoveryState } from '@/lib/device/permissionRecovery'
 import type { ActorActual } from '@/lib/auth/session'
 import { queueOfflineAsistencia, syncAsistenciaNow } from '@/lib/offline/syncQueue'
 import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog'
@@ -42,6 +43,7 @@ export function DermoCheckOutSheet({
   const [isCapturingGps, setIsCapturingGps] = useState(false)
   const [capturedPosition, setCapturedPosition] = useState<CapturedPosition | null>(null)
   const [gpsState, setGpsState] = useState<AttendanceGpsState>('PENDIENTE')
+  const [gpsRecoveryState, setGpsRecoveryState] = useState<PermissionRecoveryState | null>(null)
   const [selfieCapture, setSelfieCapture] = useState<SelfieCapture | null>(null)
   const [justificacion, setJustificacion] = useState('')
   const [isPreparingCapture, setIsPreparingCapture] = useState(false)
@@ -85,6 +87,7 @@ export function DermoCheckOutSheet({
       .then((result) => {
         setCapturedPosition(result.position)
         setGpsState(result.estadoGps)
+        setGpsRecoveryState(result.recoveryState)
         return result
       })
       .finally(() => {
@@ -493,6 +496,25 @@ export function DermoCheckOutSheet({
           </div>
         )}
 
+        {gpsRecoveryState && gpsState === 'SIN_GPS' && (
+          <div className="mt-4 space-y-3 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+            <div>
+              <p className="font-semibold">{gpsRecoveryState.title}</p>
+              <p className="mt-1 leading-6">{gpsRecoveryState.message}</p>
+            </div>
+            <div className="space-y-2 rounded-[14px] bg-white/70 px-3 py-3">
+              {gpsRecoveryState.steps.map((step) => (
+                <p key={step} className="leading-5">
+                  {step}
+                </p>
+              ))}
+            </div>
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => void beginGpsCapture()}>
+              {gpsRecoveryState.retryLabel}
+            </Button>
+          </div>
+        )}
+
         {selfieCapture && (
           <div className="mt-4 overflow-hidden rounded-[22px] border border-slate-200 bg-slate-50">
             <img
@@ -550,6 +572,9 @@ export function DermoCheckOutSheet({
         }}
         onCapture={handleCaptureSelfie}
         captureLabel="Capturar salida"
+        onRetryPermissions={() => {
+          void beginGpsCapture()
+        }}
       />
     </div>
   )

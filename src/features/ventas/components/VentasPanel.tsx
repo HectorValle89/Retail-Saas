@@ -1,13 +1,17 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { OfflineStatusCard } from '@/components/pwa/OfflineStatusCard'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
 import { useOfflineSync } from '@/hooks/useOfflineSync'
+import type { ActorActual } from '@/lib/auth/session'
 import { queueOfflineVenta } from '@/lib/offline/syncQueue'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import type { VentasPanelData } from '../services/ventaService'
 import { ExtemporaneoQueueSection } from '@/features/solicitudes/components/ExtemporaneoQueueSection'
 
@@ -30,8 +34,43 @@ function buildPageHref(data: VentasPanelData, page: number) {
   return `/ventas?${params.toString()}`
 }
 
-export function VentasPanel({ data }: { data: VentasPanelData }) {
+export function VentasPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: VentasPanelData
+}) {
   const offline = useOfflineSync()
+  const searchParams = useSearchParams()
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    const params = new URLSearchParams()
+    params.set('page', searchParams.get('page') ?? String(initialData.paginacion.page))
+    params.set('pageSize', searchParams.get('pageSize') ?? String(initialData.paginacion.pageSize))
+
+    const response = await fetch(`/api/ventas/panel?${params.toString()}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    })
+    const payload = (await response.json()) as { data?: VentasPanelData; message?: string }
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de ventas.')
+    }
+
+    return payload.data
+  }, [initialData.paginacion.page, initialData.paginacion.pageSize, searchParams])
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'ventas',
+    surfaces: ['panel', 'tabla', 'metricas', 'inbox', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 650,
+  })
   const todayOperationDate = getLocalDateValue()
   const jornadasDisponibles = data.jornadasContexto.filter(
     (jornada) => jornada.estatus !== 'RECHAZADA' && jornada.fechaOperacion === todayOperationDate

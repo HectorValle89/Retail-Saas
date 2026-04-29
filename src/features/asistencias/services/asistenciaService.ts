@@ -1,10 +1,24 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
+import { createServiceClient } from '@/lib/supabase/server'
 import type { Asistencia, Asignacion, ConfiguracionSistema, CuentaCliente, Empleado, MisionDia, Solicitud, Venta } from '@/types/database'
 import { deriveAttendanceDiscipline, type AttendanceDisciplineAssignment, type AttendanceDisciplineFormation, type AttendanceDisciplineRecord } from '@/features/asistencias/lib/attendanceDiscipline'
 import type { AttendanceMissionCatalogItem } from '@/features/asistencias/lib/attendanceMission'
 import { formacionTargetsEmployee } from '@/features/formaciones/lib/formacionTargeting'
 
 type MaybeMany<T> = T | T[] | null
+type TypedSupabaseClient = ReturnType<typeof createServiceClient>
+
+function isSupabaseClient(value: unknown): value is SupabaseClient {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'from' in value &&
+      typeof (value as { from?: unknown }).from === 'function'
+  )
+}
 
 type CuentaClienteRelacion = Pick<CuentaCliente, 'nombre'>
 
@@ -179,7 +193,11 @@ export interface AsistenciasPanelData {
 interface ObtenerAsistenciasOptions {
   page?: number
   pageSize?: number
+  actor?: ActorActual | null
+  serviceClient?: TypedSupabaseClient
 }
+
+const ASISTENCIAS_PANEL_REVALIDATE_SECONDS = 60
 
 const obtenerPrimero = <T>(value: MaybeMany<T>): T | null => {
   if (!value) {
@@ -254,7 +272,26 @@ function resolveNumericConfigValue(value: unknown, fallback: number) {
   return fallback
 }
 
-export async function obtenerPanelAsistencias(
+function buildAsistenciasCacheKey(actor: ActorActual, options?: ObtenerAsistenciasOptions) {
+  return [
+    actor.cuentaClienteId ?? 'sin-cuenta',
+    actor.empleadoId,
+    actor.puesto,
+    String(normalizePage(options?.page)),
+    String(normalizePageSize(options?.pageSize)),
+  ].join(':')
+}
+
+function buildAsistenciasCacheTags(actor: ActorActual) {
+  return buildModuleCacheTags({
+    module: 'asistencias',
+    accountId: actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId ?? null,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId ?? null : null,
+  })
+}
+
+async function obtenerPanelAsistenciasUncached(
   supabase: SupabaseClient,
   options?: ObtenerAsistenciasOptions
 ): Promise<AsistenciasPanelData> {
@@ -728,4 +765,35 @@ export async function obtenerPanelAsistencias(
     },
     infraestructuraLista: true,
   }
+}
+
+export async function obtenerPanelAsistencias(
+  actorOrSupabase: ActorActual | TypedSupabaseClient,
+  options?: ObtenerAsistenciasOptions,
+  customSupabase?: TypedSupabaseClient
+): Promise<AsistenciasPanelData> {
+  if (isSupabaseClient(actorOrSupabase)) {
+    return obtenerPanelAsistenciasUncached(actorOrSupabase, options)
+  }
+
+  const actor = actorOrSupabase
+  const resolvedOptions: ObtenerAsistenciasOptions = {
+    ...options,
+    actor,
+  }
+
+  if (customSupabase) {
+    return obtenerPanelAsistenciasUncached(customSupabase, resolvedOptions)
+  }
+
+  const service = options?.serviceClient ?? createServiceClient()
+  return unstable_cache(
+    async () =>
+      obtenerPanelAsistenciasUncached(service, { ...resolvedOptions, serviceClient: service }),
+    ['asistencias-panel', buildAsistenciasCacheKey(actor, resolvedOptions)],
+    {
+      revalidate: ASISTENCIAS_PANEL_REVALIDATE_SECONDS,
+      tags: buildAsistenciasCacheTags(actor),
+    }
+  )()
 }

@@ -26,6 +26,7 @@ vi.mock('./documentOptimization', () => ({
     },
     officialAssetKind: 'optimized',
   })),
+  exceedsOperationalDocumentUploadLimit: vi.fn(() => false),
 }))
 
 function buildFakeFile(name: string, type: string) {

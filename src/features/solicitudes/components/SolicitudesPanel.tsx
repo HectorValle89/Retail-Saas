@@ -1,9 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { useActionState, useState } from 'react'
+import { useActionState, useCallback, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import type { ActorActual } from '@/lib/auth/session'
 import { useFormStatus } from 'react-dom'
 import { Button, Card, EvidencePreview, MetricCard as SharedMetricCard } from '@/components/ui'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import {
   getSingleTenantAccountLabel,
   isSingleTenantUiEnabled,
@@ -59,7 +63,42 @@ function buildFilterParams(data: SolicitudesPanelData) {
   return params
 }
 
-export function SolicitudesPanel({ data }: { data: SolicitudesPanelData }) {
+export function SolicitudesPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: SolicitudesPanelData
+}) {
+  const searchParams = useSearchParams()
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(
+    async (signal: AbortSignal) => {
+      const query = searchParams.toString()
+      const response = await fetch(query ? `/api/solicitudes/panel?${query}` : '/api/solicitudes/panel', {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal,
+      })
+      const payload = (await response.json()) as { data?: SolicitudesPanelData; message?: string }
+
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.message ?? 'No fue posible refrescar el panel de solicitudes.')
+      }
+
+      return payload.data
+    },
+    [searchParams]
+  )
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'solicitudes',
+    surfaces: ['panel', 'metricas', 'inbox', 'tabla', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher: (signal) => fetcher(signal),
+    debounceMs: 650,
+  })
   const [state, formAction] = useActionState(registrarSolicitudOperativa, ESTADO_SOLICITUD_INICIAL)
   const canPrev = data.paginacion.page > 1
   const canNext = data.paginacion.page < data.paginacion.totalPages

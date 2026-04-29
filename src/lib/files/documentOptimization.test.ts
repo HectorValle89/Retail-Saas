@@ -30,16 +30,14 @@ describe('documentOptimization image pipeline', () => {
       fileName: 'evidencia.png',
     })
 
-    expect(result.optimizationKind).toBe('image-jpeg')
-    expect(result.mimeType).toBe('image/jpeg')
-    expect(result.officialAssetKind).toBe('optimized')
-    expect(result.optimizedBytes).toBeLessThanOrEqual(EXPEDIENTE_IMAGE_TARGET_BYTES)
-    expect(result.thumbnail).not.toBeNull()
-    expect(result.thumbnail?.bytes).toBeLessThanOrEqual(EXPEDIENTE_THUMBNAIL_TARGET_BYTES)
-    expect(result.thumbnail?.mimeType).toBe('image/jpeg')
+    expect(result.optimizationKind).toBe('none')
+    expect(result.mimeType).toBe('image/png')
+    expect(result.officialAssetKind).toBe('original')
+    expect(result.optimizedBytes).toBe(source.length)
+    expect(result.thumbnail).toBeNull()
   })
 
-  it('mantiene el output y la miniatura dentro de los limites para entradas SVG variadas', async () => {
+  it('mantiene el output para entradas SVG variadas', async () => {
     await fc.assert(
       fc.asyncProperty(fc.integer({ min: 40, max: 220 }), async (repetitions) => {
         const source = await sharp(Buffer.from(buildDenseSvg(repetitions))).png().toBuffer()
@@ -50,9 +48,8 @@ describe('documentOptimization image pipeline', () => {
           fileName: `evidencia-${repetitions}.png`,
         })
 
-        expect(result.optimizedBytes).toBeLessThanOrEqual(EXPEDIENTE_IMAGE_TARGET_BYTES)
-        expect(result.thumbnail).not.toBeNull()
-        expect(result.thumbnail?.bytes).toBeLessThanOrEqual(EXPEDIENTE_THUMBNAIL_TARGET_BYTES)
+        expect(result.optimizedBytes).toBe(source.length)
+        expect(result.optimizationKind).toBe('none')
       }),
       { numRuns: 8 }
     )
@@ -60,24 +57,23 @@ describe('documentOptimization image pipeline', () => {
 })
 
 describe('documentOptimization public utilities', () => {
-  it('expone compressImage(file, maxKB) con target configurable', async () => {
+  it('expone compressImage(file, maxKB) sin realizar cambios cuando esta deshabilitado', async () => {
     const source = await sharp(Buffer.from(buildDenseSvg(120))).png().toBuffer()
     const file = new File([new Uint8Array(source)], 'evidencia.png', { type: 'image/png' })
 
     const result = await compressImage(file, 100)
 
-    expect(result.optimizedBytes).toBeLessThanOrEqual(EXPEDIENTE_IMAGE_TARGET_BYTES)
-    expect(result.thumbnail?.bytes).toBeLessThanOrEqual(EXPEDIENTE_THUMBNAIL_TARGET_BYTES)
+    expect(result.optimizedBytes).toBe(source.length)
+    expect(result.thumbnail).toBeNull()
   })
 
-  it('expone generateThumbnail(file, maxKB) con salida ligera', async () => {
+  it('expone generateThumbnail(file, maxKB) retornando null cuando esta deshabilitado', async () => {
     const source = await sharp(Buffer.from(buildDenseSvg(80))).png().toBuffer()
     const file = new File([new Uint8Array(source)], 'evidencia.png', { type: 'image/png' })
 
     const thumbnail = await generateThumbnail(file, 20)
 
-    expect(thumbnail).not.toBeNull()
-    expect(thumbnail?.bytes).toBeLessThanOrEqual(EXPEDIENTE_THUMBNAIL_TARGET_BYTES)
+    expect(thumbnail).toBeNull()
   })
 
   it('expone compressPDF(file, maxKB) preservando contrato PDF', async () => {

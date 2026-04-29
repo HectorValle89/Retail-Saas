@@ -4,6 +4,11 @@ import {
   type AssignmentEngineNature,
   type AssignmentScheduleLike,
 } from '@/features/asignaciones/lib/assignmentEngine'
+import {
+  resolveRestOverrideDecision,
+  selectRestOverrideForAssignmentDate,
+  type AssignmentRestOverrideLike,
+} from '@/features/asignaciones/lib/assignmentRestOverride'
 import { formacionTargetsEmployee } from '@/features/formaciones/lib/formacionTargeting'
 
 export type AsignacionOperativaEstado =
@@ -66,6 +71,7 @@ export interface EffectiveAssignmentResolved {
   assignment: AssignmentScheduleLike | null
   request: EffectiveAssignmentRequestLike | null
   formation: EffectiveAssignmentFormationLike | null
+  restOverride: AssignmentRestOverrideLike | null
 }
 
 function normalizeMetadata(value: Record<string, unknown> | null | undefined) {
@@ -91,6 +97,19 @@ function normalizeAssignmentOrigin(nature: AssignmentEngineNature | null | undef
   }
 
   return 'BASE'
+}
+
+function buildRestOverrideAssignment(
+  resolvedAssignment: AssignmentScheduleLike
+): AssignmentScheduleLike {
+  return {
+    ...resolvedAssignment,
+    id: resolvedAssignment.id,
+    pdv_id: null,
+    horario_referencia: null,
+    naturaleza: 'COBERTURA_PERMANENTE',
+    prioridad: Math.max((resolvedAssignment.prioridad ?? 0) + 1000, 1000),
+  }
 }
 
 function isApprovedJustificationRequest(request: EffectiveAssignmentRequestLike) {
@@ -198,6 +217,16 @@ function resolveApprovedRequestForEmployeeDate(
     }
   }
 
+  const permiso = applicable.find((request) => String(request.tipo).trim().toUpperCase() === 'PERMISO' && isApprovedJustificationRequest(request))
+  if (permiso) {
+    return {
+      estadoOperativo: 'FALTA_JUSTIFICADA' as const,
+      origen: 'JUSTIFICACION' as const,
+      request: permiso,
+      mensajeOperativo: 'La jornada del dia se interpreta como falta justificada aprobada por permiso.',
+    }
+  }
+
   const justification = applicable.find(isApprovedFaltaJustificationRequest)
   if (justification) {
     return {
@@ -216,7 +245,8 @@ export function resolveEffectiveAssignmentForEmployeeDate(
   targetDate: string,
   assignments: AssignmentScheduleLike[],
   requests: EffectiveAssignmentRequestLike[] = [],
-  formations: EffectiveAssignmentFormationLike[] = []
+  formations: EffectiveAssignmentFormationLike[] = [],
+  restOverrides: AssignmentRestOverrideLike[] = []
 ): EffectiveAssignmentResolved {
   const resolvedAssignment =
     resolveAssignmentsForDate(assignments.filter((item) => item.empleado_id === context.empleadoId), targetDate)[0] ?? null
@@ -249,6 +279,7 @@ export function resolveEffectiveAssignmentForEmployeeDate(
       assignment: resolvedAssignment,
       request: null,
       formation,
+      restOverride: null,
     }
   }
 
@@ -268,6 +299,52 @@ export function resolveEffectiveAssignmentForEmployeeDate(
       assignment: resolvedAssignment,
       request: requestResolution.request,
       formation: null,
+      restOverride: null,
+    }
+  }
+
+  if (resolvedAssignment) {
+    const restOverride = selectRestOverrideForAssignmentDate(resolvedAssignment.id, targetDate, restOverrides)
+    if (restOverride) {
+      const restDecision = resolveRestOverrideDecision(restOverride, targetDate)
+
+      if (restDecision === 'REST') {
+        const syntheticAssignment = buildRestOverrideAssignment(resolvedAssignment)
+
+        return {
+          empleadoId: context.empleadoId,
+          fecha: targetDate,
+          estadoOperativo: 'SIN_ASIGNACION',
+          origen: 'COBERTURA_PERMANENTE',
+          pdvId: null,
+          supervisorEmpleadoId: resolvedAssignment.supervisor_empleado_id ?? null,
+          cuentaClienteId: resolvedAssignment.cuenta_cliente_id ?? null,
+          referenciaId: restOverride.id,
+          horarioEsperadoId: null,
+          mensajeOperativo: 'Descanso permanente configurado para esta fecha.',
+          assignment: syntheticAssignment,
+          request: null,
+          formation: null,
+          restOverride,
+        }
+      }
+
+      return {
+        empleadoId: context.empleadoId,
+        fecha: targetDate,
+        estadoOperativo: 'ASIGNADA_PDV',
+        origen: normalizeAssignmentOrigin(resolvedAssignment.naturaleza),
+        pdvId: resolvedAssignment.pdv_id ?? null,
+        supervisorEmpleadoId: resolvedAssignment.supervisor_empleado_id ?? null,
+        cuentaClienteId: resolvedAssignment.cuenta_cliente_id ?? null,
+        referenciaId: resolvedAssignment.id,
+        horarioEsperadoId: resolvedAssignment.horario_referencia ?? null,
+        mensajeOperativo: 'La regla permanente mantiene esta fecha como jornada operativa.',
+        assignment: resolvedAssignment,
+        request: null,
+        formation: null,
+        restOverride,
+      }
     }
   }
 
@@ -286,6 +363,7 @@ export function resolveEffectiveAssignmentForEmployeeDate(
       assignment: resolvedAssignment,
       request: null,
       formation: null,
+      restOverride: null,
     }
   }
 
@@ -303,6 +381,7 @@ export function resolveEffectiveAssignmentForEmployeeDate(
     assignment: null,
     request: null,
     formation: null,
+    restOverride: null,
   }
 }
 
@@ -311,9 +390,10 @@ export function resolveEffectiveAssignmentsForDate(
   contexts: EffectiveAssignmentEmployeeContext[],
   assignments: AssignmentScheduleLike[],
   requests: EffectiveAssignmentRequestLike[] = [],
-  formations: EffectiveAssignmentFormationLike[] = []
+  formations: EffectiveAssignmentFormationLike[] = [],
+  restOverrides: AssignmentRestOverrideLike[] = []
 ) {
   return contexts.map((context) =>
-    resolveEffectiveAssignmentForEmployeeDate(context, targetDate, assignments, requests, formations)
+    resolveEffectiveAssignmentForEmployeeDate(context, targetDate, assignments, requests, formations, restOverrides)
   )
 }

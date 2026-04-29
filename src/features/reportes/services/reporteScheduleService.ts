@@ -1,4 +1,6 @@
+import { unstable_cache } from 'next/cache'
 import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
 import { createServiceClient } from '@/lib/supabase/server'
 import type { ExportFormat, ExportSectionKey } from './reporteExport'
 
@@ -47,6 +49,8 @@ export interface ProgramacionReportesData {
   mensajeInfraestructura?: string
   items: ReporteProgramadoItem[]
 }
+
+const REPORTES_SCHEDULE_REVALIDATE_SECONDS = 60
 
 function parseTimeToUtcParts(horaUtc: string) {
   const match = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(horaUtc)
@@ -154,7 +158,24 @@ function mapScheduleRow(row: ReporteProgramadoRow): ReporteProgramadoItem {
   }
 }
 
-export async function obtenerProgramacionReportes(actor: ActorActual): Promise<ProgramacionReportesData> {
+function buildReportesScheduleCacheKey(actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>) {
+  return JSON.stringify({
+    cuentaClienteId: actor.cuentaClienteId ?? null,
+    empleadoId: actor.empleadoId,
+    puesto: actor.puesto,
+  })
+}
+
+function buildReportesScheduleCacheTags(actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>) {
+  return buildModuleCacheTags({
+    module: 'reportes',
+    accountId: actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+  })
+}
+
+async function obtenerProgramacionReportesUncached(actor: ActorActual): Promise<ProgramacionReportesData> {
   try {
     const service = createServiceClient()
     let query = service
@@ -183,4 +204,17 @@ export async function obtenerProgramacionReportes(actor: ActorActual): Promise<P
       items: [],
     }
   }
+}
+
+export async function obtenerProgramacionReportes(actor: ActorActual): Promise<ProgramacionReportesData> {
+  const cacheKey = buildReportesScheduleCacheKey(actor)
+
+  return unstable_cache(
+    () => obtenerProgramacionReportesUncached(actor),
+    ['reportes:schedule', cacheKey],
+    {
+      tags: buildReportesScheduleCacheTags(actor),
+      revalidate: REPORTES_SCHEDULE_REVALIDATE_SECONDS,
+    }
+  )()
 }

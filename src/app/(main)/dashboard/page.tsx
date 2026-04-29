@@ -1,16 +1,17 @@
-export const runtime = 'edge';
 import { Suspense } from 'react'
-import { requerirActorActivo } from '@/lib/auth/session'
+import { requerirActorActivo, type ActorActual } from '@/lib/auth/session'
 import {
   DashboardInsightsPanel,
   DashboardInsightsSkeleton,
   DashboardPanel,
 } from '@/features/dashboard/components/DashboardPanel'
-import { DashboardRealtimeBridge } from '@/features/dashboard/components/DashboardRealtimeBridge'
 import {
   obtenerInsightsDashboard,
   obtenerPanelDashboard,
+  type DashboardPanelOptions,
 } from '@/features/dashboard/services/dashboardService'
+
+import { Card } from '@/components/ui/card'
 
 export const metadata = {
   title: 'Dashboard | Beteele One',
@@ -31,7 +32,7 @@ async function DashboardInsightsSection({
   zona,
   supervisorId,
 }: {
-  actor: Awaited<ReturnType<typeof requerirActorActivo>>
+  actor: ActorActual
   periodo?: string
   estado?: string
   zona?: string
@@ -42,9 +43,62 @@ async function DashboardInsightsSection({
     estado,
     zona,
     supervisorId,
+    only: ['live'], // Solicitamos solo lo necesario para insights
   })
 
-  return <DashboardInsightsPanel data={data} />
+  return <DashboardInsightsPanel actor={actor} data={data} />
+}
+
+
+async function DashboardCoreSection({
+  actor,
+  options,
+}: {
+  actor: ActorActual
+  options: DashboardPanelOptions
+}) {
+  // Solo cargamos KPIs y datos básicos para el render inicial rápido
+  const data = await obtenerPanelDashboard(actor, { ...options, only: ['stats', 'external'] })
+  return <DashboardPanel actor={actor} data={data} />
+}
+
+async function DashboardOperationsSection({
+  actor,
+  options,
+}: {
+  actor: ActorActual
+  options: DashboardPanelOptions
+}) {
+  // Cargamos datos operativos (mapa, alertas, board diario)
+  const data = await obtenerPanelDashboard(actor, { ...options, only: ['live', 'operations'] })
+  return <DashboardPanel actor={actor} data={data} isWidgetMode />
+}
+
+async function DashboardReachSection({
+  actor,
+  options,
+}: {
+  actor: ActorActual
+  options: DashboardPanelOptions
+}) {
+  // Cargamos el alcance de visitas (el más pesado)
+  const data = await obtenerPanelDashboard(actor, { ...options, only: ['reach'] })
+  return <DashboardPanel actor={actor} data={data} isWidgetMode />
+}
+
+
+function DashboardPanelSkeleton() {
+  return (
+    <div className="space-y-6">
+      <Card className="h-48 animate-pulse bg-slate-100" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {[...Array(4)].map((_, i) => (
+          <Card key={i} className="h-24 animate-pulse bg-slate-50" />
+        ))}
+      </div>
+      <Card className="h-96 animate-pulse bg-slate-50" />
+    </div>
+  )
 }
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
@@ -63,7 +117,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const reachWeekStart = pickString(params.reachWeekStart)
   const reachChain = pickString(params.reachChain)
   const reachStoreType = pickString(params.reachStoreType)
-  const data = await obtenerPanelDashboard(actor, {
+  const options = {
     period: periodo,
     estado,
     zona,
@@ -74,7 +128,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     reachStoreType,
     includeDermoSecondaryData: actor.puesto !== 'DERMOCONSEJERO',
     includeSupervisorSecondaryData: false,
-  })
+  }
+
   return (
     <div
       className={
@@ -83,12 +138,18 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           : 'mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10'
       }
     >
-      <DashboardRealtimeBridge
-        cuentaClienteId={actor.cuentaClienteId}
-        allowGlobalScope={actor.puesto === 'ADMINISTRADOR' && !actor.cuentaClienteId}
-        puesto={actor.puesto}
-      />
-      <DashboardPanel actor={actor} data={data} />
+      <Suspense fallback={<DashboardPanelSkeleton />}>
+        <DashboardCoreSection actor={actor} options={options} />
+      </Suspense>
+
+      <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-slate-50" />}>
+        <DashboardOperationsSection actor={actor} options={options} />
+      </Suspense>
+
+      <Suspense fallback={<div className="h-96 animate-pulse rounded-xl bg-slate-50" />}>
+        <DashboardReachSection actor={actor} options={options} />
+      </Suspense>
+
       {!usesRoleDashboard && (
         <div className="mt-6">
           <Suspense fallback={<DashboardInsightsSkeleton />}>
@@ -105,4 +166,3 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     </div>
   )
 }
-

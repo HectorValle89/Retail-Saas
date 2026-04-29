@@ -4,8 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
+    "cf:build": "opennextjs-cloudflare build && node scripts/fix-opennext-windows-paths.mjs",
+    "preview": "npm run cf:build && opennextjs-cloudflare populateCache local && wrangler dev --env=\"\"",
+    "deploy": "npm run cf:build && opennextjs-cloudflare populateCache remote && wrangler deploy --env=\"\"",
+    "upload": "npm run cf:build && opennextjs-cloudflare upload",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
+    "cf:preview": "npm run cf:build && opennextjs-cloudflare populateCache local && wrangler dev --env=\"\"",
+    "cf:deploy": "npm run cf:build && opennextjs-cloudflare populateCache remote && wrangler deploy --env=\"\"",
+    "cf:typegen": "npm run cf-typegen",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "perf:explain:dashboard-reportes": "node scripts/explain-dashboard-reportes.cjs",
@@ -17,6 +25,7 @@
     "test:property": "vitest run src/**/*.test.ts",
     "test:unit": "vitest run",
     "supabase:seed:remote": "node scripts/apply-sql-file.cjs supabase/seed.sql",
+    "supabase:mark-current-expedientes-verified": "node scripts/mark-current-expedientes-verified.cjs",
     "supabase:verify:rls": "node scripts/verify-rls-smoke.cjs",
     "supabase:import:catalogos": "node tools/import-initial-catalogs.cjs",
     "auth:provision": "node scripts/provision-auth-users.cjs",
@@ -46,17 +55,20 @@
     "react-dom": "^19.0.0",
     "react-leaflet": "^5.0.0",
     "resend": "^6.6.0",
+    "server-only": "^0.0.1",
     "sharp": "^0.34.5",
     "xlsx": "^0.18.5",
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.19.0",
     "@playwright/test": "^1.58.2",
     "@types/leaflet": "^1.9.21",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.0",
+    "esbuild": "^0.28.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "^16.0.0",
     "fast-check": "^4.6.0",
@@ -65,6 +77,7 @@
     "prettier": "^3.6.2",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.7.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.0",
+    "wrangler": "^4.81.1"
   }
 }

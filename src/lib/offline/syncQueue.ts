@@ -14,6 +14,8 @@ import type {
   OfflineDraftRecord,
   OfflineEntity,
   OfflineLovePayload,
+  OfflineQueuedFile,
+  OfflineQueuedFileInput,
   OfflineQueueSummary,
   OfflineSyncQueueItem,
   OfflineVentaPayload,
@@ -113,14 +115,86 @@ function createQueueItem<TPayload>(
   }
 }
 
+function isQueuedFileInput(value: OfflineQueuedFile | OfflineQueuedFileInput | null | undefined): value is OfflineQueuedFileInput {
+  return Boolean(value && 'file' in value && value.file instanceof File)
+}
+
+function isQueuedFileStored(value: OfflineQueuedFile | OfflineQueuedFileInput | null | undefined): value is OfflineQueuedFile {
+  return Boolean(value && 'base64Data' in value && typeof value.base64Data === 'string')
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 0x8000
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize)
+    binary += String.fromCharCode(...chunk)
+  }
+
+  if (typeof btoa === 'function') {
+    return btoa(binary)
+  }
+
+  return Buffer.from(binary, 'binary').toString('base64')
+}
+
+function base64ToUint8Array(base64Data: string) {
+  if (typeof atob === 'function') {
+    const binary = atob(base64Data)
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0))
+  }
+
+  return Uint8Array.from(Buffer.from(base64Data, 'base64'))
+}
+
+async function serializeQueuedFile(
+  value: OfflineQueuedFile | OfflineQueuedFileInput | null | undefined
+): Promise<OfflineQueuedFile | null> {
+  if (!value) {
+    return null
+  }
+
+  if (isQueuedFileStored(value)) {
+    return value
+  }
+
+  if (!isQueuedFileInput(value)) {
+    return null
+  }
+
+  return {
+    fileName: value.fileName,
+    mimeType: value.mimeType,
+    fileSize: value.fileSize,
+    capturedAt: value.capturedAt,
+    localHash: value.localHash,
+    base64Data: arrayBufferToBase64(await value.file.arrayBuffer()),
+  }
+}
+
+async function normalizeAsistenciaPayload(payload: OfflineAsistenciaPayload): Promise<OfflineAsistenciaPayload> {
+  return {
+    ...payload,
+    offline_selfie_check_in: await serializeQueuedFile(payload.offline_selfie_check_in),
+    offline_selfie_check_out: await serializeQueuedFile(payload.offline_selfie_check_out),
+  }
+}
+
 async function enqueueDraft<TPayload>(
   entity: OfflineEntity,
   localStore: 'asistencia_local' | 'venta_local' | 'love_local',
   payload: TPayload & { id: string },
   conflictStrategy: OfflineConflictStrategy
 ) {
-  await putRecord(localStore, createDraftRecord(entity, payload))
-  await putRecord('sync_queue', createQueueItem(entity, localStore, payload, conflictStrategy))
+  const normalizedPayload =
+    entity === 'asistencia'
+      ? await normalizeAsistenciaPayload(payload as TPayload & OfflineAsistenciaPayload)
+      : payload
+
+  await putRecord(localStore, createDraftRecord(entity, normalizedPayload))
+  await putRecord('sync_queue', createQueueItem(entity, localStore, normalizedPayload, conflictStrategy))
   await registerBackgroundSync()
   emitQueueChanged()
 }
@@ -131,6 +205,11 @@ export async function queueOfflineAsistencia(
 ) {
   await enqueueDraft('asistencia', 'asistencia_local', payload, conflictStrategy)
   return getOfflineQueueSummary()
+}
+
+export async function syncAsistenciaNow(payload: OfflineAsistenciaPayload) {
+  const normalizedPayload = await normalizeAsistenciaPayload(payload)
+  await pushOfflineAsistencia(normalizedPayload)
 }
 
 export async function queueOfflineVenta(
@@ -155,12 +234,18 @@ function buildAsistenciaSyncFormData(payload: OfflineAsistenciaPayload) {
 
   formData.append('payload', JSON.stringify(record))
 
-  if (offline_selfie_check_in?.file) {
-    formData.append('selfie_check_in_file', offline_selfie_check_in.file, offline_selfie_check_in.fileName)
+  if (offline_selfie_check_in && isQueuedFileStored(offline_selfie_check_in)) {
+    const file = new File([base64ToUint8Array(offline_selfie_check_in.base64Data)], offline_selfie_check_in.fileName, {
+      type: offline_selfie_check_in.mimeType,
+    })
+    formData.append('selfie_check_in_file', file, offline_selfie_check_in.fileName)
   }
 
-  if (offline_selfie_check_out?.file) {
-    formData.append('selfie_check_out_file', offline_selfie_check_out.file, offline_selfie_check_out.fileName)
+  if (offline_selfie_check_out && isQueuedFileStored(offline_selfie_check_out)) {
+    const file = new File([base64ToUint8Array(offline_selfie_check_out.base64Data)], offline_selfie_check_out.fileName, {
+      type: offline_selfie_check_out.mimeType,
+    })
+    formData.append('selfie_check_out_file', file, offline_selfie_check_out.fileName)
   }
 
   return formData

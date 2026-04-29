@@ -242,17 +242,27 @@ export function SupervisorMonthlyRoleSheet({ open }: SupervisorMonthlyRoleSheetP
               Consulta solo tus PDVs ordenados por tipo y grupo rotativo. Cada celda muestra la DC asignada por dia sin abrir el calendario general de asignaciones.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" onClick={() => setMonth((current) => shiftMonth(current, -1))} className="min-h-10 rounded-[14px] px-3 py-2 text-xs font-semibold">
+          <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setMonth((current) => shiftMonth(current, -1))}
+              className="min-h-11 w-full rounded-[14px] px-4 py-2 text-xs font-semibold sm:w-auto"
+            >
               Mes anterior
             </Button>
-            <Button type="button" variant="outline" onClick={() => setMonth((current) => shiftMonth(current, 1))} className="min-h-10 rounded-[14px] px-3 py-2 text-xs font-semibold">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setMonth((current) => shiftMonth(current, 1))}
+              className="min-h-11 w-full rounded-[14px] px-4 py-2 text-xs font-semibold sm:w-auto"
+            >
               Mes siguiente
             </Button>
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(160px,180px)_minmax(160px,220px)_minmax(160px,220px)_1fr]">
+        <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(160px,180px)_minmax(160px,220px)_minmax(160px,220px)_1fr]">
           <label className="space-y-1 text-sm text-slate-600">
             <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Mes</span>
             <input
@@ -289,7 +299,7 @@ export function SupervisorMonthlyRoleSheet({ open }: SupervisorMonthlyRoleSheetP
               <option value="ROTATIVO">Rotativos</option>
             </select>
           </label>
-          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          <div className="grid gap-2 sm:grid-cols-3 sm:items-stretch sm:justify-end xl:flex xl:flex-wrap xl:items-center xl:justify-end">
             <MetricPill label="Mes visible" value={formatMonthLabel(month)} />
             <MetricPill label="PDVs visibles" value={String(data?.totalPdvs ?? 0)} />
             <MetricPill label="Sin DC" value={String(data?.pdvsSinDcVisible ?? 0)} />

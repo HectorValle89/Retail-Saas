@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
   revalidatePathMock,
+  revalidateTagMock,
   requerirPuestosActivosMock,
   createServiceClientMock,
   storeOptimizedEvidenceMock,
 } = vi.hoisted(() => ({
   revalidatePathMock: vi.fn(),
+  revalidateTagMock: vi.fn(),
   requerirPuestosActivosMock: vi.fn(),
   createServiceClientMock: vi.fn(),
   storeOptimizedEvidenceMock: vi.fn(),
@@ -14,6 +16,8 @@ const {
 
 vi.mock('next/cache', () => ({
   revalidatePath: revalidatePathMock,
+  revalidateTag: revalidateTagMock,
+  unstable_cache: vi.fn((fn) => fn),
 }))
 
 vi.mock('@/lib/auth/session', () => ({
@@ -49,6 +53,9 @@ describe('materiales actions', () => {
   it('guarda el catalogo promocional por cuenta', async () => {
     const inserts: Array<Record<string, unknown>> = []
     const service = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
@@ -112,7 +119,7 @@ describe('materiales actions', () => {
     const result = await guardarMaterialCatalogo(ESTADO_MATERIAL_INICIAL, formData)
 
     expect(result.ok).toBe(true)
-    expect(revalidatePathMock).toHaveBeenCalledWith('/materiales')
+    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:materiales'), expect.anything())
     expect(inserts[0]).toMatchObject({
       cuenta_cliente_id: 'cuenta-1',
       nombre: 'Tester Fusion Water',
@@ -176,6 +183,9 @@ describe('materiales actions', () => {
 
         throw new Error(`Unexpected table ${table}`)
       },
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       storage: {
         createBucket() {
           return Promise.resolve({ error: null })
@@ -203,7 +213,18 @@ describe('materiales actions', () => {
   it('registra la entrega promocional y descuenta el saldo', async () => {
     const calls: Array<{ table: string; payload: Record<string, unknown> }> = []
     const service = {
+      rpc(name: string, payload: unknown) {
+        calls.push({ table: 'rpc', payload: { name, ...(payload as any) } })
+        return Promise.resolve({ data: { ok: true, id: 'rpc-1' }, error: null })
+      },
       from(table: string) {
+        if (table === 'cuenta_cliente') {
+          return {
+            select() { return this },
+            eq() { return { maybeSingle() { return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null }) } } },
+          }
+        }
+
         if (table === 'material_distribucion_detalle') {
           return {
             select() {
@@ -232,14 +253,6 @@ describe('materiales actions', () => {
                 },
               }
             },
-            update(payload: Record<string, unknown>) {
-              calls.push({ table, payload })
-              return {
-                eq() {
-                  return Promise.resolve({ error: null })
-                },
-              }
-            },
           }
         }
 
@@ -256,27 +269,6 @@ describe('materiales actions', () => {
                 data: [{ cantidad_delta: 4 }],
                 error: null,
               })
-            },
-            insert(payload: Record<string, unknown>) {
-              calls.push({ table, payload })
-              return Promise.resolve({ error: null })
-            },
-          }
-        }
-
-        if (table === 'material_entrega_promocional') {
-          return {
-            insert(payload: Record<string, unknown>) {
-              calls.push({ table, payload })
-              return {
-                select() {
-                  return {
-                    maybeSingle() {
-                      return Promise.resolve({ data: { id: 'ent-1' }, error: null })
-                    },
-                  }
-                },
-              }
             },
           }
         }
@@ -316,30 +308,31 @@ describe('materiales actions', () => {
 
     const result = await registrarEntregaPromocional(ESTADO_MATERIAL_INICIAL, formData)
 
+    if (!result.ok) {
+      console.log('Error in test:', result.message)
+    }
+
     expect(result.ok).toBe(true)
-    expect(revalidatePathMock).toHaveBeenCalledWith('/materiales')
+    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:materiales'), expect.anything())
     expect(calls[0]).toMatchObject({
-      table: 'material_entrega_promocional',
+      table: 'rpc',
       payload: {
-        cuenta_cliente_id: 'cuenta-1',
-        pdv_id: 'pdv-1',
-        cantidad_entregada: 2,
+        name: 'rpc_registrar_entrega_promocional',
+        p_datos: {
+          cuenta_cliente_id: 'cuenta-1',
+          pdv_id: 'pdv-1',
+          cantidad_entregada: 2,
+        },
       },
     })
     expect(calls[1]).toMatchObject({
-      table: 'material_inventario_movimiento',
+      table: 'audit_log',
       payload: {
-        cuenta_cliente_id: 'cuenta-1',
-        pdv_id: 'pdv-1',
-        material_catalogo_id: 'cat-1',
-        cantidad: 2,
-        cantidad_delta: -2,
-      },
-    })
-    expect(calls[2]).toMatchObject({
-      table: 'material_distribucion_detalle',
-      payload: {
-        cantidad_entregada: 3,
+        accion: 'EVENTO',
+        payload: {
+          evento: 'material_entregado_cliente',
+          cantidad_entregada: 2,
+        },
       },
     })
   })
@@ -347,7 +340,18 @@ describe('materiales actions', () => {
   it('acepta ticket sellado por camara cuando el material lo requiere', async () => {
     const calls: Array<{ table: string; payload: Record<string, unknown> }> = []
     const service = {
+      rpc(name: string, payload: unknown) {
+        calls.push({ table: 'rpc', payload: { name, ...(payload as any) } })
+        return Promise.resolve({ data: { ok: true, id: 'rpc-1' }, error: null })
+      },
       from(table: string) {
+        if (table === 'cuenta_cliente') {
+          return {
+            select() { return this },
+            eq() { return { maybeSingle() { return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null }) } } },
+          }
+        }
+
         if (table === 'material_distribucion_detalle') {
           return {
             select() {
@@ -376,14 +380,6 @@ describe('materiales actions', () => {
                 },
               }
             },
-            update(payload: Record<string, unknown>) {
-              calls.push({ table, payload })
-              return {
-                eq() {
-                  return Promise.resolve({ error: null })
-                },
-              }
-            },
           }
         }
 
@@ -401,27 +397,6 @@ describe('materiales actions', () => {
                 error: null,
               })
             },
-            insert(payload: Record<string, unknown>) {
-              calls.push({ table, payload })
-              return Promise.resolve({ error: null })
-            },
-          }
-        }
-
-        if (table === 'material_entrega_promocional') {
-          return {
-            insert(payload: Record<string, unknown>) {
-              calls.push({ table, payload })
-              return {
-                select() {
-                  return {
-                    maybeSingle() {
-                      return Promise.resolve({ data: { id: 'ent-2' }, error: null })
-                    },
-                  }
-                },
-              }
-            },
           }
         }
 
@@ -435,6 +410,10 @@ describe('materiales actions', () => {
         }
 
         throw new Error(`Unexpected table ${table}`)
+      },
+      rpc(name: string, payload: unknown) {
+        calls.push({ table: 'rpc', payload: { name, ...(payload as any) } })
+        return Promise.resolve({ data: { ok: true, id: 'rpc-1' }, error: null })
       },
       storage: {
         createBucket() {
@@ -464,12 +443,19 @@ describe('materiales actions', () => {
 
     const result = await registrarEntregaPromocional(ESTADO_MATERIAL_INICIAL, formData)
 
+    if (!result.ok) {
+      console.log('Error in test 2:', result.message)
+    }
+
     expect(result.ok).toBe(true)
     expect(storeOptimizedEvidenceMock).toHaveBeenCalledTimes(3)
     expect(calls[0]).toMatchObject({
-      table: 'material_entrega_promocional',
+      table: 'rpc',
       payload: {
-        ticket_compra_url: 'bucket/evidence.jpg',
+        name: 'rpc_registrar_entrega_promocional',
+        p_datos: {
+          ticket_compra_url: 'bucket/evidence.jpg',
+        },
       },
     })
   })
@@ -477,6 +463,9 @@ describe('materiales actions', () => {
   it('descarta el preview efimero del usuario actual', async () => {
     const calls: Array<{ table: string; payload: Record<string, unknown> }> = []
     const service = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       from(table: string) {
         if (table === 'material_distribucion_lote') {
           return {
@@ -534,7 +523,7 @@ describe('materiales actions', () => {
     const result = await descartarPreviewMateriales(ESTADO_MATERIAL_INICIAL, formData)
 
     expect(result.ok).toBe(true)
-    expect(revalidatePathMock).toHaveBeenCalledWith('/materiales')
+    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:materiales'), expect.anything())
     expect(calls[0]).toMatchObject({
       table: 'material_distribucion_lote',
       payload: {

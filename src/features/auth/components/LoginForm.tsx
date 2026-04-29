@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { login } from '@/actions/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { AccessRecoveryOtpForm } from './AccessRecoveryOtpForm'
 
 function EyeIcon({ className }: { className?: string }) {
   return (
@@ -26,25 +28,42 @@ function EyeOffIcon({ className }: { className?: string }) {
 
 type LoginFormProps = {
   initialError?: string | null
+  initialNotice?: string | null
 }
 
-export function LoginForm({ initialError = null }: LoginFormProps) {
+export function LoginForm({ initialError = null, initialNotice = null }: LoginFormProps) {
   const [error, setError] = useState<string | null>(initialError)
+  const [notice, setNotice] = useState<string | null>(initialNotice)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [accessValue, setAccessValue] = useState('')
 
   useEffect(() => {
     setError(initialError)
   }, [initialError])
 
+  useEffect(() => {
+    setNotice(initialNotice)
+  }, [initialNotice])
+
   async function handleSubmit(formData: FormData) {
     setLoading(true)
     setError(null)
 
-    const result = await login(formData)
+    try {
+      const result = await login(formData)
 
-    if (result?.error) {
-      setError(result.error)
+      if (result?.error) {
+        setError(result.error)
+        setNotice(null)
+      }
+    } catch (error) {
+      if (isRedirectError(error)) {
+        throw error
+      }
+
+      setError('No fue posible iniciar sesion. Reintenta en unos minutos.')
+    } finally {
       setLoading(false)
     }
   }
@@ -57,7 +76,10 @@ export function LoginForm({ initialError = null }: LoginFormProps) {
         type="text"
         label="Correo o usuario"
         placeholder="correo@empresa.com o usuario temporal"
+        value={accessValue}
+        onChange={(event) => setAccessValue(event.target.value)}
         required
+        className="min-h-[3.65rem] rounded-[18px] border-slate-200 bg-[#f8fbfe] px-5 text-base shadow-none hover:border-[#9dc8ee] focus:border-[#1a7fd4] focus:ring-[rgba(26,127,212,0.12)]"
       />
 
       <div className="relative">
@@ -68,11 +90,12 @@ export function LoginForm({ initialError = null }: LoginFormProps) {
           label="Contrasena"
           placeholder="••••••••"
           required
+          className="min-h-[3.65rem] rounded-[18px] border-slate-200 bg-[#f8fbfe] px-5 text-base shadow-none hover:border-[#9dc8ee] focus:border-[#1a7fd4] focus:ring-[rgba(26,127,212,0.12)]"
         />
         <button
           type="button"
           onClick={() => setShowPassword(!showPassword)}
-          className="absolute right-3 top-[38px] text-foreground-muted hover:text-foreground-secondary transition-colors"
+          className="absolute right-4 top-[42px] flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-500 transition-colors hover:text-slate-800"
           aria-label={showPassword ? 'Ocultar contrasena' : 'Mostrar contrasena'}
         >
           {showPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
@@ -80,24 +103,36 @@ export function LoginForm({ initialError = null }: LoginFormProps) {
       </div>
 
       {error && (
-        <div className="rounded-lg bg-error-50 border border-error-500 p-3">
-          <p className="text-sm text-error-700">{error}</p>
+        <div className="rounded-[18px] border border-error-300 bg-[#fff4f3] p-4">
+          <p className="text-sm leading-6 text-error-700">{error}</p>
+        </div>
+      )}
+
+      {notice && (
+        <div className="rounded-[18px] border border-emerald-300 bg-emerald-50 p-4">
+          <p className="text-sm leading-6 text-emerald-700">{notice}</p>
         </div>
       )}
 
       <Button
         type="submit"
         isLoading={loading}
-        className="w-full"
+        className="w-full min-h-[3.7rem] rounded-[18px] bg-[#156fbd] text-base font-semibold shadow-[0_14px_30px_rgba(21,111,189,0.18)] hover:bg-[#125f9f]"
       >
         Entrar al sistema
       </Button>
 
-      <p className="text-center text-sm text-foreground-secondary">
-        <Link href="/forgot-password" className="text-accent-500 hover:text-accent-600 hover:underline">
-          Recuperar acceso
-        </Link>
-      </p>
+      <div className="text-center">
+        <p className="text-sm text-slate-500">
+          <Link href="/forgot-password" className="font-medium text-slate-700 transition-colors hover:text-[#1a7fd4] hover:underline">
+            Recuperar acceso
+          </Link>
+        </p>
+      </div>
+
+      {error?.includes('falta configurar tu seguridad') && (
+        <AccessRecoveryOtpForm initialEmail={accessValue.includes('@') ? accessValue : ''} />
+      )}
     </form>
   )
 }

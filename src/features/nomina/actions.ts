@@ -1,14 +1,16 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { requerirOperadorNomina } from '@/lib/auth/session'
 import { createClient } from '@/lib/supabase/server'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
 import type { NominaActionState } from './state'
 import {
   getNominaPeriodoTransitionTargets,
   isNominaPeriodoMutable,
   type NominaPeriodoEstado,
 } from './lib/periodState'
+import { notificarNominaPublicada } from '@/lib/notifications/workflows/nominaEmail'
 
 interface PeriodoNominaEstadoRow {
   id: string
@@ -30,10 +32,6 @@ function normalizeMetadata(value: unknown) {
 function normalizeMonto(raw: string) {
   const normalized = Number(raw.replace(/,/g, ''))
   return Number.isFinite(normalized) ? normalized : Number.NaN
-}
-
-function buildNominaRevalidationPaths() {
-  return ['/nomina', '/dashboard', '/mi-nomina'] as const
 }
 
 function normalizeEntero(raw: string) {
@@ -65,10 +63,46 @@ function resolveQuotaState(cumplimiento: number): 'EN_CURSO' | 'CUMPLIDA' | 'RIE
   return 'EN_CURSO'
 }
 
-function revalidateNominaPaths() {
-  for (const path of buildNominaRevalidationPaths()) {
-    revalidatePath(path)
+async function publishNominaPanelChange(
+  service: Awaited<ReturnType<typeof createClient>>,
+  actor: Awaited<ReturnType<typeof requerirOperadorNomina>>,
+  input: {
+    eventType: string
+    cuentaClienteId?: string | null
+    empleadoId?: string | null
+    period?: string | null
+    includeEmpleados?: boolean
+    metadata?: Record<string, unknown> | null
   }
+) {
+  const scopes = [
+    buildUiChangeScope('global'),
+    buildUiChangeScope('cuenta', input.cuentaClienteId ?? actor.cuentaClienteId ?? null),
+    buildUiChangeScope('empleado', input.empleadoId ?? null),
+    buildUiChangeScope('empleado', actor.empleadoId),
+    buildUiChangeScope('periodo', input.period ?? null),
+  ]
+
+  const modules = input.includeEmpleados
+    ? (['nomina', 'mi-nomina', 'dashboard', 'empleados'] as const)
+    : (['nomina', 'mi-nomina', 'dashboard'] as const)
+
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType: input.eventType,
+      modules: [...modules],
+      surfaces: ['panel', 'insights'],
+      scopes,
+      cuentaClienteId: input.cuentaClienteId ?? actor.cuentaClienteId ?? null,
+      empleadoId: input.empleadoId ?? null,
+      roleTargets: ['ADMINISTRADOR', 'NOMINA', 'COORDINADOR'],
+      metadata: {
+        ...(input.metadata ?? {}),
+        periodo: input.period ?? null,
+      },
+    }),
+    { service }
+  )
 }
 
 export async function crearPeriodoNomina(
@@ -163,7 +197,14 @@ export async function crearPeriodoNomina(
     return { ok: false, message: insertError.message }
   }
 
-  revalidateNominaPaths()
+  await publishNominaPanelChange(supabase, actor, {
+    eventType: 'nomina_periodo_creado',
+    period: clave,
+    metadata: {
+      periodo_id: null,
+      periodo_clave: clave,
+    },
+  })
 
   return {
     ok: true,
@@ -191,7 +232,7 @@ export async function actualizarEstadoPeriodoNomina(
   const supabase = await createClient()
   const { data: periodo, error: periodoError } = await supabase
     .from('nomina_periodo')
-    .select('id, clave, estado, metadata')
+    .select('id, clave, estado, metadata, fecha_inicio, fecha_fin')
     .eq('id', periodoId)
     .maybeSingle()
 
@@ -273,7 +314,34 @@ export async function actualizarEstadoPeriodoNomina(
     return { ok: false, message: updateError.message }
   }
 
-  revalidateNominaPaths()
+  await publishNominaPanelChange(supabase, actor, {
+    eventType: 'nomina_periodo_estado_actualizado',
+    period: periodoActual.clave,
+    metadata: {
+      periodo_id: periodoId,
+      periodo_clave: periodoActual.clave,
+      estado_destino: estadoDestino,
+    },
+  })
+
+  // Notificacion asincrona de publicacion
+  if (estadoDestino === 'DISPERSADO') {
+    supabase
+      .from('nomina_ledger')
+      .select('cuenta_cliente_id')
+      .eq('periodo_id', periodoId)
+      .then(({ data: cuentas }) => {
+        const uniqueCuentas = Array.from(new Set(cuentas?.map((c) => c.cuenta_cliente_id).filter(Boolean) ?? []))
+        for (const cuentaId of uniqueCuentas) {
+          notificarNominaPublicada(supabase, {
+            cuentaClienteId: cuentaId as string,
+            periodo: periodoActual.clave,
+            inicio: (periodo as any).fecha_inicio,
+            fin: (periodo as any).fecha_fin,
+          }).catch(console.error)
+        }
+      })
+  }
 
   const label =
     estadoDestino === 'APROBADO'
@@ -359,7 +427,18 @@ export async function registrarMovimientoManualNomina(
     return { ok: false, message: insertError.message }
   }
 
-  revalidateNominaPaths()
+  await publishNominaPanelChange(supabase, actor, {
+    eventType: 'nomina_movimiento_manual_registrado',
+    cuentaClienteId,
+    empleadoId,
+    period: periodo.clave,
+    includeEmpleados: true,
+    metadata: {
+      periodo_id: periodoId,
+      periodo_clave: periodo.clave,
+      tipo_movimiento: tipoMovimiento,
+    },
+  })
 
   return {
     ok: true,
@@ -459,7 +538,18 @@ export async function guardarDefinicionCuotaNomina(
     return { ok: false, message: upsertError.message }
   }
 
-  revalidateNominaPaths()
+  await publishNominaPanelChange(supabase, actor, {
+    eventType: 'nomina_cuota_guardada',
+    cuentaClienteId,
+    empleadoId,
+    period: periodo.clave,
+    includeEmpleados: true,
+    metadata: {
+      periodo_id: periodoId,
+      periodo_clave: periodo.clave,
+      cuota_id: cuotaActual?.id ?? null,
+    },
+  })
 
   return {
     ok: true,

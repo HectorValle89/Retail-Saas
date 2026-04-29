@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { headers } from 'next/headers'
+import { readRuntimeEnv } from '@/lib/runtime/env'
 import { createServiceClient } from '@/lib/supabase/server'
 
 export const ERROR_BACKEND_ADMIN =
@@ -15,7 +16,7 @@ export function obtenerClienteAdmin() {
 }
 
 export async function obtenerUrlBaseAplicacion() {
-  const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim()
+  const configuredSiteUrl = readRuntimeEnv('NEXT_PUBLIC_SITE_URL')?.trim()
 
   if (configuredSiteUrl) {
     return configuredSiteUrl.replace(/\/$/, '')
@@ -28,10 +29,12 @@ export async function obtenerUrlBaseAplicacion() {
     return origin.replace(/\/$/, '')
   }
 
-  const forwardedHost =
+  const forwardedHostRaw =
     headerStore.get('x-forwarded-host')?.trim() ?? headerStore.get('host')?.trim()
 
-  if (forwardedHost) {
+  if (forwardedHostRaw) {
+    // Handle comma-separated hosts (common in multi-proxy setups like Cloudflare)
+    const forwardedHost = forwardedHostRaw.split(',')[0].trim()
     const forwardedProto = headerStore.get('x-forwarded-proto')?.trim() ?? 'https'
     return `${forwardedProto}://${forwardedHost}`
   }

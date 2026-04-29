@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
   revalidatePathMock,
+  revalidateTagMock,
   requerirPuestosActivosMock,
   createServiceClientMock,
   sendOperationalPushNotificationMock,
   storeOptimizedEvidenceMock,
 } = vi.hoisted(() => ({
   revalidatePathMock: vi.fn(),
+  revalidateTagMock: vi.fn(),
   requerirPuestosActivosMock: vi.fn(),
   createServiceClientMock: vi.fn(),
   sendOperationalPushNotificationMock: vi.fn(),
@@ -16,6 +18,8 @@ const {
 
 vi.mock('next/cache', () => ({
   revalidatePath: revalidatePathMock,
+  revalidateTag: revalidateTagMock,
+  unstable_cache: vi.fn((fn) => fn),
 }))
 
 vi.mock('@/lib/auth/session', () => ({
@@ -37,6 +41,8 @@ vi.mock('@/lib/files/evidenceStorage', () => ({
 vi.mock('@/lib/files/documentOptimization', () => ({
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES: 12 * 1024 * 1024,
   optimizeExpedienteDocument: vi.fn(),
+  exceedsOperationalDocumentUploadLimit: vi.fn().mockReturnValue(false),
+  buildOperationalDocumentUploadLimitMessage: vi.fn().mockReturnValue('Error de limite'),
 }))
 
 import { actualizarEstatusSolicitud, registrarSolicitudOperativa } from './actions'
@@ -62,6 +68,9 @@ describe('solicitudes actions', () => {
     const updates: UpdatePayload[] = []
 
     const service = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
@@ -133,6 +142,40 @@ describe('solicitudes actions', () => {
           }
         }
 
+        if (table === 'empleado') {
+          return {
+            select() { return this },
+            eq() { return this },
+            maybeSingle() {
+              return Promise.resolve({ data: { id: 'emp-1', email: 'test@example.com' }, error: null })
+            },
+            single() { return this.maybeSingle() },
+          }
+        }
+
+        if (table === 'usuario') {
+          return {
+            select() { return this },
+            in() { return this },
+            eq() { return this },
+            or() { return this },
+            then(resolve: any) {
+              return Promise.resolve({ data: [{ id: 'user-1', email: 'admin@example.com' }], error: null }).then(resolve)
+            },
+          }
+        }
+
+        if (table === 'empleado') {
+          return {
+            select() { return this },
+            eq() { return this },
+            maybeSingle() {
+              return Promise.resolve({ data: { id: 'emp-1', email: 'test@example.com' }, error: null })
+            },
+            single() { return this.maybeSingle() },
+          }
+        }
+
         throw new Error(`Unexpected table ${table}`)
       },
     }
@@ -178,8 +221,8 @@ describe('solicitudes actions', () => {
         tag: 'solicitud-sol-1-registrada_rh',
       })
     )
-    expect(revalidatePathMock).toHaveBeenNthCalledWith(1, '/solicitudes')
-    expect(revalidatePathMock).toHaveBeenNthCalledWith(2, '/asistencias')
+    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:solicitudes'), expect.anything())
+    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:asistencias'), expect.anything())
   })
 
   it('permite que reclutamiento valide el documento de incapacidad y la pase a nomina', async () => {
@@ -191,6 +234,9 @@ describe('solicitudes actions', () => {
     const updates: UpdatePayload[] = []
 
     const service = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
@@ -362,6 +408,9 @@ describe('solicitudes actions', () => {
     const mensajeReceptorRows: Array<Record<string, unknown>[]> = []
 
     const service = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       storage: {
         createBucket() {
           return Promise.resolve({ error: null })
@@ -468,6 +517,18 @@ describe('solicitudes actions', () => {
           }
         }
 
+        if (table === 'usuario') {
+          return {
+            select() { return this },
+            in() { return this },
+            eq() { return this },
+            or() { return this },
+            then(resolve: any) {
+              return Promise.resolve({ data: [{ id: 'user-1', email: 'admin@example.com' }], error: null }).then(resolve)
+            },
+          }
+        }
+
         throw new Error(`Unexpected table ${table}`)
       },
     }
@@ -543,10 +604,16 @@ describe('solicitudes actions', () => {
     })
 
     const service = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       storage: {
         createBucket() {
           return Promise.resolve({ error: null })
         },
+      },
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
       },
       from(table: string) {
         if (table === 'cuenta_cliente') {
@@ -556,6 +623,24 @@ describe('solicitudes actions', () => {
             maybeSingle() {
               return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null })
             },
+          }
+        }
+
+        if (table === 'empleado') {
+          return {
+            select() { return this },
+            eq() { return this },
+            maybeSingle() { return Promise.resolve({ data: { id: 'emp-1', email: 'test@example.com' }, error: null }) },
+            single() { return this.maybeSingle() },
+          }
+        }
+
+        if (table === 'usuario') {
+          return {
+            select() { return this },
+            eq() { return this },
+            maybeSingle() { return Promise.resolve({ data: { id: 'user-1', email: 'test@example.com' }, error: null }) },
+            single() { return this.maybeSingle() },
           }
         }
 
@@ -576,6 +661,18 @@ describe('solicitudes actions', () => {
           return {
             insert() {
               return Promise.resolve({ error: null })
+            },
+          }
+        }
+
+        if (table === 'usuario') {
+          return {
+            select() { return this },
+            in() { return this },
+            eq() { return this },
+            or() { return this },
+            then(resolve: any) {
+              return Promise.resolve({ data: [{ id: 'user-1', email: 'admin@example.com' }], error: null }).then(resolve)
             },
           }
         }
@@ -629,6 +726,9 @@ describe('solicitudes actions', () => {
     let shouldReturnAviso = false
 
     const service = {
+      rpc() {
+        return Promise.resolve({ data: null, error: null })
+      },
       storage: {
         createBucket() {
           return Promise.resolve({ error: null })
@@ -706,6 +806,29 @@ describe('solicitudes actions', () => {
             insert() {
               return Promise.resolve({ error: null })
             },
+          }
+        }
+
+        if (table === 'usuario') {
+          return {
+            select() { return this },
+            in() { return this },
+            eq() { return this },
+            or() { return this },
+            then(resolve: any) {
+              return Promise.resolve({ data: [{ id: 'user-1', email: 'admin@example.com' }], error: null }).then(resolve)
+            },
+          }
+        }
+
+        if (table === 'empleado') {
+          return {
+            select() { return this },
+            eq() { return this },
+            maybeSingle() {
+              return Promise.resolve({ data: { id: 'emp-1', email: 'test@example.com' }, error: null })
+            },
+            single() { return this.maybeSingle() },
           }
         }
 

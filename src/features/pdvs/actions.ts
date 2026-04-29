@@ -1,8 +1,10 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
 import { obtenerClienteAdmin } from '@/lib/auth/admin'
 import { requerirAdministradorActivo } from '@/lib/auth/session'
+import { resolveSingleTenantAccountId } from '@/lib/tenant/singleTenant'
 import type { PdvActionState, PdvCreateDraft } from './state'
 
 interface AdminServiceResult {
@@ -152,7 +154,8 @@ async function registrarEventoAudit(
   actorUsuarioId: string,
   tabla: string,
   registroId: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  cuentaClienteId: string | null = null
 ) {
   await service.from('audit_log').insert({
     tabla,
@@ -160,7 +163,7 @@ async function registrarEventoAudit(
     accion: 'EVENTO',
     payload,
     usuario_id: actorUsuarioId,
-    cuenta_cliente_id: null,
+    cuenta_cliente_id: cuentaClienteId,
   })
 }
 
@@ -301,6 +304,55 @@ async function sincronizarSupervisorPdv(
   const { error } = await service.from('supervisor_pdv').insert({
     pdv_id: pdvId,
     empleado_id: supervisorEmpleadoId,
+    activo: true,
+    fecha_inicio: today,
+    fecha_fin: null,
+  })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+}
+
+async function vincularPdvACuentaCliente(
+  service: AdminServiceResult['service'],
+  pdvId: string,
+  cuentaClienteId: string
+) {
+  const today = new Date().toISOString().slice(0, 10)
+  const { data: existing, error: existingError } = await service
+    .from('cuenta_cliente_pdv')
+    .select('id, activo, fecha_inicio, fecha_fin')
+    .eq('cuenta_cliente_id', cuentaClienteId)
+    .eq('pdv_id', pdvId)
+    .is('fecha_fin', null)
+    .maybeSingle()
+
+  if (existingError) {
+    throw new Error(existingError.message)
+  }
+
+  if (existing) {
+    const { error } = await service
+      .from('cuenta_cliente_pdv')
+      .update({
+        activo: true,
+        fecha_inicio: existing.fecha_inicio ?? today,
+        fecha_fin: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    return
+  }
+
+  const { error } = await service.from('cuenta_cliente_pdv').insert({
+    cuenta_cliente_id: cuentaClienteId,
+    pdv_id: pdvId,
     activo: true,
     fecha_inicio: today,
     fecha_fin: null,
@@ -457,6 +509,58 @@ async function upsertGeocercaPdv(
   }
 }
 
+async function publishPdvUiChanges(
+  actor: Awaited<ReturnType<typeof requerirAdministradorActivo>>,
+  service: AdminServiceResult['service'],
+  params: {
+    pdvId: string
+    eventType: string
+    includeScheduleConsumers?: boolean
+    includeSupervisorConsumers?: boolean
+    includeGeocercaConsumers?: boolean
+  }
+) {
+  const scopes = [
+    buildUiChangeScope('cuenta', actor.cuentaClienteId),
+    buildUiChangeScope('pdv', params.pdvId),
+    actor.cuentaClienteId ? null : buildUiChangeScope('global'),
+  ]
+  const modules = new Set<string>(['pdvs'])
+  const surfaces = new Set<string>(['panel', 'tabla', 'shell'])
+
+  if (params.includeScheduleConsumers) {
+    modules.add('dashboard')
+    modules.add('ruta-semanal')
+    modules.add('asistencias')
+  }
+
+  if (params.includeSupervisorConsumers) {
+    modules.add('dashboard')
+    modules.add('ruta-semanal')
+    modules.add('asistencias')
+    modules.add('campanas')
+  }
+
+  if (params.includeGeocercaConsumers) {
+    modules.add('dashboard')
+    modules.add('asistencias')
+  }
+
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType: params.eventType,
+      modules: Array.from(modules),
+      surfaces: Array.from(surfaces),
+      scopes,
+      cuentaClienteId: actor.cuentaClienteId ?? null,
+      empleadoId: actor.empleadoId,
+      roleTargets: ['ALL'],
+      metadata: { pdvId: params.pdvId },
+    }),
+    { service }
+  )
+}
+
 export async function crearPdv(
   _prevState: PdvActionState,
   formData: FormData
@@ -466,6 +570,7 @@ export async function crearPdv(
 
   try {
     const { service } = await getAdminService()
+    const cuentaClienteId = resolveSingleTenantAccountId(actor.cuentaClienteId)
     const claveBtl = normalizeRequiredText(formData.get('clave_btl'), 'Clave BTL').toUpperCase()
     const nombre = normalizeRequiredText(formData.get('nombre'), 'Nombre del PDV')
     const cadenaId = normalizeRequiredText(formData.get('cadena_id'), 'Cadena')
@@ -513,6 +618,7 @@ export async function crearPdv(
     }
 
     try {
+      await vincularPdvACuentaCliente(service, insertedPdv.id, cuentaClienteId)
       await upsertGeocercaPdv(service, insertedPdv.id, latitud, longitud, radioMetros, permiteJustificacion)
       await sincronizarSupervisorPdv(service, insertedPdv.id, supervisorEmpleadoId)
       const horario = await aplicarHorarioPdv(service, insertedPdv.id, horarioMode, {
@@ -524,6 +630,7 @@ export async function crearPdv(
 
       await registrarEventoAudit(service, actor.usuarioId, 'pdv', insertedPdv.id, {
         evento: 'pdv_creado_admin',
+        cuenta_cliente_id: cuentaClienteId,
         clave_btl: claveBtl,
         nombre,
         cadena_id: cadenaId,
@@ -539,14 +646,20 @@ export async function crearPdv(
         horario_entrada: horario.horaEntrada,
         horario_salida: horario.horaSalida,
         supervisor_empleado_id: supervisorEmpleadoId,
-      })
+      }, cuentaClienteId)
     } catch (error) {
       await service.from('pdv').delete().eq('id', insertedPdv.id)
       throw error
     }
 
-    revalidatePath('/pdvs')
-    return buildState({ ok: true, message: 'PDV creado con geocerca, horario y supervisor.' })
+    await publishPdvUiChanges(actor, service, {
+      pdvId: insertedPdv.id,
+      eventType: 'pdv_creado_admin',
+      includeScheduleConsumers: true,
+      includeSupervisorConsumers: true,
+      includeGeocercaConsumers: true,
+    })
+    return buildState({ ok: true, message: 'PDV creado con geocerca, horario, supervisor y cuenta ISDIN.' })
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible crear el PDV.',
@@ -606,7 +719,12 @@ export async function actualizarPdvBase(
       estatus,
     })
 
-    revalidatePath('/pdvs')
+    await publishPdvUiChanges(actor, service, {
+      pdvId,
+      eventType: 'pdv_base_actualizado_admin',
+      includeScheduleConsumers: true,
+      includeSupervisorConsumers: true,
+    })
     return buildState({ ok: true, message: 'Datos base del PDV actualizados.' })
   } catch (error) {
     return buildState({
@@ -639,7 +757,11 @@ export async function actualizarGeocercaPdv(
       permite_justificacion: permiteJustificacion,
     })
 
-    revalidatePath('/pdvs')
+    await publishPdvUiChanges(actor, service, {
+      pdvId,
+      eventType: 'pdv_geocerca_actualizada_admin',
+      includeGeocercaConsumers: true,
+    })
     return buildState({ ok: true, message: 'Geocerca del PDV actualizada.' })
   } catch (error) {
     return buildState({
@@ -679,7 +801,11 @@ export async function actualizarHorarioPdv(
       detalle: horario.turnDescription,
     })
 
-    revalidatePath('/pdvs')
+    await publishPdvUiChanges(actor, service, {
+      pdvId,
+      eventType: 'pdv_horario_actualizado_admin',
+      includeScheduleConsumers: true,
+    })
     return buildState({ ok: true, message: 'Horario del PDV actualizado.' })
   } catch (error) {
     return buildState({
@@ -708,7 +834,11 @@ export async function actualizarSupervisorPdv(
       supervisor_nombre: supervisor.nombre_completo,
     })
 
-    revalidatePath('/pdvs')
+    await publishPdvUiChanges(actor, service, {
+      pdvId,
+      eventType: 'pdv_supervisor_actualizado_admin',
+      includeSupervisorConsumers: true,
+    })
     return buildState({ ok: true, message: 'Supervisor del PDV actualizado.' })
   } catch (error) {
     return buildState({

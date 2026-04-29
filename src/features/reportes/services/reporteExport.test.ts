@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { ActorActual } from '@/lib/auth/session'
 import { collectReportExportPayload } from './reporteExport'
+import { vi } from 'vitest'
+
+vi.mock('next/cache', () => ({
+  revalidatePath: vi.fn(),
+  unstable_cache: vi.fn((fn) => fn),
+}))
+
+vi.mock('@/lib/supabase/server', () => ({
+  createServiceClient: vi.fn(),
+}))
 
 type QueryResult = {
   data: unknown[] | Record<string, unknown> | null
@@ -102,6 +112,8 @@ const actor: ActorActual = {
   nombreCompleto: 'Admin Principal',
   puesto: 'ADMINISTRADOR',
 }
+
+import { createServiceClient } from '@/lib/supabase/server'
 
 describe('reporteExport calendario operativo', () => {
   it('arma una matriz mensual con observaciones y encabezado de mes', async () => {
@@ -235,6 +247,8 @@ describe('reporteExport calendario operativo', () => {
         error: null,
       },
     })
+
+    vi.mocked(createServiceClient).mockReturnValue(client as any)
 
     const payload = await collectReportExportPayload(client as never, actor, 'calendario_operativo', '2026-03')
 

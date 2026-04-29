@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog'
+import type { PermissionRecoveryState } from '@/lib/device/permissionRecovery'
 import {
   calcularHashArchivo,
   captureAttendancePosition,
@@ -14,10 +15,12 @@ import { selectAttendanceMission } from '@/features/asistencias/lib/attendanceMi
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useOfflineSync } from '@/hooks/useOfflineSync'
-import { queueOfflineAsistencia } from '@/lib/offline/syncQueue'
+import type { ActorActual } from '@/lib/auth/session'
+import { queueOfflineAsistencia, syncAsistenciaNow } from '@/lib/offline/syncQueue'
 import type { DashboardDermoconsejoData } from '../services/dashboardService'
 
 interface DermoCheckInSheetProps {
+  actor: ActorActual
   data: DashboardDermoconsejoData
   onClose: () => void
   onSuccess: (message: string) => void
@@ -30,6 +33,7 @@ interface GpsCaptureResult {
 }
 
 export function DermoCheckInSheet({
+  actor,
   data,
   onClose,
   onSuccess,
@@ -41,6 +45,7 @@ export function DermoCheckInSheet({
   const [isCapturingGps, setIsCapturingGps] = useState(false)
   const [capturedPosition, setCapturedPosition] = useState<CapturedPosition | null>(null)
   const [gpsState, setGpsState] = useState<AttendanceGpsState>('PENDIENTE')
+  const [gpsRecoveryState, setGpsRecoveryState] = useState<PermissionRecoveryState | null>(null)
   const [selfieCapture, setSelfieCapture] = useState<SelfieCapture | null>(null)
   const [justificacion, setJustificacion] = useState('')
   const [isPreparingDraft, setIsPreparingDraft] = useState(false)
@@ -59,11 +64,23 @@ export function DermoCheckInSheet({
     [data.checkIn]
   )
   const canStartShift = Boolean(
-    data.shift.canStart && data.checkIn.assignmentId && data.checkIn.assignmentSchedule
+    data.shift.canStart &&
+      data.checkIn.assignmentId &&
+      data.checkIn.assignmentSchedule &&
+      data.checkIn.pdvId
   )
   const blockingReason =
     data.shift.disabledReason ??
     'Necesitas una asignacion activa con PDV y horario para registrar la llegada.'
+
+  const buildSyncFallbackMessage = (error: unknown) => {
+    const reason =
+      error instanceof Error && error.message.trim()
+        ? error.message.trim()
+        : 'No fue posible contactar al servidor.'
+
+    return `La captura no se sincronizo con el servidor. Motivo: ${reason}. Quedo guardada solo en este telefono y se reenviara automaticamente cuando la app confirme conectividad real.`
+  }
 
   useEffect(() => {
     return () => {
@@ -87,6 +104,7 @@ export function DermoCheckInSheet({
       .then((result) => {
         setCapturedPosition(result.position)
         setGpsState(result.estadoGps)
+        setGpsRecoveryState(result.recoveryState)
         return result
       })
       .finally(() => {
@@ -178,7 +196,9 @@ export function DermoCheckInSheet({
       return
     }
 
-    if (!data.checkIn.pdvId || !data.checkIn.cuentaClienteId) {
+    const resolvedCuentaClienteId = actor.cuentaClienteId ?? data.checkIn.cuentaClienteId
+
+    if (!data.checkIn.pdvId || !resolvedCuentaClienteId) {
       onError('No hay un PDV operativo asignado para registrar la llegada.')
       return
     }
@@ -212,10 +232,9 @@ export function DermoCheckInSheet({
 
     try {
       const gpsCapture = await resolveGpsCapture()
-
-      await queueOfflineAsistencia({
+      const attendancePayload = {
         id: crypto.randomUUID(),
-        cuenta_cliente_id: data.checkIn.cuentaClienteId,
+        cuenta_cliente_id: resolvedCuentaClienteId,
         asignacion_id: data.checkIn.assignmentId,
         empleado_id: data.checkIn.empleadoId,
         supervisor_empleado_id: data.checkIn.supervisorEmpleadoId,
@@ -242,14 +261,14 @@ export function DermoCheckInSheet({
         mision_dia_id: selectedMission.id,
         mision_codigo: selectedMission.codigo,
         mision_instruccion: selectedMission.instruccion,
-        biometria_estado: 'PENDIENTE',
+        biometria_estado: 'PENDIENTE' as const,
         biometria_score: null,
         selfie_check_in_hash: selfieCapture.hash,
         selfie_check_in_url: null,
         selfie_check_out_hash: null,
         selfie_check_out_url: null,
-        estatus: 'PENDIENTE_VALIDACION',
-        origen: 'OFFLINE_SYNC',
+        estatus: 'PENDIENTE_VALIDACION' as const,
+        origen: 'OFFLINE_SYNC' as const,
         offline_selfie_check_in: {
           file: selfieCapture.file,
           fileName: selfieCapture.fileName,
@@ -286,17 +305,26 @@ export function DermoCheckInSheet({
             target_met: selfieCapture.targetMet,
           },
         },
-      })
-
-      if (offline.isOnline) {
-        await offline.syncNow()
       }
 
-      onSuccess(
-        offline.isOnline
-          ? 'Borrador enviado. Se intento sincronizar de inmediato.'
-          : 'Borrador guardado. Se enviara cuando vuelva la red.'
-      )
+      if (offline.isOnline) {
+        try {
+          await syncAsistenciaNow(attendancePayload)
+          onSuccess('Check-in enviado correctamente y sincronizado con operacion.')
+          onClose()
+          return
+        } catch (error) {
+          await queueOfflineAsistencia(attendancePayload)
+          await offline.refreshSummary()
+          onError(buildSyncFallbackMessage(error))
+          onClose()
+          return
+        }
+      }
+
+      await queueOfflineAsistencia(attendancePayload)
+      await offline.refreshSummary()
+      onSuccess('Borrador guardado. Se enviara cuando vuelva la red.')
       onClose()
     } catch (error) {
       onError(
@@ -410,6 +438,25 @@ export function DermoCheckInSheet({
             tienda.
           </p>
         )}
+
+        {gpsRecoveryState && gpsState === 'SIN_GPS' && (
+          <div className="mt-4 space-y-3 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+            <div>
+              <p className="font-semibold">{gpsRecoveryState.title}</p>
+              <p className="mt-1 leading-6">{gpsRecoveryState.message}</p>
+            </div>
+            <div className="space-y-2 rounded-[14px] bg-white/70 px-3 py-3">
+              {gpsRecoveryState.steps.map((step) => (
+                <p key={step} className="leading-5">
+                  {step}
+                </p>
+              ))}
+            </div>
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => void beginGpsCapture()}>
+              {gpsRecoveryState.retryLabel}
+            </Button>
+          </div>
+        )}
       </Card>
 
       <Card className="bg-white p-4 sm:p-5">
@@ -503,6 +550,9 @@ export function DermoCheckInSheet({
         description="Toma la selfie operativa desde la camara frontal. El sistema ya esta calculando GPS mientras capturas."
         onClose={() => setIsCameraOpen(false)}
         onCapture={handleCaptureSelfie}
+        onRetryPermissions={() => {
+          void beginGpsCapture()
+        }}
       />
     </div>
   )

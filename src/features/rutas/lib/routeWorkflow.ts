@@ -49,10 +49,15 @@ export interface RutaVisitaCheckpointMetadata {
   longitud: number | null
   distanciaMetros: number | null
   gpsState: string | null
+  gpsCaptureStatus: string | null
   selfieUrl: string | null
   selfieHash: string | null
+  selfieThumbnailUrl: string | null
+  selfieThumbnailHash: string | null
   evidenciaUrl: string | null
   evidenciaHash: string | null
+  evidenciaThumbnailUrl: string | null
+  evidenciaThumbnailHash: string | null
   comments: string | null
 }
 
@@ -193,10 +198,15 @@ function parseCheckpoint(value: unknown): RutaVisitaCheckpointMetadata {
     longitud: normalizeNumber(source.longitud),
     distanciaMetros: normalizeNumber(source.distanciaMetros),
     gpsState: normalizeString(source.gpsState),
+    gpsCaptureStatus: normalizeString(source.gpsCaptureStatus),
     selfieUrl: normalizeString(source.selfieUrl),
     selfieHash: normalizeString(source.selfieHash),
+    selfieThumbnailUrl: normalizeString(source.selfieThumbnailUrl),
+    selfieThumbnailHash: normalizeString(source.selfieThumbnailHash),
     evidenciaUrl: normalizeString(source.evidenciaUrl),
     evidenciaHash: normalizeString(source.evidenciaHash),
+    evidenciaThumbnailUrl: normalizeString(source.evidenciaThumbnailUrl),
+    evidenciaThumbnailHash: normalizeString(source.evidenciaThumbnailHash),
     comments: normalizeString(source.comments),
   }
 }

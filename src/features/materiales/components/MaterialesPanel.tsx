@@ -1,9 +1,12 @@
 'use client'
 
-import { useActionState, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useFormStatus } from 'react-dom'
 import { Button, Card, EvidencePreview, Input, MetricCard as SharedMetricCard, Select } from '@/components/ui'
 import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog'
+import type { ActorActual } from '@/lib/auth/session'
+import { useScopedWidgetData } from '@/lib/ui-change/client'
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
 import {
   getSingleTenantAccountLabel,
   isSingleTenantUiEnabled,
@@ -37,7 +40,39 @@ interface MaterialCameraCaptureDraft {
   targetMet: boolean
 }
 
-export function MaterialesPanel({ data }: { data: MaterialesPanelData }) {
+export function MaterialesPanel({
+  actor,
+  data: initialData,
+}: {
+  actor: ActorActual
+  data: MaterialesPanelData
+}) {
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const fetcher = useCallback(async (signal: AbortSignal) => {
+    const response = await fetch('/api/materiales/panel', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal,
+    })
+    const payload = (await response.json()) as { data?: MaterialesPanelData; message?: string }
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de materiales.')
+    }
+
+    return payload.data
+  }, [])
+
+  const { data } = useScopedWidgetData({
+    initialData,
+    module: 'materiales',
+    surfaces: ['panel', 'all'],
+    scopeKeys,
+    roleTargets: [actor.puesto],
+    fetcher,
+    debounceMs: 650,
+  })
+
   const [selectedMonth, setSelectedMonth] = useState(data.currentMonth)
   const fixedAccount = resolveSingleTenantAccountOption(data.accountOptions)
   const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount)

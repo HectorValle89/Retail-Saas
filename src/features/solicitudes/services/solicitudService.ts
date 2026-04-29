@@ -1,4 +1,8 @@
+import { unstable_cache } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { ActorActual } from '@/lib/auth/session'
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
+import { createServiceClient } from '@/lib/supabase/server'
 import type { CuentaCliente, Empleado, Puesto, Solicitud } from '@/types/database'
 import {
   getIncapacidadApprovalPath,
@@ -467,20 +471,78 @@ function applySolicitudFilters(query: any, filters: SolicitudesFilterState) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TypedSupabaseClient = SupabaseClient<any>
 
-export async function obtenerPanelSolicitudes(
+function isSupabaseClient(value: unknown): value is SupabaseClient {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'from' in value &&
+      typeof (value as { from?: unknown }).from === 'function'
+  )
+}
+
+function isActorActual(value: unknown): value is ActorActual {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'empleadoId' in value &&
+      'usuarioId' in value &&
+      'puesto' in value
+  )
+}
+
+interface ObtenerPanelSolicitudesOptions {
+  actor?: ActorActual | null
+  serviceClient?: TypedSupabaseClient
+  actorPuesto?: Puesto | null
+  actorEmpleadoId?: string | null
+  page?: number
+  pageSize?: number
+  filters?: Partial<SolicitudesFilterState>
+}
+
+const SOLICITUDES_PANEL_REVALIDATE_SECONDS = 60
+
+function buildSolicitudesCacheKey(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
+  options: ObtenerPanelSolicitudesOptions = {}
+) {
+  return JSON.stringify({
+    cuentaClienteId: actor.cuentaClienteId ?? null,
+    empleadoId: actor.empleadoId,
+    puesto: actor.puesto,
+    page: normalizePage(options.page),
+    pageSize: normalizePageSize(options.pageSize),
+    filters: {
+      tipo: normalizeFilterToken(options.filters?.tipo),
+      estatus: normalizeFilterToken(options.filters?.estatus),
+      empleadoId: normalizeFilterToken(options.filters?.empleadoId),
+      fechaInicio: normalizeFilterToken(options.filters?.fechaInicio),
+      fechaFin: normalizeFilterToken(options.filters?.fechaFin),
+      month: normalizeMonth(options.filters?.month),
+    },
+  })
+}
+
+function buildSolicitudesCacheTags(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
+  filters: SolicitudesFilterState
+) {
+  return buildModuleCacheTags({
+    module: 'solicitudes',
+    accountId: actor.cuentaClienteId ?? null,
+    employeeId: actor.empleadoId,
+    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
+    period: filters.month,
+  })
+}
+
+async function obtenerPanelSolicitudesUncached(
   supabase: TypedSupabaseClient,
-  options?: {
-    serviceClient?: TypedSupabaseClient
-    actorPuesto?: Puesto | null
-    actorEmpleadoId?: string | null
-    page?: number
-    pageSize?: number
-    filters?: Partial<SolicitudesFilterState>
-  }
+  options: ObtenerPanelSolicitudesOptions = {}
 ): Promise<SolicitudesPanelData> {
   const client = options?.serviceClient ?? supabase
-  const actorPuesto = options?.actorPuesto ?? null
-  const actorEmpleadoId = options?.actorEmpleadoId ?? null
+  const actorPuesto = options?.actor?.puesto ?? options?.actorPuesto ?? null
+  const actorEmpleadoId = options?.actor?.empleadoId ?? options?.actorEmpleadoId ?? null
   const page = normalizePage(options?.page)
   const pageSize = normalizePageSize(options?.pageSize)
   const filters: SolicitudesFilterState = {
@@ -624,4 +686,58 @@ export async function obtenerPanelSolicitudes(
     filtros: filters,
     infraestructuraLista: true,
   }
+}
+
+export async function obtenerPanelSolicitudes(
+  actorOrSupabase: ActorActual | TypedSupabaseClient,
+  optionsOrActor: ObtenerPanelSolicitudesOptions | ActorActual = {},
+  customSupabase?: TypedSupabaseClient
+): Promise<SolicitudesPanelData> {
+  if (isSupabaseClient(actorOrSupabase)) {
+    const actor =
+      isActorActual(optionsOrActor) ? optionsOrActor : optionsOrActor.actor ?? null
+    const options = isActorActual(optionsOrActor)
+      ? { actor: optionsOrActor }
+      : optionsOrActor
+
+    return obtenerPanelSolicitudesUncached(actorOrSupabase, {
+      ...options,
+      actor,
+    })
+  }
+
+  const actor = actorOrSupabase
+  const options = isActorActual(optionsOrActor)
+    ? { actor }
+    : {
+        ...optionsOrActor,
+        actor,
+      }
+
+  if (customSupabase) {
+    return obtenerPanelSolicitudesUncached(customSupabase, options)
+  }
+
+  const normalizedFilters: SolicitudesFilterState = {
+    ...buildDefaultFilters(options.filters?.month),
+    tipo: normalizeFilterToken(options.filters?.tipo),
+    estatus: normalizeFilterToken(options.filters?.estatus),
+    empleadoId: normalizeFilterToken(options.filters?.empleadoId),
+    fechaInicio: normalizeFilterToken(options.filters?.fechaInicio),
+    fechaFin: normalizeFilterToken(options.filters?.fechaFin),
+    month: normalizeMonth(options.filters?.month),
+  }
+  const cacheKey = buildSolicitudesCacheKey(actor, options)
+
+  return unstable_cache(
+    async () => {
+      const service = createServiceClient()
+      return obtenerPanelSolicitudesUncached(service, options)
+    },
+    ['solicitudes:panel', cacheKey],
+    {
+      tags: buildSolicitudesCacheTags(actor, normalizedFilters),
+      revalidate: SOLICITUDES_PANEL_REVALIDATE_SECONDS,
+    }
+  )()
 }

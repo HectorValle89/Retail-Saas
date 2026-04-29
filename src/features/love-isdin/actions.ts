@@ -1,11 +1,14 @@
 'use server'
-
-import { revalidatePath } from 'next/cache'
 import { requerirPuestosActivos } from '@/lib/auth/session'
 import { EXPEDIENTE_RAW_UPLOAD_MAX_BYTES } from '@/lib/files/documentOptimization'
 import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
 import { computeSHA256 } from '@/lib/files/sha256'
 import { createServiceClient } from '@/lib/supabase/server'
+import { publishUiChanges } from '@/lib/ui-change/server'
+import {
+  buildUiChangeScope,
+  buildUiChangeTargetsFromBusinessEvent,
+} from '@/lib/ui-change/types'
 import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Puesto } from '@/types/database'
@@ -61,6 +64,44 @@ function buildState(partial: Partial<LoveIsdinActionState>): LoveIsdinActionStat
     ...ESTADO_LOVE_ISDIN_INICIAL,
     ...partial,
   }
+}
+
+async function publishLoveUiChanges(
+  service: TypedSupabaseClient,
+  {
+    cuentaClienteId,
+    empleadoId,
+    pdvId,
+    period,
+    eventType,
+  }: {
+    cuentaClienteId: string
+    empleadoId: string
+    pdvId: string
+    period: string
+    eventType: string
+  }
+) {
+  await publishUiChanges(
+    buildUiChangeTargetsFromBusinessEvent({
+      eventType,
+      modules: ['dashboard', 'love-isdin', 'reportes', 'materiales'],
+      surfaces: ['panel', 'insights', 'shell', 'tabla'],
+      scopes: [
+        buildUiChangeScope('cuenta', cuentaClienteId),
+        buildUiChangeScope('empleado', empleadoId),
+        buildUiChangeScope('pdv', pdvId),
+        buildUiChangeScope('periodo', period),
+      ],
+      cuentaClienteId,
+      empleadoId,
+      metadata: {
+        pdvId,
+        periodo: period,
+      },
+    }),
+    { service }
+  )
 }
 
 function normalizeRequiredText(value: FormDataEntryValue | null, label: string) {
@@ -282,9 +323,13 @@ export async function registrarAfiliacionLoveIsdin(
         },
       })
 
-      revalidatePath('/love-isdin')
-      revalidatePath('/dashboard')
-      revalidatePath('/reportes')
+      await publishLoveUiChanges(service, {
+        cuentaClienteId: result.context.cuentaClienteId,
+        empleadoId: result.context.empleadoId,
+        pdvId: result.context.pdvId,
+        period: fechaUtc.slice(0, 7),
+        eventType: 'love_isdin_registrado_r2_direct',
+      })
 
       return buildState({
         ok: true,
@@ -343,9 +388,13 @@ export async function registrarAfiliacionLoveIsdin(
       },
     })
 
-    revalidatePath('/love-isdin')
-    revalidatePath('/dashboard')
-    revalidatePath('/reportes')
+    await publishLoveUiChanges(service, {
+      cuentaClienteId: result.context.cuentaClienteId,
+      empleadoId: result.context.empleadoId,
+      pdvId: result.context.pdvId,
+      period: fechaUtc.slice(0, 7),
+      eventType: 'love_isdin_registrado',
+    })
 
     return buildState({
       ok: true,
@@ -543,9 +592,25 @@ export async function registrarCargaMasivaQrIncremental(
       },
     })
 
-    revalidatePath('/love-isdin')
-    revalidatePath('/dashboard')
-    revalidatePath('/love-isdin/qr-template')
+    await publishUiChanges(
+      buildUiChangeTargetsFromBusinessEvent({
+        eventType: processed.applied
+          ? 'love_isdin_qr_import_confirmado'
+          : 'love_isdin_qr_import_cancelado',
+        modules: ['dashboard', 'love-isdin'],
+        surfaces: ['panel', 'insights', 'shell'],
+        scopes: [
+          buildUiChangeScope('cuenta', cuenta.id),
+          buildUiChangeScope('periodo', importedAt.slice(0, 7)),
+        ],
+        cuentaClienteId: cuenta.id,
+        metadata: {
+          periodo: importedAt.slice(0, 7),
+          lotId,
+        },
+      }),
+      { service }
+    )
 
     if (!processed.applied) {
       const firstErrors = processed.warnings
@@ -639,8 +704,24 @@ export async function asignarQrDisponibleLoveIsdin(
       cuenta_cliente_id: cuenta.id,
     })
 
-    revalidatePath('/love-isdin')
-    revalidatePath('/dashboard')
+    await publishUiChanges(
+      buildUiChangeTargetsFromBusinessEvent({
+        eventType: 'love_isdin_qr_asignado_manualmente',
+        modules: ['dashboard', 'love-isdin'],
+        surfaces: ['panel', 'insights', 'shell'],
+        scopes: [
+          buildUiChangeScope('cuenta', cuenta.id),
+          buildUiChangeScope('empleado', assigned.empleadoId),
+        ],
+        cuentaClienteId: cuenta.id,
+        empleadoId: assigned.empleadoId,
+        metadata: {
+          qrCodigoId: assigned.qrCodigoId,
+          assignmentId: assigned.assignmentId,
+        },
+      }),
+      { service }
+    )
 
     return buildState({
       ok: true,

@@ -1,0 +1,175 @@
+
+> saas-factory-app@0.1.0 preview
+> npm run cf:build && opennextjs-cloudflare preview
+
+
+> saas-factory-app@0.1.0 cf:build
+> opennextjs-cloudflare build && node scripts/fix-opennext-windows-paths.mjs
+
+
+┌─────────────────────────────┐
+│ OpenNext — Cloudflare build │
+└─────────────────────────────┘
+
+App directory: D:\IA\Retail
+Next.js version : 16.1.6
+@opennextjs/cloudflare version: 1.19.0
+@opennextjs/aws version: 3.10.1
+
+┌─────────────────────────────────┐
+│ OpenNext — Building Next.js app │
+└─────────────────────────────────┘
+
+
+> saas-factory-app@0.1.0 build
+> next build
+
+Using secrets defined in .dev.vars
+▲ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local, .env
+- Experiments (use with caution):
+  · proxyClientMaxBodySize: "15mb"
+  · serverActions
+
+  Creating an optimized production build ...
+Using secrets defined in .dev.vars
+✓ Compiled successfully in 6.2s
+  Running TypeScript ...
+  Collecting page data using 31 workers ...
+  Generating static pages using 31 workers (0/52) ...
+  Generating static pages using 31 workers (13/52) 
+  Generating static pages using 31 workers (26/52) 
+  Generating static pages using 31 workers (39/52) 
+✓ Generating static pages using 31 workers (52/52) in 317.4ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /activacion
+├ ƒ /admin/users
+├ ƒ /api/asignaciones/horarios-template
+├ ƒ /api/asignaciones/rotacion-legacy-convert
+├ ƒ /api/asignaciones/rotacion-propuesta
+├ ƒ /api/asignaciones/rotacion-template
+├ ƒ /api/asignaciones/scheduled-publication
+├ ƒ /api/asignaciones/template
+├ ƒ /api/asistencias/detalle
+├ ƒ /api/asistencias/export
+├ ƒ /api/asistencias/sync
+├ ƒ /api/bitacora/export
+├ ƒ /api/campanas/metas-template
+├ ƒ /api/catalogo/productos
+├ ƒ /api/dashboard/dermoconsejo-panel
+├ ƒ /api/dashboard/supervisor-monthly-role
+├ ƒ /api/dashboard/supervisor-panel
+├ ƒ /api/dashboard/supervisor-route-panel
+├ ƒ /api/empleados/export
+├ ƒ /api/empleados/ocr-preview
+├ ƒ /api/formaciones/scheduled-reminders
+├ ƒ /api/love-isdin/qr-template
+├ ƒ /api/love-isdin/sync
+├ ƒ /api/materiales/template
+├ ƒ /api/mensajes/encuestas-template
+├ ƒ /api/pdvs/export
+├ ƒ /api/reportes/export
+├ ƒ /api/reportes/scheduled-export
+├ ƒ /api/ventas/sync
+├ ○ /apple-icon
+├ ƒ /asignaciones
+├ ƒ /asistencias
+├ ƒ /bitacora
+├ ƒ /campanas
+├ ƒ /campanas/[campanaId]
+├ ƒ /campanas/nueva
+├ ○ /check-email
+├ ƒ /clientes
+├ ƒ /configuracion
+├ ƒ /dashboard
+├ ƒ /empleados
+├ ○ /forgot-password
+├ ƒ /formaciones
+├ ƒ /gastos
+├ ○ /icon
+├ ƒ /login
+├ ƒ /logout
+├ ƒ /love-isdin
+├ ○ /manifest.webmanifest
+├ ƒ /materiales
+├ ƒ /mensajes
+├ ƒ /mi-nomina
+├ ƒ /nomina
+├ ○ /offline
+├ ƒ /pdvs
+├ ƒ /primer-acceso
+├ ƒ /ranking
+├ ƒ /ranking-publico
+├ ƒ /reglas
+├ ƒ /reportes
+├ ƒ /ruta-semanal
+├ ƒ /solicitudes
+├ ○ /update-password
+└ ƒ /ventas
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+┌──────────────────────────────┐
+│ OpenNext — Generating bundle │
+└──────────────────────────────┘
+
+Bundling middleware function...
+Bundling static assets...
+Bundling cache assets...
+Building server function: default...
+Applying code patches: 3.045s
+# copyPackageTemplateFiles
+[35m⚙️ Bundling the OpenNext server...
+[0m
+[35mWorker saved in `.open-next\worker.js` 🚀
+[0m
+OpenNext build complete.
+[fix-opennext-windows-paths] no Windows absolute imports found
+[fix-opennext-windows-paths] rebuilt runtime chunk loader with 225 chunk case(s) in .open-next\server-functions\default\.next\server\chunks\ssr\[turbopack]_runtime.js
+[fix-opennext-windows-paths] rebuilt runtime chunk loader with 89 chunk case(s) in .open-next\server-functions\default\.next\server\chunks\[turbopack]_runtime.js
+
+┌───────────────────────────────┐
+│ OpenNext — Cloudflare preview │
+└───────────────────────────────┘
+
+Using secrets defined in .dev.vars
+Incremental cache does not need populating
+Tag cache does not need populating
+
+ ⛅️ wrangler 4.81.1
+───────────────────
+Using secrets defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                                                               Resource                  Mode
+env.WORKER_SELF_REFERENCE (beteele-one)                                               Worker                    local [connected]
+env.ASSETS                                                                            Assets                    local
+env.NEXT_PUBLIC_SUPABASE_URL ("https://jbdfutvkfvmaulmnfwkk.supabase...")             Environment Variable      local
+env.NEXT_PUBLIC_SITE_URL ("https://beteele-one.com")                                  Environment Variable      local
+env.OCR_PROVIDER ("gemini")                                                           Environment Variable      local
+env.GEMINI_OCR_MODEL ("gemini-2.5-flash")                                             Environment Variable      local
+env.CLOUDFLARE_ACCOUNT_ID ("183b83e136c90324b838d8bfa0c6c7d6")                        Environment Variable      local
+env.CLOUDFLARE_R2_BUCKET_NAME ("beteele-media-prod")                                  Environment Variable      local
+env.NEXTJS_ENV ("(hidden)")                                                           Environment Variable      local
+env.NEXT_PUBLIC_SUPABASE_ANON_KEY ("(hidden)")                                        Environment Variable      local
+env.SUPABASE_SERVICE_ROLE_KEY ("(hidden)")                                            Environment Variable      local
+env.DATABASE_URL ("(hidden)")                                                         Environment Variable      local
+env.GEMINI_API_KEY ("(hidden)")                                                       Environment Variable      local
+env.CLOUDFLARE_R2_ACCESS_KEY_ID ("(hidden)")                                          Environment Variable      local
+env.CLOUDFLARE_R2_SECRET_ACCESS_KEY ("(hidden)")                                      Environment Variable      local
+
+
+Service bindings, Durable Object bindings, and Tail consumers connect to other Wrangler or Vite dev processes running locally, with their connection status indicated by [connected] or [not connected]. For more details, refer to https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/#local-development
+
+⎔ Starting local server...
+[wrangler:info] ✨ Parsed 1 valid header rule.
+[wrangler:info] Ready on http://127.0.0.1:8787
+[wrangler:info] GET /login 500 Internal Server Error (178ms)
