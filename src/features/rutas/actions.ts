@@ -1521,7 +1521,7 @@ export async function completarVisitaRutaSemanal(
 
     const { data: visita, error: visitaError } = await supabase
       .from('ruta_semanal_visita')
-      .select('id, ruta_semanal_id, cuenta_cliente_id, supervisor_empleado_id, pdv_id, estatus, selfie_url, evidencia_url')
+      .select('id, ruta_semanal_id, cuenta_cliente_id, supervisor_empleado_id, pdv_id, dia_semana, estatus, selfie_url, evidencia_url')
       .eq('id', visitaId)
       .maybeSingle()
 
@@ -1531,6 +1531,27 @@ export async function completarVisitaRutaSemanal(
 
     if (visita.supervisor_empleado_id !== actor.empleadoId) {
       return buildState({ message: 'La visita no pertenece al supervisor autenticado.' })
+    }
+
+    // ── Validación estricta: solo se puede completar la visita del día actual ──
+    const { data: rutaPadre, error: rutaPadreError } = await supabase
+      .from('ruta_semanal')
+      .select('semana_inicio')
+      .eq('id', visita.ruta_semanal_id)
+      .maybeSingle()
+
+    if (rutaPadreError || !rutaPadre) {
+      return buildState({ message: rutaPadreError?.message ?? 'No fue posible resolver la ruta semanal de esta visita.' })
+    }
+
+    const fechaOperacionVisita = getWeekDateIso(rutaPadre.semana_inicio, visita.dia_semana)
+    const hoyMexico = getIsoDateInMexicoCity()
+
+    if (fechaOperacionVisita !== hoyMexico) {
+      const diaLabel = getWeekDayLabel(visita.dia_semana)
+      return buildState({
+        message: `Esta visita corresponde al ${diaLabel} ${fechaOperacionVisita}. Solo puedes completar visitas del dia de hoy (${hoyMexico}). Si necesitas cerrar una visita de otro dia, solicita autorizacion a tu coordinador.`,
+      })
     }
 
     const selfieUpload = await uploadRutaEvidence(service, {

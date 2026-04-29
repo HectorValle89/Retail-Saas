@@ -361,6 +361,8 @@ export function buildVisitasSupervisoresDetalle(
     routeMap.set(route.id, route);
   }
 
+  const monthRange = buildMonthRange(options.periodo);
+
   const filteredVisits = visitsRaw.flatMap((visit) => {
     const route = routeMap.get(visit.ruta_semanal_id);
     if (!route) {
@@ -371,6 +373,13 @@ export function buildVisitasSupervisoresDetalle(
     const pdv = obtenerPrimero(visit.pdv);
     const checklist = getChecklistProgress(visit.checklist_calidad);
     const fechaOperacion = formatOperationDate(route.semana_inicio, visit.dia_semana);
+
+    // Excluir visitas cuya fecha de operacion caiga fuera del mes seleccionado.
+    // Esto ocurre cuando una ruta semanal cruza el limite de mes (ej. ruta del 27/abr
+    // con dia_semana=5 genera fechaOperacion=01/may, que no debe aparecer en Abril).
+    if (fechaOperacion < monthRange.startDate || fechaOperacion >= monthRange.endDateExclusive) {
+      return [];
+    }
 
     const item = {
       routeId: route.id,
