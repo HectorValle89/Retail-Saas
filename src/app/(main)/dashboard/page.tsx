@@ -1,28 +1,30 @@
-import { Suspense } from 'react'
-import { requerirActorActivo, type ActorActual } from '@/lib/auth/session'
+import { Suspense } from 'react';
+import { requerirActorActivo, type ActorActual } from '@/lib/auth/session';
 import {
   DashboardInsightsPanel,
   DashboardInsightsSkeleton,
   DashboardPanel,
-} from '@/features/dashboard/components/DashboardPanel'
+} from '@/features/dashboard/components/DashboardPanel';
 import {
   obtenerInsightsDashboard,
   obtenerPanelDashboard,
   type DashboardPanelOptions,
-} from '@/features/dashboard/services/dashboardService'
+} from '@/features/dashboard/services/dashboardService';
+import { obtenerDashboardCliente } from '@/features/dashboard/services/clienteDashboardService';
+import { ClienteDashboardPanel } from '@/features/dashboard/components/ClienteDashboardPanel';
 
-import { Card } from '@/components/ui/card'
+import { Card } from '@/components/ui/card';
 
 export const metadata = {
   title: 'Dashboard | Beteele One',
-}
+};
 
 interface DashboardPageProps {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }
 
 function pickString(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value
+  return Array.isArray(value) ? value[0] : value;
 }
 
 async function DashboardInsightsSection({
@@ -32,11 +34,11 @@ async function DashboardInsightsSection({
   zona,
   supervisorId,
 }: {
-  actor: ActorActual
-  periodo?: string
-  estado?: string
-  zona?: string
-  supervisorId?: string
+  actor: ActorActual;
+  periodo?: string;
+  estado?: string;
+  zona?: string;
+  supervisorId?: string;
 }) {
   const data = await obtenerInsightsDashboard(actor, {
     period: periodo,
@@ -44,48 +46,21 @@ async function DashboardInsightsSection({
     zona,
     supervisorId,
     only: ['live'], // Solicitamos solo lo necesario para insights
-  })
+  });
 
-  return <DashboardInsightsPanel actor={actor} data={data} />
+  return <DashboardInsightsPanel actor={actor} data={data} />;
 }
 
-
-async function DashboardCoreSection({
+async function DashboardSection({
   actor,
   options,
 }: {
-  actor: ActorActual
-  options: DashboardPanelOptions
+  actor: ActorActual;
+  options: DashboardPanelOptions;
 }) {
-  // Solo cargamos KPIs y datos básicos para el render inicial rápido
-  const data = await obtenerPanelDashboard(actor, { ...options, only: ['stats', 'external'] })
-  return <DashboardPanel actor={actor} data={data} />
+  const data = await obtenerPanelDashboard(actor, options);
+  return <DashboardPanel actor={actor} data={data} />;
 }
-
-async function DashboardOperationsSection({
-  actor,
-  options,
-}: {
-  actor: ActorActual
-  options: DashboardPanelOptions
-}) {
-  // Cargamos datos operativos (mapa, alertas, board diario)
-  const data = await obtenerPanelDashboard(actor, { ...options, only: ['live', 'operations'] })
-  return <DashboardPanel actor={actor} data={data} isWidgetMode />
-}
-
-async function DashboardReachSection({
-  actor,
-  options,
-}: {
-  actor: ActorActual
-  options: DashboardPanelOptions
-}) {
-  // Cargamos el alcance de visitas (el más pesado)
-  const data = await obtenerPanelDashboard(actor, { ...options, only: ['reach'] })
-  return <DashboardPanel actor={actor} data={data} isWidgetMode />
-}
-
 
 function DashboardPanelSkeleton() {
   return (
@@ -98,25 +73,27 @@ function DashboardPanelSkeleton() {
       </div>
       <Card className="h-96 animate-pulse bg-slate-50" />
     </div>
-  )
+  );
 }
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  const actor = await requerirActorActivo()
+  const actor = await requerirActorActivo();
+  const isCliente = actor.puesto === 'CLIENTE';
   const usesRoleDashboard =
     actor.puesto === 'DERMOCONSEJERO' ||
     actor.puesto === 'SUPERVISOR' ||
     actor.puesto === 'RECLUTAMIENTO' ||
-    actor.puesto === 'NOMINA'
-  const params = (await searchParams) ?? {}
-  const periodo = pickString(params.periodo)
-  const estado = pickString(params.estado)
-  const zona = pickString(params.zona)
-  const supervisorId = pickString(params.supervisorId)
-  const reachSupervisorId = pickString(params.reachSupervisorId)
-  const reachWeekStart = pickString(params.reachWeekStart)
-  const reachChain = pickString(params.reachChain)
-  const reachStoreType = pickString(params.reachStoreType)
+    actor.puesto === 'NOMINA' ||
+    isCliente;
+  const params = (await searchParams) ?? {};
+  const periodo = pickString(params.periodo);
+  const estado = pickString(params.estado);
+  const zona = pickString(params.zona);
+  const supervisorId = pickString(params.supervisorId);
+  const reachSupervisorId = pickString(params.reachSupervisorId);
+  const reachWeekStart = pickString(params.reachWeekStart);
+  const reachChain = pickString(params.reachChain);
+  const reachStoreType = pickString(params.reachStoreType);
   const options = {
     period: periodo,
     estado,
@@ -128,6 +105,19 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     reachStoreType,
     includeDermoSecondaryData: actor.puesto !== 'DERMOCONSEJERO',
     includeSupervisorSecondaryData: false,
+  };
+
+  // ── Cliente Dashboard: SSR load, then client-side refresh ──
+  if (isCliente) {
+    const clienteData = await obtenerDashboardCliente(actor, {
+      periodo: periodo ?? '',
+    });
+
+    return (
+      <div className="mx-auto max-w-7xl px-4 pb-8 pt-5 sm:px-6 sm:pb-10">
+        <ClienteDashboardPanel initialData={clienteData} />
+      </div>
+    );
   }
 
   return (
@@ -139,15 +129,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       }
     >
       <Suspense fallback={<DashboardPanelSkeleton />}>
-        <DashboardCoreSection actor={actor} options={options} />
-      </Suspense>
-
-      <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-slate-50" />}>
-        <DashboardOperationsSection actor={actor} options={options} />
-      </Suspense>
-
-      <Suspense fallback={<div className="h-96 animate-pulse rounded-xl bg-slate-50" />}>
-        <DashboardReachSection actor={actor} options={options} />
+        <DashboardSection actor={actor} options={options} />
       </Suspense>
 
       {!usesRoleDashboard && (
@@ -164,5 +146,5 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         </div>
       )}
     </div>
-  )
+  );
 }
