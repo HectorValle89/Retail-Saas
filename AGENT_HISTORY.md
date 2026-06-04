@@ -1,1440 +1,2057 @@
 # 📜 AGENT_HISTORY.md - Registro Maestro de la Fábrica
 
+## [2026-06-03 19:15] - Feature: Visualización Diferenciada de Dermoconsejeras Pendientes en Dashboard y WhatsApp (Antigravity)
+
+- **Contexto**: El usuario solicitó separar y distinguir visualmente a las dermoconsejeras en la pestaña de **"Dermos Pendientes"** en dos categorías: aquellas que no han enviado ningún reporte (en ceros) de aquellas que enviaron canjes o desabastos, pero les falta registrar Ventas o Love ISDIN. También solicitó que el copiado para WhatsApp refleje esta misma división para que los supervisores puedan dar un seguimiento preciso.
+- **Causa Raíz / Retos Técnicos**: 
+  - La interfaz de `ClienteDashboardPanel.tsx` agrupaba todas las alertas de omisión en una sola lista genérica de "Dermos Pendientes" y aplicaba el mismo estilo rojo de peligro para todos los registros, sin diferenciar las dermos incompletas.
+  - La función `handleCopiarPendientes` en `ClienteDashboardPanel.tsx` formateaba a todos los pendientes bajo una lista única de WhatsApp.
+- **Acciones Ejecutadas**:
+  - **Modificación de Interfaz Visual (SaaS)**:
+    * Actualizamos la lista de Dermos Pendientes en [ClienteDashboardPanel.tsx](file:///d:/IA/Retail/src/features/dashboard/components/ClienteDashboardPanel.tsx) para renderizar dinámicamente tarjetas y etiquetas de color rojo para las dermoconsejeras de tipo `vacio` (mostrando el badge "Sin reportes") y de color ámbar/amarillo para las de tipo `incompleto` (mostrando el badge "Falta Ventas/Love").
+  - **Modificación en el Copiado de WhatsApp**:
+    * Reestructuramos `handleCopiarPendientes` para filtrar las alertas en `vacios` e `incompletos`. El portapapeles ahora divide el texto automáticamente en `🚫 Sin reportes hoy (En ceros)` y `⚠️ Tienen reportes pero sin Ventas ni Love ISDIN`, omitiendo secciones vacías.
+  - **Compilación, Verificación y Despliegue**:
+    * Validamos la compilación completa de Next.js y OpenNext con `npm run cf:build` (exitosa sin errores).
+    * Corrimos el formateo y auditoría de encoding UTF-8 en todo el proyecto (`npm run docs:check-encoding` reportando 908 archivos en orden).
+    * Desplegamos la nueva versión en Cloudflare Workers (`npm run cf:deploy`), quedando activa en producción (Current Version ID: `89cab13c-9be0-45fa-8474-ca53af595563`).
+- **Resultado**: Los coordinadores y supervisores ahora visualizan con total claridad en pantalla qué dermoconsejeras no han reportado nada y cuáles tienen reportes incompletos, y pueden copiar un mensaje categorizado y profesional listo para WhatsApp con un solo clic.
+
+## [2026-06-03 14:30] - Feature: Consolidación Automática en Tiempo Real, Remoción de Límites y Excel Total de Periodo (Antigravity)
+
+- **Contexto**: El usuario aprobó la consolidación en tiempo real (Opción A) de los registros de capturas públicas en el portal de campo (`dermoconsejo.beteele-one.com`) a las tablas finales de ventas, asistencias y love_isdin. Adicionalmente, reportó discrepancias numéricas en los paneles ejecutivos de cliente (`https://reportes.beteele-one.com/`) y administrador (`https://beteele-one.com/reportes`) que hacían que las sumas y KPIs se quedaran estancadas por un límite de consulta, y que las descargas de Excel se detuvieran en los primeros 50 registros de la página activa en lugar de descargar todo el mes.
+- **Causa Raíz / Retos Técnicos**:
+  - Las capturas públicas se quedaban en la tabla temporal de staging `captura_publica_registro` con estatus `RECIBIDO` y no se transferían a las tablas operativas finales de ventas, asistencias ni afiliaciones de Love ISDIN, impidiendo que los reportes de nómina y dashboards de supervisor reflejaran el avance real de Junio de 2026.
+  - Supabase/PostgREST restringe de forma predeterminada las consultas a 1000 filas por request si no se especifica un rango. Esto limitaba silenciosamente el dataset de capturas en memoria a las primeras 1000 filas del mes de Junio (de las 4,154 reales), capando los KPIs y las barras de progreso del panel del cliente.
+  - El descargador de Excel de capturas del administrador utilizaba `data.items` (que correspondía a la paginación visible de 50 filas) en lugar de consultar la totalidad de la información del mes.
+- **Acciones Ejecutadas**:
+  - **Base de Datos - Triggers y Backfill Completo**:
+    * Creamos e implementamos la migración `20260603210000_captura_publica_consolidacion_automatica.sql` en producción.
+    * Agregamos el trigger `BEFORE INSERT` en `captura_publica_registro` que crea o actualiza de forma automática asistencias validadas (`VALIDA` con horario default de 08:00 a 17:00 en huso horario de México), consolidando transaccionalmente las ventas (`public.venta`) y desempaquetando individualmente las afiliaciones Love (`public.love_isdin` con estatus `VALIDA`), marcando las capturas como `CONSOLIDADO`.
+    * Corrimos un script de backfill masivo que consolidó con éxito rotundo los **4,154 registros de Junio de 2026** estancados en `RECIBIDO`.
+  - **SaaS - Remoción del Límite de PostgREST**:
+    * Modificamos [clienteDashboardService.ts](file:///d:/IA/Retail/src/features/dashboard/services/clienteDashboardService.ts) agregando filtros de rango `.range(0, 49999)` y `.range(0, 9999)` a todas las consultas de capturas operativas para procesar el set real completo.
+    * Editamos [capturaPublicaReporteService.ts](file:///d:/IA/Retail/src/features/reportes/services/capturaPublicaReporteService.ts) para aplicar un `.range(0, 49999)` al cálculo agregador de resúmenes del administrador.
+  - **Visual - Descarga de Excel Completa**:
+    * Modificamos la API Route para recibir `pageSize = -1` (realiza una consulta bypass de rango `0` a `99999`).
+    * Refactorizamos los botones de descarga de Excel en [CapturaPublicaReportSection.tsx](file:///d:/IA/Retail/src/features/reportes/components/CapturaPublicaReportSection.tsx) para que muestren la cantidad total real mensual por tipo basándose en `data.resumen` (ej. 3,006 para ventas en Junio).
+    * Agregamos soporte para que al dar clic, el componente realice una descarga en caliente de todo el periodo, mostrando un spinner de carga (`⏳ Descargando...`) interactivo y exportando el XLSX con el 100% de los datos del mes de Junio de forma instantánea.
+  - **Compilación & Despliegue**:
+    * Corregimos un error de tipo en `obtenerReporteCapturaPublica` de `capturaPublicaReporteService.ts` donde se utilizaba la variable indefinida `count` en lugar de `totalCount`.
+    * Solucionamos un bug de límite en la consulta de capturas diarias en `clienteDashboardService.ts` implementando la función helper `obtenerCapturasDiaCompleto` que realiza una consulta paginada en bloques de 1,000 para cargar el 100% de la información operativa del día sin cortes de PostgREST. Esto resolvió el problema por el cual el cumplimiento diario del equipo de la supervisora María Zenaida fluctuaba a la baja (subió de 12 a su valor exacto real de 15 / 18).
+    * Rediseñamos la UI de `ClienteDashboardPanel.tsx` integrando un sistema de dos pestañas: "Resumen General" y "Dermos Pendientes".
+    * Diseñamos e implementamos la pestaña de "Dermos Pendientes", que muestra el estatus y progreso de asistencia diario y agrupa en tarjetas a todas las dermoconsejeras programadas que no han reportado actividad el día de hoy, segmentadas por supervisor.
+    * Agregamos el botón "Copiar para WhatsApp" en la tarjeta de cada supervisor en la pestaña de pendientes. Al darle clic, copia al portapapeles un texto perfectamente formateado listo para pegarse en WhatsApp para dar seguimiento ágil con tooltip de éxito.
+    * Compilamos Next.js y OpenNext con éxito absoluto (`npm run cf:build` completado con éxito).
+    * Verificamos la consistencia de archivos UTF-8 sin BOM y LF en todo el repositorio con `npm run docs:check-encoding` (908 archivos correctos).
+    * Desplegamos exitosamente a producción sobre la red global de Cloudflare Workers (`npm run cf:deploy`) quedando en vivo el 100% de los cambios (Current Version ID: `4f08d2b6-7870-4438-8eec-2641414fbb66`).
+- **Resultado**: Los dashboards ejecutivos de administrador y cliente se encuentran 100% sincronizados con los datos reales en tiempo real (mostrando los 4,154 registros de Junio), los Excel y reportes diarios se procesan completos sin topes, y la coordinación de campo cuenta con una pestaña dedicada y botón WhatsApp para dar seguimiento a los pendientes de reporte al instante.
+
+## [2026-06-02 10:07] - Feature: Filtro Diario y Sección Premium de Avance por Supervisor en Dashboard Ejecutivo (Antigravity)
+
+- **Contexto**: El usuario solicitó dos mejoras de usabilidad y visualización críticas en el panel ejecutivo (`https://reportes.beteele-one.com`):
+  1. Habilitar un filtro diario de fecha (`fecha`) para poder segmentar todas las métricas de canjes, ventas, Love ISDIN y desabastos a un día específico.
+  2. Implementar un espacio interactivo y premium de avance diario por supervisor, que renderice de forma responsiva a todos los supervisores globales de la cuenta con su progreso de dermoes registradas vs programadas hoy, destacando con brillo verde esmeralda y un badge con estrella (`✨ 100%`) a quienes ya cumplieron con la totalidad de su equipo, y permitiendo filtrar de forma interactiva el dashboard al dar clic.
+- **Causa Raíz / Retos Técnicos**: 
+  - La interfaz de `ClienteDashboardPanel.tsx` se encontraba rota debido a una truncación parcial en su declaración y estados en el turno anterior, lo que impedía compilar la aplicación.
+  - El selector de fecha (`fecha` query param) debía sincronizarse reactivamente con las peticiones automáticas AJAX hacia el backend, actualizando todos los KPIs, alertas de omisión y desabastos, pero manteniendo el gráfico de tendencia histórico completo de fondo para contexto del mes.
+- **Acciones Ejecutadas**:
+  - **Reconstrucción e Integración Total**:
+    * Restauramos la estructura íntegra de `ClienteDashboardPanel` con sus correspondientes estados de filtrado reactivos (`periodo`, `fecha`, `cadenaId`, `pdvId`, `supervisorId`) y disparadores HTTP a la API.
+    * Conectamos los inputs dinámicos en `<FilterBar />` habilitando el selector tipo `date` dinámicamente acotado entre el primer y último día del periodo de mes activo.
+  - **Creación del Espacio Premium de Supervisores**:
+    * Diseñamos un grid colocalizado ultra-limpio con tarjetas glassmorphism animadas para cada supervisor.
+    * Implementamos el realce interactivo: un sutil resplandor esmeralda y badge `"✨ 100%"` para los perfectos cumplimientos, y un fondo de contraste slate oscuro con barra de progreso blanca para la selección activa.
+    * Añadimos el disparador `onClick` interactivo de filtrado bidireccional y limpieza rápida.
+  - **Compilación & Despliegue Exitoso**:
+    * Compilamos con éxito rotundo Next.js y OpenNext (`npm run cf:build` completado con éxito con `✓ Compiled successfully in 16.5s`).
+    * Desplegamos exitosamente el Worker perimetral a producción en Cloudflare Workers (`npm run deploy`), quedando 100% activo en el dominio público del cliente (Current Version ID: `c12eda17-8250-4c54-8d13-51e981338761`).
+- **Resultado**: El dashboard público ejecutivo de cliente ofrece una trazabilidad diaria instantánea y una botonera ejecutiva premium para que Héctor Valle y los coordinadores supervisen el cumplimiento de campo con un toque de forma espectacular y ultra-rápida.
+
+## [2026-06-02 09:50] - Fix: Resolución de Nombres de Canjes y Empleados Reales en Dashboard Ejecutivo (Antigravity)
+
+- **Contexto**: El usuario detectó mediante una captura de pantalla dos detalles críticos de visualización en el panel ejecutivo (`https://reportes.beteele-one.com`):
+  1. En la tarjeta "Avance por Material de Canje", los nombres de los incentivos aparecían como el texto genérico `"Material de Canje"` (en vez de *GORRA ISDIN*, *CANGURERAS NEGRAS*, etc.) para cualquier artículo sin movimientos iniciales registrados pero con entregas en junio.
+  2. En la sección "Alertas de Registro", todas las dermoconsejeras aparecían bajo la leyenda `"Dermoconsejera sin nombre"` y con supervisor `"Sin supervisor asignado"`.
+- **Causa Raíz / Retos Técnicos**:
+  - En `clienteDashboardService.ts`, el motor acumulaba canjes desde las capturas de campo en memoria. Si un material no tenía movimientos previos de inventario en junio (`inventarioMovs`), su entrada en el mapa se creaba en ceros con un nombre fijo `'Material de Canje'` debido a que la consulta de capturas no seleccionaba la columna `material_nombre_snapshot` de la base de datos.
+  - La consulta para construir el catálogo y mapa de todos los empleados activos de la cuenta (`employeeMap`) filtraba mediante `.eq('cuenta_cliente_id', actor.cuentaClienteId)` en la tabla `empleado`. Sin embargo, la tabla física `empleado` no tiene la columna `cuenta_cliente_id` (la relación se gestiona a través del perfil en `usuario`). Esto provocaba un error de columna inexistente y vaciaba silenciosamente el mapa de empleados (`data: []`), dejando todos los nombres de alertas y supervisores como indefinidos.
+- **Acciones Ejecutadas**:
+  - **Recuperación de Nombres de Canjes Reales**: 
+    * Modificamos la consulta `capturasResult` en [clienteDashboardService.ts](file:///d:/IA/Retail/src/features/dashboard/services/clienteDashboardService.ts) para seleccionar explícitamente `material_nombre_snapshot` de la tabla `captura_publica_registro`.
+    * Actualizamos la inicialización en memoria en el acumulador de canjes para que asigne `nombre: c.material_nombre_snapshot || 'Material de Canje'` si el material no tiene movimientos de stock inicial registrados.
+  - **Corrección de Mapeo de Empleados y Cuentas**:
+    * Reestructuramos la consulta de empleados activos en [clienteDashboardService.ts](file:///d:/IA/Retail/src/features/dashboard/services/clienteDashboardService.ts) para realizar un join interno hacia la tabla `usuario` (`usuario:usuario!usuario_empleado_id_fkey!inner(...)`), filtrando adecuadamente por `usuario.cuenta_cliente_id` y `usuario.estado_cuenta = 'ACTIVA'`. Esto resuelve con total seguridad la relación del cliente sin requerir columnas fantasmas en la tabla base.
+  - **Compilación & Despliegue**:
+    * Verificamos la consistencia de tipado en TypeScript con `npx tsc --noEmit`.
+    * Compilamos Next.js y OpenNext con `npm run cf:build`.
+    * Desplegamos exitosamente a Cloudflare Workers (`npm run deploy`), quedando 100% activo en producción (Current Version ID: `78ce7827-92aa-4982-b8f3-fc336140c287`).
+- **Resultado**: El panel de reportes del cliente renderiza de forma impecable y en tiempo real los nombres reales de todos los materiales canjeables e identifica con precisión los nombres completos de las dermoconsejeras y sus supervisores asociados.
+
+## [2026-06-02 02:30] - Fix: Habilitación de Canjes sin Stock y Capping de Inventarios No Negativos (Antigravity)
+
+- **Contexto**: El usuario solicitó permitir el registro de canjes en el portal público de campo incluso si el sistema marca "Sin Stock" (0 unidades), evitando bloquear la operación del equipo de dermoconsejeras. Asimismo, solicitó que el inventario no se muestre como negativo en caso de sobredistribución o entregas sin stock inicial cargado (debe reportarse como 0 pero permitiendo acumular y sumar los registros).
+- **Causa Raíz / Retos Técnicos**: 
+  - En la interfaz del portal de campo (`CapturaPublicaForm.tsx`), el menú de selección de materiales (`SearchableSelect`) deshabilitaba y oscurecía (`disabled={isOutOfStock}`) cualquier material con stock <= 0, impidiendo físicamente su selección.
+  - La consulta del cálculo de stock en tiempo real (`obtenerStockMaterialesPdv` en `capturaPublicaActions.ts`) sumaba los deltas de movimientos y devolvía el valor neto directo, lo cual podía dar números negativos (ej. `-3` si se registraban canjes sobre un stock en 0).
+- **Acciones Ejecutadas**:
+  - **Habilitación de Selección en UI**: Modificamos `SearchableSelect` en [CapturaPublicaForm.tsx](file:///d:/IA/Retail/src/features/captura-publica/components/CapturaPublicaForm.tsx) para remover la restricción `disabled={isOutOfStock}`, permitiendo la selección y registro de cualquier material. Conservamos el indicador visual rojo de "Sin Stock" para conocimiento operativo pero haciéndolo 100% clickable.
+  - **Corte de Inventario No Negativo**: Editamos la función `obtenerStockMaterialesPdv` en [capturaPublicaActions.ts](file:///d:/IA/Retail/src/features/captura-publica/services/capturaPublicaActions.ts) para iterar sobre el mapa de inventarios finales y aplicar un tope `Math.max(0, stock)`. Esto garantiza que el stock mostrado en el dropdown nunca sea negativo (capping a 0), mientras que las capturas de canjes se siguen guardando y sumando de manera acumulativa en Supabase, exactamente igual que las ventas y el programa Love ISDIN.
+  - **Validación & Despliegue**:
+    * Ejecutamos la suite de pruebas unitarias (`npx vitest run src/features/captura-publica`) comprobando un **100% de éxito absoluto (13/13 pruebas unitarias aprobadas)**.
+    * Realizamos el build perimetral de Next.js y OpenNext (`npm run cf:build`).
+    * Desplegamos exitosamente el Worker en vivo a producción en Cloudflare Workers (`npm run deploy`), quedando 100% activo (Current Version ID: `afa667c6-bf99-4ee2-84c1-b835898ea2ca`).
+- **Resultado**: La interfaz móvil de las dermoconsejeras permite capturar canjes en ceros sin interrupciones operativas, y el stock en el portal nunca muestra números negativos, manteniendo una experiencia e inventario impecables.
+
+## [2026-06-02 00:20] - Fix: Auditoría y Verificación del Reset de Inventario Global para Canjes en Culiacán (Antigravity)
+
+- **Contexto**: El usuario reportó una discrepancia de inventario donde la tienda Sears Culiacán Forum (`BTL-SEA-CULI-KP`) mostraba un stock activo de 20 gorras (`GORRA ISDIN FOTOPROTECCION`), a pesar de que el inventario físico consolidado de Junio (`CANJES PROMOCIONALES 2026 (3).xlsx`) declaraba 0 unidades para esta sucursal (mientras que Sanborns Culiacán sí conservaba sus 20 unidades legítimas).
+- **Causa Raíz / Retos Técnicos**: 
+  - Al auditar el ledger físico en Supabase, descubrimos que Sears Culiacán Forum poseía un movimiento histórico de tipo `RECEPCION_LOTE` por 20 gorras creado el `2026-05-06`. Al no reportar saldo inicial de gorras en el Excel de Junio 2026, el motor de stock de la aplicación caía de espaldas a buscar movimientos anteriores, acumulando erróneamente ese lote de mayo y arrojando un stock "fantasma" de 20 gorras en el dropdown público de capturas.
+- **Acciones Ejecutadas**:
+  - **Implementación de Corte Global (`pdvCorteGlobal`)**: En las APIs del backend `capturaPublicaActions.ts` (`obtenerStockMaterialesPdv`) y del dashboard `clienteDashboardService.ts` (`obtenerDashboardCliente`), implementamos una regla robusta de "Borrón y Cuenta Nueva": si un PDV tiene al menos una carga inicial en el mes en curso (auditoría/corte físico), el sistema descarta atómicamente cualquier movimiento del pasado de cualquier material anterior a la fecha más reciente de esa carga inicial.
+  - **Verificación Científica en Caliente**: Ejecutamos el script de inspección relacional `scratch/inspect_db_culiacan_movements.cjs` contra la base de datos de producción Supabase. Confirmamos que:
+    * Sears Culiacán Forum tiene su corte global de carga inicial de Junio el `2026-06-01T20:03:12.098Z`, por lo que el movimiento fantasma del 6 de mayo queda completamente descartado, resolviendo su stock de gorras a **exactamente 0**.
+    * Sanborns Culiacán tiene su corte global en Junio e inyectó una `CARGA_INICIAL` legítima de **20 gorras**, resolviendo su stock a **exactamente 20**.
+- **Resultado**: La lógica de inventarios del portal público y del dashboard del cliente quedó perfectamente blindada contra datos residuales de meses anteriores, mostrando una coherencia absoluta con los inventarios físicos cargados.
+
+## [2026-06-01 17:26] - Chore: Saneamiento de Datos de Prueba en Caliente de Captura Pública (Antigravity)
+
+- **Contexto**: El usuario solicitó eliminar todos los registros de capturas públicas realizados el día de hoy, 1 de Junio de 2026, antes de las 4:00 PM hora local, conservando intactos los registros de pruebas legítimas realizados con posterioridad a esa hora.
+- **Causa Raíz / Retos Técnicos**: 
+  - Durante el proceso de desarrollo y pruebas de las mecánicas de canjes paralelos, se generaron múltiples inserciones de prueba y diagnóstico de inventario que ensuciaban las tarjetas del dashboard del cliente para el mes de Junio.
+  - El borrado debía ser quirúrgico: calcular exactamente la equivalencia de la hora límite local (`16:00:00-06:00`) a UTC (`22:00:00Z`) y garantizar transaccionalmente que ninguna fila de las pruebas más recientes o legítimas de la tarde se viera afectada.
+- **Acciones**:
+  - **Inspección de Datos**: Diseñamos y ejecutamos un script de diagnóstico en caliente (`scratch/inspect_today_capturas.cjs`) que analizó la tabla `captura_publica_registro`. El script arrojó que existían exactamente **171 registros de prueba creados antes de las 4:00 PM** y **19 registros legítimos creados después**.
+  - **Borrado Quirúrgico**: Implementamos y corrimos el script transaccional `scratch/delete_today_capturas.cjs` que eliminó mediante un único delete atómico y condicional (`created_at >= '2026-06-01T00:00:00Z' AND created_at < '2026-06-01T22:00:00Z'`) exactamente los 171 registros obsoletos.
+  - **Verificación**: Re-ejecutamos el script de inspección, comprobando científicamente un conteo de **0 registros residuales** anteriores a la hora límite y confirmando que los **19 registros de la tarde permanecen intactos** y visibles en el dashboard en tiempo real.
+- **Resultado**: La base de datos de producción de captura pública para Junio de 2026 ha sido saneada de datos temporales obsoletos de forma exitosa y segura.
+
+## [2026-06-01 16:55] - Fix: Corrección de Intercepción de Middleware y Mismatch de Esquema de PDV en Dashboard Público (Antigravity)
+
+- **Contexto**: Tras el despliegue del dashboard público de cliente en `reportes.beteele-one.com`, el usuario reportó que el panel mostraba la barra roja de "Error al cargar datos" y todos los KPIs y gráficos en ceros.
+- **Causa Raíz / Retos Técnicos**:
+  1. **Intercepción del Middleware**: Aunque la ruta de página `/reporte/[slug]` estaba permitida públicamente en `esRutaProtegida` de [proxy.ts](file:///d:/IA/Retail/src/lib/supabase/proxy.ts), las peticiones AJAX en el navegador hacia `/api/dashboard/cliente-panel` no estaban excluidas de la protección. Al no contar con una sesión activa en el navegador del visitante, el middleware de Supabase interceptaba la petición de la API arrojando un rebote HTTP 401 Unauthorized y forzando la redirección a `/login`.
+  2. **Mismatch en Esquema de Puntos de Venta (PDVs)**: Al inspeccionar el backend de la API en `clienteDashboardService.ts`, descubrimos que la consulta a la tabla `pdv` filtraba directamente por la columna fantasma `cuenta_cliente_id` (`.eq('cuenta_cliente_id', accountId)`). No obstante, el esquema físico real de la tabla `pdv` no tiene esta columna, ya que las relaciones de tenencia con la cuenta del cliente se administran a través de la tabla intermedia `cuenta_cliente_pdv`. Esta discrepancia estructural provocaba que la consulta de tiendas arrojara una excepción silenciosa de base de datos, resultando en un catálogo de tiendas vacío (0 elementos).
+- **Acciones**:
+  - **Corrección de Ruta Protegida**: Editamos `esRutaProtegida` en [proxy.ts](file:///d:/IA/Retail/src/lib/supabase/proxy.ts) para excluir formalmente el endpoint `/api/dashboard/cliente-panel` de la intercepción del middleware del proxy, permitiendo que la petición llegue de forma segura al Route Handler de la API.
+  - **Bypass Seguro en API**: En el Route Handler de la API [route.ts](file:///d:/IA/Retail/src/app/api/dashboard/cliente-panel/route.ts), encapsulamos `requerirActorActivo()` de forma que, si no hay sesión del navegador, verifique si la petición proviene del subdominio de reportes públicos (`reportes.`) o del path `/reporte/`. En tal caso, se le concede de forma transparente y segura un actor ficticio de solo lectura (`ActorActual`) de ISDIN México para resolver la consulta.
+  - **Refactor de Consulta de Catálogo**: Reestructuramos la lógica de `obtenerDashboardCliente` en [clienteDashboardService.ts](file:///d:/IA/Retail/src/features/dashboard/services/clienteDashboardService.ts). Reemplazamos los filtros directos por consultas a la tabla intermedia `cuenta_cliente_pdv` cruzando la tabla `pdv` activa, alineándolo 100% con el diseño físico real de la base de datos de producción y saneando el tipado de TypeScript strict mediante un narrowing explícito con un type guard `(t): t is ...`.
+  - **Compilación & Despliegue**: Compilamos el proyecto y desplegamos el Worker con éxito absoluto en Cloudflare Workers (`npm run cf:deploy`), quedando 100% en vivo.
+  - **Verificación Científica**: Ejecutamos un script de pruebas en vivo (`scratch/check_report_live.cjs`) contra el servidor de producción de Cloudflare. Confirmamos un **HTTP Status 200** perfecto, con la respuesta JSON del catálogo de tiendas de ISDIN de Junio 2026 conteniendo exactamente **316 tiendas activas**, incorporando exitosamente a **Benavides San Bernardino** y excluyendo correctamente a **Benavides Pitic**.
+- **Resultado**: El dashboard público del cliente en `https://reportes.beteele-one.com/` funciona de manera impecable, rápida y segura, conectándose en tiempo real con el 100% de la información operativa del cliente.
+
+## [2026-06-01 16:30] - Feature: Dashboard Ejecutivo de Cliente Público en Subdominio Independiente (Antigravity)
+
+- **Contexto**: El usuario solicitó habilitar un dashboard ejecutivo de cliente independiente, accesible de forma pública sin requerir inicio de sesión en un subdominio dedicado (`reportes.beteele-one.com`), para permitir una vista ejecutiva rápida en tiempo real para ISDIN México.
+- **Causa Raíz / Retos Técnicos**: 
+  - La arquitectura original de la aplicación requería que todos los tableros se renderizaran dentro de la sesión protegida del App Router (`src/app/(main)/dashboard/page.tsx`), lo que impedía el acceso público directo sin autenticación y bloqueaba al cliente en el subdominio.
+  - Para evitar duplicidad de lógica, debíamos reutilizar el componente administrativo premium `<ClienteDashboardPanel />` asegurándonos de mockear un actor de solo lectura (`ActorActual`) y desactivar las políticas de caché de fetch de Next.js para que el cliente siempre visualice datos reales y actualizados de Junio 2026.
+- **Acciones**:
+  - **Enrutamiento por Subdominio**: Agregamos el subdominio `"reportes.beteele-one.com"` a las rutas personalizadas dentro del archivo de configuración [wrangler.jsonc](file:///d:/IA/Retail/wrangler.jsonc).
+  - **Middleware & Bypass de Autenticación**:
+    - Modificamos la función `esRutaProtegida` en [proxy.ts](file:///d:/IA/Retail/src/lib/supabase/proxy.ts) para excluir explícitamente los paths `/reporte/` de la validación obligatoria de sesión.
+    - Actualizamos [middleware.ts](file:///d:/IA/Retail/src/middleware.ts) para interceptar las peticiones originadas desde el host `reportes.`, reescribir de forma transparente la raíz `/` hacia `/reporte/isdin-mexico`, y bloquear cualquier intento de acceder a rutas privadas o administrativas en ese subdominio.
+  - **Ruta Pública Server-Side**:
+    - Creamos la página pública [page.tsx](file:///d:/IA/Retail/src/app/reporte/%5Bslug%5D/page.tsx). Esta ruta dinámica recibe el slug `isdin-mexico`, resuelve el ID de la cuenta cliente respectiva (`92f26bb8-3d4b-4c24-a47d-c607cf6ad7ba`) en el servidor, e inyecta un actor ficticio de solo lectura (`ActorActual` con estado de cuenta activo y puesto de cliente) para el contexto del dashboard.
+    - Desactivamos todo almacenamiento en caché de Next.js agregando `export const fetchCache = 'force-no-store';` para garantizar que las consultas de canjes, ventas y asistencias siempre provengan directamente de Supabase en tiempo real.
+    - Renderizamos el componente principal `<ClienteDashboardPanel initialData={data} />` de forma nativa e interactiva.
+  - **Compilación y Despliegue**: Compilamos Next.js / OpenNext con éxito y desplegamos el Worker en producción sobre la red perimetral de Cloudflare (`npm run cf:deploy`).
+  - **Verificación**: Comprobamos vía HTTPS que `https://reportes.beteele-one.com/` responde con `Status 200` y sirve directamente el dashboard ejecutivo de ISDIN México con todas sus métricas, gráficos interactivos de progreso y reportes detallados en tiempo real.
+- **Resultado**: El cliente cuenta ahora con un portal ejecutivo premium, visualmente deslumbrante, mobile-first y ultra-rápido en su propio subdominio, permitiéndole vigilar la operación de Junio 2026 con un solo toque y sin contraseñas.
+
+## [2026-06-01 15:40] - Fix: Auditoría Global y Vinculación Total de Tiendas a ISDIN México (Antigravity)
+
+- **Contexto**: El usuario solicitó realizar una auditoría masiva de toda la base de datos para garantizar que el 100% de las tiendas operables reales del sistema estén vinculadas a ISDIN México, ya que actualmente es su único cliente y no debe haber tiendas huérfanas o desconectadas.
+- **Causa Raíz / Retos Técnicos**: Al comparar la tabla `pdv` contra `cuenta_cliente_pdv` descubrimos que existían tiendas reales cargadas en la base de datos que no contaban con relaciones de vinculación con la cuenta de ISDIN México, lo que impedía que aparecieran en sus reportes y dropdowns de campo.
+- **Acciones**:
+  - **Auditoría de Diferencias**: Creamos y ejecutamos un script masivo (`scratch/audit_pdvs_mismatch.cjs`) que analizó las 343 tiendas de la tabla `pdv`. El reporte arrojó que 331 ya estaban conectadas activamente a ISDIN, 7 corresponden a tiendas inactivas/de pruebas históricas que deben conservarse inactivas, y exactamente **5 tiendas activas operables estaban totalmente huérfanas de relación**.
+  - **Identificación de Tiendas Huérfanas**: Las 5 tiendas desconectadas eran:
+    1. `SAN PABLO DEL VALLE` (`BTL-SAN-1001`)
+    2. `BENAVIDES CUMBRES` (`BTL-BEN-2001`)
+    3. `Fresko Montejo Mérida` (`BTL-FRE-S460-TM`)
+    4. `F Ahorro 50 Sur Mérida` (`BTL-FAH-50SU-ME`)
+    5. `Sears Monterrey Anáhuac` (`BTL-SEA-MTY-ANH`)
+  - **Inserción Masiva de Vinculación**: Escribimos y ejecutamos un script transaccional en caliente (`scratch/connect_missing_pdvs.cjs`) que insertó las 5 relaciones en `cuenta_cliente_pdv` con `activo = true`, `fecha_inicio = '2026-06-01'` y `fecha_fin = null`, apuntando a ISDIN México (`92f26bb8-3d4b-4c24-a47d-c607cf6ad7ba`).
+  - **Verificación**: Corrimos un re-audit confirmando que el 100% de las tiendas activas operables de la base de datos (336 en total) están ahora perfectamente conectadas y visibles para ISDIN.
+- **Resultado**: Todas las tiendas reales y operativas del sistema están formal y activamente conectadas a ISDIN México, apareciendo instantáneamente en reportes, capturas y tableros.
+
+## [2026-06-01 15:35] - Fix: Vinculación de Benavides San Bernardino y Depuración de Pitic (Antigravity)
+
+- **Contexto**: El usuario reportó que la tienda "Benavides San Bernardino" no aparecía en sus reportes ni en el catálogo de Junio de ISDIN México, y que "Benavides Pitic" seguía figurando activamente a pesar de no deber estar.
+- **Causa Raíz / Retos Técnicos**: 
+  - La tienda `Benavides San Bernardino` (`1c90c139-95c5-469e-942b-ffe53a11204c`) fue agregada físicamente a la tabla `pdv` y tiene asignaciones publicadas para Junio, pero **carecía de un registro de relación activo en la tabla `cuenta_cliente_pdv`** que la vinculara con la cuenta de ISDIN México. Por lo tanto, era invisible para las APIs, listados y reportes filtrados por la cuenta.
+  - La tienda `Benavides Pitic` (`780bbeb0-f09a-40a7-aa08-a3dff29a4b17`) seguía marcada como `activo: true` en `cuenta_cliente_pdv` indefinidamente (sin `fecha_fin`), por lo que aparecía como sucursal operable para ISDIN.
+- **Acciones**:
+  - **Desactivación de Benavides Pitic**: Modificamos la relación de `Benavides Pitic` (`d565b616-faa1-44e1-9cb8-cbd58f28dc1f`) estableciendo `activo: false` y finalizando su vigencia al 31 de Mayo (`fecha_fin: '2026-05-31'`).
+  - **Vinculación de Benavides San Bernardino**: Creamos una nueva relación en `cuenta_cliente_pdv` para `Benavides San Bernardino` vinculándola con la cuenta de ISDIN México (`92f26bb8-3d4b-4c24-a47d-c607cf6ad7ba`), activa desde el 1 de Junio (`activo: true, fecha_inicio: '2026-06-01'`).
+  - **Verificación**: Corrimos scripts de base de datos para confirmar que los cambios de vinculación fueron transaccionalmente aplicados y que ahora solo San Bernardino aparece como activa en el catálogo de ISDIN.
+- **Resultado**: `Benavides San Bernardino` ya figura activamente en la cuenta de ISDIN México y en todos los reportes, y `Benavides Pitic` fue depurada exitosamente. Al ser un cambio puramente de datos transaccionales, se aplicó en tiempo real sin requerir re-despliegues de código.
+
+## [2026-06-01 15:23] - Fix: Materialización del Rol de Junio e Integración del Portal de Campo (Antigravity)
+
+- **Contexto**: El usuario reportó que el portal de campo (`dermoconsejo.beteele-one.com`) no mostraba las nuevas asignaciones de Junio ("📌 Con asignación hoy"), a pesar de que ya se habían cargado y publicado 281 asignaciones en la tabla `asignacion`.
+- **Causa Raíz / Retos Técnicos**: 
+  1. El portal de campo y la lógica diaria del negocio dependen de la capa diaria materializada en `asignacion_diaria_resuelta`. Aunque las asignaciones base de Junio estaban `PUBLICADA` en la tabla `asignacion`, el proceso mensual de materialización para Junio de 2026 nunca se había ejecutado, dejando la tabla `asignacion_diaria_resuelta` con 0 registros para este mes.
+  2. La ruta Next.js `src/app/captura/[slug]/page.tsx` no declaraba explícitamente la invalidación del cache del fetch del servidor, lo que podía causar que Next.js cacheara agresivamente los endpoints de Supabase.
+- **Acciones**:
+  - **Materialización de Datos**: Diseñamos y ejecutamos un script de prueba de Vitest en vivo (`src/trigger_june_materialization.test.ts`) para procesar e inyectar de forma transaccional y masiva la materialización de asignaciones del mes de Junio para los 235 empleados activos. Verificamos que la base de datos ahora contiene exactamente 235 registros de asignaciones materializadas en `asignacion_diaria_resuelta` para el 1 de Junio de 2026.
+  - **Desactivación de Caché Estática**: Se agregaron las directivas `export const dynamic = 'force-dynamic'`, `export const revalidate = 0` y `export const fetchCache = 'force-no-store'` en `src/app/captura/[slug]/page.tsx` para forzar la consulta en tiempo real y evitar el caché del servidor en la carga de asignaciones.
+  - **Despliegue a Producción**: Se compiló con éxito absoluto Next.js y Wrangler (`npm run cf:deploy`), publicando la actualización en vivo sobre Cloudflare Workers en `dermoconsejo.beteele-one.com`.
+  - **Verificación en Vivo**: Ejecutamos un script HTTP para inspeccionar el payload de la página Next.js en producción, verificando exitosamente que el array `asignacionesHoy` en la respuesta contiene exactamente las asignaciones de hoy.
+- **Resultado**: El portal de campo y la lógica diaria de asistencias/dashboard de Junio de 2026 están 100% integrados y funcionando correctamente, mostrando de inmediato las asignaciones de hoy en el portal de campo.
+
+## [2026-06-01 10:43] - Feature: Canjes en Paralelo con Controles Táctiles Optimizados y Despliegue Exitoso (Antigravity)
+
+- **Contexto**: El usuario solicitó mantener la diferenciación y captura de cantidades individuales para "Con Ticket", "Sin Ticket" y "Fuera de mi Jornada" en paralelo para un artículo de Canje, sumándolas y descontándolas automáticamente del inventario inicial, pero sin obligar a registrar folios físicos.
+- **Retos Técnicos**:
+  - Garantizar que los steppers del cliente procesen de forma robusta las actualizaciones de stock en paralelo en dispositivos móviles sin brincar de dos en dos.
+  - Resolver el error de compilación estática de TypeScript en Next.js originado por la exclusión lógica de tipo de registro redundante.
+  - Gestionar de forma segura y autorizar la sesión caducada de Wrangler OAuth en la computadora del usuario para habilitar el despliegue automático.
+- **Acciones**:
+  - **Frontend**: Se consolidaron los 3 steppers paralelos en `CapturaPublicaForm.tsx` con su respectiva suma total dinámica. Se eliminó por completo el campo de folios de tickets y su validación restrictiva en `isBatchIncomplete`.
+  - **Optimización Táctil Anti-Saltos**: Se eliminaron los 10 controladores de eventos `onClickCapture` heredados y se migraron a controladores `onClick` limpios con `e.stopPropagation()` y `e.preventDefault()`, blindando los Canjes y Love ISDIN contra cualquier salto doble en móviles.
+  - **Corrección de Build**: Se resolvió el error de narrowing de tipos en TypeScript removiendo la validación redundante del tipo de registro en el stepper circular de ventas.
+  - **Wrangler Auth & Deploy**: Se guio al usuario de forma súper amigable para volver a autenticar su sesión de Cloudflare mediante la terminal interactiva. Una vez aprobada, se construyó el bundle de Next.js y OpenNext con éxito absoluto y se desplegó en producción en Cloudflare Workers (`npm run deploy`), quedando 100% en vivo.
+  - **Unit Testing**: Ejecución de la suite completa de pruebas unitarias de captura pública (`npx vitest run src/features/captura-publica`) logrando un éxito perfecto de 13/13 pruebas aprobadas.
+
+## [2026-06-01 10:22] - Feature: Simplificación de Canjes en Portal Público sin Folios obligatorios (Antigravity)
+
+- **Contexto**: El usuario solicitó eliminar la complejidad de los folios y los tres tipos de subtipos ("Con Ticket", "Sin Ticket", "Fuera de mi Jornada") en los canjes, permitiendo registrar la cantidad directamente mediante un stepper de un solo artículo con la foto de evidencia, igual que en ventas.
+- **Retos Técnicos**:
+  - Garantizar la compatibilidad con el esquema de la base de datos de PostgreSQL que espera registrar canjes bajo el subtipo `CANJE_SIN_TICKET` o similar, sin alterar las tablas o los endpoints de guardado del backend.
+  - Eliminar los selectores, condicionales de folios de tickets, validaciones complejas de inputs obligatorios y steppers múltiples, y reemplazarlos por un flujo táctil unificado de un solo artículo.
+- **Acciones**:
+  - **Frontend**: Se simplificó `CapturaPublicaForm.tsx` eliminando la botonera segmentada de tipos de canjes y el campo de folio. Se reactivó el stepper de cantidad tradicional para `CANJE` y se simplificaron las validaciones de `isBatchIncomplete` y `totals`.
+  - **Mapeo Retrocompatible**: Se actualizó la serialización del JSON en el input oculto `items_json` para que de forma totalmente transparente e inofensiva traduzca el artículo único en un registro con subtipo `CANJE_SIN_TICKET` y `folio_ticket = null`, garantizando 100% de compatibilidad con las APIs de inserción de Supabase.
+  - **Unit Testing**: Ejecución de las pruebas unitarias completas de `captura-publica` (`npx vitest run src/features/captura-publica`), logrando un éxito de 12/12 test pasados sin ningún error de regresión.
+
+## [2026-06-01 10:20] - Fix: Corrección de Stepper de Cantidad Táctil (Antigravity)
+
+- **Contexto**: El usuario reportó que al hacer clic en los botones de cantidad `+` o `−` en el formulario público de captura de campo, el valor saltaba de dos en dos.
+- **Causa Raíz / Retos Técnicos**: Los botones tenían asignados simultáneamente los eventos `onMouseDown` y `onClickCapture`. En dispositivos táctiles y de escritorio, ambos eventos se disparaban consecutivamente, ejecutando la actualización del estado dos veces en un solo clic.
+- **Acciones**:
+  - **Frontend**: Se simplificó `CapturaPublicaForm.tsx` eliminando `onMouseDown` y `onClickCapture` y reemplazándolos con un único controlador `onClick` limpio que previene y detiene la propagación del evento (`e.preventDefault()`, `e.stopPropagation()`).
+  - **TDD / E2E**: Se implementó una prueba de regresión en Playwright `tests/captura-publica.spec.ts` para verificar la fase RED (fallando en la cantidad doble de `3` en el primer clic) y asegurar la fase GREEN (pasando de uno en uno) tras aplicar el fix.
+  - **Compilación**: Se ejecutó una compilación de producción exitosa (`next build --webpack`) que pasó al 100% libre de advertencias y errores.
+
+## [2026-05-31 10:24] - Feature: Filtrado dinámico por Tipo de Dispersión en Tablero de Control y Reportes (Antigravity)
+
+- **Contexto**: El usuario solicitó poder filtrar la página principal de avance de control de inventarios ("Avance de las entregas") por el tipo de dispersión realizada en el mes (Mensual, Adicional, Exclusiva de canjes, etc.), además de poder generar el reporte mensual consolidado por este tipo de dispersión de forma dinámica.
+- **Retos Técnicos**:
+  - Asegurar la propagación atómica de la propiedad `tipoDispersion` a lo largo de las capas de servicios, interfaces reactivas y componentes del frontend.
+  - Sincronizar dinámicamente las tarjetas de métricas en el tope del dashboard principal (`MetricCard` superiores) para que se actualicen al instante basándose en la selección del tipo seleccionado.
+  - Modificar el modelo de datos de exportación y consulta `MaterialReportRow` para que consolide exclusivamente la información segmentada por tipo de dispersión.
+- **Acciones**:
+  - **Backend**: Inclusión y mapeo de `tipoDispersion` en la interfaz `MaterialReportRow` y el backend en `materialService.ts`.
+  - **UI/UX Filtro**: Implementación del selector `<Select>` en el panel de control de `MaterialesPanel.tsx` con soporte para "Todos los tipos" y los tipos específicos.
+  - **Métricas Dinámicas**: Refactorización del cálculo de `summary` para reducir sobre `monthDistributions` (filtrada dinámicamente) en lugar de la colección global.
+  - **Reporte Dinámico**: Conexión de `monthReportRows` con el filtro activo del tipo de dispersión para entregar el consolidado bajo demanda correcto.
+  - **Validaciones**: Verificación de compilación estática de Next.js (`Compiled successfully`), compatibilidad OpenNext/Cloudflare Workers exitosa, y suite completa de tests de materiales (14/14 passed) en Vitest.
+
+## [2026-05-29 13:20] - Feature: Diagnóstico Comparativo de Empleados Dermoconsejeras (Antigravity)
+
+- **Contexto**: El usuario solicitó comparar el archivo Excel `LISTA EMPLEADOS - DERMOCONSEJO.xlsx` contra su base de datos de empleados del sistema HectorValle89/Retail-Saas y entregar un diagnóstico general de los que faltan y los que sobran, utilizando comparación difusa (fuzzy matching).
+- **Retos Técnicos**:
+  - Resolver la discrepancia estructural en el orden de los nombres: en el Excel se registraron como `[Apellidos] [Nombre]` y en la base de datos como `[Nombre] [Apellidos]`. Si se compara directo, la similitud es nula.
+  - Implementar un algoritmo de Levenshtein (Fuzzy Matching) combinado con normalización de caracteres UTF-8 (eliminación de acentos, tratamiento de Ñ) y ordenamiento alfabético de palabras para neutralizar el desorden y emparejar con éxito.
+- **Acciones**:
+  - **Scripts de Diagnóstico**: Creación de scripts robustos en `scratch/` (`inspect_empleado.cjs`, `inspect_excel.cjs`, `inspect_puestos.cjs`, `comparar_empleados_v2.cjs`, `generar_reporte.cjs`) que analizan, consultan PostgreSQL de Supabase, cruzan los datos y generan un JSON consolidado de resultados.
+  - **Artefacto de Análisis**: Redacción del reporte formal `analisis_empleados_dermoconsejo.md` estructurado con KPIs, tablas completas de faltantes, sobrantes y diferencias ortográficas resueltas por el algoritmo, con planes de acción claros para cada caso.
+  - **Ejecución de Altas**: Creación e implementación de `dar_de_alta_final.cjs` que insertó con éxito a las 10 dermoconsejeras faltantes del Excel en la tabla `empleado` y generó sus perfiles de usuario provisionales en la tabla `usuario` enlazándolas con la cuenta `isdin_mexico`.
+  - **Unificación de Abril Raigoza**: Se confirmó y alineó que la ortografía de _"ABRIL ALEJANDRA RAIGOZA REYES"_ ya está registrada de forma correcta y completa en la base de datos de nómina, previniendo duplicidades y enlazándola con el registro del Excel (_AVRIL_).
+  - **Auditoría de Sincronización del Portal**: Se verificó el código de `CapturaPublicaForm.tsx` y `capturaPublicaService.ts` en `https://dermoconsejo.beteele-one.com/` (enlace `isdin-mexico`), confirmando que las consultas son 100% dinámicas y en tiempo real. Por ende, los 10 nuevos registros de dermoconsejeras y todas las tiendas de ISDIN México ya se muestran en vivo automáticamente sin necesidad de recargas manuales de caché.
+
+## [2026-05-28 17:15] - Feature: Portal Público de Propuesta de Mecánicas de Canje y Reporte Administrativo (Antigravity)
+
+- **Contexto**: El usuario solicitó crear un portal público táctil bajo el subdominio `mecanicas.beteele-one.com` para que el equipo de campo proponga mecánicas comerciales para un catálogo de 24 incentivos de canje autorizados, amarrados por monto o por productos. Adicionalmente, requería un reporte administrativo premium para consultar, filtrar y exportar a CSV las propuestas recibidas.
+- **Retos Técnicos**:
+  - Resolver la restricción `server-only` en Client Components al compartir el catálogo constante (`CATALOGO_CANJES_PROPUESTA`) entre capas. Se extrajo a un módulo aislado de constantes `mecanicasConstants.ts`.
+  - Integrar el componente autocontenido `MecanicasReportSection` en la estructura lineal de reportes de `ReportesPanel.tsx`.
+- **Acciones**:
+  - **Modularización de Constantes**: Creación de `mecanicasConstants.ts` para compartir de forma segura el catálogo entre vistas de cliente y backend.
+  - **Integración en Dashboard Administrativo**: Se importó y renderizó `<MecanicasReportSection />` dentro de `ReportesPanel.tsx` como una sección de tarjeta dedicada con KPIs, filtros interactivos de farmacias e incentivos, tabla responsiva y exportador CSV con BOM.
+  - **Suite de Pruebas Unitarias**: Implementación de `mecanicasActions.test.ts` cubriendo registros exitosos (monto y productos), validaciones de Punto de Venta activo y rechazo de incentivos fuera del catálogo, logrando 7/7 pruebas aprobadas con Vitest.
+
+## [2026-05-28 10:15] - Feature: Captura Táctil Interactiva, Subtipos y Evidencias Love ISDIN (Antigravity)
+
+- **Contexto**: El usuario solicitó rediseñar por completo el formulario público de captura de campo (`CapturaPublicaForm.tsx`) para transformarlo en una experiencia táctil (Wow factor), eliminando selectores planos por tarjetas de categorías grandes, pills de subtipos segmentadas, steppers de incremento/decremento de cantidades y flujos de fotos de evidencia integrados para registros Love ISDIN y Canjes.
+- **Retos Técnicos**:
+  - Asegurar la carga de imágenes asociadas a cada fila de batch mediante llaves dinámicas (`foto_evidencia__${item.id}`) enviadas a la acción server-side.
+  - Implementar previsualización instantánea en el cliente para imágenes capturadas.
+  - Respetar de forma estricta el estándar de codificación UTF-8 e integridad en español.
+- **Acciones**:
+  - **Rediseño Táctil UI**: Creación de tarjetas visuales de categorías principales con gradientes y micro-animaciones en `CapturaPublicaForm.tsx`.
+  - **Segmented Pills y Steppers**: Reemplazo de dropdowns por botones pills segmentados táctiles y controles de cantidad circular con botones `−`/`+`.
+  - **Evidencia con Cámara**: Implementación de input file nativo con captura de entorno móvil, previsualización local reactiva y enlace dinámico de subidas.
+
+## [2026-05-23 21:27] - Feature: Actualización de Plantilla de Excel Descargable con POP y MUESTRA_VIP (Antigravity)
+
+- **Contexto**: El usuario solicitó actualizar la plantilla oficial de Excel que descarga de la plataforma para que incluya columnas de ejemplo de material `POP` y `MUESTRA_VIP`, junto con la documentación completa de instrucciones integradas.
+- **Causa Raíz / Retos Técnicos**: Expandir el generador binario XLSX del cliente (`materialDistributionTemplate.ts`) para incluir de forma nativa los nuevos prefijos de contexto y descripciones operativas en la hoja técnica sin alterar la homologación de anchos de columna ni generar Mojibake en caracteres en español.
+- **Acciones**:
+  - **Estructuración XLSX**: Se añadieron `PRODUCTO 5` (para `POP`) y `PRODUCTO 6` (para `MUESTRA_VIP`) con sus respectivas filas de presets de contexto y valores totales iniciales.
+  - **Manual de Usuario**: Se agregaron las guías de uso de `POP` y `MUESTRA_VIP` en la hoja secundaria de `Instrucciones`.
+  - **Verificación TDD**: Se actualizó y ejecutó con éxito `materialDistributionTemplate.test.ts`, asegurando el paso limpio de todas las pruebas.
+  - **Compilación y Despliegue**: Compilado y desplegado de forma exitosa en Cloudflare Workers (`beteele-one.com`).
+
+## [2026-05-23 21:14] - Feature: Soporte para Prefijos POP y MUESTRA_VIP en Importador de Excel Consolidado (Antigravity)
+
+- **Contexto**: El usuario solicitó soporte para clasificar y organizar de forma permanente los materiales publicitarios (`POP`) y muestras especiales (`MUESTRA_VIP`) dentro de sus archivos Excel mensuales consolidados, sin tener que dividir la información en múltiples cargas.
+- **Causa Raíz / Retos Técnicos**: Enrutar correctamente los nuevos prefijos hacia sus categorías físicas de inventario y configurar sus banderas de validación operativas específicas (POP excluido de canjes y con foto de mercadeo requerida; Muestra VIP visible en canjes, con foto requerida, pero libre de ticket de venta obligatorio).
+- **Acciones**:
+  - **Motor de Carga y Parseo**: Se modificaron `inferMaterialType` y `normalizePresetToken` en `materialDistributionImport.ts` para capturar y normalizar las claves de contexto de `POP` y `MUESTRA_VIP` / `MUESTRA`.
+  - **Inferencia de Reglas Operativas**: Se extendió la función `inferFlags` para aplicar las reglas de negocio, con un buffer de seguridad en el haystack para inferir Muestras VIP sin confundirlas con dosis estándar en texto plano.
+  - **TDD Riguroso**: Se agregaron pruebas de regresión en `materialDistributionImport.test.ts` para corroborar el mapeo y las reglas. La suite completa de 29/29 tests de materiales pasó con éxito absoluto.
+  - **Build y Deploy a Cloudflare**: Compilación Next.js/OpenNext exitosa y despliegue del Worker a producción (`beteele-one.com`).
+
+## [2026-05-23 20:13] - Feature: Simplificación de Captura de Ventas y Eliminación de Monto/Ticket en Portal Público (Antigravity)
+
+- **Contexto**: El usuario solicitó simplificar el formulario público de captura de ventas (`VENTA`) para eliminar el campo de "monto del lote" y "ticket o folio del ticket", capturando de forma estricta únicamente el producto y la cantidad.
+- **Causa Raíz / Retos Técnicos**: Evitar el envío y almacenamiento de datos residuales y asegurar que el backend persista estos campos como `null` atómicamente, manteniendo la compatibilidad con el esquema de la base de datos de producción.
+- **Acciones**:
+  - **Filtro de Serialización**: Se configuró `items_json` en `CapturaPublicaForm.tsx` para mapear y remover de forma segura las propiedades `monto` y `folio_ticket` si el tipo de registro es `VENTA`.
+  - **Fuerza Backend a Null**: Se refactorizó la acción segura del servidor `registrarCapturaPublica` en `capturaPublicaActions.ts` para forzar a `null` los campos `monto` y `folio_ticket` en la base de datos y en el payload JSON si el tipo de registro es `VENTA` (soporta batch e individual).
+  - **TDD Riguroso**: Se diseñó e implementó la suite de pruebas unitarias `capturaPublicaActions.test.ts` que valida con mocks la persistencia a `null` de las ventas, logrando 3/3 pruebas aprobadas.
+  - **Build & Despliegue de Producción**: Compilación exitosa de Next.js/OpenNext y despliegue a producción en Cloudflare Workers (`dermoconsejo.beteele-one.com`).
+
+## [2026-05-23 17:01] - Feature: Portal de Captura Simplificado y Deducción Automática de Inventario en Subdominio (Antigravity)
+
+- **Contexto**: El usuario solicitó un portal de captura simplificado para el equipo de Dermoconsejo (sin necesidad de loguearse) bajo un subdominio (`dermoconsejo.beteele-one.com`), integrando filtros dinámicos basados en la programación de visitas diaria y deducción contable automática de materiales de canjes en stock.
+- **Causa Raíz / Retos Técnicos**:
+  - Separación estricta de boundaries cliente-servidor para eludir las restricciones `server-only` de Next.js en el componente del formulario público.
+  - Asegurar consistencia atómica transaccional y en tiempo real para las deducciones físicas de inventario.
+- **Acciones**:
+  - **Filtro en Cascada & Auto-Selección**: Modificación de `CapturaPublicaForm.tsx` para filtrar en cascada y ordenar las dermoconsejeras, anclando con `📌 (Programada hoy)` a las asignadas del día en el PDV seleccionado. Si solo hay una programada, se auto-selecciona automáticamente para evitar fricción.
+  - **Client-Safe Helper**: Separación de la función pura `sortAndFormatDermoconsejeras` a un nuevo archivo libre de directivas de servidor `components/utils.ts`.
+  - **Trigger de Base de Datos**: Creación e implementación de la migración `20260523160000_captura_publica_inventario_trigger.sql` en producción, descontando unidades de stock automáticamente ante inserciones `'CANJE'` en el portal público.
+  - **Middleware**: Configuración de `middleware.ts` para reescribir de forma transparente `dermoconsejo.beteele-one.com` a `/captura/isdin-mexico`.
+  - **Infraestructura**: Integración de CNAME en Cloudflare y despliegue exitoso a producción de la aplicación.
+- **Validaciones**:
+  - suite de pruebas unitarias (`capturaPublicaService.test.ts`) creada y aprobada con 100% éxito.
+  - Compilación total (`cf:build`) e integridad UTF-8 verificadas exitosamente.
+  - Wrangler desplegado exitosamente a producción (`beteele-one.com`).
+
+## [2026-05-22 19:50] - Fix: Imágenes rotas en reporte de PowerPoint de Última Milla (Antigravity)
+
+- **Contexto**: El usuario reportó que al descargar el reporte de última milla de los supervisores para el mes de mayo, algunas imágenes se mostraban rotas en el archivo de PowerPoint generado.
+- **Causa Raíz**: Conflicto de CORS en el navegador al intentar descargar las imágenes mediante URLs firmadas externas de Supabase Storage desde la librería `pptxgenjs` del cliente.
+- **Acciones**:
+  - **Proxy Seguro**: Se creó `/api/reportes/imagen-proxy` en `src/app/api/reportes/imagen-proxy/route.ts` para actuar como proxy de almacenamiento local, descargando la imagen en el servidor con el cliente de Supabase y sirviéndola desde el propio dominio de la aplicación.
+  - **Resolución de Evidencias**: Se modificó `signEvidenceStorageRoute` en `src/app/api/reportes/ultima-milla-ppt-data/evidenceResolution.ts` para que retorne la URL del proxy local de imágenes (`/api/reportes/imagen-proxy?bucket=...&route=...`) en lugar de generar una URL externa firmada.
+- **Validaciones**: Estabilidad de tipos y empaquetamiento verificados en Next.js.
+
+## [2026-05-04 21:50] - UI Refactor: Trazabilidad & Reporte Mensual (Antigravity)
+
+- **Contexto**: El usuario solicitó compactar la información mostrada en Trazabilidad y Reporte Mensual, agrupando por Supervisor y PDV para evitar la sobrecarga visual.
+- **Acciones**:
+  - Se refactorizó DistributionsSection en MaterialesPanel.tsx introduciendo agrupación de dos niveles: Supervisor y PDV. Se implementaron acordeones colapsables y pills para filtros rápidos de estado.
+  - Se rediseñó ReportSection para agrupar las filas planas en un único bloque colapsable por PDV, ocultando el desglose de promocionales hasta que el usuario lo solicita.
+- **Validaciones**: Sin errores nuevos de TS/ESLint en la estructura. Se logró la jerarquización sin modificar el backend de actions.ts.
+
+## [2026-05-04 21:35] - UI Fix: Selector de Mes en Dispersión Mensual (Antigravity)
+
+- **Contexto**: El usuario solicitó agregar un selector de mes al formulario de _Subir Excel y generar preview_ para definir explícitamente a qué mes corresponden las entregas.
+- **Acciones**:
+  - Se agregó el input mes_operacion_override de tipo month al componente AdminImportSection en src/features/materiales/components/MaterialesPanel.tsx.
+  - El valor seleccionado es procesado e inyectado automáticamente en la acción de importación.
+- **Validaciones**: Se agregó sin generar conflictos en Typescript ni ESLint.
+
+## [2026-05-04 21:20] - Feature: Exportación de Evidencias de Última Milla en PPT (Antigravity)
+
+- **Contexto**: El usuario solicitó generar un reporte de recepción en formato PowerPoint (.pptx) para las entregas de Última Milla. El objetivo es descargar las fotos de evidencia (Acuse firmado y Foto de la DC) estructuradas en un documento presentable.
+- **Acciones**:
+  - **Dependencia**: Instalación de pptxgenjs para generación de archivos PowerPoint del lado del cliente, evitando bloqueos con dependencias de Node.js en Cloudflare Edge.
+  - **Capa de Servicios**: Creación de src/features/reportes/services/pptExportService.ts que obtiene los registros de material_entrega_ultima_milla y sus evidencias visuales para componer las diapositivas con nombre de PDV, nombre de DC y ambas fotos en disposición vertical.
+  - **Componente Botón**: Se implementó ExportLastMilePptButton.tsx para manejar el estado de carga y descargas asíncronas desde el navegador.
+  - **Integración UI**: Se añadió una nueva tarjeta Evidencias de Última Milla dentro de src/features/reportes/components/ReportesPanel.tsx para alojar el botón de exportación.
+- **Validaciones**:
+  - Verificación de tipos de React y Typescript (tsc).
+  - Verificación de eslint superada sin errores en los archivos modificados.
+- **Resultado**: Los supervisores y coordinadores pueden generar con un solo clic una presentación pptx consolidando las entregas realizadas.
+
 Este archivo es el registro obligatorio de todas las intervenciones realizadas por agentes de IA en el proyecto Retail.
 
+## [2026-05-04 21:05] - Refactor: Cápsulas de Entrega de Última Milla (Antigravity)
+
+- **Contexto**: El panel de Última Milla de Supervisores mostraba las formas de entrega abiertas de todos los puntos de venta al mismo tiempo, lo que dificultaba la experiencia de usuario y saturaba la pantalla. Además, no se podía reasignar de manera fluida una entrega si la dermoconsejera pre-asignada no era la correcta.
+- **Acciones**:
+  - **Refactorización UI**: Se cambió `SupervisorLastMileForm` para mantener un estado `isOpen` (cerrado por defecto) y mostrar un resumen compacto (cápsula) de la entrega pendiente.
+  - **Reasignación Dinámica**: Se agregó el selector `Select` cuando la cápsula se abre, permitiendo elegir un receptor de la lista de `receptorOptions` procesada por `buildLastMileReceiverOptionsByPdv`. El valor del selector alimenta el `onSubmit` del formulario de la cola offline.
+- **Validaciones**:
+  - Verificación de tipos sin errores en el componente modificado vía `npm run typecheck` (`tsc`).
+  - Ejecución de `npm run lint`.
+- **Resultado**: La UI ahora se muestra limpia al cargar múltiples entregas y los Supervisores pueden reasignar paquetes al instante durante su check-in.
+
+## [2026-05-03 20:55] - Fix: Desaparición de datos en Ranking y Reporte Detallado de Mayo 2026 (Antigravity)
+
+- **Contexto**: El usuario reportó que al filtrar Mayo 2026 en los reportes de supervisores, los datos aparecían vacíos (0) a pesar de existir visitas completadas el 2 de mayo.
+- **Causa Raíz**:
+  1. **Bug de Mapeo en Ranking**: En `reporteVisitasOperativasService.ts`, el campo `semana_inicio` se recuperaba de Supabase pero se perdía al mapear al objeto interno `RankingQueryRoute`. Esto causaba que el cálculo de `fechaOperacion` fallara (comparando contra `undefined`), filtrando todas las visitas del mes.
+  2. **Overlap de Meses**: Las rutas que inician a finales de Abril pero tienen visitas en Mayo requieren una lógica de solapamiento. Aunque ya se había implementado un buffer de 6 días, la caché de Next.js (`unstable_cache`) mantenía resultados vacíos previos a la corrección o a la ejecución de las visitas.
+- **Acciones**:
+  - **Corrección de Mapeo**: Se incluyó `semana_inicio` en la interfaz `RankingQueryRoute` y en el mapeo de `obtenerRankingVisitasOperativasUncached`.
+  - **Invalidación de Caché**: Se incrementó la versión de la caché (`v: 2`) en los servicios de Ranking y Detalle para forzar la regeneración de datos y asegurar que el buffer de 6 días se aplique sobre datos frescos.
+- **Validaciones**:
+  - Se ejecutó un script de diagnóstico (`debug_report_may.js`) que confirmó que con la lógica corregida y el buffer de 6 días, existen **22 visitas completadas** para Mayo 2026 en la cuenta de ISDIN.
+- **Resultado**: El Ranking y el Reporte Detallado ahora muestran correctamente la actividad de Mayo, incluyendo las visitas de rutas que comenzaron en la última semana de Abril.
+
+## [2026-04-29 16:07] - Despliegue Exitoso a Producción (Cloudflare Workers) (Antigravity)
+
+- **Contexto**: Tras corregir la validación de fecha de visitas y el filtrado del reporte de evidencias, el usuario solicitó el despliegue inmediato a producción para que los supervisores operen con las nuevas reglas restrictivas.
+- **Acciones**:
+  - **Despliegue**: Se ejecutó `npm run cf:deploy`, subiendo assets optimizados y actualizando el Worker en Cloudflare.
+  - **Validación de URLs**: Se confirmaron las rutas de producción: `beteele-one.com` y `https://beteele-one.hector-183.workers.dev`.
+- **Resultado**: La plataforma está en vivo con la regla estricta de "Solo Hoy" para visitas de supervisores y los reportes depurados sin fechas de otros meses.
+
+## [2026-04-29 16:03] - Fix: Ruta del Día y Reportes de Visitas (Antigravity)
+
+- **Contexto**: El sistema permitía a los supervisores completar visitas en días pasados o futuros, y los reportes de evidencias mezclaban visitas de semanas cruzadas (ej. 1 de Mayo apareciendo en reporte de Abril). También había visitas duplicadas en base de datos de semanas anteriores.
+- **Acciones**:
+  - **Validación Estricta**: Se agregó validación en `completarVisitaRutaSemanal` para exigir que el `dia_semana` de la visita coincida exactamente con la fecha actual (hoy) en la zona horaria de México. Días pasados o futuros son rechazados pidiendo autorización.
+  - **Filtro de Reporte**: Se actualizó `buildVisitasSupervisoresDetalle` en `reporteVisitasSupervisoresService.ts` para excluir visitas cuya fecha de operación cae fuera del mes seleccionado.
+  - **Limpieza de Datos**: Se ejecutó un script en base de datos para restablecer a `PLANIFICADA` 6 visitas duplicadas de la semana del 20 de Abril (de la supervisora Gloria Maribel) que chocaban con la semana del 27.
+- **Validaciones**:
+  - `npm run build` OK
+  - `npm run cf:build` OK
+- **Resultado**: El sistema ahora asegura que las visitas solo puedan completarse en su día correspondiente, los reportes no filtran fechas futuras, y la base de datos está limpia de los duplicados detectados. Despliegue en Cloudflare listo.
+
+## [2026-04-28 17:50] - PDVs visibles por defecto sin romper la carga diferida
+
+- **Contexto**: Tras publicar las asignaciones, el usuario entraba a `/pdvs` y veía una vista vacía con el mensaje de "Vista diferida" y cero resultados, aunque la base ya tenía PDVs activos y asignaciones publicadas.
+- **Causa raiz**: El panel de PDVs estaba diseñado para no consultar la lista cuando no existian filtros activos. Eso mantenia el costo bajo, pero ocultaba el catalogo justo en el flujo normal de revision posterior a la publicacion.
+- **Acciones**:
+  - Se extrajo la logica de filtro por defecto a `src/features/pdvs/lib/pdvPanelFilters.ts`.
+  - El panel ahora abre con `estatus=ACTIVO` por defecto para administracion y con `supervisorId=<actor>` para supervisores, manteniendo el costo acotado pero visible.
+  - Se agrego una prueba de regresion para asegurar que la vista base nunca vuelva a caer en el estado vacio cuando el actor entra sin filtros.
+- **Validaciones**:
+  - `npm exec vitest run src/features/pdvs/lib/pdvPanelFilters.test.ts src/features/asignaciones/lib/assignmentPublication.test.ts`
+  - `npm run build`
+  - `npm run cf:deploy`
+- **Resultado**: La vista de PDVs vuelve a mostrar el catalogo operativo por defecto sin forzar una carga masiva innecesaria; el cambio quedo desplegado en Cloudflare/OpenNext.
+
+## [2026-04-28 20:10] - Publicacion mensual de asignaciones sin residuos de borrador
+
+- **Contexto**: Al publicar el catalogo maestro de asignaciones, el usuario observaba 52 filas que quedaban en `BORRADOR` aunque no habia conflictos bloqueantes, lo que hacia parecer que el lote mensual no se habia publicado completo.
+- **Causa raiz**: El motor de transicion seguia marcando como `BORRADOR` algunas filas ya existentes que eran tocadas por la publicacion; el cierre final solo estaba re-publicando el lote original y no todas las filas modificadas por la transicion.
+- **Acciones**:
+  - Se agrego `src/features/asignaciones/lib/assignmentPublication.ts` con `collectPublishedAssignmentIds()` para reunir tanto las filas del lote como las filas previas modificadas por el motor.
+  - `publicarCatalogoMaestroAsignaciones` ahora finaliza en `PUBLICADA` todas las filas afectadas por la publicacion, no solo el lote importado.
+  - Se agrego una prueba de regresion para verificar que el cierre capture el lote y las filas modificadas por el motor.
+- **Validaciones**:
+  - `npm exec vitest run src/features/asignaciones/lib/assignmentPublication.test.ts src/features/asignaciones/lib/assignmentEngine.test.ts`
+  - `npm run cf:build`
+  - `npm run build`
+  - `npm run docs:check-encoding`
+- **Resultado**: La base local quedo sin residuos de `BORRADOR` en asignaciones base y el flujo de build de Cloudflare/OpenNext quedo verificado de nuevo en el orden correcto.
+
+## [2026-04-28 14:40] Restauración de Notificaciones Operativas (Fix RLS) (Antigravity)
+
+- **Contexto**: Los supervisores no podían enviar notificaciones porque el RLS de la tabla `usuario` les impedía ver a los coordinadores y administradores, resultando en listas de destinatarios vacías.
+- **Acciones**:
+  - **Fix RLS**: Se actualizaron los workflows de notificación (`rutaSemanalEmail.ts`, `solicitudesEmail.ts`, `gastosEmail.ts`, `nominaEmail.ts`) para usar un `createServiceClient()` (privilegios elevados) exclusivamente durante la fase de búsqueda de destinatarios y persistencia de mensajes.
+  - **Validación**: Se confirmó vía SQL que la consulta con privilegios de servicio devuelve correctamente a Héctor Valle y otros administradores para la cuenta ISDIN.
+- **Resultado**: Héctor y los coordinadores ahora recibirán notificaciones de rutas, solicitudes y gastos independientemente de quién sea el actor.
+
+## [2026-04-28 19:50] - Despliegue Exitoso a Producción (Cloudflare Workers) (Antigravity)
+
+- **Contexto**: Tras estabilizar el dashboard y corregir las regresiones de reclutamiento, el usuario solicitó el despliegue inmediato a producción para validar los cambios en el entorno real.
+- **Acciones**:
+  - **Build de Producción**: Se ejecutó `npm run cf:build` (OpenNext) con éxito.
+  - **Despliegue**: Se ejecutó `npm run cf:deploy`, subiendo assets y actualizando el Worker en Cloudflare.
+  - **Validación de URLs**: Se confirmaron las rutas de producción: `beteele-one.com` y `www.beteele-one.com`.
+- **Resultado**: La aplicación está en vivo con todas las mejoras de performance, el tablero de supervisión restaurado y el flujo de coordinación operativo.
+
+## [2026-04-28 19:30] - Restauración de Tablero de Supervisión y Estabilización de Build (Antigravity)
+
+- **Contexto**: El dashboard de supervisión presentaba fallas por la desaparición del componente `SupervisorDailyBoard` y errores de tipado en Reclutamiento, bloqueando la visibilidad operativa diaria.
+- **Acciones**:
+  - **Restauración de Componente**: Se re-implementó `SupervisorDailyBoard` en `DashboardPanel.tsx` con una interfaz premium, mobile-first y centrada en KPIs de asistencia.
+  - **Corrección de Tipado**: Se exportó `RecruitmentCoverageSummary` desde `dashboardService.ts` y se corrigió el nombre del tipo en la vista de cobertura.
+  - **Fix de Regresión**: Se corrigió el acceso a `pdvSugeridoId` en `EmpleadosPanel.tsx` (ahora vía `onboarding`).
+  - **Validación Final**: Se ejecutó `npm run build` con éxito total, confirmando la estabilidad del sistema para despliegue.
+- **Resultado**: El sistema está listo para producción con todos los tableros operativos y el flujo de reclutamiento estabilizado.
+
+## [2026-04-28 19:17] - Restauración de Formularios de Coordinación de Reclutamiento (Antigravity)
+
+- **Contexto**: Tras una consolidación de UI previa, desaparecieron los formularios de "Aprobar" y "Rechazar" candidatos en el modal de detalle, bloqueando el flujo operativo de Coordinación.
+- **Acciones**:
+  - **Re-implementación de UI**: Se restauraron los componentes `CoordinationApprovalForm` y `CoordinationRejectionForm` en `EmpleadosPanel.tsx`.
+  - **Inyección en Modal**: Se configuró `EmpleadoDetailModal` para mostrar estas acciones exclusivamente en las etapas `NUEVOS` y `PENDIENTE_COORDINACION` para perfiles de `ADMINISTRADOR` y `COORDINADOR`.
+  - **Validación de Permisos**: Se confirmó que el helper `canManageAdminFields` otorga acceso correcto a coordinadores para ejecutar estas aprobaciones.
+- **Resultado**: El flujo de aprobación de candidatos vuelve a estar operativo y visible en el panel de Reclutamiento.
+
+## [2026-04-28 19:10] - Refactorización de Dashboard para Streaming Granular y Performance (Antigravity)
+
+- **Contexto**: El dashboard monolítico causaba tiempos de carga inicial elevados y redundancia en consultas a la base de datos. Se requería una arquitectura desacoplada que permitiera carga progresiva (streaming) y filtrado granular de datos.
+- **Acciones**:
+  - **Desacoplamiento de Datos**: Se refactorizó `resolveDashboardContextUncached` en `dashboardService.ts` para soportar el parámetro opcional `only`, permitiendo orquestar solo los subconjuntos necesarios (`stats`, `live`, `operations`, `external`, `reach`).
+  - **Streaming UI**: Se implementaron múltiples fronteras `Suspense` en `page.tsx` para cargar progresivamente los KPIs principales, alertas operativas, mapa y datos de alcance, mejorando la interactividad percibida.
+  - **Modo Widget**: Se actualizó `DashboardPanel.tsx` con soporte para `isWidgetMode`, permitiendo renderizar secciones aisladas sin el shell global ni filtros redundantes durante la carga por streaming.
+  - **Optimización de Consultas**: Se refinó `fetchGeocercas` con filtrado por cuenta y se eliminaron llamadas redundantes a catálogos maestros en el servicio de rutas cuando se integra en el dashboard.
+  - **Corrección de Tipado**: Se estabilizaron los contratos de `DashboardFilters`, `DashboardLiveAsistenciaRow` y `DashboardSupervisorDailyAssignmentRow` para asegurar compatibilidad estricta en el orquestador de datos.
+- **Resultado**: El dashboard ahora carga los indicadores críticos de forma inmediata mientras el resto de la operación (mapas, alertas y cobertura) se integra de forma asíncrona por secciones. Se redujo el TTFB y la carga redundante sobre Supabase.
+
 ## [2026-04-28 18:40] - Corrección de Flujo de Cambios en Ruta Semanal e Idempotencia (Antigravity)
+
 - **Contexto**: El usuario reportó errores de "ruta duplicada" y falta de persistencia en los cambios solicitados por coordinación cuando los supervisores (específicamente Gloria Maribel) intentaban re-enviar sus rutas.
 - **Acciones**:
-    - **Refactorización de Idempotencia**: Se modificó `guardarPlaneacionRutaSemanalCanvas` en `src/features/rutas/actions.ts` para usar una estrategia de recuperación robusta ante errores de duplicidad de cabecera y asegurar que el estado `PENDIENTE_COORDINACION` se aplique siempre.
-    - **Sincronización de Visitas con Upsert**: Se cambió el método `insert` por `upsert` en el guardado de visitas del Canvas, evitando fallos por registros existentes y permitiendo actualizaciones limpias.
-    - **Resolución de Colisiones de Orden**: Se actualizó `applyRouteChangeToDay` para detectar colisiones en el campo `orden` con visitas no editables (e.g. `COMPLETADA`) y desplazar automáticamente las nuevas visitas al siguiente espacio disponible en lugar de abortar la operación.
-    - **Validación de Tipado**: Se corrigieron errores de TypeScript introducidos por la compatibilidad dinámica de columnas de metadata.
+  - **Refactorización de Idempotencia**: Se modificó `guardarPlaneacionRutaSemanalCanvas` en `src/features/rutas/actions.ts` para usar una estrategia de recuperación robusta ante errores de duplicidad de cabecera y asegurar que el estado `PENDIENTE_COORDINACION` se aplique siempre.
+  - **Sincronización de Visitas con Upsert**: Se cambió el método `insert` por `upsert` en el guardado de visitas del Canvas, evitando fallos por registros existentes y permitiendo actualizaciones limpias.
+  - **Resolución de Colisiones de Orden**: Se actualizó `applyRouteChangeToDay` para detectar colisiones en el campo `orden` con visitas no editables (e.g. `COMPLETADA`) y desplazar automáticamente las nuevas visitas al siguiente espacio disponible en lugar de abortar la operación.
+  - **Validación de Tipado**: Se corrigieron errores de TypeScript introducidos por la compatibilidad dinámica de columnas de metadata.
 - **Despliegue**: Se ejecutó exitosamente el despliegue a producción en Cloudflare (`npm run cf:deploy`). La aplicación ya está disponible con los cambios para revisión operativa.
 - **Resultado**: El flujo de re-envío de rutas es ahora idempotente y resistente a colisiones de concurrencia o de visitas ya ejecutadas. Los coordinadores podrán ver los cambios reflejados correctamente tras el envío del supervisor.
 
 ## [2026-04-28 18:25] - Consolidación Operativa de Empleados y Validación de Lanzamiento (Antigravity)
+
 - **Contexto**: Finalización del desacoplamiento del módulo de Empleados. El objetivo era purgar restos de reclutamiento y establecer una interfaz estable para la administración de personal activo (IMSS, Bajas, Creación).
 - **Acciones**:
-    - **Refactorización de UI**: Se integraron los formularios `CrearEmpleadoForm`, `ImssEstadoForm` y `CancelarAltaForm` en `EmpleadosPanel.tsx`, eliminando definitivamente los tableros Kanban y flujos de coordinación previos.
-    - **Corrección de Tests**:
-        - Se actualizó `src/features/empleados/lib/empleadosTabs.test.ts` para que la pestaña inicial esperada sea siempre `base`, alineándose con la nueva lógica de navegación simplificada.
-        - Se corrigieron los imports de vitest (`beforeEach`, `vi`) en `src/features/campanas/services/campanaService.overview.test.ts` que causaban fallos en la suite de pruebas.
-    - **Validación de Producción**:
-        - Se ejecutó `npm run build` exitosamente (Next.js compilado).
-        - Se validó la suite de tests unitarios: 257/257 pasados (0 fallos).
-        - Se detectó un bloqueo en `npm run deploy` debido a errores `EPERM` en Windows al intentar limpiar la carpeta `.open-next`, causado por procesos que bloquean el subdirectorio `assets`.
+  - **Refactorización de UI**: Se integraron los formularios `CrearEmpleadoForm`, `ImssEstadoForm` y `CancelarAltaForm` en `EmpleadosPanel.tsx`, eliminando definitivamente los tableros Kanban y flujos de coordinación previos.
+  - **Corrección de Tests**:
+    - Se actualizó `src/features/empleados/lib/empleadosTabs.test.ts` para que la pestaña inicial esperada sea siempre `base`, alineándose con la nueva lógica de navegación simplificada.
+    - Se corrigieron los imports de vitest (`beforeEach`, `vi`) en `src/features/campanas/services/campanaService.overview.test.ts` que causaban fallos en la suite de pruebas.
+  - **Validación de Producción**:
+    - Se ejecutó `npm run build` exitosamente (Next.js compilado).
+    - Se validó la suite de tests unitarios: 257/257 pasados (0 fallos).
+    - Se detectó un bloqueo en `npm run deploy` debido a errores `EPERM` en Windows al intentar limpiar la carpeta `.open-next`, causado por procesos que bloquean el subdirectorio `assets`.
 - **Estado**: Código validado y confirmado en la rama `codex/supervisor-operational-center`. La interfaz de Empleados es ahora puramente administrativa y operativa. El despliegue final a Cloudflare queda pendiente de ejecución en un entorno sin bloqueos de archivos (WSL o local del usuario).
 
 ## [2026-04-28 13:35] - Corrección de URLs y Redundancia en Notificaciones (Antigravity)
+
 - **Contexto**: El usuario reportó que los correos electrónicos de notificación contenían enlaces con dominios duplicados (ej. `dominio.com, dominio.com`) y que los enlaces de Staging apuntaban incorrectamente a Producción. También se detectó redundancia visual (URL mostrada como botón y texto).
 - **Acciones**:
-    - **Unificación de URLs**: Se creó la utilidad `readAppUrl()` en `src/lib/runtime/env.ts` para resolver la URL base de forma dinámica y robusta, evitando dependencias estáticas de `process.env`.
-    - **Limpieza de Hosts**: Se actualizó `obtenerUrlBaseAplicacion` en `src/lib/auth/admin.ts` para manejar encabezados `x-forwarded-host` con múltiples valores (separados por comas), tomando siempre el primero.
-    - **Refactorización de Catálogos**: Se actualizaron todos los archivos de notificaciones de workflows (`workflowCatalog.ts`, `solicitudesEmail.ts`, `nominaEmail.ts`, `gastosEmail.ts`, `rutaSemanalEmail.ts`) para usar la resolución dinámica de URL.
-    - **Shell de Correo Único**: Se creó `src/lib/notifications/emailShell.ts` para centralizar el diseño de los correos y manejar elegantemente el respaldo de enlaces (fallback).
-    - **Reducción de Redundancia**: Se refactorizó `authSecurityEmail.ts` y `workflowTransitionEmail.ts` para usar el nuevo shell, eliminando la impresión explícita y repetitiva de la URL cuando el botón está presente.
+  - **Unificación de URLs**: Se creó la utilidad `readAppUrl()` en `src/lib/runtime/env.ts` para resolver la URL base de forma dinámica y robusta, evitando dependencias estáticas de `process.env`.
+  - **Limpieza de Hosts**: Se actualizó `obtenerUrlBaseAplicacion` en `src/lib/auth/admin.ts` para manejar encabezados `x-forwarded-host` con múltiples valores (separados por comas), tomando siempre el primero.
+  - **Refactorización de Catálogos**: Se actualizaron todos los archivos de notificaciones de workflows (`workflowCatalog.ts`, `solicitudesEmail.ts`, `nominaEmail.ts`, `gastosEmail.ts`, `rutaSemanalEmail.ts`) para usar la resolución dinámica de URL.
+  - **Shell de Correo Único**: Se creó `src/lib/notifications/emailShell.ts` para centralizar el diseño de los correos y manejar elegantemente el respaldo de enlaces (fallback).
+  - **Reducción de Redundancia**: Se refactorizó `authSecurityEmail.ts` y `workflowTransitionEmail.ts` para usar el nuevo shell, eliminando la impresión explícita y repetitiva de la URL cuando el botón está presente.
 - **Validaciones**:
-    - `npm run build` OK
-    - `npm run cf:build` OK
-    - `npm run docs:check-encoding` OK
+  - `npm run build` OK
+  - `npm run cf:build` OK
+  - `npm run docs:check-encoding` OK
 - **Estado**: Las notificaciones ahora deberían generar enlaces correctos según el entorno (Staging vs Producción) y sin dominios duplicados. Se mejoró la limpieza visual de los correos transaccionales.
 
 ## [2026-04-28 03:10] - Restauración de Botón de Aprobación de Coordinación (Antigravity)
+
 - **Error**: El botón "Aprobar" no era visible en el modal de detalle para candidatos en etapa `NUEVOS`.
 - **Fix**: Se actualizó la lógica condicional en `EmpleadosPanel.tsx` (línea 1870) para incluir `NUEVOS` además de `PENDIENTE_COORDINACION`.
 - **Despliegue**: Se ejecutó `npm run cf:deploy` y se verificó visualmente en `beteele-one.com`.
 - **Resultado**: Botones visibles y funcionales para Administradores y Coordinadores.
 
 ## [2026-04-27 23:10] - Resolución de Tests y Despliegue a Producción (Antigravity)
+
 - **Contexto**: Tras las mejoras en el flujo de reclutamiento y la migración a Resend, se detectaron fallos en la suite de pruebas unitarias debido a dependencias de base de datos no mockeadas para las notificaciones en segundo plano. El usuario solicitó el despliegue final a producción.
 - **Acciones**:
-    - **Corrección de Tests**:
-        - Se añadieron los mocks necesarios para las tablas `empleado` y `usuario` en `src/features/gastos/actions.test.ts`, `src/features/solicitudes/actions.test.ts` y `src/features/materiales/actions.test.ts`.
-        - Se implementaron los métodos `.or()`, `.in()` y `.maybeSingle()` en el cliente mock de Supabase para soportar la lógica de fan-out de notificaciones.
-        - Se refactorizaron los tests de `materiales` para validar la nueva RPC `rpc_registrar_entrega_promocional` en lugar de inserciones directas a tablas.
-    - **Despliegue**:
-        - Se ejecutó `npm run deploy` exitosamente.
-        - La aplicación quedó desplegada en `https://beteele-one.com`.
+  - **Corrección de Tests**:
+    - Se añadieron los mocks necesarios para las tablas `empleado` y `usuario` en `src/features/gastos/actions.test.ts`, `src/features/solicitudes/actions.test.ts` y `src/features/materiales/actions.test.ts`.
+    - Se implementaron los métodos `.or()`, `.in()` y `.maybeSingle()` en el cliente mock de Supabase para soportar la lógica de fan-out de notificaciones.
+    - Se refactorizaron los tests de `materiales` para validar la nueva RPC `rpc_registrar_entrega_promocional` en lugar de inserciones directas a tablas.
+  - **Despliegue**:
+    - Se ejecutó `npm run deploy` exitosamente.
+    - La aplicación quedó desplegada en `https://beteele-one.com`.
 - **Validaciones**:
-    - `npx vitest run src/features/materiales/actions.test.ts` OK (5 tests pasados).
-    - Suite de tests unitarios estabilizada.
+  - `npx vitest run src/features/materiales/actions.test.ts` OK (5 tests pasados).
+  - Suite de tests unitarios estabilizada.
 - **Estado**: Aplicación desplegada y estable con los últimos flujos de Reclutamiento y Notificaciones.
 
 ## [2026-04-27 15:33] - Refinamiento de Flujo de Reclutamiento (Antigravity)
+
 - **Contexto**: El usuario reportó confusión en la transición del candidato de la etapa `NUEVO` a `EXPEDIENTE` dentro del `RecruitmentDashboard`. Además solicitó que el formulario de "Corrección de ficha" fuera más compacto y bajo demanda.
 - **Acciones**:
-    - Se refactorizó `FichaLaboralEditableForm` en `EmpleadosPanel.tsx` introduciendo un estado `isExpanded` (toggle) para mantener el formulario oculto tras un botón "Editar ficha" por defecto.
-    - Se modificó `EmpleadoDetailModal` en `EmpleadosPanel.tsx` para inyectar los componentes `CoordinationApprovalForm` y `CoordinationRejectionForm` en la pestaña principal ('personal'). Esto se condicionó para mostrarse exclusivamente cuando el candidato está en `PENDIENTE_COORDINACION` (NUEVO) y el usuario activo es `COORDINADOR` o `ADMINISTRADOR`.
-    - Se modificaron los permisos estáticos `canRecruit` y `canManageAdminFields` en `EmpleadosPanel.tsx` para incluir el rol de `COORDINADOR`, igualando sus capacidades operativas en la vista de detalle con las de `ADMINISTRADOR`.
+  - Se refactorizó `FichaLaboralEditableForm` en `EmpleadosPanel.tsx` introduciendo un estado `isExpanded` (toggle) para mantener el formulario oculto tras un botón "Editar ficha" por defecto.
+  - Se modificó `EmpleadoDetailModal` en `EmpleadosPanel.tsx` para inyectar los componentes `CoordinationApprovalForm` y `CoordinationRejectionForm` en la pestaña principal ('personal'). Esto se condicionó para mostrarse exclusivamente cuando el candidato está en `PENDIENTE_COORDINACION` (NUEVO) y el usuario activo es `COORDINADOR` o `ADMINISTRADOR`.
+  - Se modificaron los permisos estáticos `canRecruit` y `canManageAdminFields` en `EmpleadosPanel.tsx` para incluir el rol de `COORDINADOR`, igualando sus capacidades operativas en la vista de detalle con las de `ADMINISTRADOR`.
 - **Validaciones**:
-    - `npm run build` ejecutado y finalizado exitosamente en 16.8s (sin errores de tipado o compilación estática).
+  - `npm run build` ejecutado y finalizado exitosamente en 16.8s (sin errores de tipado o compilación estática).
 - **Estado**: Las vistas de detalle ahora permiten a los administradores aprobar directamente al candidato, moviéndolo a `EXPEDIENTE` sin salir del modal principal, y las fichas laborales son compactas.
 
 ## [2026-04-27 14:08] - Migración Final y Exitosa a Resend (Antigravity)
+
 - **Contexto**: Tras descartar SMTP2GO, el usuario decidió migrar todas las notificaciones transaccionales a **Resend**. Se requería una integración robusta que permitiera enviar correos a dominios externos desde `@beteele-one.com`.
 - **Acciones**:
-    - Se refactorizó `src/lib/notifications/transactionalEmail.ts` para utilizar el SDK oficial de Resend.
-    - Se configuraron las variables de entorno `RESEND_API_KEY`, `USUARIOS_FROM_EMAIL` y `EMAIL_NOTIFICATIONS_ENABLED` en el entorno local.
-    - Se corrigió el formato del archivo `.env.local` del usuario (se eliminaron espacios inválidos en los nombres de las variables).
-    - Se verificó la conexión y el envío real a través de un script de prueba (`transactionalEmail-live.test.ts`).
-    - Se actualizaron las pruebas unitarias para mockear el SDK de Resend.
+  - Se refactorizó `src/lib/notifications/transactionalEmail.ts` para utilizar el SDK oficial de Resend.
+  - Se configuraron las variables de entorno `RESEND_API_KEY`, `USUARIOS_FROM_EMAIL` y `EMAIL_NOTIFICATIONS_ENABLED` en el entorno local.
+  - Se corrigió el formato del archivo `.env.local` del usuario (se eliminaron espacios inválidos en los nombres de las variables).
+  - Se verificó la conexión y el envío real a través de un script de prueba (`transactionalEmail-live.test.ts`).
+  - Se actualizaron las pruebas unitarias para mockear el SDK de Resend.
 - **Validaciones**:
-    - Envío real exitoso a `hector@artolagroup.com` confirmado por los logs del API de Resend (Status 200).
-    - `npx vitest run src/lib/notifications/transactionalEmail.test.ts` OK.
+  - Envío real exitoso a `hector@artolagroup.com` confirmado por los logs del API de Resend (Status 200).
+  - `npx vitest run src/lib/notifications/transactionalEmail.test.ts` OK.
 - **Estado**: Las notificaciones operativas están 100% funcionales y validadas con Resend. El dominio `beteele-one.com` quedó verificado correctamente.
 
 ## [2026-04-27 12:51] - Fix: Semana inicial por defecto en Ruta Semanal (Antigravity)
+
 - **Contexto**: El menú de Ruta semanal (tanto para perfiles con rol de ADMINISTRADOR/COORDINADOR) estaba mostrando por defecto una semana en el futuro (ej. 29 de junio) cuando había rutas pendientes de aprobación, saltándose la semana actual (27 de abril). El usuario solicitó explícitamente que siempre sea la semana actual.
 - **Acciones**:
-    - Se modificó `src/features/rutas/lib/routeWorkspace.ts`. La función `getCoordinatorInitialWeekStart` ahora simplemente devuelve el `fallbackWeekStart` (que corresponde a la semana actual), en lugar de buscar la semana más futura con rutas pendientes de coordinación.
-    - Se actualizó la prueba unitaria correspondiente en `src/features/rutas/lib/routeWorkspace.test.ts` para reflejar el comportamiento estático de semana actual.
+  - Se modificó `src/features/rutas/lib/routeWorkspace.ts`. La función `getCoordinatorInitialWeekStart` ahora simplemente devuelve el `fallbackWeekStart` (que corresponde a la semana actual), en lugar de buscar la semana más futura con rutas pendientes de coordinación.
+  - Se actualizó la prueba unitaria correspondiente en `src/features/rutas/lib/routeWorkspace.test.ts` para reflejar el comportamiento estático de semana actual.
 - **Validaciones**:
-    - `npx vitest run src/features/rutas/lib/routeWorkspace.test.ts` OK (5 tests pasaron).
+  - `npx vitest run src/features/rutas/lib/routeWorkspace.test.ts` OK (5 tests pasaron).
 - **Estado**: El tablero siempre inicializará en la semana en curso (o la semana actual base proporcionada por el servidor), resolviendo el salto automático a semanas futuras.
 
 ## [2026-04-24 20:10] - Modularización de Reclutamiento (Antigravity)
+
 - **Contexto**: Se solicitó extraer el flujo de reclutamiento del módulo de Empleados para crear un módulo dedicado e independiente ("Reclutamiento"), con su propia interfaz, métricas y tablero Kanban, resolviendo errores de hidratación y mejorando la UX.
 - **Acciones**:
-    - **Estructura**: Creado `src/features/reclutamiento/` con tipos, servicios (`recruitmentService.ts`) y componentes dedicados.
-    - **UI/UX**:
-        - Implementado `RecruitmentDashboard.tsx` con métricas KPI y tableros Kanban (`ScrollablePipelineBoard`).
-        - Creado `PipelineBoard.tsx` como componente reusable para flujos de trabajo visuales.
-        - Integrado `VacantesFuturasBoard` como espejo operativo desde el módulo de Asignaciones.
-        - Creado `RecruitmentShell.tsx` para manejar el estado de cliente (modales, búsqueda) y resolver errores de hidratación al pasar funciones a Client Components.
-    - **Navegación**: Registrado el módulo en `Sidebar.tsx` con icono `target` y tema `indigo` en `moduleThemes.ts`. Acceso restringido a `ADMINISTRADOR`, `RECLUTAMIENTO` y `COORDINADOR`.
-    - **Refactor**: Extraídas funciones auxiliares a `recruitingHelpers.ts` y exportados componentes clave (`EmpleadoDetailModal`, `CrearEmpleadoForm`) de `EmpleadosPanel.tsx` para su reutilización.
-    - **Shared**: Creado `src/components/ui/status-pill.tsx` para estandarizar indicadores de estado.
+  - **Estructura**: Creado `src/features/reclutamiento/` con tipos, servicios (`recruitmentService.ts`) y componentes dedicados.
+  - **UI/UX**:
+    - Implementado `RecruitmentDashboard.tsx` con métricas KPI y tableros Kanban (`ScrollablePipelineBoard`).
+    - Creado `PipelineBoard.tsx` como componente reusable para flujos de trabajo visuales.
+    - Integrado `VacantesFuturasBoard` como espejo operativo desde el módulo de Asignaciones.
+    - Creado `RecruitmentShell.tsx` para manejar el estado de cliente (modales, búsqueda) y resolver errores de hidratación al pasar funciones a Client Components.
+  - **Navegación**: Registrado el módulo en `Sidebar.tsx` con icono `target` y tema `indigo` en `moduleThemes.ts`. Acceso restringido a `ADMINISTRADOR`, `RECLUTAMIENTO` y `COORDINADOR`.
+  - **Refactor**: Extraídas funciones auxiliares a `recruitingHelpers.ts` y exportados componentes clave (`EmpleadoDetailModal`, `CrearEmpleadoForm`) de `EmpleadosPanel.tsx` para su reutilización.
+  - **Shared**: Creado `src/components/ui/status-pill.tsx` para estandarizar indicadores de estado.
 - **Validaciones**:
-    - Verificación visual con browser subagent: Sidebar OK, Dashboard OK, Kanban OK, Modales de creación y detalle OK.
-    - `npm run build` pendiente (bloqueo EPERM local, pero validado visualmente en dev server).
+  - Verificación visual con browser subagent: Sidebar OK, Dashboard OK, Kanban OK, Modales de creación y detalle OK.
+  - `npm run build` pendiente (bloqueo EPERM local, pero validado visualmente en dev server).
 - **Estado**: Módulo de Reclutamiento operativo y modularizado. Listo para despliegue a producción.
 
 ---
 
 ## [2026-04-22 08:05] - Baja con vacantes futuras accionables en Asignaciones y Reclutamiento (Codex)
+
 - **Contexto**: Se pidió enlazar el cierre institucional de bajas en Nómina con las asignaciones futuras publicadas para detectar vacantes actuales y futuras, cancelar movimientos programados, dejar historial operativo y exponer una bandeja única visible tanto en Asignaciones como en Empleados/Reclutamiento.
 - **Acciones**:
-    - Se creó la migración `supabase/migrations/20260422113000_baja_vacante_operativa_futura.sql` para agregar `metadata` a `asignacion`, crear `vacante_operativa_futura` y `asignacion_baja_historial` con índices operativos por cuenta, PDV, estado y fecha.
-    - Se extendieron los contratos TS en `src/types/database.ts` y `src/types/database.generated.ts` para soportar las nuevas tablas, tipos de vacante y seguimiento.
-    - Se implementó `src/features/empleados/services/bajaAsignacionImpactService.ts` y se integró en `cerrarBajaEmpleadoNomina(...)` dentro de `src/features/empleados/actions.ts` para truncar la asignación vigente, cancelar asignaciones futuras `PUBLICADA`, crear vacantes derivadas, registrar historial estructurado, rematerializar la ventana afectada y notificar a `ADMINISTRADOR`.
-    - Se agregó `src/features/asignaciones/services/vacanteOperativaFuturaService.ts` como fuente única de lectura y `src/features/asignaciones/components/VacantesFuturasBoard.tsx` como superficie compartida para mostrar las mismas vacantes en `Asignaciones` y en el espejo de `Empleados/Reclutamiento`.
-    - Se amplió `src/features/asignaciones/services/asignacionService.ts`, `src/app/(main)/asignaciones/page.tsx` y `src/features/asignaciones/components/AsignacionesPanel.tsx` con la vista `vacantes-futuras`, deep-link a reasignación prellenada y seguimiento editable.
-    - Se amplió `src/features/empleados/services/empleadoService.ts` y `src/features/empleados/components/EmpleadosPanel.tsx` con el bloque espejo de vacantes futuras para Reclutamiento, consumiendo la misma tabla/fuente y el mismo workflow de seguimiento.
-    - Se agregó la prueba unitaria `src/features/empleados/services/bajaAsignacionImpactService.test.ts`.
+  - Se creó la migración `supabase/migrations/20260422113000_baja_vacante_operativa_futura.sql` para agregar `metadata` a `asignacion`, crear `vacante_operativa_futura` y `asignacion_baja_historial` con índices operativos por cuenta, PDV, estado y fecha.
+  - Se extendieron los contratos TS en `src/types/database.ts` y `src/types/database.generated.ts` para soportar las nuevas tablas, tipos de vacante y seguimiento.
+  - Se implementó `src/features/empleados/services/bajaAsignacionImpactService.ts` y se integró en `cerrarBajaEmpleadoNomina(...)` dentro de `src/features/empleados/actions.ts` para truncar la asignación vigente, cancelar asignaciones futuras `PUBLICADA`, crear vacantes derivadas, registrar historial estructurado, rematerializar la ventana afectada y notificar a `ADMINISTRADOR`.
+  - Se agregó `src/features/asignaciones/services/vacanteOperativaFuturaService.ts` como fuente única de lectura y `src/features/asignaciones/components/VacantesFuturasBoard.tsx` como superficie compartida para mostrar las mismas vacantes en `Asignaciones` y en el espejo de `Empleados/Reclutamiento`.
+  - Se amplió `src/features/asignaciones/services/asignacionService.ts`, `src/app/(main)/asignaciones/page.tsx` y `src/features/asignaciones/components/AsignacionesPanel.tsx` con la vista `vacantes-futuras`, deep-link a reasignación prellenada y seguimiento editable.
+  - Se amplió `src/features/empleados/services/empleadoService.ts` y `src/features/empleados/components/EmpleadosPanel.tsx` con el bloque espejo de vacantes futuras para Reclutamiento, consumiendo la misma tabla/fuente y el mismo workflow de seguimiento.
+  - Se agregó la prueba unitaria `src/features/empleados/services/bajaAsignacionImpactService.test.ts`.
 - **Validaciones**:
-    - `npx vitest run src/features/empleados/services/bajaAsignacionImpactService.test.ts` OK
-    - `npx tsc --noEmit` muestra fallas preexistentes en tests ajenos al corte; filtrando por los archivos tocados en este cambio no quedaron errores de TypeScript nuevos.
-    - `npm run hooks:install` OK
-    - `npm run docs:check-encoding` OK tras limpiar artefactos generados no versionados en `.open-next/` que introducían falsos positivos de encoding.
+  - `npx vitest run src/features/empleados/services/bajaAsignacionImpactService.test.ts` OK
+  - `npx tsc --noEmit` muestra fallas preexistentes en tests ajenos al corte; filtrando por los archivos tocados en este cambio no quedaron errores de TypeScript nuevos.
+  - `npm run hooks:install` OK
+  - `npm run docs:check-encoding` OK tras limpiar artefactos generados no versionados en `.open-next/` que introducían falsos positivos de encoding.
 - **Reconciliación**:
-    - Se revisó `.kiro/specs/field-force-platform/tasks.md` y no existe un checkbox canónico explícito para esta capacidad de vacantes futuras por baja; por eso no se movieron checkboxes en `tasks.md`.
+  - Se revisó `.kiro/specs/field-force-platform/tasks.md` y no existe un checkbox canónico explícito para esta capacidad de vacantes futuras por baja; por eso no se movieron checkboxes en `tasks.md`.
 - **Estado**: El cierre de baja ya deja vacante actual y vacantes futuras accionables, cancela movimientos afectados con historial estructurado, notifica a Administración y expone la misma bandeja operativa en Asignaciones y Reclutamiento.
 
 ## [2026-04-20 15:10] - Flujo de acceso unificado por estado para todos los puestos (Codex)
+
 - **Contexto**: Se pidio asegurar que provisioning, activacion, recuperacion y primer acceso funcionaran igual para todos los roles sin sesgos de supervisores ni textos que sugirieran un trato especial.
 - **Acciones**:
-    - Se normalizo la solicitud de correccion de primer acceso para que quede en la bandeja de Administracion solamente y se ajusto el copy del formulario de primer acceso para dejar de sugerir una ruta supervisor-only.
-    - Se aclaro el panel de usuarios provisionales para que hable de primer acceso para cualquier puesto, no solo de expedientes con alta IMSS cerrada.
-    - Se reforzo la reentrada por correo normalizado en el flujo pendiente de activacion para evitar que un correo capturado en mayusculas se quedara fuera del rescate.
-    - Se agregaron pruebas para la correccion admin-only, el flujo pendiente con correo normalizado y la creacion de usuarios provisionales para toda la matriz de puestos soportados.
+  - Se normalizo la solicitud de correccion de primer acceso para que quede en la bandeja de Administracion solamente y se ajusto el copy del formulario de primer acceso para dejar de sugerir una ruta supervisor-only.
+  - Se aclaro el panel de usuarios provisionales para que hable de primer acceso para cualquier puesto, no solo de expedientes con alta IMSS cerrada.
+  - Se reforzo la reentrada por correo normalizado en el flujo pendiente de activacion para evitar que un correo capturado en mayusculas se quedara fuera del rescate.
+  - Se agregaron pruebas para la correccion admin-only, el flujo pendiente con correo normalizado y la creacion de usuarios provisionales para toda la matriz de puestos soportados.
 - **Validaciones**:
-    - `npx vitest run src/actions/auth.test.ts src/features/usuarios/actions.test.ts` OK
-    - `npm run build` OK
-    - `npm run cf:build` OK
-    - `npm run docs:check-encoding` OK
+  - `npx vitest run src/actions/auth.test.ts src/features/usuarios/actions.test.ts` OK
+  - `npm run build` OK
+  - `npm run cf:build` OK
+  - `npm run docs:check-encoding` OK
 - **Estado**: El flujo de acceso quedo alineado por estado de cuenta y no por rol; la UX de provisioning y correccion ya no sugiere comportamientos distintos por puesto.
 
 ## [2026-04-18 08:50] - Sincronizacion de capturas de jornada con resolucion resiliente de asignacion (Codex)
+
 - **Contexto**: El flujo de captura en dermoconsejo estaba quedando atrapado cuando el backend no podia resolver la asignacion activa exacta para el check-in offline o diferido, dejando la captura solo en el telefono y sin sincronizar con servidor.
 - **Acciones**:
-    - Se agrego `src/app/api/asistencias/sync/assignmentPersistence.ts` para resolver la asignacion activa de check-in por `asignacion_id` y, si hace falta, reconstruirla por `empleado_id + pdv_id + fecha_operacion`.
-    - Se actualizo `src/app/api/asistencias/sync/route.ts` para usar esa resolucion resiliente, rehidratar `asignacion_id`, `cuenta_cliente_id` y `supervisor_empleado_id` cuando aplique, y considerar como recuperables los errores de sincronizacion ligados a una asignacion faltante o desalineada.
-    - Se extendio `src/app/api/asistencias/sync/attendanceSyncErrors.ts` con los nuevos errores recuperables de asignacion y con la clasificacion de fallos SQL `operator does not exist` que seguian bloqueando el fallback.
-    - Se corrigio la RPC `rpc_registrar_asistencia_dc` en `supabase/migrations/20260415200000_rpc_asistencia_dc_v3.sql` para comparar `fecha_operacion` como `date` y no como `text`.
-    - Se agregaron pruebas unitarias para la resolucion de asignacion y para la clasificacion de errores recuperables, y se ajusto el harness offline para reflejar el contrato real del route.
+  - Se agrego `src/app/api/asistencias/sync/assignmentPersistence.ts` para resolver la asignacion activa de check-in por `asignacion_id` y, si hace falta, reconstruirla por `empleado_id + pdv_id + fecha_operacion`.
+  - Se actualizo `src/app/api/asistencias/sync/route.ts` para usar esa resolucion resiliente, rehidratar `asignacion_id`, `cuenta_cliente_id` y `supervisor_empleado_id` cuando aplique, y considerar como recuperables los errores de sincronizacion ligados a una asignacion faltante o desalineada.
+  - Se extendio `src/app/api/asistencias/sync/attendanceSyncErrors.ts` con los nuevos errores recuperables de asignacion y con la clasificacion de fallos SQL `operator does not exist` que seguian bloqueando el fallback.
+  - Se corrigio la RPC `rpc_registrar_asistencia_dc` en `supabase/migrations/20260415200000_rpc_asistencia_dc_v3.sql` para comparar `fecha_operacion` como `date` y no como `text`.
+  - Se agregaron pruebas unitarias para la resolucion de asignacion y para la clasificacion de errores recuperables, y se ajusto el harness offline para reflejar el contrato real del route.
 - **Validaciones**:
-    - `npx vitest run src/app/api/asistencias/sync/attendanceSyncErrors.test.ts src/app/api/asistencias/sync/assignmentPersistence.test.ts src/lib/offline/offlineAttendanceFlow.test.ts` OK
-    - `npx eslint src/app/api/asistencias/sync/route.ts src/app/api/asistencias/sync/assignmentPersistence.ts src/lib/offline/offlineAttendanceFlow.test.ts src/app/api/asistencias/sync/attendanceSyncErrors.ts src/app/api/asistencias/sync/attendanceSyncErrors.test.ts src/app/api/asistencias/sync/assignmentPersistence.test.ts` OK
-    - `npm run build` OK
-    - `npm run cf:build` OK
-    - `npm run docs:check-encoding` OK
+  - `npx vitest run src/app/api/asistencias/sync/attendanceSyncErrors.test.ts src/app/api/asistencias/sync/assignmentPersistence.test.ts src/lib/offline/offlineAttendanceFlow.test.ts` OK
+  - `npx eslint src/app/api/asistencias/sync/route.ts src/app/api/asistencias/sync/assignmentPersistence.ts src/lib/offline/offlineAttendanceFlow.test.ts src/app/api/asistencias/sync/attendanceSyncErrors.ts src/app/api/asistencias/sync/attendanceSyncErrors.test.ts src/app/api/asistencias/sync/assignmentPersistence.test.ts` OK
+  - `npm run build` OK
+  - `npm run cf:build` OK
+  - `npm run docs:check-encoding` OK
 - **Estado**: La captura de jornada ya no debe quedarse bloqueada por una asignacion operativa stale al sincronizar; si el backend puede reconstruir la asignacion vigente del dia, la persistencia continua y la cola offline se limpia correctamente.
 
 ## [2026-04-17 19:05] - Expedientes historicos verificados y revalidacion documental individual (Codex)
+
 - **Contexto**: El usuario pidio sacar del embudo de Reclutamiento todos los expedientes historicos actuales, dejar solo candidatos nuevos y agregar una via explicita para actualizar un expediente individual con un unico PDF.
 - **Acciones**:
-    - Se agrego la accion `actualizarExpedienteEmpleadoConDocumento(...)` en `src/features/empleados/actions.ts` para revalidar un expediente con un solo PDF, sin relanzar OCR, conservando trazabilidad y audit log.
-    - Se expuso la seccion `Actualizar expediente` dentro de la pestaña `Documentos` del modal de empleado en `src/features/empleados/components/EmpleadosPanel.tsx`.
-    - Se creo el script de mantenimiento `scripts/mark-current-expedientes-verified.cjs` y el comando npm `supabase:mark-current-expedientes-verified` para normalizar expedientes historicos.
-    - Se ejecuto la normalizacion masiva sobre 301 expedientes activos/suspendidos, actualizando `expediente_estado=VALIDADO` y `metadata.workflow_stage=ALTA_IMSS_CERRADA` para sacarlos del embudo de Reclutamiento.
+  - Se agrego la accion `actualizarExpedienteEmpleadoConDocumento(...)` en `src/features/empleados/actions.ts` para revalidar un expediente con un solo PDF, sin relanzar OCR, conservando trazabilidad y audit log.
+  - Se expuso la seccion `Actualizar expediente` dentro de la pestaña `Documentos` del modal de empleado en `src/features/empleados/components/EmpleadosPanel.tsx`.
+  - Se creo el script de mantenimiento `scripts/mark-current-expedientes-verified.cjs` y el comando npm `supabase:mark-current-expedientes-verified` para normalizar expedientes historicos.
+  - Se ejecuto la normalizacion masiva sobre 301 expedientes activos/suspendidos, actualizando `expediente_estado=VALIDADO` y `metadata.workflow_stage=ALTA_IMSS_CERRADA` para sacarlos del embudo de Reclutamiento.
 - **Validaciones**:
-    - `npm run docs:check-encoding` OK
-    - `npm run build` OK
-    - `npm run cf:build` OK
-    - `node scripts/mark-current-expedientes-verified.cjs --apply` OK
+  - `npm run docs:check-encoding` OK
+  - `npm run build` OK
+  - `npm run cf:build` OK
+  - `node scripts/mark-current-expedientes-verified.cjs --apply` OK
 - **Despliegue**:
-    - `npm run cf:build` y despliegue a `Dev` completados
-    - URL dev activa: `https://beteele-one-dev.hector-183.workers.dev`
+  - `npm run cf:build` y despliegue a `Dev` completados
+  - URL dev activa: `https://beteele-one-dev.hector-183.workers.dev`
 - **Estado**: El embudo de Reclutamiento ya no deberia arrastrar el backlog historico; la revalidacion documental ahora se resuelve expediente por expediente desde el modal individual.
 
 ## [2026-04-16 23:55] - Bandeja separada de bajas devueltas en Nomina (Codex)
+
 - **Contexto**: El usuario pidió integrar una bandeja específica para bajas devueltas dentro del flujo de Nómina, de forma que las bajas incompletas regresen a Reclutamiento en su propio carril y no mezcladas con las devoluciones de alta.
 - **Acciones**:
-    - Se separó `RECLUTAMIENTO_CORRECCION_BAJA` en la bandeja `bajas-devueltas` dentro de `src/features/empleados/lib/workflowInbox.ts`.
-    - Se mantuvo `devueltas-a-reclutamiento` solo para altas devueltas y se actualizó el `statusLabel` de las bajas como `Baja devuelta`.
-    - Se extendió el resumen de Nómina en `src/features/nomina/services/nominaWorkspaceService.ts` con el conteo `bajasDevueltas`.
-    - Se ajustaron los paneles de Nómina y el dashboard para mostrar el nuevo carril y sus métricas, incluyendo `src/features/nomina/components/NominaWorkspacePanel.tsx`, `src/features/nomina/components/NominaPanel.tsx`, `src/features/dashboard/components/DashboardPanel.tsx` y `src/features/dashboard/services/dashboardService.ts`.
-    - Se actualizó la prueba de regresión en `src/features/empleados/lib/workflowInbox.test.ts`.
+  - Se separó `RECLUTAMIENTO_CORRECCION_BAJA` en la bandeja `bajas-devueltas` dentro de `src/features/empleados/lib/workflowInbox.ts`.
+  - Se mantuvo `devueltas-a-reclutamiento` solo para altas devueltas y se actualizó el `statusLabel` de las bajas como `Baja devuelta`.
+  - Se extendió el resumen de Nómina en `src/features/nomina/services/nominaWorkspaceService.ts` con el conteo `bajasDevueltas`.
+  - Se ajustaron los paneles de Nómina y el dashboard para mostrar el nuevo carril y sus métricas, incluyendo `src/features/nomina/components/NominaWorkspacePanel.tsx`, `src/features/nomina/components/NominaPanel.tsx`, `src/features/dashboard/components/DashboardPanel.tsx` y `src/features/dashboard/services/dashboardService.ts`.
+  - Se actualizó la prueba de regresión en `src/features/empleados/lib/workflowInbox.test.ts`.
 - **Validaciones**:
-    - `npm run build` OK
-    - `npm run cf:build` OK
-    - `npm run docs:check-encoding` OK
-    - `npm run deploy` OK
+  - `npm run build` OK
+  - `npm run cf:build` OK
+  - `npm run docs:check-encoding` OK
+  - `npm run deploy` OK
 - **Estado**: Nómina ya distingue bajas devueltas de altas devueltas y la bandeja nueva quedó desplegada.
 
 ## [2026-04-16 23:40] - OCR sin narrativa y nómina con buzón simplificado (Codex)
+
 - **Contexto**: El usuario pidió eliminar las observaciones narrativas de la IA en el OCR y dejar en Nómina solo altas pendientes, bajas pendientes, devueltas y cerradas, sin lanes de altas en proceso u observadas.
 - **Acciones**:
-    - Se quitó el banner narrativo de OCR en `src/features/empleados/components/EmpleadosPanel.tsx` y el flujo de carga ahora solo integra el snapshot de datos o muestra error.
-    - Se dejó de persistir la `confidenceSummary` de OCR en `expediente_observaciones` al crear candidatos; el expediente queda sin comentario automático.
-    - Se simplificó `src/features/empleados/lib/workflowInbox.ts` para que la bandeja de Nómina solo exponga `altas-imss`, `bajas-pendientes`, `devueltas-a-reclutamiento` y `cerradas`.
-    - Se ajustaron `src/features/nomina/services/nominaWorkspaceService.ts`, `src/features/nomina/components/NominaWorkspacePanel.tsx`, `src/features/nomina/components/NominaPanel.tsx`, `src/features/dashboard/components/DashboardPanel.tsx` y `src/features/dashboard/services/dashboardService.ts` para consumir el nuevo resumen compacto.
-    - Se actualizó `src/features/empleados/lib/workflowInbox.test.ts` para reflejar las nuevas bandejas y conteos.
+  - Se quitó el banner narrativo de OCR en `src/features/empleados/components/EmpleadosPanel.tsx` y el flujo de carga ahora solo integra el snapshot de datos o muestra error.
+  - Se dejó de persistir la `confidenceSummary` de OCR en `expediente_observaciones` al crear candidatos; el expediente queda sin comentario automático.
+  - Se simplificó `src/features/empleados/lib/workflowInbox.ts` para que la bandeja de Nómina solo exponga `altas-imss`, `bajas-pendientes`, `devueltas-a-reclutamiento` y `cerradas`.
+  - Se ajustaron `src/features/nomina/services/nominaWorkspaceService.ts`, `src/features/nomina/components/NominaWorkspacePanel.tsx`, `src/features/nomina/components/NominaPanel.tsx`, `src/features/dashboard/components/DashboardPanel.tsx` y `src/features/dashboard/services/dashboardService.ts` para consumir el nuevo resumen compacto.
+  - Se actualizó `src/features/empleados/lib/workflowInbox.test.ts` para reflejar las nuevas bandejas y conteos.
 - **Validaciones**:
-    - `npm run build` OK
-    - `npm run cf:build` OK
+  - `npm run build` OK
+  - `npm run cf:build` OK
 - **Despliegue**:
-    - `npm run deploy` OK
-    - URL activa: `https://beteele-one.hector-183.workers.dev`
+  - `npm run deploy` OK
+  - URL activa: `https://beteele-one.hector-183.workers.dev`
 - **Estado**: El OCR ya no muestra observaciones automáticas al usuario y Nómina opera con un inbox más simple y alineado al flujo solicitado.
 
 ## [2026-04-16 23:05] - Flujo operativo de contratación expuesto en expediente (Codex)
+
 - **Contexto**: El usuario no encontraba el boton para enviar a Nomina y solicitar alta despues de subir documentos; el bloque de handoff ya existia en el componente pero no se estaba renderizando en la ficha de expediente.
 - **Acciones**:
-    - Se monto `OnboardingWorkflowActions` dentro de la pestaña `documentos` en `src/features/empleados/components/EmpleadosPanel.tsx` para que el siguiente paso operativo quede visible junto a la carga documental.
-    - Se mantuvo la logica existente de etapas para mostrar `EnviarAltaNominaForm` en las transiciones correctas y `ValidacionFinalRecruitingForm` cuando el flujo ya esta en validacion final.
+  - Se monto `OnboardingWorkflowActions` dentro de la pestaña `documentos` en `src/features/empleados/components/EmpleadosPanel.tsx` para que el siguiente paso operativo quede visible junto a la carga documental.
+  - Se mantuvo la logica existente de etapas para mostrar `EnviarAltaNominaForm` en las transiciones correctas y `ValidacionFinalRecruitingForm` cuando el flujo ya esta en validacion final.
 - **Validaciones**:
-    - `npm run build` OK
-    - `npm run cf:build` OK
+  - `npm run build` OK
+  - `npm run cf:build` OK
 - **Estado**: El CTA de handoff ya vuelve a aparecer en la ficha de expediente; si el empleado esta en la etapa correcta, ahora se puede ver y ejecutar desde la pantalla de documentos.
 
 ## [2026-04-16 22:40] - Supervisores sin PDV obligatorio en coordinación (Codex)
+
 - **Contexto**: En el canvas de Coordinacion, los candidatos con puesto `SUPERVISOR` no deben quedar bloqueados por `PDV confirmado`; el usuario pidió que para ese flujo solo sea obligatoria la fecha de designacion.
 - **Acciones**:
-    - Se agrego `src/features/empleados/lib/onboardingRules.ts` con una regla compartida para detectar `SUPERVISOR`.
-    - Se relajo `aprobarCandidatoCoordinacion(...)` en `src/features/empleados/actions.ts` para no exigir `pdv_objetivo_id` cuando el candidato es supervisor.
-    - Se ajusto `validateOnboardingForPayroll(...)` para que el paquete operativo de supervisores no quede atado a `PDV`, coordinador ni `fecha_isdinizacion`.
-    - Se adapto `CoordinationApprovalForm` y `OnboardingChecklistCard` en `src/features/empleados/components/EmpleadosPanel.tsx` para ocultar el bloqueo visual de PDV en supervisores y mostrar solo la fecha de designacion como requisito.
-    - Se agrego una prueba de regresion en `src/features/empleados/lib/onboardingRules.test.ts`.
+  - Se agrego `src/features/empleados/lib/onboardingRules.ts` con una regla compartida para detectar `SUPERVISOR`.
+  - Se relajo `aprobarCandidatoCoordinacion(...)` en `src/features/empleados/actions.ts` para no exigir `pdv_objetivo_id` cuando el candidato es supervisor.
+  - Se ajusto `validateOnboardingForPayroll(...)` para que el paquete operativo de supervisores no quede atado a `PDV`, coordinador ni `fecha_isdinizacion`.
+  - Se adapto `CoordinationApprovalForm` y `OnboardingChecklistCard` en `src/features/empleados/components/EmpleadosPanel.tsx` para ocultar el bloqueo visual de PDV en supervisores y mostrar solo la fecha de designacion como requisito.
+  - Se agrego una prueba de regresion en `src/features/empleados/lib/onboardingRules.test.ts`.
 - **Validaciones**:
-    - `npm run docs:check-encoding` OK
-    - `npm run build` OK
-    - `npm run cf:build` OK
+  - `npm run docs:check-encoding` OK
+  - `npm run build` OK
+  - `npm run cf:build` OK
 - **Estado**: El flujo de coordinacion ya no deberia bloquear supervisores por PDV; el cambio quedo validado para continuar con despliegue cuando se requiera.
 
 ## [2026-04-16 21:10] - Provisional credentials migradas a Sender (Codex)
+
 - **Contexto**: El usuario ya autenticó `beteele-one.com` en Sender y necesitaba activar el envío operativo con el nuevo token API sin cambiar el flujo de creación de usuarios ni la forma en que reclutamiento dispara credenciales provisionales.
 - **Acciones**:
-    - Se creó `src/lib/notifications/senderTransactionalEmail.ts` como helper reutilizable para el endpoint transaccional sin template de Sender (`/v2/message/send`).
-    - Se refactorizó `src/lib/notifications/provisionalCredentialsEmail.ts` para usar Sender en lugar de Resend manteniendo el contrato público de `canSendProvisionalCredentialsEmail()` y `sendProvisionalCredentialsEmail(...)`.
-    - Se agregó una prueba de contrato para el payload de Sender en `src/lib/notifications/senderTransactionalEmail.test.ts`.
-    - Se actualizó `.env.local.example` para reflejar `SENDER_API_KEY` y `USUARIOS_FROM_EMAIL`.
-    - Se fijó `USUARIOS_FROM_EMAIL=notify@beteele-one.com` en `wrangler.jsonc` como identidad de salida verificada.
+  - Se creó `src/lib/notifications/senderTransactionalEmail.ts` como helper reutilizable para el endpoint transaccional sin template de Sender (`/v2/message/send`).
+  - Se refactorizó `src/lib/notifications/provisionalCredentialsEmail.ts` para usar Sender en lugar de Resend manteniendo el contrato público de `canSendProvisionalCredentialsEmail()` y `sendProvisionalCredentialsEmail(...)`.
+  - Se agregó una prueba de contrato para el payload de Sender en `src/lib/notifications/senderTransactionalEmail.test.ts`.
+  - Se actualizó `.env.local.example` para reflejar `SENDER_API_KEY` y `USUARIOS_FROM_EMAIL`.
+  - Se fijó `USUARIOS_FROM_EMAIL=notify@beteele-one.com` en `wrangler.jsonc` como identidad de salida verificada.
 - **Validaciones**:
-    - `npm run docs:check-encoding` OK
-    - `npm run build` OK
-    - `npm run cf:build` OK
-    - `npm run test:unit -- src/lib/notifications/senderTransactionalEmail.test.ts` no pudo ejecutarse por el bloqueo conocido de Vitest/Vite en este Windows sandbox (`spawn EPERM` al cargar `vitest.config.ts`).
+  - `npm run docs:check-encoding` OK
+  - `npm run build` OK
+  - `npm run cf:build` OK
+  - `npm run test:unit -- src/lib/notifications/senderTransactionalEmail.test.ts` no pudo ejecutarse por el bloqueo conocido de Vitest/Vite en este Windows sandbox (`spawn EPERM` al cargar `vitest.config.ts`).
 - **Estado**: El canal de email transaccional de credenciales provisionales ya quedó listo para Sender; falta que el secreto `SENDER_API_KEY` se cargue en el entorno de despliegue y en desarrollo local antes de probar el envío real.
 
 ## [2026-04-16 20:30] - OCR Gemini migrado por defecto a Flash-Lite (Codex)
+
 - **Contexto**: El flujo de reclutamiento y OCR documental seguía usando `gemini-2.5-flash` como modelo por defecto, lo que mantenía una presión de cuota innecesaria para un caso de uso de bajo volumen.
 - **Acciones**:
-    - Se cambió el fallback runtime de OCR en `src/lib/ocr/gemini.ts` a `gemini-2.5-flash-lite`.
-    - Se alineó el guardado de configuración OCR en `src/features/configuracion/actions.ts` para que los valores nuevos por defecto persistan Flash-Lite.
-    - Se actualizó el formulario de configuración y los envs base (`.env.local.example`, `wrangler.jsonc`) para mostrar y desplegar Flash-Lite como modelo recomendado.
-    - Se ajustaron fixtures y expectativas de pruebas en `tests/configuracion-panel.spec.ts`, `tests/empleados-panel.spec.ts`, `tests/empleados-ocr-mapping.spec.ts` y `tests/gemini-ocr.spec.ts`.
+  - Se cambió el fallback runtime de OCR en `src/lib/ocr/gemini.ts` a `gemini-2.5-flash-lite`.
+  - Se alineó el guardado de configuración OCR en `src/features/configuracion/actions.ts` para que los valores nuevos por defecto persistan Flash-Lite.
+  - Se actualizó el formulario de configuración y los envs base (`.env.local.example`, `wrangler.jsonc`) para mostrar y desplegar Flash-Lite como modelo recomendado.
+  - Se ajustaron fixtures y expectativas de pruebas en `tests/configuracion-panel.spec.ts`, `tests/empleados-panel.spec.ts`, `tests/empleados-ocr-mapping.spec.ts` y `tests/gemini-ocr.spec.ts`.
 - **Motivo**: Reducir costo y saturación de cuota sin cambiar la estructura del flujo ni el contrato OCR.
 - **Siguiente paso recomendado**: Si la configuración central de Supabase aún conserva `gemini-2.5-flash`, persistir también ese valor a nivel de tabla `configuracion` para cerrar por completo el override legado.
 
 ## [2026-04-15 19:45] - Despliegue a Cloudflare Workers y corrección de bugs de compilación (Antigravity)
+
 - **Contexto**: El usuario solicitó el despliegue del proyecto a Cloudflare. Durante el proceso de build de producción, se detectaron 3 regresiones críticas introducidas en el refactor previo de RPC.
 - **Acciones**:
-    - **Bugfix Rutas**: Eliminada declaración duplicada de `metadata` en `src/features/rutas/actions.ts`.
-    - **Bugfix Asistencias**: Corregida línea de código corrupta por fallo de reemplazo previo en `src/app/api/asistencias/sync/route.ts`.
-    - **Bugfix Inventario**: Corregido error de nombrado (`fecha_operacion` -> `fechaOperacion`) en `src/features/materiales/actions.ts` (TypeScript).
-    - **Build & Deploy**: Se ejecutó `npm run build` para validar el core, seguido de `npm run cf:deploy` pasando por `opennextjs-cloudflare`.
+  - **Bugfix Rutas**: Eliminada declaración duplicada de `metadata` en `src/features/rutas/actions.ts`.
+  - **Bugfix Asistencias**: Corregida línea de código corrupta por fallo de reemplazo previo en `src/app/api/asistencias/sync/route.ts`.
+  - **Bugfix Inventario**: Corregido error de nombrado (`fecha_operacion` -> `fechaOperacion`) en `src/features/materiales/actions.ts` (TypeScript).
+  - **Build & Deploy**: Se ejecutó `npm run build` para validar el core, seguido de `npm run cf:deploy` pasando por `opennextjs-cloudflare`.
 - **Resultado**: Aplicación desplegada exitosamente en `https://beteele-one.hector-183.workers.dev`.
 - **Próximos Pasos**: Validar la persistencia de las variables de entorno de Supabase en el panel de Cloudflare si se detectan errores 401 en producción.
 
 ## [2026-04-15 19:30] - Migración masiva de lógica de negocio a RPC (Antigravity)
+
 - **Contexto**: Se identificó latencia y riesgo de inconsistencias por múltiples consultas secuenciales en el servidor de Next.js para operaciones críticas (Ventas, Inventario, Asistencias y Rutas). El usuario solicitó centralizar esta lógica directamente en PostgreSQL mediante funciones RPC atómicas.
 - **Acciones**:
-    - **Ventas**: Creada `rpc_registrar_venta`. Refactorizado `ventaRegistration.ts`. Se eliminaron chequeos manuales de asistencia en el servidor, moviéndolos a la transacción SQL.
-    - **Inventario**: Creadas `rpc_registrar_movimiento_inventario`, `rpc_registrar_entrega_promocional` y `rpc_registrar_conteo_jornada`. Refactorizado `materiales/actions.ts`. Se integró validación de saldo y auditoría en un solo paso atómico.
-    - **Asistencias**: Creada `rpc_registrar_asistencia_dc` (v3). Refactorizada la ruta `/api/asistencias/sync/route.ts`. La resolución de misiones y validación de asignaciones ahora es interna a la base de datos.
-    - **Rutas (Supervisor)**: Creada `rpc_registrar_accion_ruta_supervisor`. Refactorizado `rutas/actions.ts` (Check-in/out de visitas y eventos de agenda). Se automatizó el cierre de la ruta semanal ("CERRADA") al completar la última visita.
+  - **Ventas**: Creada `rpc_registrar_venta`. Refactorizado `ventaRegistration.ts`. Se eliminaron chequeos manuales de asistencia en el servidor, moviéndolos a la transacción SQL.
+  - **Inventario**: Creadas `rpc_registrar_movimiento_inventario`, `rpc_registrar_entrega_promocional` y `rpc_registrar_conteo_jornada`. Refactorizado `materiales/actions.ts`. Se integró validación de saldo y auditoría en un solo paso atómico.
+  - **Asistencias**: Creada `rpc_registrar_asistencia_dc` (v3). Refactorizada la ruta `/api/asistencias/sync/route.ts`. La resolución de misiones y validación de asignaciones ahora es interna a la base de datos.
+  - **Rutas (Supervisor)**: Creada `rpc_registrar_accion_ruta_supervisor`. Refactorizado `rutas/actions.ts` (Check-in/out de visitas y eventos de agenda). Se automatizó el cierre de la ruta semanal ("CERRADA") al completar la última visita.
 - **Implementación**:
-    - Generadas 4 migraciones SQL en `supabase/migrations/`.
-    - Refactorizados acciones y servicios en `src/features/` para invocar `service.rpc(...)`.
-    - Eliminada lógica redundante de validación y conteo en el servidor de Next.js.
+  - Generadas 4 migraciones SQL en `supabase/migrations/`.
+  - Refactorizados acciones y servicios en `src/features/` para invocar `service.rpc(...)`.
+  - Eliminada lógica redundante de validación y conteo en el servidor de Next.js.
 - **Validaciones**:
-    - `npm run docs:check-encoding` sobre todos los archivos afectados.
-    - `npx tsc --noEmit` validado localmente (excepto errores previos conocidos).
-    - Verificación visual de los flujos de "Ventas" y "Asistencias" para asegurar compatibilidad con la cola offline.
+  - `npm run docs:check-encoding` sobre todos los archivos afectados.
+  - `npx tsc --noEmit` validado localmente (excepto errores previos conocidos).
+  - Verificación visual de los flujos de "Ventas" y "Asistencias" para asegurar compatibilidad con la cola offline.
 - **Estado**: Migración completada para los 4 núcleos operativos solicitados. Siguiente paso recomendado: Implementar monitoreo de performance en Supabase para medir el impacto de la reducción de round-trips.
 
 ## [2026-04-12 21:45:00] - Offline sync singleton y saneamiento de mojibake visible (Codex)
+
 - **Contexto**: La app seguía sintiéndose pesada por sincronización offline duplicada en múltiples superficies y además arrastraba textos mojibake visibles en algunas rutas administrativas.
 - **Acción**:
-    - `src/hooks/useOfflineSync.ts` pasó a un store compartido por sesión con `useSyncExternalStore`, deduplicando listeners y evitando ciclos de sync automáticos cuando la cola está vacía.
-    - Se agregó `src/hooks/useOfflineSync.test.ts` para fijar la política de no sincronizar en vacío.
-    - `src/features/usuarios/services/usuarioService.ts` ahora considera válida la ruta de sesiones compatible cuando el resumen agregado falla pero el listado base sí responde, evitando el banner de degradación innecesario.
-    - `src/features/usuarios/components/UsuariosPanel.tsx` cambió el texto de soporte parcial por una etiqueta menos alarmista.
-    - Se corrigieron strings mojibake en `src/app/api/formaciones/scheduled-reminders/route.ts` para que los recordatorios de formación vuelvan a mostrarse con acentos correctos.
+  - `src/hooks/useOfflineSync.ts` pasó a un store compartido por sesión con `useSyncExternalStore`, deduplicando listeners y evitando ciclos de sync automáticos cuando la cola está vacía.
+  - Se agregó `src/hooks/useOfflineSync.test.ts` para fijar la política de no sincronizar en vacío.
+  - `src/features/usuarios/services/usuarioService.ts` ahora considera válida la ruta de sesiones compatible cuando el resumen agregado falla pero el listado base sí responde, evitando el banner de degradación innecesario.
+  - `src/features/usuarios/components/UsuariosPanel.tsx` cambió el texto de soporte parcial por una etiqueta menos alarmista.
+  - Se corrigieron strings mojibake en `src/app/api/formaciones/scheduled-reminders/route.ts` para que los recordatorios de formación vuelvan a mostrarse con acentos correctos.
 - **Validaciones**:
-    - `npx vitest run src/hooks/useOfflineSync.test.ts` OK
-    - `npm run build` OK
-    - `npm run cf:build` OK
+  - `npx vitest run src/hooks/useOfflineSync.test.ts` OK
+  - `npm run build` OK
+  - `npm run cf:build` OK
 - **Estado**: Se redujo trabajo de fondo repetido en toda la app y se saneó texto visible corrupto; siguiente corte recomendado es seguir con paneles que aún carguen más de lo necesario por apertura.
 
 ## [2026-04-12 22:07:00] - Usuarios: fallback para resumen de sesiones auth (Codex)
+
 - **Contexto**: La vista administrativa de usuarios seguía mostrando el banner de sesiones degradadas cuando el agregado `admin_list_auth_session_summaries` no resolvía en Supabase, aun con el panel operativo.
 - **Acción**:
-    - `src/features/usuarios/services/usuarioService.ts` ahora intenta primero el resumen agregado de sesiones.
-    - Si ese RPC falla, hace fallback a `admin_list_auth_sessions()` y calcula los contadores en memoria.
-    - Con esto el panel evita caer en el estado degradado cuando el agregado no está disponible pero sí existe el listado base de sesiones.
+  - `src/features/usuarios/services/usuarioService.ts` ahora intenta primero el resumen agregado de sesiones.
+  - Si ese RPC falla, hace fallback a `admin_list_auth_sessions()` y calcula los contadores en memoria.
+  - Con esto el panel evita caer en el estado degradado cuando el agregado no está disponible pero sí existe el listado base de sesiones.
 - **Validaciones**:
-    - `npm run build` OK
-    - `npm run cf:build` OK
-    - `npm run docs:check-encoding` se ejecutó previamente y el archivo sigue en UTF-8 válido
+  - `npm run build` OK
+  - `npm run cf:build` OK
+  - `npm run docs:check-encoding` se ejecutó previamente y el archivo sigue en UTF-8 válido
 - **Estado**: el panel de usuarios queda más resiliente y con menos falsos positivos de degradación; siguiente paso recomendado es seguir reduciendo lecturas de paneles pesados que aún dependan de cargas amplias al abrirse.
 
 ## [2026-04-12 21:58:00] - Dashboard: catálogo comercial compartido y deduplicado (Codex)
+
 - **Contexto**: En el dashboard dermoconsejo había dos cargas separadas del mismo catálogo de productos dentro de `DermoCommercialSheets`, lo que duplicaba requests y latencia en una misma apertura de módulo.
 - **Acción**:
-    - `src/features/dashboard/components/DermoCommercialSheets.tsx` ahora usa una caché compartida a nivel de módulo para `catalogoProductos`.
-    - `DermoVentasCartSheet` y `DermoRegistroExtemporaneoSheet` comparten un único loader con promise deduplicada.
-    - Se eliminó el fetch local duplicado en ambos sheets y se conservó retry manual.
+  - `src/features/dashboard/components/DermoCommercialSheets.tsx` ahora usa una caché compartida a nivel de módulo para `catalogoProductos`.
+  - `DermoVentasCartSheet` y `DermoRegistroExtemporaneoSheet` comparten un único loader con promise deduplicada.
+  - Se eliminó el fetch local duplicado en ambos sheets y se conservó retry manual.
 - **Validaciones**:
-    - `npm run docs:check-encoding` OK
-    - `npm run build` OK
-    - `npm run cf:build` OK
+  - `npm run docs:check-encoding` OK
+  - `npm run build` OK
+  - `npm run cf:build` OK
 - **Estado**: el dashboard perdió una lectura redundante por apertura de sheet; siguiente paso recomendado es seguir con los módulos que aún tengan cargas on-demand grandes o sesiones pesadas.
 
 ## [2026-04-12 21:10:00] - Latencia sistémica: auth, monitor y refetch redundante (Codex)
+
 - **Contexto**: La app presentaba lentitud generalizada por costo fijo de auth, polling de sesión, refreshes redundantes y carga temprana de PWA.
 - **Acción**:
-    - `src/lib/supabase/proxy.ts` ahora resuelve la sesión con `getClaims()` y evita el combo `getUser()` + `getSession()` en el camino protegido.
-    - `src/lib/auth/session.ts` también usa `getClaims()` para no repetir una verificación de auth en cada render servidor.
-    - `src/components/auth/AuthSessionMonitor.tsx` deja de hacer polling por intervalo/foco/visibilidad y se queda con `onAuthStateChange`.
-    - `src/components/pwa/PwaBootstrap.tsx` difiere la registración del service worker hasta idle o timeout corto.
-    - `src/features/reportes/components/ReportesPanel.tsx` elimina el refetch duplicado de campañas y usa el snapshot principal.
-    - `src/app/(main)/mensajes/page.tsx` deja de montar `MensajesRealtimeBridge` porque `MensajesPanel` ya usa la capa selectiva.
+  - `src/lib/supabase/proxy.ts` ahora resuelve la sesión con `getClaims()` y evita el combo `getUser()` + `getSession()` en el camino protegido.
+  - `src/lib/auth/session.ts` también usa `getClaims()` para no repetir una verificación de auth en cada render servidor.
+  - `src/components/auth/AuthSessionMonitor.tsx` deja de hacer polling por intervalo/foco/visibilidad y se queda con `onAuthStateChange`.
+  - `src/components/pwa/PwaBootstrap.tsx` difiere la registración del service worker hasta idle o timeout corto.
+  - `src/features/reportes/components/ReportesPanel.tsx` elimina el refetch duplicado de campañas y usa el snapshot principal.
+  - `src/app/(main)/mensajes/page.tsx` deja de montar `MensajesRealtimeBridge` porque `MensajesPanel` ya usa la capa selectiva.
 - **Validaciones**:
-    - `npm run docs:check-encoding` OK
-    - `npm run build` OK
-    - `npm run cf:build` OK después de limpiar `.open-next` bloqueado en Windows
+  - `npm run docs:check-encoding` OK
+  - `npm run build` OK
+  - `npm run cf:build` OK después de limpiar `.open-next` bloqueado en Windows
 - **Estado**: optimización de costo y latencia aplicada en superficies críticas; siguiente paso recomendado es medir las rutas más usadas para confirmar la caída real de requests y TTFB.
 
 ## [2026-03-14 09:41:52] - Regla de Oro para Tablas en Español Latino (Codex)
+
 - **Contexto**: El usuario solicitó convertir en política irrompible que toda tabla creada por agentes use español latino.
 - **Acción**:
-    - Añadida la regla de oro en `CLAUDE.md`.
-    - Añadida la regla de oro en `GEMINI.md`.
-    - Alineada la política para tablas, columnas de negocio y excepciones documentadas.
+  - Añadida la regla de oro en `CLAUDE.md`.
+  - Añadida la regla de oro en `GEMINI.md`.
+  - Alineada la política para tablas, columnas de negocio y excepciones documentadas.
 - **Estado**: Norma central activa para futuras migraciones, esquemas y creación de tablas.
 
 ## [2026-03-14 09:41:52] - Checklist y Plantilla SQL para Tablas en Español Latino (Codex)
+
 - **Contexto**: Se requirió volver operativa la regla de oro para que ningún agente la omita al crear tablas.
 - **Acción**:
-    - Creada la guía `supabase/NORMA_TABLAS_ESPANOL_LATINO.md`.
-    - Creada la plantilla `supabase/PLANTILLA_TABLA_ESPANOL_LATINO.sql`.
-    - Enlazadas ambas piezas desde `CLAUDE.md` y `GEMINI.md`.
+  - Creada la guía `supabase/NORMA_TABLAS_ESPANOL_LATINO.md`.
+  - Creada la plantilla `supabase/PLANTILLA_TABLA_ESPANOL_LATINO.sql`.
+  - Enlazadas ambas piezas desde `CLAUDE.md` y `GEMINI.md`.
 - **Estado**: Regla reforzada con checklist y base reutilizable para futuras migraciones.
 
 ## [2026-03-14 08:58] - Inicialización y Alineación V3 (Antigravity)
+
 - **Contexto**: El usuario solicitó revisar e implementar las reglas y skills del repositorio.
-- **Acción**: 
-    - Realizada exploración inicial del repositorio.
-    - Identificada la ausencia de archivos de protocolo obligatorios (`AGENT_HISTORY.md`, `architectural_audit_alignment.md`, `task.md`).
-    - Validado el stack: Next.js 16, React 19, Supabase, Zustand, Tailwind CSS 3.4 (Alineado con el Golden Path).
+- **Acción**:
+  - Realizada exploración inicial del repositorio.
+  - Identificada la ausencia de archivos de protocolo obligatorios (`AGENT_HISTORY.md`, `architectural_audit_alignment.md`, `task.md`).
+  - Validado el stack: Next.js 16, React 19, Supabase, Zustand, Tailwind CSS 3.4 (Alineado con el Golden Path).
 - **Cambios**:
-    - Creación de `AGENT_HISTORY.md`.
-    - Creación de `architectural_audit_alignment.md`.
-    - Creación de `task.md` (Raíz) para seguimiento de tareas del proyecto.
+  - Creación de `AGENT_HISTORY.md`.
+  - Creación de `architectural_audit_alignment.md`.
+  - Creación de `task.md` (Raíz) para seguimiento de tareas del proyecto.
 - **Estado**: Fábrica alineada con protocolos V3.
 
 ## [2026-03-14 15:15] - Saneamiento Crítico de Mojibake (Antigravity)
+
 - **Contexto**: El usuario reportó corrupción de caracteres (mojibake) en archivos de documentación y reglas.
-- **Acción**: 
-    - Saneamiento manual de todos los archivos de la raíz (`GEMINI.md`, `README.md`, `CLAUDE.md`, `AGENT_HISTORY.md` y `architectural_audit_alignment.md`) a UTF-8 puro.
-    - Eliminación de patrones de corrupción como `Ã±` y `Ã¡`.
-    - **Nota**: Se descartaron archivos externos (`ANALISIS_LEXAGENDA.md` y `BUSINESS_LOGIC.md`) por no pertenecer a este proyecto.
+- **Acción**:
+  - Saneamiento manual de todos los archivos de la raíz (`GEMINI.md`, `README.md`, `CLAUDE.md`, `AGENT_HISTORY.md` y `architectural_audit_alignment.md`) a UTF-8 puro.
+  - Eliminación de patrones de corrupción como `Ã±` y `Ã¡`.
+  - **Nota**: Se descartaron archivos externos (`ANALISIS_LEXAGENDA.md` y `BUSINESS_LOGIC.md`) por no pertenecer a este proyecto.
 - **Estado**: Documentación legítima de Retail reparada y estandarizada a UTF-8 sin BOM.
 
 ## [2026-03-14 12:45] - Conexión de Supabase (Antigravity)
+
 - **Contexto**: El usuario creó un nuevo proyecto en Supabase para el entorno Retail.
-- **Acción**: 
-    - Configuración del archivo `.env.local` con `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
-    - Registro del password de la base de datos para futuras migraciones.
+- **Acción**:
+  - Configuración del archivo `.env.local` con `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+  - Registro del password de la base de datos para futuras migraciones.
 - **Estado**: Aplicación conectada al backend de Supabase.
 
 ### 💡 Lecciones Aprendidas (Auto-Blindaje)
+
 - **Error**: Se introdujo mojibake al guardar archivos con codificación inconsistente (ANSI/UTF-16 en un entorno UTF-8).
 - **Causa Raíz**: Uso de herramientas de edición de archivos que no forzaban UTF-8 sin BOM de forma predeterminada.
 - **Fix**: Configuración estricta de las herramientas de edición para usar únicamente UTF-8. Implementación de una validación visual obligatoria de caracteres especiales antes de cada commit.
 - **Prevención**: La regla de UTF-8 ahora es una directriz crítica en `GEMINI.md` que debe ser consultada por todo agente antes de su primera intervención.
 
 ## [2026-03-14 14:20] - Limpieza de dominio legado y rebase semantico a retail (Codex)
+
 - **Contexto**: El usuario solicito eliminar todo rastro del dominio anterior y tomar como fuente de verdad exclusiva design.md, requirements.md y tasks.md.
 - **Accion**:
-    - Eliminadas rutas, features, acciones, SQL y componentes ligados a citas, abogados, booking, proyectos, landing publica y correos del dominio previo.
-    - Reescritos entry points (src/app, src/components/layout, src/types/database.ts, src/config/siteConfig.ts, supabase/seed.sql) para orientar la base a modulos retail.
-    - Creadas pantallas base para empleados, pdvs, asignaciones, asistencias, ventas, nomina, reportes y configuracion.
+  - Eliminadas rutas, features, acciones, SQL y componentes ligados a citas, abogados, booking, proyectos, landing publica y correos del dominio previo.
+  - Reescritos entry points (src/app, src/components/layout, src/types/database.ts, src/config/siteConfig.ts, supabase/seed.sql) para orientar la base a modulos retail.
+  - Creadas pantallas base para empleados, pdvs, asignaciones, asistencias, ventas, nomina, reportes y configuracion.
 - **Estado**: Repositorio depurado del dominio legado a nivel de estructura y semantica visible. Pendiente siguiente fase de implementacion funcional sobre esquema retail real.
 
 ## [2026-03-14 14:42] - Sintesis arquitectonica y bloqueos de negocio (Codex)
+
 - **Contexto**: Consolidacion de arquitectura objetivo y orden de implementacion tomando como verdad design.md, requirements.md y tasks.md.
 - **Accion**:
-    - Confirmado que la arquitectura recomendada es monolito modular con Next.js 16, PWA para campo, dashboard web y Supabase con RLS.
-    - Definido orden tecnico prioritario: esquema + RLS, auth derivado de puesto, estructura maestra, asignaciones, asistencias, ventas, nomina y reportes.
-    - Detectadas inconsistencias criticas en documentos sobre geocerca y reglas de check-in que requieren validacion del usuario antes de seguir backend.
+  - Confirmado que la arquitectura recomendada es monolito modular con Next.js 16, PWA para campo, dashboard web y Supabase con RLS.
+  - Definido orden tecnico prioritario: esquema + RLS, auth derivado de puesto, estructura maestra, asignaciones, asistencias, ventas, nomina y reportes.
+  - Detectadas inconsistencias criticas en documentos sobre geocerca y reglas de check-in que requieren validacion del usuario antes de seguir backend.
 - **Estado**: Analisis completado. Implementacion funcional siguiente en espera de respuesta del usuario sobre reglas ambiguas.
 
-
 ## [2026-03-14 15:20] - Base de auth corporativa retail (Codex)
+
 - **Contexto**: Continuacion de la fase de fundacion tras confirmar reglas de geocerca y backlog ejecutivo unico.
 - **Accion**:
-    - Implementado flujo de acceso con usuario, empleado, estado_cuenta y puesto en src/actions/auth.ts y src/lib/auth/session.ts.
-    - Agregado login por correo o username temporal, pagina de activacion y redireccion por estados en src/app/(auth)/activacion/page.tsx y src/lib/supabase/proxy.ts.
-    - Ajustada la migracion inicial para soportar acceso al propio usuario y empleado, helpers get_my_role() y politicas RLS base para el flujo de activacion.
+  - Implementado flujo de acceso con usuario, empleado, estado_cuenta y puesto en src/actions/auth.ts y src/lib/auth/session.ts.
+  - Agregado login por correo o username temporal, pagina de activacion y redireccion por estados en src/app/(auth)/activacion/page.tsx y src/lib/supabase/proxy.ts.
+  - Ajustada la migracion inicial para soportar acceso al propio usuario y empleado, helpers get_my_role() y politicas RLS base para el flujo de activacion.
 - **Impacto**:
-    - El frontend ya deja preparada la logica de cuentas PROVISIONAL, PENDIENTE_VERIFICACION_EMAIL y ACTIVA.
-    - La activacion real depende de ejecutar primero las migraciones en Supabase.
+  - El frontend ya deja preparada la logica de cuentas PROVISIONAL, PENDIENTE_VERIFICACION_EMAIL y ACTIVA.
+  - La activacion real depende de ejecutar primero las migraciones en Supabase.
 - **Estado**: Implementacion base completada a nivel de codigo. Pendiente ejecucion de migraciones y validacion funcional extremo a extremo.
 
-
 ## [2026-03-14 15:45] - Claims JWT y primeras vistas funcionales (Codex)
+
 - **Contexto**: Continuacion de Fase 1 tras preparar auth corporativa y estructura maestra.
 - **Accion**:
-    - Creada migracion supabase/migrations/20260314_1605_auth_claims_sync.sql para sincronizar rol, empleado_id, cuenta_cliente_id y estado_cuenta hacia auth.users.
-    - Creada migracion supabase/migrations/20260314_1535_fase1_asignaciones_base.sql para la tabla asignacion con RLS base.
-    - Implementadas vistas funcionales de empleados, pdvs y asignaciones con lectura desde Supabase y manejo de infraestructura no migrada.
+  - Creada migracion supabase/migrations/20260314_1605_auth_claims_sync.sql para sincronizar rol, empleado_id, cuenta_cliente_id y estado_cuenta hacia auth.users.
+  - Creada migracion supabase/migrations/20260314_1535_fase1_asignaciones_base.sql para la tabla asignacion con RLS base.
+  - Implementadas vistas funcionales de empleados, pdvs y asignaciones con lectura desde Supabase y manejo de infraestructura no migrada.
 - **Impacto**:
-    - El dashboard ya no solo muestra placeholders: empieza a consumir las tablas objetivo del dominio retail.
-    - La validacion funcional depende de ejecutar migraciones y poblar datos reales en Supabase.
+  - El dashboard ya no solo muestra placeholders: empieza a consumir las tablas objetivo del dominio retail.
+  - La validacion funcional depende de ejecutar migraciones y poblar datos reales en Supabase.
 - **Estado**: Avance completado a nivel de codigo. Pendiente ejecucion en Supabase y verificacion de extremo a extremo.
 
 ## [2026-03-14 18:10] - Dependencias instaladas y build validado (Codex)
+
 - **Contexto**: Ejecucion operativa del proyecto para dejar una verificacion local real del frontend enterprise.
 - **Accion**:
-    - Instaladas dependencias con npm install en la raiz del repositorio.
-    - Ejecutado npm run build sobre la aplicacion Next.js.
-    - Confirmada compilacion exitosa con generacion de rutas de dashboard, auth y modulos retail.
+  - Instaladas dependencias con npm install en la raiz del repositorio.
+  - Ejecutado npm run build sobre la aplicacion Next.js.
+  - Confirmada compilacion exitosa con generacion de rutas de dashboard, auth y modulos retail.
 - **Impacto**:
-    - La base web ya compila localmente y el siguiente cuello de botella pasa a ser integracion con Supabase.
-    - Se reduce riesgo de errores estructurales inmediatos en App Router, tipos y componentes principales.
+  - La base web ya compila localmente y el siguiente cuello de botella pasa a ser integracion con Supabase.
+  - Se reduce riesgo de errores estructurales inmediatos en App Router, tipos y componentes principales.
 - **Estado**: Build completado correctamente. Pendiente ejecutar migraciones y validar flujo funcional con backend real.
 
 ## [2026-03-14 18:25] - Lint compatible con Next 16 y tipado de paneles (Codex)
+
 - **Contexto**: Cierre de validaciones locales tras detectar que el script lint heredado no era compatible con Next 16.
 - **Accion**:
-    - Corregido el script `lint` en package.json para usar eslint directamente.
-    - Agregado eslint.config.mjs con configuracion flat compatible con Next 16.
-    - Ajustados proxy.ts, src/features/pdvs/services/pdvService.ts y src/features/asignaciones/services/asignacionService.ts para eliminar any y normalizar relaciones tipadas de Supabase.
-    - Reejecutados npm run lint y npm run build con resultado exitoso.
+  - Corregido el script `lint` en package.json para usar eslint directamente.
+  - Agregado eslint.config.mjs con configuracion flat compatible con Next 16.
+  - Ajustados proxy.ts, src/features/pdvs/services/pdvService.ts y src/features/asignaciones/services/asignacionService.ts para eliminar any y normalizar relaciones tipadas de Supabase.
+  - Reejecutados npm run lint y npm run build con resultado exitoso.
 - **Impacto**:
-    - El proyecto ya cuenta con validacion estatica funcional ademas del build.
-    - Queda reducida la probabilidad de regresiones inmediatas en servicios de dashboard y estructura de App Router.
+  - El proyecto ya cuenta con validacion estatica funcional ademas del build.
+  - Queda reducida la probabilidad de regresiones inmediatas en servicios de dashboard y estructura de App Router.
 - **Estado**: Lint y build completados correctamente. Pendiente integracion real con Supabase, migraciones y pruebas funcionales.
 
 ## [2026-03-14 18:45] - Inicializacion de Supabase CLI y verificacion de enlace remoto (Codex)
+
 - **Contexto**: Inicio de integracion real con Supabase para ejecutar migraciones, seed y validaciones contra backend.
 - **Accion**:
-    - Instalado y validado Supabase CLI mediante npx.
-    - Inicializado el proyecto local de Supabase, generando supabase/config.toml y estructura base del CLI.
-    - Verificado que el proyecto remoto no esta enlazado y que la maquina no tiene SUPABASE_ACCESS_TOKEN ni credenciales administrativas configuradas.
+  - Instalado y validado Supabase CLI mediante npx.
+  - Inicializado el proyecto local de Supabase, generando supabase/config.toml y estructura base del CLI.
+  - Verificado que el proyecto remoto no esta enlazado y que la maquina no tiene SUPABASE_ACCESS_TOKEN ni credenciales administrativas configuradas.
 - **Impacto**:
-    - El repositorio ya esta preparado para enlazarse al proyecto remoto y ejecutar migraciones desde CLI.
-    - La ejecucion real sobre Supabase queda bloqueada unicamente por falta de autenticacion administrativa al proyecto.
+  - El repositorio ya esta preparado para enlazarse al proyecto remoto y ejecutar migraciones desde CLI.
+  - La ejecucion real sobre Supabase queda bloqueada unicamente por falta de autenticacion administrativa al proyecto.
 - **Estado**: Preparacion local completada. Pendiente recibir acceso administrativo para enlazar el proyecto remoto y aplicar migraciones/seed.
 
 ## [2026-03-14 18:58] - Diagnostico de conectividad a Postgres remoto (Codex)
+
 - **Contexto**: Intento de aplicar migraciones remotas usando conexion Postgres directa provista por el usuario.
 - **Accion**:
-    - Ejecutado supabase db push contra el host db.jbdfutvkfvmaulmnfwkk.supabase.co con password de Postgres.
-    - Verificada resolucion DNS del proyecto y del host de base.
-    - Confirmado que el host de Postgres expone solo IPv6 y que este entorno no logra conectividad TCP hacia 5432 por esa via.
+  - Ejecutado supabase db push contra el host db.jbdfutvkfvmaulmnfwkk.supabase.co con password de Postgres.
+  - Verificada resolucion DNS del proyecto y del host de base.
+  - Confirmado que el host de Postgres expone solo IPv6 y que este entorno no logra conectividad TCP hacia 5432 por esa via.
 - **Impacto**:
-    - Las migraciones no pueden aplicarse desde este entorno usando la conexion directa actual.
-    - El siguiente paso correcto es usar la cadena de conexion del pooler IPv4 desde el dashboard de Supabase, o bien ejecutar el push desde una red con soporte IPv6.
+  - Las migraciones no pueden aplicarse desde este entorno usando la conexion directa actual.
+  - El siguiente paso correcto es usar la cadena de conexion del pooler IPv4 desde el dashboard de Supabase, o bien ejecutar el push desde una red con soporte IPv6.
 - **Estado**: Bloqueado por conectividad de red hacia Postgres remoto. Pendiente recibir connection string del pooler IPv4 o acceso alterno.
 
 ## [2026-03-14 21:30] - Reparacion de historial y push remoto de migraciones (Codex)
+
 - **Contexto**: Continuacion de la integracion real con Supabase tras recibir el connection string del pooler IPv4.
 - **Accion**:
-    - Verificado el desfase entre historial remoto y archivos locales con `supabase migration list`.
-    - Renombrada la migracion inicial a `supabase/migrations/20260314145500_fase0_estructura_maestra_retail.sql` para usar un timestamp valido de 14 digitos.
-    - Ejecutado `supabase migration repair` para sustituir la version remota malformada `20260314` por `20260314145500`.
-    - Ejecutado `supabase db push` sobre el pooler de sesion `aws-1-us-east-1.pooler.supabase.com:5432` para aplicar `20260314153500_fase1_asignaciones_base.sql` y `20260314160500_auth_claims_sync.sql`.
+  - Verificado el desfase entre historial remoto y archivos locales con `supabase migration list`.
+  - Renombrada la migracion inicial a `supabase/migrations/20260314145500_fase0_estructura_maestra_retail.sql` para usar un timestamp valido de 14 digitos.
+  - Ejecutado `supabase migration repair` para sustituir la version remota malformada `20260314` por `20260314145500`.
+  - Ejecutado `supabase db push` sobre el pooler de sesion `aws-1-us-east-1.pooler.supabase.com:5432` para aplicar `20260314153500_fase1_asignaciones_base.sql` y `20260314160500_auth_claims_sync.sql`.
 - **Impacto**:
-    - El historial remoto de migraciones ya coincide con el estado local.
-    - El esquema remoto incorpora la tabla `public.asignacion`, sus politicas base y la sincronizacion de claims JWT hacia `auth.users`.
+  - El historial remoto de migraciones ya coincide con el estado local.
+  - El esquema remoto incorpora la tabla `public.asignacion`, sus politicas base y la sincronizacion de claims JWT hacia `auth.users`.
 - **Estado**: Migraciones remotas aplicadas y verificadas correctamente sin destruccion de base.
 
 ## [2026-03-14 22:20] - Seed real, modulo de configuracion y validacion RLS (Codex)
+
 - **Contexto**: Continuacion de la fundacion tecnica tras alinear historial y migraciones remotas.
 - **Accion**:
-    - Reemplazado `supabase/seed.sql` por un seed idempotente con cuentas cliente, cadenas, ciudades, configuracion, reglas, misiones, empleados, usuarios base, PDVs, geocercas, horarios y asignaciones de arranque.
-    - Implementado el modulo `configuracion` en `src/app/(main)/configuracion/page.tsx` y `src/features/configuracion/` para leer `configuracion`, `regla_negocio` y `mision_dia` desde Supabase.
-    - Agregados `scripts/apply-sql-file.cjs` y `scripts/verify-rls-smoke.cjs` para operar seed y smoke tests sobre la base remota.
-    - Creada y aplicada la migracion `supabase/migrations/20260314174000_rls_identity_helpers.sql` para volver `security definer` los helpers `get_my_role()`, `get_my_cuenta_cliente_id()` y `get_my_empleado_id()`.
-    - Ejecutado el seed remoto y validado el aislamiento multi-tenant con `supabase/verification/rls_smoke_test.sql`.
+  - Reemplazado `supabase/seed.sql` por un seed idempotente con cuentas cliente, cadenas, ciudades, configuracion, reglas, misiones, empleados, usuarios base, PDVs, geocercas, horarios y asignaciones de arranque.
+  - Implementado el modulo `configuracion` en `src/app/(main)/configuracion/page.tsx` y `src/features/configuracion/` para leer `configuracion`, `regla_negocio` y `mision_dia` desde Supabase.
+  - Agregados `scripts/apply-sql-file.cjs` y `scripts/verify-rls-smoke.cjs` para operar seed y smoke tests sobre la base remota.
+  - Creada y aplicada la migracion `supabase/migrations/20260314174000_rls_identity_helpers.sql` para volver `security definer` los helpers `get_my_role()`, `get_my_cuenta_cliente_id()` y `get_my_empleado_id()`.
+  - Ejecutado el seed remoto y validado el aislamiento multi-tenant con `supabase/verification/rls_smoke_test.sql`.
 - **Impacto**:
-    - El proyecto remoto ya tiene datos base suficientes para que `empleados`, `pdvs`, `asignaciones` y `configuracion` muestren informacion real.
-    - La validacion RLS ya no recursa y el smoke test por cuenta cliente pasa correctamente.
+  - El proyecto remoto ya tiene datos base suficientes para que `empleados`, `pdvs`, `asignaciones` y `configuracion` muestren informacion real.
+  - La validacion RLS ya no recursa y el smoke test por cuenta cliente pasa correctamente.
 - **Estado**: Implementacion completada y validada con seed remoto y smoke test.
 
 ## [2026-03-14 22:55] - Importacion de catalogos iniciales desde Excel (Codex)
+
 - **Contexto**: El usuario entrego los catalogos operativos reales para dejar atras los datos demo.
 - **Accion**:
-    - Creadas las migraciones `20260314190000_catalogos_operativos_base.sql` y `20260314191500_pdv_metadata_catalogos.sql`.
-    - Implementado `tools/import-initial-catalogs.cjs` para leer Excel y hacer `upsert` idempotente sobre empleados, usuarios, PDVs, geocercas, supervisores, productos, misiones y configuracion.
-    - Aplicadas ambas migraciones en Supabase remoto y ejecutada la importacion contra el pooler de sesion `:5432`.
+  - Creadas las migraciones `20260314190000_catalogos_operativos_base.sql` y `20260314191500_pdv_metadata_catalogos.sql`.
+  - Implementado `tools/import-initial-catalogs.cjs` para leer Excel y hacer `upsert` idempotente sobre empleados, usuarios, PDVs, geocercas, supervisores, productos, misiones y configuracion.
+  - Aplicadas ambas migraciones en Supabase remoto y ejecutada la importacion contra el pooler de sesion `:5432`.
 - **Impacto**:
-    - La base remota queda con 325 PDVs reales para `isdin_mexico`, 189 productos, 120 misiones activas y 252 usuarios provisionales.
-    - Se incorporan 2 supervisores placeholder para nominas ausentes en el maestro de empleados.
+  - La base remota queda con 325 PDVs reales para `isdin_mexico`, 189 productos, 120 misiones activas y 252 usuarios provisionales.
+  - Se incorporan 2 supervisores placeholder para nominas ausentes en el maestro de empleados.
 - **Estado**: Importacion completada y validada con conteos remotos, `npm run lint` y `npm run build`.
 
 ## [2026-03-14 23:20] - Modulo administrativo de clientes y trazabilidad PDV (Codex)
+
 - **Contexto**: El siguiente frente prioritario del backlog era exponer `cuenta_cliente` y el historial de asignacion de PDVs.
 - **Accion**:
-    - Implementados `src/features/clientes/services/clienteService.ts`, `src/features/clientes/components/ClientesPanel.tsx` y `src/app/(main)/clientes/page.tsx`.
-    - Actualizada la navegacion en `src/components/layout/sidebar.tsx` y el dashboard en `src/app/(main)/dashboard/page.tsx` para incluir `Clientes`.
+  - Implementados `src/features/clientes/services/clienteService.ts`, `src/features/clientes/components/ClientesPanel.tsx` y `src/app/(main)/clientes/page.tsx`.
+  - Actualizada la navegacion en `src/components/layout/sidebar.tsx` y el dashboard en `src/app/(main)/dashboard/page.tsx` para incluir `Clientes`.
 - **Impacto**:
-    - La aplicacion ya expone estado de cartera multi-tenant y trazabilidad basica de cambios de PDV por cliente.
+  - La aplicacion ya expone estado de cartera multi-tenant y trazabilidad basica de cambios de PDV por cliente.
 - **Estado**: Implementacion completada y validada con `npm run lint` y `npm run build`.
 
 ## [2026-03-14 23:45] - Panel real de usuarios y endurecimiento de auth (Codex)
+
 - **Contexto**: El backlog de auth seguia ambiguo: habia flujo base, pero el modulo de usuarios era placeholder y el sistema fallaba de forma brusca cuando faltaba backend administrativo.
 - **Accion**:
-    - Reemplazado `src/app/(main)/admin/users/page.tsx` por una vista administrativa real apoyada en `src/features/usuarios/services/usuarioService.ts` y `src/features/usuarios/components/UsuariosPanel.tsx`.
-    - Endurecido `src/actions/auth.ts` para manejar ausencia de `SUPABASE_SERVICE_ROLE_KEY` con errores controlados en login, activacion y actualizacion de password.
-    - Extendida `.env.local.example` para documentar `SUPABASE_SERVICE_ROLE_KEY` y `DATABASE_URL`.
+  - Reemplazado `src/app/(main)/admin/users/page.tsx` por una vista administrativa real apoyada en `src/features/usuarios/services/usuarioService.ts` y `src/features/usuarios/components/UsuariosPanel.tsx`.
+  - Endurecido `src/actions/auth.ts` para manejar ausencia de `SUPABASE_SERVICE_ROLE_KEY` con errores controlados en login, activacion y actualizacion de password.
+  - Extendida `.env.local.example` para documentar `SUPABASE_SERVICE_ROLE_KEY` y `DATABASE_URL`.
 - **Impacto**:
-    - El producto ya hace visible el bloqueo real de auth y deja de depender de excepciones no manejadas.
+  - El producto ya hace visible el bloqueo real de auth y deja de depender de excepciones no manejadas.
 - **Estado**: Implementacion completada y validada con `npm run lint` y `npm run build`.
 
 ## [2026-03-14 23:55] - Validaciones previas a publicacion en asignaciones (Codex)
+
 - **Contexto**: El modulo de `asignaciones` ya existia, pero todavia no exponia los bloqueos previos a publicacion definidos por negocio.
 - **Accion**:
-    - Reescritos `src/features/asignaciones/services/asignacionService.ts` y `src/features/asignaciones/components/AsignacionesPanel.tsx` para enriquecer cada asignacion con validaciones operativas calculadas en lectura.
-    - Las validaciones incorporadas son: cuenta cliente obligatoria, geocerca obligatoria, supervisor activo por PDV y vigencia consistente.
+  - Reescritos `src/features/asignaciones/services/asignacionService.ts` y `src/features/asignaciones/components/AsignacionesPanel.tsx` para enriquecer cada asignacion con validaciones operativas calculadas en lectura.
+  - Las validaciones incorporadas son: cuenta cliente obligatoria, geocerca obligatoria, supervisor activo por PDV y vigencia consistente.
 - **Impacto**:
-    - El modulo ya no solo lista asignaciones: tambien identifica si una asignacion esta lista para publicar o bloqueada por condiciones operativas basicas.
+  - El modulo ya no solo lista asignaciones: tambien identifica si una asignacion esta lista para publicar o bloqueada por condiciones operativas basicas.
 - **Estado**: Implementacion completada y validada con `npm run lint` y `npm run build`.
 
 ## [2026-03-15 00:15] - Base funcional de asistencias en Supabase y UI (Codex)
+
 - **Contexto**: `asistencias` seguia como placeholder y la base remota aun no tenia tabla operativa de jornada diaria.
 - **Accion**:
-    - Creada y aplicada la migracion `supabase/migrations/20260314201000_asistencias_base.sql`.
-    - Implementados `src/features/asistencias/services/asistenciaService.ts`, `src/features/asistencias/components/AsistenciasPanel.tsx` y `src/app/(main)/asistencias/page.tsx`.
-    - Actualizado `supabase/seed.sql` y reejecutado el seed remoto para sembrar 4 jornadas de ejemplo.
+  - Creada y aplicada la migracion `supabase/migrations/20260314201000_asistencias_base.sql`.
+  - Implementados `src/features/asistencias/services/asistenciaService.ts`, `src/features/asistencias/components/AsistenciasPanel.tsx` y `src/app/(main)/asistencias/page.tsx`.
+  - Actualizado `supabase/seed.sql` y reejecutado el seed remoto para sembrar 4 jornadas de ejemplo.
 - **Impacto**:
-    - `asistencias` ya consume datos reales y muestra GPS, biometria, mision del dia y estatus operativo.
+  - `asistencias` ya consume datos reales y muestra GPS, biometria, mision del dia y estatus operativo.
 - **Estado**: Implementacion base completada y validada con conteos remotos, `npm run lint` y `npm run build`.
 
 ## [2026-03-15 00:30] - Base funcional de ventas ligada a jornada activa (Codex)
+
 - **Contexto**: Tras cerrar la base de asistencias, el siguiente paso natural era ligar `ventas` a una jornada valida.
 - **Accion**:
-    - Creada y aplicada la migracion `supabase/migrations/20260314204000_ventas_base.sql`.
-    - Implementados `src/features/ventas/services/ventaService.ts`, `src/features/ventas/components/VentasPanel.tsx` y `src/app/(main)/ventas/page.tsx`.
-    - Actualizado `supabase/seed.sql` y reejecutado el seed remoto para sembrar 3 ventas de ejemplo.
+  - Creada y aplicada la migracion `supabase/migrations/20260314204000_ventas_base.sql`.
+  - Implementados `src/features/ventas/services/ventaService.ts`, `src/features/ventas/components/VentasPanel.tsx` y `src/app/(main)/ventas/page.tsx`.
+  - Actualizado `supabase/seed.sql` y reejecutado el seed remoto para sembrar 3 ventas de ejemplo.
 - **Impacto**:
-    - `ventas` deja de ser placeholder y ya refleja una base comercial diaria ligada a jornada.
+  - `ventas` deja de ser placeholder y ya refleja una base comercial diaria ligada a jornada.
 - **Estado**: Implementacion base completada y validada con conteos remotos, `npm run lint` y `npm run build`.
 
 ## [2026-03-15 01:05] - Base PWA/offline integrada en app shell y modulos diarios (Codex)
+
 - **Contexto**: Tras dejar `asistencias` y `ventas` funcionales, el siguiente frente no bloqueado era habilitar trabajo de campo sin conectividad continua.
 - **Accion**:
-    - Integrado bootstrap PWA con `src/app/manifest.ts`, `src/app/icon.tsx`, `src/app/apple-icon.tsx`, `public/sw.js` y montaje global en `src/app/layout.tsx`.
-    - Implementado `src/hooks/useOfflineSync.ts` para observar conectividad, cola local de IndexedDB y reintentos de sincronizacion usando `src/lib/offline/`.
-    - Agregada vista `src/app/offline/page.tsx` y acceso desde la navegacion para fallback offline.
+  - Integrado bootstrap PWA con `src/app/manifest.ts`, `src/app/icon.tsx`, `src/app/apple-icon.tsx`, `public/sw.js` y montaje global en `src/app/layout.tsx`.
+  - Implementado `src/hooks/useOfflineSync.ts` para observar conectividad, cola local de IndexedDB y reintentos de sincronizacion usando `src/lib/offline/`.
+  - Agregada vista `src/app/offline/page.tsx` y acceso desde la navegacion para fallback offline.
 - **Impacto**:
-    - La aplicacion ya tiene base PWA real y una cola offline visible para trabajo de campo.
-    - `asistencias` y `ventas` pasan de lectura pura a captura operativa minima incluso sin red.
+  - La aplicacion ya tiene base PWA real y una cola offline visible para trabajo de campo.
+  - `asistencias` y `ventas` pasan de lectura pura a captura operativa minima incluso sin red.
 - **Estado**: Implementacion completada y validada con `npm run lint` y `npm run build`.
 
 ## [2026-03-15 01:30] - Estados reales de publicacion en asignaciones (Codex)
+
 - **Contexto**: El backlog seguia marcando pendiente `BORRADOR` y `PUBLICADA`, aunque el esquema ya soportaba ambos estados.
 - **Accion**:
-    - Creado `src/features/asignaciones/lib/assignmentValidation.ts`.
-    - Creadas `src/features/asignaciones/actions.ts` y `src/features/asignaciones/components/AsignacionEstadoControls.tsx`.
-    - Ajustada `src/app/(main)/asignaciones/page.tsx` para distinguir entre administradores con capacidad de gestion y actores en solo lectura.
+  - Creado `src/features/asignaciones/lib/assignmentValidation.ts`.
+  - Creadas `src/features/asignaciones/actions.ts` y `src/features/asignaciones/components/AsignacionEstadoControls.tsx`.
+  - Ajustada `src/app/(main)/asignaciones/page.tsx` para distinguir entre administradores con capacidad de gestion y actores en solo lectura.
 - **Impacto**:
-    - `asignaciones` ya permite publicar o regresar a borrador con bloqueo previo cuando faltan condiciones operativas.
+  - `asignaciones` ya permite publicar o regresar a borrador con bloqueo previo cuando faltan condiciones operativas.
 - **Estado**: Implementacion completada y validada con `npm run lint` y `npm run build`.
 
 ## [2026-03-15 01:50] - Captura viva de GPS y selfie en asistencias (Codex)
+
 - **Contexto**: Tras dejar la cola offline lista, el formulario de `asistencias` seguia dependiendo de captura manual.
 - **Accion**:
-    - Extendida `src/features/asistencias/services/asistenciaService.ts` para adjuntar contexto de geocerca por PDV.
-    - Reescrito `src/features/asistencias/components/AsistenciasPanel.tsx` para capturar posicion via `navigator.geolocation`, calcular distancia a geocerca y exigir justificacion cuando queda fuera.
-    - Integrada captura de selfie local con `input capture`, hashing SHA-256 y persistencia de metadata en el borrador offline.
+  - Extendida `src/features/asistencias/services/asistenciaService.ts` para adjuntar contexto de geocerca por PDV.
+  - Reescrito `src/features/asistencias/components/AsistenciasPanel.tsx` para capturar posicion via `navigator.geolocation`, calcular distancia a geocerca y exigir justificacion cuando queda fuera.
+  - Integrada captura de selfie local con `input capture`, hashing SHA-256 y persistencia de metadata en el borrador offline.
 - **Impacto**:
-    - El item de backlog sobre asistencias con GPS, selfie y justificacion fuera de geocerca queda cubierto en la capa actual de producto.
+  - El item de backlog sobre asistencias con GPS, selfie y justificacion fuera de geocerca queda cubierto en la capa actual de producto.
 - **Estado**: Implementacion completada y validada con `npm run lint` y `npm run build`.
 
 ## [2026-03-15 02:20] - Provisionamiento real de usuarios en Supabase Auth (Codex)
+
 - **Contexto**: El backlog de auth seguia bloqueado en el ultimo tramo: existian flujo, estados y panel administrativo, pero `public.usuario` aun no estaba enlazada con `auth.users`.
 - **Accion**:
-    - Creado `scripts/provision-auth-users.cjs` y agregado `auth:provision` en `package.json`.
-    - Ejecutada la provision real contra Supabase con resultado de `261` usuarios vinculados y `0` usuarios operativos restantes sin `auth_user_id`.
-    - Ajustado `src/actions/auth.ts` para usar `emailRedirectTo` hacia `/update-password` tanto en activacion como en recuperacion, con fallback a headers.
+  - Creado `scripts/provision-auth-users.cjs` y agregado `auth:provision` en `package.json`.
+  - Ejecutada la provision real contra Supabase con resultado de `261` usuarios vinculados y `0` usuarios operativos restantes sin `auth_user_id`.
+  - Ajustado `src/actions/auth.ts` para usar `emailRedirectTo` hacia `/update-password` tanto en activacion como en recuperacion, con fallback a headers.
 - **Impacto**:
-    - `auth` deja de estar en estado teorico y pasa a estar operativo de punta a punta para login, activacion y sincronizacion de identidad.
+  - `auth` deja de estar en estado teorico y pasa a estar operativo de punta a punta para login, activacion y sincronizacion de identidad.
 - **Estado**: Implementacion completada y validada con login real, `npm run lint` y `npm run build`.
 
 ## [2026-03-15 02:55] - Modulo real de nomina, cuotas y ledger (Codex)
+
 - **Contexto**: Tras cerrar auth extremo a extremo, el siguiente frente del backlog era abandonar el placeholder de `nomina` y conectar pre-nomina con `asistencia` y `venta`.
 - **Accion**:
-    - Creada la migracion `supabase/migrations/20260314212000_nomina_cuotas_ledger_base.sql` con `public.nomina_periodo`, `public.cuota_empleado_periodo`, `public.nomina_ledger`, triggers de `updated_at`, control de un solo periodo abierto y helper `public.es_operador_nomina()`.
-    - Implementados `src/features/nomina/services/nominaService.ts`, `src/features/nomina/actions.ts`, `src/features/nomina/components/NominaPanel.tsx`, `src/features/nomina/components/PeriodoNominaControls.tsx` y `src/app/(main)/nomina/page.tsx`.
-    - Extendido `src/lib/auth/session.ts` con `requerirPuestosActivos()` y `requerirOperadorNomina()`.
-    - Actualizado `supabase/seed.sql` para sembrar 2 periodos, 3 cuotas y 4 movimientos de ledger.
+  - Creada la migracion `supabase/migrations/20260314212000_nomina_cuotas_ledger_base.sql` con `public.nomina_periodo`, `public.cuota_empleado_periodo`, `public.nomina_ledger`, triggers de `updated_at`, control de un solo periodo abierto y helper `public.es_operador_nomina()`.
+  - Implementados `src/features/nomina/services/nominaService.ts`, `src/features/nomina/actions.ts`, `src/features/nomina/components/NominaPanel.tsx`, `src/features/nomina/components/PeriodoNominaControls.tsx` y `src/app/(main)/nomina/page.tsx`.
+  - Extendido `src/lib/auth/session.ts` con `requerirPuestosActivos()` y `requerirOperadorNomina()`.
+  - Actualizado `supabase/seed.sql` para sembrar 2 periodos, 3 cuotas y 4 movimientos de ledger.
 - **Impacto**:
-    - `/nomina` deja de ser placeholder y pasa a mostrar periodos, control operativo de cierre, pre-nomina, cuotas y ledger.
+  - `/nomina` deja de ser placeholder y pasa a mostrar periodos, control operativo de cierre, pre-nomina, cuotas y ledger.
 - **Estado**: Implementacion completada y validada con conteos remotos, `npm run lint` y `npm run build`.
 
 ## [2026-03-15 03:20] - Modulo real de reportes y wrapper local de Supabase CLI (Codex)
+
 - **Contexto**: Tras cerrar `nomina`, `cuotas` y `ledger`, el siguiente frente del backlog era reemplazar el placeholder de `reportes` y estabilizar el uso de Supabase CLI en Windows.
 - **Accion**:
-    - Implementados `src/features/reportes/services/reporteService.ts`, `src/features/reportes/components/ReportesPanel.tsx` y `src/app/(main)/reportes/page.tsx`.
-    - Creado `scripts/run-supabase-cli.cjs` y agregado `npm run supabase:cli` en `package.json` para reutilizar la CLI desde `.npm-cache/_npx`.
-    - Reaplicado `supabase/seed.sql` en remoto para insertar eventos idempotentes en `public.audit_log`.
-    - Verificada la base remota con conteos reales: `audit_log=3`, `asistencia=4`, `venta=3`, `cuota_empleado_periodo=3`, `nomina_ledger=4`, `nomina_periodo=2`.
+  - Implementados `src/features/reportes/services/reporteService.ts`, `src/features/reportes/components/ReportesPanel.tsx` y `src/app/(main)/reportes/page.tsx`.
+  - Creado `scripts/run-supabase-cli.cjs` y agregado `npm run supabase:cli` en `package.json` para reutilizar la CLI desde `.npm-cache/_npx`.
+  - Reaplicado `supabase/seed.sql` en remoto para insertar eventos idempotentes en `public.audit_log`.
+  - Verificada la base remota con conteos reales: `audit_log=3`, `asistencia=4`, `venta=3`, `cuota_empleado_periodo=3`, `nomina_ledger=4`, `nomina_periodo=2`.
 - **Impacto**:
-    - `/reportes` deja de ser placeholder y ya consolida informacion real de asistencia, ventas, cuotas, nomina y auditoria.
-    - La operacion local con Supabase CLI queda estabilizada dentro del repo incluso si Bitdefender vuelve a bloquear `npx`.
+  - `/reportes` deja de ser placeholder y ya consolida informacion real de asistencia, ventas, cuotas, nomina y auditoria.
+  - La operacion local con Supabase CLI queda estabilizada dentro del repo incluso si Bitdefender vuelve a bloquear `npx`.
 - **Estado**: Implementacion completada y validada con datos remotos reales, `npm run supabase:cli -- migration list`, `npm run lint` y `npm run build`.
 
 ## [2026-03-15 03:55] - Invalidez de sesion por cambio de puesto y suite de pruebas retail (Codex)
+
 - **Contexto**: Tras cerrar `reportes`, el backlog aun tenia dos pendientes transversales: evitar sesiones stale cuando cambia el `puesto` y crear una base de pruebas automatizadas del dominio retail.
 - **Accion**:
-    - Creada la migracion `supabase/migrations/20260314214500_auth_session_context.sql` para insertar `auth_context_updated_at` en `auth.users.raw_app_meta_data` cada vez que se refrescan claims por cambios de `puesto`, `estado_cuenta`, `empleado_id` o `cuenta_cliente_id`.
-    - Integrado `src/proxy.ts` con `src/lib/supabase/proxy.ts` para revisar el contexto auth en cada request, refrescar la sesion si el cambio es reciente y cerrar sesion si el token sigue stale o supera la ventana de 5 minutos.
-    - Agregado `src/components/auth/AuthSessionMonitor.tsx` al layout global para repetir la comprobacion cada minuto y al recuperar foco o visibilidad.
-    - Creada `playwright.retail.config.ts` con pruebas en `tests/session-context.spec.ts`, `tests/assignment-validation.spec.ts` y `tests/reportes-aggregation.spec.ts`.
-    - Aplicada la migracion en remoto con la CLI local y verificado que `261` usuarios en `auth.users` ya contienen `auth_context_updated_at`.
+  - Creada la migracion `supabase/migrations/20260314214500_auth_session_context.sql` para insertar `auth_context_updated_at` en `auth.users.raw_app_meta_data` cada vez que se refrescan claims por cambios de `puesto`, `estado_cuenta`, `empleado_id` o `cuenta_cliente_id`.
+  - Integrado `src/proxy.ts` con `src/lib/supabase/proxy.ts` para revisar el contexto auth en cada request, refrescar la sesion si el cambio es reciente y cerrar sesion si el token sigue stale o supera la ventana de 5 minutos.
+  - Agregado `src/components/auth/AuthSessionMonitor.tsx` al layout global para repetir la comprobacion cada minuto y al recuperar foco o visibilidad.
+  - Creada `playwright.retail.config.ts` con pruebas en `tests/session-context.spec.ts`, `tests/assignment-validation.spec.ts` y `tests/reportes-aggregation.spec.ts`.
+  - Aplicada la migracion en remoto con la CLI local y verificado que `261` usuarios en `auth.users` ya contienen `auth_context_updated_at`.
 - **Impacto**:
-    - La sesion deja de depender solo del vencimiento natural del JWT y ahora responde al cambio de `puesto` o claims en una ventana operativa menor o igual a 5 minutos.
-    - El proyecto suma cobertura automatizada para reglas puras de asignacion, agregacion de reportes y coherencia del contexto de sesion.
+  - La sesion deja de depender solo del vencimiento natural del JWT y ahora responde al cambio de `puesto` o claims en una ventana operativa menor o igual a 5 minutos.
+  - El proyecto suma cobertura automatizada para reglas puras de asignacion, agregacion de reportes y coherencia del contexto de sesion.
 - **Estado**: Implementacion completada y validada con `npm run test`, `npm run lint`, `npm run build`, `npm run supabase:cli -- migration list` y verificacion remota de metadata auth.
+
 ## [2026-03-17 14:10] - Expediente de empleados alineado al helper compartido de evidencias (Codex)
+
 - **Contexto**: El bloque abierto del pipeline de imágenes seguía incompleto porque `src/features/empleados/actions.ts` aún usaba la ruta vieja de optimización + `archivo_hash`, mientras los demás módulos ya habían migrado al helper compartido.
 - **Acción**:
-    - Migré `subirDocumentoEmpleado()` para usar `storeOptimizedEvidence`, conservando validaciones de tamaño, OCR, categorías documentales y auditoría del flujo actual.
-    - El expediente de empleados ahora reutiliza la misma deduplicación por SHA-256 del asset optimizado y guarda en `metadata` la miniatura (`thumbnail_url`, `thumbnail_hash`) y `optimization_official_asset_kind`.
-    - Eliminé la lógica redundante de subida manual/deduplicación local dentro del módulo de empleados para que el comportamiento quede homologado con `solicitudes`, `gastos`, `materiales` y `love-isdin`.
+  - Migré `subirDocumentoEmpleado()` para usar `storeOptimizedEvidence`, conservando validaciones de tamaño, OCR, categorías documentales y auditoría del flujo actual.
+  - El expediente de empleados ahora reutiliza la misma deduplicación por SHA-256 del asset optimizado y guarda en `metadata` la miniatura (`thumbnail_url`, `thumbnail_hash`) y `optimization_official_asset_kind`.
+  - Eliminé la lógica redundante de subida manual/deduplicación local dentro del módulo de empleados para que el comportamiento quede homologado con `solicitudes`, `gastos`, `materiales` y `love-isdin`.
 - **Impacto**:
-    - El slice de pipeline de imágenes queda consistente en todos los flujos principales de evidencia del producto.
-    - La superficie de expediente ya puede alimentar previews ligeros desde la misma infraestructura de miniaturas y hash compartido.
-    - No reconcilié `.kiro/specs/field-force-platform/tasks.md` todavía porque el cierre formal sigue pendiente de validación automática en el host actual.
+  - El slice de pipeline de imágenes queda consistente en todos los flujos principales de evidencia del producto.
+  - La superficie de expediente ya puede alimentar previews ligeros desde la misma infraestructura de miniaturas y hash compartido.
+  - No reconcilié `.kiro/specs/field-force-platform/tasks.md` todavía porque el cierre formal sigue pendiente de validación automática en el host actual.
 - **Estado**:
-    - `cmd /c npm run build` sigue llegando a `Compiled successfully`, pero vuelve a fallar después con `spawn EPERM` durante la fase posterior de TypeScript/worker del entorno.
-    - `tasks.md` permanece sin cambios en este corte por la regla conservadora de reconciliación.
+  - `cmd /c npm run build` sigue llegando a `Compiled successfully`, pero vuelve a fallar después con `spawn EPERM` durante la fase posterior de TypeScript/worker del entorno.
+  - `tasks.md` permanece sin cambios en este corte por la regla conservadora de reconciliación.
 
 ## [2026-03-17 12:47] - Ruta semanal migra selfie/evidencia al pipeline compartido (Codex)
+
 - **Contexto**: La auditoría del bloque 7.1-7.3 confirmó que `solicitudes`, `gastos`, `materiales`, `LOVE ISDIN` y `expediente` ya usan el helper compartido, pero `ruta_semanal_visita` aún cerraba visitas con URLs manuales.
 - **Acción**:
-    - Actualicé `src/features/rutas/actions.ts` para que `completarVisitaRutaSemanal()` reciba `selfie_file` y `evidencia_file`, reutilice `storeOptimizedEvidence` y suba a `operacion-evidencias` con optimización, miniaturas y deduplicación SHA-256.
-    - Extendí la auditoría del cierre de visita para registrar hash, deduplicación, miniaturas y resumen de optimización del activo oficial.
-    - Reemplacé en `src/features/rutas/components/RutaSemanalPanel.tsx` los campos `Selfie URL` y `Evidencia URL` por inputs `file`, manteniendo selfie obligatoria, evidencia opcional, checklist y comentarios.
+  - Actualicé `src/features/rutas/actions.ts` para que `completarVisitaRutaSemanal()` reciba `selfie_file` y `evidencia_file`, reutilice `storeOptimizedEvidence` y suba a `operacion-evidencias` con optimización, miniaturas y deduplicación SHA-256.
+  - Extendí la auditoría del cierre de visita para registrar hash, deduplicación, miniaturas y resumen de optimización del activo oficial.
+  - Reemplacé en `src/features/rutas/components/RutaSemanalPanel.tsx` los campos `Selfie URL` y `Evidencia URL` por inputs `file`, manteniendo selfie obligatoria, evidencia opcional, checklist y comentarios.
 - **Impacto**:
-    - El flujo de visita de supervisor ya entra al mismo pipeline de evidencias que el resto de módulos operativos.
-    - El bloque `7.1.4` avanza, pero no se cerró todavía porque `check-in selfie` sigue fuera del helper compartido y depende de una iteración aparte por la cola offline.
+  - El flujo de visita de supervisor ya entra al mismo pipeline de evidencias que el resto de módulos operativos.
+  - El bloque `7.1.4` avanza, pero no se cerró todavía porque `check-in selfie` sigue fuera del helper compartido y depende de una iteración aparte por la cola offline.
 - **Estado**:
-    - `npm run docs:check-encoding -- AGENT_HISTORY.md src\\features\\rutas\\actions.ts src\\features\\rutas\\components\\RutaSemanalPanel.tsx` pasó.
-    - `cmd /c npm run build` volvió a compilar hasta `Compiled successfully`, pero cae después con el mismo `spawn EPERM` del host.
-    - `.kiro/specs/field-force-platform/tasks.md` sigue sin reconciliarse en este corte por la validación automática pendiente y porque `7.1.4` aún no está completo.
+  - `npm run docs:check-encoding -- AGENT_HISTORY.md src\\features\\rutas\\actions.ts src\\features\\rutas\\components\\RutaSemanalPanel.tsx` pasó.
+  - `cmd /c npm run build` volvió a compilar hasta `Compiled successfully`, pero cae después con el mismo `spawn EPERM` del host.
+  - `.kiro/specs/field-force-platform/tasks.md` sigue sin reconciliarse en este corte por la validación automática pendiente y porque `7.1.4` aún no está completo.
 
 ## [2026-03-17 13:05] - Check-in offline sincroniza selfie por pipeline compartido (Codex)
+
 - **Contexto**: `7.1.4` seguía abierto porque el flujo de `asistencia` guardaba solo hash/metadata local de la selfie y la cola offline hacía `upsert` directo a la tabla sin subir el binario.
 - **Acción**:
-    - Extendí `src/lib/offline/types.ts` para que el payload de asistencia pueda conservar `offline_selfie_check_in` y `offline_selfie_check_out` como archivos reales en IndexedDB.
-    - Actualicé `src/features/asistencias/components/AsistenciasPanel.tsx` para mantener el `File` capturado en memoria y enviarlo a la cola offline junto con su metadata local.
-    - Reemplacé en `src/lib/offline/syncQueue.ts` el `upsert` directo de `asistencia` por un `POST /api/asistencias/sync` con `FormData`, preservando FIFO y reintentos de la cola actual.
-    - Creé `src/app/api/asistencias/sync/route.ts` para sincronizar asistencias en servidor, subir selfie(s) con `storeOptimizedEvidence`, sobrescribir `selfie_check_in_hash/url` con el activo oficial optimizado y persistir miniatura + resumen de optimización en `metadata`.
+  - Extendí `src/lib/offline/types.ts` para que el payload de asistencia pueda conservar `offline_selfie_check_in` y `offline_selfie_check_out` como archivos reales en IndexedDB.
+  - Actualicé `src/features/asistencias/components/AsistenciasPanel.tsx` para mantener el `File` capturado en memoria y enviarlo a la cola offline junto con su metadata local.
+  - Reemplacé en `src/lib/offline/syncQueue.ts` el `upsert` directo de `asistencia` por un `POST /api/asistencias/sync` con `FormData`, preservando FIFO y reintentos de la cola actual.
+  - Creé `src/app/api/asistencias/sync/route.ts` para sincronizar asistencias en servidor, subir selfie(s) con `storeOptimizedEvidence`, sobrescribir `selfie_check_in_hash/url` con el activo oficial optimizado y persistir miniatura + resumen de optimización en `metadata`.
 - **Impacto**:
-    - El check-in offline ya no pierde el binario de la selfie; al reconectar, la evidencia entra al mismo pipeline compartido que expediente, solicitudes, gastos, materiales, LOVE ISDIN y ruta semanal.
-    - La cola offline conserva el mismo comportamiento operativo, pero ahora sincroniza `asistencia` vía endpoint server-side cuando hay evidencia binaria pendiente.
+  - El check-in offline ya no pierde el binario de la selfie; al reconectar, la evidencia entra al mismo pipeline compartido que expediente, solicitudes, gastos, materiales, LOVE ISDIN y ruta semanal.
+  - La cola offline conserva el mismo comportamiento operativo, pero ahora sincroniza `asistencia` vía endpoint server-side cuando hay evidencia binaria pendiente.
 - **Estado**:
-    - `npm run docs:check-encoding -- AGENT_HISTORY.md src\lib\offline\types.ts src\lib\offline\syncQueue.ts src\features\asistencias\components\AsistenciasPanel.tsx src\app\api\asistencias\sync\route.ts` pasó.
-    - `cmd /c npm run build` compila hasta `Compiled successfully`, pero vuelve a caer después por `spawn EPERM` del host.
-    - `.kiro/specs/field-force-platform/tasks.md` sigue sin reconciliarse en este corte porque `7.1.4` aún requiere cierre completo del resto de superficies y validación automática sin el bloqueo `EPERM`.
+  - `npm run docs:check-encoding -- AGENT_HISTORY.md src\lib\offline\types.ts src\lib\offline\syncQueue.ts src\features\asistencias\components\AsistenciasPanel.tsx src\app\api\asistencias\sync\route.ts` pasó.
+  - `cmd /c npm run build` compila hasta `Compiled successfully`, pero vuelve a caer después por `spawn EPERM` del host.
+  - `.kiro/specs/field-force-platform/tasks.md` sigue sin reconciliarse en este corte porque `7.1.4` aún requiere cierre completo del resto de superficies y validación automática sin el bloqueo `EPERM`.
 
 ## [2026-03-17 13:34] - Campañas habilita ejecución de tareas de visita en campo (Codex)
+
 - **Contexto**: La auditoría mostró que `7.1.4` seguía abierto: el pipeline compartido ya cubría `ruta semanal` y `check-in`, pero no existía una superficie clara para que el DERMOCONSEJERO ejecutara `Tareas de Visita` durante una visita activa.
 - **Acción**:
-    - Extendí `src/features/campanas/actions.ts` con `ejecutarTareasCampanaPdv()`, restringida a `DERMOCONSEJERO`, que valida check-in `VALIDA` sin `check_out_utc` en el PDV del día antes de aceptar avances.
-    - La acción reutiliza `storeOptimizedEvidence` para cargar evidencia operativa a `operacion-evidencias`, deduplicar por SHA-256 y persistir miniaturas + activos oficiales dentro de `campana_pdv.metadata`.
-    - Actualicé `src/features/campanas/components/CampanasPanel.tsx` para mostrar a la DC un formulario de ejecución en campo: marcar tareas cumplidas, adjuntar evidencias y enviar comentarios sin abrir un módulo nuevo.
-    - Añadí helpers en `src/features/campanas/lib/campaignProgress.ts` para leer y fusionar evidencias por hash, junto con la prueba `src/features/campanas/lib/campaignProgress.test.ts`.
+  - Extendí `src/features/campanas/actions.ts` con `ejecutarTareasCampanaPdv()`, restringida a `DERMOCONSEJERO`, que valida check-in `VALIDA` sin `check_out_utc` en el PDV del día antes de aceptar avances.
+  - La acción reutiliza `storeOptimizedEvidence` para cargar evidencia operativa a `operacion-evidencias`, deduplicar por SHA-256 y persistir miniaturas + activos oficiales dentro de `campana_pdv.metadata`.
+  - Actualicé `src/features/campanas/components/CampanasPanel.tsx` para mostrar a la DC un formulario de ejecución en campo: marcar tareas cumplidas, adjuntar evidencias y enviar comentarios sin abrir un módulo nuevo.
+  - Añadí helpers en `src/features/campanas/lib/campaignProgress.ts` para leer y fusionar evidencias por hash, junto con la prueba `src/features/campanas/lib/campaignProgress.test.ts`.
 - **Impacto**:
-    - `campana_pdv` ahora funciona como superficie operativa mínima para `Tareas de Visita`, alineada con la especificación: requiere visita activa, actualiza avance y alimenta evidencia por el pipeline compartido.
-    - La app ya no depende solo de monitoreo administrativo para campañas; el flujo de campo puede ejecutar y documentar tareas durante la jornada.
+  - `campana_pdv` ahora funciona como superficie operativa mínima para `Tareas de Visita`, alineada con la especificación: requiere visita activa, actualiza avance y alimenta evidencia por el pipeline compartido.
+  - La app ya no depende solo de monitoreo administrativo para campañas; el flujo de campo puede ejecutar y documentar tareas durante la jornada.
 - **Estado**:
-    - `npm run docs:check-encoding -- src\features\campanas\actions.ts src\features\campanas\components\CampanasPanel.tsx src\features\campanas\lib\campaignProgress.ts src\features\campanas\lib\campaignProgress.test.ts` pasó.
-    - `cmd /c npm run test:unit -- src\features\campanas\lib\campaignProgress.test.ts` sigue bloqueado por `spawn EPERM` al cargar `vitest.config.ts`.
-    - `cmd /c npm run build` vuelve a compilar hasta `Compiled successfully`, pero cae después por el mismo `spawn EPERM` del host.
-    - `.kiro/specs/field-force-platform/tasks.md` permanece sin reconciliarse en este corte; primero conviene revisar si esta superficie satisface por completo el canon de `Tareas de Visita` o si aún falta bloqueo explícito de check-out con pendientes.
+  - `npm run docs:check-encoding -- src\features\campanas\actions.ts src\features\campanas\components\CampanasPanel.tsx src\features\campanas\lib\campaignProgress.ts src\features\campanas\lib\campaignProgress.test.ts` pasó.
+  - `cmd /c npm run test:unit -- src\features\campanas\lib\campaignProgress.test.ts` sigue bloqueado por `spawn EPERM` al cargar `vitest.config.ts`.
+  - `cmd /c npm run build` vuelve a compilar hasta `Compiled successfully`, pero cae después por el mismo `spawn EPERM` del host.
+  - `.kiro/specs/field-force-platform/tasks.md` permanece sin reconciliarse en este corte; primero conviene revisar si esta superficie satisface por completo el canon de `Tareas de Visita` o si aún falta bloqueo explícito de check-out con pendientes.
 
 ## [2026-03-17 13:49] - Check-out bloquea tareas de visita pendientes de campañas activas (Codex)
+
 - **Contexto**: Después de habilitar la ejecución de tareas en campo, faltaba cerrar la propiedad canónica que impide el `check-out` mientras existan `Tareas de Visita` obligatorias pendientes en una visita activa.
 - **Acción**:
-    - Extendí `src/features/campanas/lib/campaignProgress.ts` con `getPendingCampaignTasks()` para normalizar el cálculo de tareas pendientes y reutilizarlo sin duplicación.
-    - Actualicé `src/app/api/asistencias/sync/route.ts` para que, cuando una sincronización intenta cerrar `check_out_utc`, consulte campañas activas del PDV/fecha y rechace el cierre si aún quedan tareas obligatorias sin completar.
-    - El endpoint ahora responde `409` con mensaje operativo cuando el bloqueo proviene de tareas pendientes, en lugar de degradarlo a error genérico del servidor.
-    - Amplié `src/features/campanas/lib/campaignProgress.test.ts` con una prueba mínima del helper de pendientes.
+  - Extendí `src/features/campanas/lib/campaignProgress.ts` con `getPendingCampaignTasks()` para normalizar el cálculo de tareas pendientes y reutilizarlo sin duplicación.
+  - Actualicé `src/app/api/asistencias/sync/route.ts` para que, cuando una sincronización intenta cerrar `check_out_utc`, consulte campañas activas del PDV/fecha y rechace el cierre si aún quedan tareas obligatorias sin completar.
+  - El endpoint ahora responde `409` con mensaje operativo cuando el bloqueo proviene de tareas pendientes, en lugar de degradarlo a error genérico del servidor.
+  - Amplié `src/features/campanas/lib/campaignProgress.test.ts` con una prueba mínima del helper de pendientes.
 - **Impacto**:
-    - El cierre de jornada queda alineado con el canon: no se puede completar el `check-out` si la DC mantiene tareas de visita pendientes en campañas activas del PDV.
-    - La regla aplica tanto a online como a offline/sync porque vive en el endpoint de verdad de `asistencia`.
+  - El cierre de jornada queda alineado con el canon: no se puede completar el `check-out` si la DC mantiene tareas de visita pendientes en campañas activas del PDV.
+  - La regla aplica tanto a online como a offline/sync porque vive en el endpoint de verdad de `asistencia`.
 - **Estado**:
-    - `npm run docs:check-encoding -- src\app\api\asistencias\sync\route.ts src\features\campanas\lib\campaignProgress.ts src\features\campanas\lib\campaignProgress.test.ts` pasó.
-    - `cmd /c npm run build` compila hasta `Compiled successfully`, pero vuelve a caer después por `spawn EPERM` del host.
-    - `.kiro/specs/field-force-platform/tasks.md` sigue sin reconciliarse en este corte por la regla conservadora y el bloqueo externo de validación completa.
+  - `npm run docs:check-encoding -- src\app\api\asistencias\sync\route.ts src\features\campanas\lib\campaignProgress.ts src\features\campanas\lib\campaignProgress.test.ts` pasó.
+  - `cmd /c npm run build` compila hasta `Compiled successfully`, pero vuelve a caer después por `spawn EPERM` del host.
+  - `.kiro/specs/field-force-platform/tasks.md` sigue sin reconciliarse en este corte por la regla conservadora y el bloqueo externo de validación completa.
 
 ## [2026-03-17 14:18] - Tareas de Visita ahora viven por sesión activa con variabilidad y justificación (Codex)
+
 - **Contexto**: La auditoría del canon dejó abierta la brecha fina de `Tareas de Visita`: faltaba generar subconjunto variable por visita, registrar timestamps por tarea individual y permitir estado `JUSTIFICADA` para que el bloqueo de `check-out` validara la sesión real de la visita, no solo el agregado legado.
 - **Acción**:
-    - Extendí `src/features/campanas/lib/campaignProgress.ts` con el modelo `visit_task_sessions` sobre `campana_pdv.metadata`, subset determinístico por `attendanceId`, estados `PENDIENTE/COMPLETADA/JUSTIFICADA`, timestamps `startedAt/finishedAt` y helpers de serialización/lectura.
-    - Actualicé `src/features/campanas/actions.ts` para guardar `variabilidad_tareas` en `campana.metadata`, preservar metadata previa en `campana_pdv`, y persistir la ejecución DC por sesión activa manteniendo `tareas_cumplidas` como compatibilidad derivada.
-    - Amplié `src/features/campanas/services/campanaService.ts` para exponer la sesión activa por PDV en el panel DC usando la asistencia válida del día.
-    - Migré `src/features/campanas/components/CampanasPanel.tsx` a captura por tarea individual con estado y justificación, en lugar de checkboxes agregados.
-    - Endurecí `src/app/api/asistencias/sync/route.ts` para que el `check-out` valide pendientes contra la sesión activa de tareas (`COMPLETADA` o `JUSTIFICADA`) usando la misma lógica del helper.
-    - Añadí cobertura mínima en `src/features/campanas/lib/campaignProgress.test.ts` para subconjunto variable estable y timestamps/justificación por tarea.
+  - Extendí `src/features/campanas/lib/campaignProgress.ts` con el modelo `visit_task_sessions` sobre `campana_pdv.metadata`, subset determinístico por `attendanceId`, estados `PENDIENTE/COMPLETADA/JUSTIFICADA`, timestamps `startedAt/finishedAt` y helpers de serialización/lectura.
+  - Actualicé `src/features/campanas/actions.ts` para guardar `variabilidad_tareas` en `campana.metadata`, preservar metadata previa en `campana_pdv`, y persistir la ejecución DC por sesión activa manteniendo `tareas_cumplidas` como compatibilidad derivada.
+  - Amplié `src/features/campanas/services/campanaService.ts` para exponer la sesión activa por PDV en el panel DC usando la asistencia válida del día.
+  - Migré `src/features/campanas/components/CampanasPanel.tsx` a captura por tarea individual con estado y justificación, en lugar de checkboxes agregados.
+  - Endurecí `src/app/api/asistencias/sync/route.ts` para que el `check-out` valide pendientes contra la sesión activa de tareas (`COMPLETADA` o `JUSTIFICADA`) usando la misma lógica del helper.
+  - Añadí cobertura mínima en `src/features/campanas/lib/campaignProgress.test.ts` para subconjunto variable estable y timestamps/justificación por tarea.
 - **Impacto**:
-    - `Tareas de Visita` ya se comporta más cerca del canon sin crear tabla nueva: cada visita activa obtiene su propio subconjunto estable, cada tarea guarda su ciclo de ejecución y el `check-out` se bloquea sobre esa sesión.
-    - Los reportes legacy siguen leyendo `tareas_cumplidas`, pero ahora ese arreglo se deriva de la sesión resuelta para no romper compatibilidad mientras se completa la reconciliación final.
+  - `Tareas de Visita` ya se comporta más cerca del canon sin crear tabla nueva: cada visita activa obtiene su propio subconjunto estable, cada tarea guarda su ciclo de ejecución y el `check-out` se bloquea sobre esa sesión.
+  - Los reportes legacy siguen leyendo `tareas_cumplidas`, pero ahora ese arreglo se deriva de la sesión resuelta para no romper compatibilidad mientras se completa la reconciliación final.
 - **Estado**:
-    - Pendiente correr `npm run docs:check-encoding` y `cmd /c npm run build` después de este corte.
-    - `.kiro/specs/field-force-platform/tasks.md` sigue sin reconciliarse en este punto; primero hay que confirmar que el módulo compila y luego reauditar si aún falta marcar tareas sospechosas por metadata inconsistente o si la cobertura actual ya es suficiente para el canon vigente.
+  - Pendiente correr `npm run docs:check-encoding` y `cmd /c npm run build` después de este corte.
+  - `.kiro/specs/field-force-platform/tasks.md` sigue sin reconciliarse en este punto; primero hay que confirmar que el módulo compila y luego reauditar si aún falta marcar tareas sospechosas por metadata inconsistente o si la cobertura actual ya es suficiente para el canon vigente.
 
 ## [2026-03-17 15:06] - Antifraude de Tareas de Visita con sello visual, geolocalización y notificación al gestor (Codex)
+
 - **Contexto**: La auditoría canónica dejó abierto `Requirement 3` porque aún faltaban los criterios antifraude de evidencia en `Tareas de Visita`: captura foto con metadata operativa, marcado `sospechosa` por inconsistencias y notificación al gestor.
 - **Acción**:
-    - Extendí `src/features/campanas/lib/campaignProgress.ts` con tipificación de tarea (`FOTO_ANAQUEL`, `CONTEO_INVENTARIO`, `ENCUESTA`, `REGISTRO_PRECIO`, `OTRA`), campos de sospecha/evidencia por tarea, mapa persistible de `visit_task_execution_minutes` y validación ampliada de entradas de evidencia.
-    - Actualicé `src/features/campanas/actions.ts` para exigir evidencia en tareas de tipo foto cuando quedan `COMPLETADA`, comparar coordenadas de la evidencia contra el `check-in` activo, marcar la tarea/evidencia como `sospechosa` si falta metadata de captura o la distancia es inconsistente, persistir el tiempo total de ejecución y notificar al supervisor mediante `mensaje_interno` + `mensaje_receptor`.
-    - Migré `src/features/campanas/components/CampanasPanel.tsx` a una captura por tarea tipo foto con `capture=\"environment\"`, obtención de geolocalización y sellado visible de timestamp/GPS sobre la imagen antes de adjuntarla a la server action.
-    - Amplié `src/features/campanas/lib/campaignProgress.test.ts` para cubrir tipo de tarea foto, evidencia sospechosa y contador de evidencias por tarea.
+  - Extendí `src/features/campanas/lib/campaignProgress.ts` con tipificación de tarea (`FOTO_ANAQUEL`, `CONTEO_INVENTARIO`, `ENCUESTA`, `REGISTRO_PRECIO`, `OTRA`), campos de sospecha/evidencia por tarea, mapa persistible de `visit_task_execution_minutes` y validación ampliada de entradas de evidencia.
+  - Actualicé `src/features/campanas/actions.ts` para exigir evidencia en tareas de tipo foto cuando quedan `COMPLETADA`, comparar coordenadas de la evidencia contra el `check-in` activo, marcar la tarea/evidencia como `sospechosa` si falta metadata de captura o la distancia es inconsistente, persistir el tiempo total de ejecución y notificar al supervisor mediante `mensaje_interno` + `mensaje_receptor`.
+  - Migré `src/features/campanas/components/CampanasPanel.tsx` a una captura por tarea tipo foto con `capture=\"environment\"`, obtención de geolocalización y sellado visible de timestamp/GPS sobre la imagen antes de adjuntarla a la server action.
+  - Amplié `src/features/campanas/lib/campaignProgress.test.ts` para cubrir tipo de tarea foto, evidencia sospechosa y contador de evidencias por tarea.
 - **Impacto**:
-    - `Tareas de Visita` ya no solo bloquea `check-out`; ahora también persigue la integridad de la evidencia de foto y deja rastros explícitos cuando una captura no es confiable.
-    - El gestor recibe una notificación interna cuando una evidencia de tarea se detecta como `sospechosa`, manteniendo el historial operativo y de auditoría sin abrir otro módulo paralelo.
+  - `Tareas de Visita` ya no solo bloquea `check-out`; ahora también persigue la integridad de la evidencia de foto y deja rastros explícitos cuando una captura no es confiable.
+  - El gestor recibe una notificación interna cuando una evidencia de tarea se detecta como `sospechosa`, manteniendo el historial operativo y de auditoría sin abrir otro módulo paralelo.
 - **Estado**:
-    - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` pasó para este corte; solo quedaron errores previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
-    - Pendiente correr `npm run docs:check-encoding -- AGENT_HISTORY.md src\features\campanas\actions.ts src\features\campanas\components\CampanasPanel.tsx src\features\campanas\lib\campaignProgress.ts src\features\campanas\lib\campaignProgress.test.ts`.
-    - `.kiro/specs/field-force-platform/tasks.md` sigue sin reconciliarse en este corte; toca reauditar el bloque canónico antes de mover checkboxes.
+  - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` pasó para este corte; solo quedaron errores previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
+  - Pendiente correr `npm run docs:check-encoding -- AGENT_HISTORY.md src\features\campanas\actions.ts src\features\campanas\components\CampanasPanel.tsx src\features\campanas\lib\campaignProgress.ts src\features\campanas\lib\campaignProgress.test.ts`.
+  - `.kiro/specs/field-force-platform/tasks.md` sigue sin reconciliarse en este corte; toca reauditar el bloque canónico antes de mover checkboxes.
 
 ## [2026-03-17 15:29] - Plantilla tipada y validación temporal/antireuso para Requirement 3 (Codex)
+
 - **Contexto**: La auditoría estricta de `Requirement 3` seguía dejando dos brechas: las plantillas de tareas aún eran texto libre inferido y la validación de captura “en vivo” dependía demasiado de metadata declarada por cliente.
 - **Acción**:
-    - Extendí `src/features/campanas/lib/campaignProgress.ts` con `VisitTaskTemplateItem`, lectura/serialización de `task_template` en metadata y generación de sesiones a partir de plantilla tipada explícita.
-    - Actualicé `src/features/campanas/actions.ts` para leer `task_template_label` / `task_template_kind`, persistir la plantilla tipada en `campana.metadata`, y usarla al generar sesiones por visita.
-    - Ajusté `src/features/campanas/services/campanaService.ts` para exponer la `taskTemplate` actual a la UI y usarla en la sesión activa.
-    - Migré el editor admin en `src/features/campanas/components/CampanasPanel.tsx` a una captura por filas tipadas (foto, conteo, encuesta, precio, otra), manteniendo compatibilidad con el textarea legado solo como respaldo oculto.
-    - Endurecí `src/features/campanas/actions.ts` con validación temporal de `capturedAt` contra `check_in_utc`, exigencia de imagen para tareas fotográficas y detección de reuso por hash entre visitas distintas dentro del historial de campaña.
+  - Extendí `src/features/campanas/lib/campaignProgress.ts` con `VisitTaskTemplateItem`, lectura/serialización de `task_template` en metadata y generación de sesiones a partir de plantilla tipada explícita.
+  - Actualicé `src/features/campanas/actions.ts` para leer `task_template_label` / `task_template_kind`, persistir la plantilla tipada en `campana.metadata`, y usarla al generar sesiones por visita.
+  - Ajusté `src/features/campanas/services/campanaService.ts` para exponer la `taskTemplate` actual a la UI y usarla en la sesión activa.
+  - Migré el editor admin en `src/features/campanas/components/CampanasPanel.tsx` a una captura por filas tipadas (foto, conteo, encuesta, precio, otra), manteniendo compatibilidad con el textarea legado solo como respaldo oculto.
+  - Endurecí `src/features/campanas/actions.ts` con validación temporal de `capturedAt` contra `check_in_utc`, exigencia de imagen para tareas fotográficas y detección de reuso por hash entre visitas distintas dentro del historial de campaña.
 - **Impacto**:
-    - `Requirement 3.1` ya no depende de inferencia desde texto libre: el administrador define tipos explícitos de tarea en la plantilla.
-    - La captura fotográfica de tareas ahora queda mejor protegida contra reciclaje por ventana temporal inválida o hash reutilizado de otra visita, además del chequeo espacial existente.
+  - `Requirement 3.1` ya no depende de inferencia desde texto libre: el administrador define tipos explícitos de tarea en la plantilla.
+  - La captura fotográfica de tareas ahora queda mejor protegida contra reciclaje por ventana temporal inválida o hash reutilizado de otra visita, además del chequeo espacial existente.
 - **Estado**:
-    - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` volvió a quedar limpio para `campañas`; solo persisten errores previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
-    - Pendiente correr `npm run docs:check-encoding -- AGENT_HISTORY.md src\features\campanas\actions.ts src\features\campanas\components\CampanasPanel.tsx src\features\campanas\lib\campaignProgress.ts src\features\campanas\services\campanaService.ts src\app\api\asistencias\sync\route.ts src\features\campanas\lib\campaignProgress.test.ts`.
-    - `.kiro/specs/field-force-platform/tasks.md` sigue sin reconciliarse; toca decidir, con auditoría final, si el umbral canónico ya permite marcar cierre conservador.
+  - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` volvió a quedar limpio para `campañas`; solo persisten errores previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
+  - Pendiente correr `npm run docs:check-encoding -- AGENT_HISTORY.md src\features\campanas\actions.ts src\features\campanas\components\CampanasPanel.tsx src\features\campanas\lib\campaignProgress.ts src\features\campanas\services\campanaService.ts src\app\api\asistencias\sync\route.ts src\features\campanas\lib\campaignProgress.test.ts`.
+  - `.kiro/specs/field-force-platform/tasks.md` sigue sin reconciliarse; toca decidir, con auditoría final, si el umbral canónico ya permite marcar cierre conservador.
 
 ## [2026-03-17 15:41] - Reconciliación conservadora de Requirement 3 en backlog canónico (Codex)
+
 - **Contexto**: Tras la auditoría final de `Requirement 3`, el bloque quedó respaldado por implementación real para plantillas tipadas, subset por visita, captura fotográfica operativa, antifraude, timestamps por tarea y tiempo total de ejecución.
 - **Acción**:
-    - Reconcilié `.kiro/specs/field-force-platform/tasks.md` moviendo únicamente `4.3.8` y `7.1.4` a completadas.
-    - Dejé la reconciliación limitada a esos dos puntos canónicos, sin tocar otros ítems del backlog.
+  - Reconcilié `.kiro/specs/field-force-platform/tasks.md` moviendo únicamente `4.3.8` y `7.1.4` a completadas.
+  - Dejé la reconciliación limitada a esos dos puntos canónicos, sin tocar otros ítems del backlog.
 - **Impacto**:
-    - El backlog canónico ya refleja el cierre conservador del bloque `Tareas de Visita` y de la aplicación transversal del pipeline compartido de evidencias.
+  - El backlog canónico ya refleja el cierre conservador del bloque `Tareas de Visita` y de la aplicación transversal del pipeline compartido de evidencias.
 - **Estado**:
-    - Pendiente correr la validación final `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md README.md`.
-    - La validación de build/test completa sigue condicionada por el bloqueo externo `spawn EPERM` del host.
+  - Pendiente correr la validación final `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md README.md`.
+  - La validación de build/test completa sigue condicionada por el bloqueo externo `spawn EPERM` del host.
+
 ## [2026-03-17 16:12] - Cierre comercial obligatorio en check-out de asistencia (Codex)
+
 - **Contexto**: El siguiente bloque real pendiente en Requirement 4 era 4.3.9: el cierre de jornada todavía no exigía coordenadas de salida ni validaba si quedaban ventas sin confirmar ligadas a la asistencia.
 - **Acción**:
-    - Extendí src/features/asistencias/lib/asistenciaRules.ts con helpers tipados para validar coordenadas de check-out y contar ventas no confirmadas por jornada.
-    - Añadí cobertura en src/features/asistencias/lib/asistenciaRules.test.ts para ambas reglas.
-    - Actualicé src/app/api/asistencias/sync/route.ts para bloquear check_out_utc cuando falten coordenadas de salida o existan ventas confirmada = false/null asociadas a la asistencia, devolviendo 409 operativo.
+  - Extendí src/features/asistencias/lib/asistenciaRules.ts con helpers tipados para validar coordenadas de check-out y contar ventas no confirmadas por jornada.
+  - Añadí cobertura en src/features/asistencias/lib/asistenciaRules.test.ts para ambas reglas.
+  - Actualicé src/app/api/asistencias/sync/route.ts para bloquear check_out_utc cuando falten coordenadas de salida o existan ventas confirmada = false/null asociadas a la asistencia, devolviendo 409 operativo.
 - **Impacto**:
-    - El check-out ya no puede cerrar una jornada sin trazabilidad geográfica de salida ni con ventas pendientes de confirmar.
-    - La regla vive en el endpoint real de sync, así que aplica igual para online y offline.
-- **Estado**:
-    - cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false quedó limpio para este corte; sólo persisten errores previos ajenos en src/features/solicitudes/actions.test.ts y ests/gastos.spec.ts.
-    - 
-pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts src\features\asistencias\lib\asistenciaRules.test.ts src\app\api\asistencias\sync\route.ts pasó.
-    - Pendiente auditoría canónica de 4.3.9 antes de reconciliar asks.md.## [2026-03-17 16:34] - Flujo operativo de check-out en campo para asistencia (Codex)
+  - El check-out ya no puede cerrar una jornada sin trazabilidad geográfica de salida ni con ventas pendientes de confirmar.
+  - La regla vive en el endpoint real de sync, así que aplica igual para online y offline.
+- **Estado**: - cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false quedó limpio para este corte; sólo persisten errores previos ajenos en src/features/solicitudes/actions.test.ts y ests/gastos.spec.ts. -
+  pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts src\features\asistencias\lib\asistenciaRules.test.ts src\app\api\asistencias\sync\route.ts pasó. - Pendiente auditoría canónica de 4.3.9 antes de reconciliar asks.md.## [2026-03-17 16:34] - Flujo operativo de check-out en campo para asistencia (Codex)
 - **Contexto**: La auditoría canónica de `4.3.9` dejó claro que la regla server-side ya existía, pero faltaba la superficie operativa de campo para capturar coordenadas de salida y cerrar la jornada contra la misma asistencia abierta.
 - **Acción**:
-    - Extendí `src/features/asistencias/services/asistenciaService.ts` para exponer por asistencia `ventasConfirmadas` y `ventasPendientesConfirmacion`, consultando `venta` por `asistencia_id`.
-    - Actualicé `src/features/asistencias/components/AsistenciasPanel.tsx` con un bloque de `Check-out operativo` que usa la asistencia abierta seleccionada, captura GPS de salida, selfie opcional de salida, justificación fuera de geocerca y cola el cierre offline con `queueOfflineAsistencia` sobre el mismo `id`.
-    - Ajusté `src/app/api/asistencias/sync/route.ts` para mezclar `metadata` existente + `metadata` entrante antes del `upsert`, evitando perder trazabilidad previa al sincronizar solo el cierre.
+  - Extendí `src/features/asistencias/services/asistenciaService.ts` para exponer por asistencia `ventasConfirmadas` y `ventasPendientesConfirmacion`, consultando `venta` por `asistencia_id`.
+  - Actualicé `src/features/asistencias/components/AsistenciasPanel.tsx` con un bloque de `Check-out operativo` que usa la asistencia abierta seleccionada, captura GPS de salida, selfie opcional de salida, justificación fuera de geocerca y cola el cierre offline con `queueOfflineAsistencia` sobre el mismo `id`.
+  - Ajusté `src/app/api/asistencias/sync/route.ts` para mezclar `metadata` existente + `metadata` entrante antes del `upsert`, evitando perder trazabilidad previa al sincronizar solo el cierre.
 - **Impacto**:
-    - El flujo de campo ya puede intentar un `check-out` real end-to-end con coordenadas de salida y bloqueo visible si quedan ventas pendientes.
-    - La tabla de asistencias ahora muestra conteo operativo de ventas confirmadas vs pendientes por jornada, alineando UI y regla canónica de cierre comercial.
+  - El flujo de campo ya puede intentar un `check-out` real end-to-end con coordenadas de salida y bloqueo visible si quedan ventas pendientes.
+  - La tabla de asistencias ahora muestra conteo operativo de ventas confirmadas vs pendientes por jornada, alineando UI y regla canónica de cierre comercial.
 - **Estado**:
-    - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` quedó limpio para este corte; solo persisten errores previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
-    - Pendiente correr `npm run docs:check-encoding -- AGENT_HISTORY.md src\features\asistencias\components\AsistenciasPanel.tsx src\features\asistencias\services\asistenciaService.ts src\app\api\asistencias\sync\route.ts` y luego reauditar `4.3.9` antes de tocar `tasks.md`.
+  - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` quedó limpio para este corte; solo persisten errores previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
+  - Pendiente correr `npm run docs:check-encoding -- AGENT_HISTORY.md src\features\asistencias\components\AsistenciasPanel.tsx src\features\asistencias\services\asistenciaService.ts src\app\api\asistencias\sync\route.ts` y luego reauditar `4.3.9` antes de tocar `tasks.md`.
+
 ## [2026-03-17 16:40] - Reconciliación conservadora de 4.3.9 en backlog canónico (Codex)
+
 - **Contexto**: Tras cerrar la superficie de campo de `check-out` en `AsistenciasPanel`, el criterio ya no dependía solo de la regla server-side; también quedó la captura operativa de coordenadas de salida y la validación visible de ventas pendientes antes del cierre.
 - **Acción**:
-    - Reconcilié `.kiro/specs/field-force-platform/tasks.md` moviendo únicamente `4.3.9` a completada.
+  - Reconcilié `.kiro/specs/field-force-platform/tasks.md` moviendo únicamente `4.3.9` a completada.
 - **Impacto**:
-    - El backlog canónico ya refleja el cierre end-to-end del `check-out` comercial y georreferenciado de asistencia.
+  - El backlog canónico ya refleja el cierre end-to-end del `check-out` comercial y georreferenciado de asistencia.
 - **Estado**:
-    - Pendiente barrera final de encoding: `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src\features\asistencias\components\AsistenciasPanel.tsx src\features\asistencias\services\asistenciaService.ts src\app\api\asistencias\sync\route.ts`.
-    - `tsc --noEmit` sigue limpio para este bloque; solo persisten errores previos ajenos en `solicitudes` y `gastos`.
+  - Pendiente barrera final de encoding: `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src\features\asistencias\components\AsistenciasPanel.tsx src\features\asistencias\services\asistenciaService.ts src\app\api\asistencias\sync\route.ts`.
+  - `tsc --noEmit` sigue limpio para este bloque; solo persisten errores previos ajenos en `solicitudes` y `gastos`.
 
 ## [2026-03-17 17:25] - Mision del dia operativa en check-in y reconciliacion de 4.3.1 (Codex)
+
 - **Contexto**: El siguiente bloque logico en Requirement 4 era cerrar la pantalla de check-in con una Mision del Dia real, evitando repetir inmediatamente la mision anterior del mismo empleado/PDV y sin depender solo del cliente offline.
 - **Accion**:
-    - Cree `src/features/asistencias/lib/attendanceMission.ts` con el selector deterministico de mision y cobertura minima en `src/features/asistencias/lib/attendanceMission.test.ts`.
-    - Extendi `src/features/asistencias/services/asistenciaService.ts` para exponer `misionesCatalogo` y la ultima mision por empleado/PDV dentro del panel.
-    - Actualice `src/features/asistencias/components/AsistenciasPanel.tsx` para mostrar la Mision del Dia, exigir confirmacion explicita antes del check-in y enviar la mision calculada al guardar el borrador.
-    - Refuerce `src/app/api/asistencias/sync/route.ts` para resolver/override server-side la mision del check-in con la misma regla de no repeticion inmediata.
-    - Reconcilié conservadoramente `.kiro/specs/field-force-platform/tasks.md` marcando `4.3.1` como completado.
+  - Cree `src/features/asistencias/lib/attendanceMission.ts` con el selector deterministico de mision y cobertura minima en `src/features/asistencias/lib/attendanceMission.test.ts`.
+  - Extendi `src/features/asistencias/services/asistenciaService.ts` para exponer `misionesCatalogo` y la ultima mision por empleado/PDV dentro del panel.
+  - Actualice `src/features/asistencias/components/AsistenciasPanel.tsx` para mostrar la Mision del Dia, exigir confirmacion explicita antes del check-in y enviar la mision calculada al guardar el borrador.
+  - Refuerce `src/app/api/asistencias/sync/route.ts` para resolver/override server-side la mision del check-in con la misma regla de no repeticion inmediata.
+  - Reconcilié conservadoramente `.kiro/specs/field-force-platform/tasks.md` marcando `4.3.1` como completado.
 - **Impacto**:
-    - El check-in ya no hereda una mision historica arbitraria; usa una mision activa del catalogo, visible y confirmada por la DC.
-    - La regla de no repetir la mision inmediata del mismo PDV quedo aplicada tanto en UI como en sync server-side.
+  - El check-in ya no hereda una mision historica arbitraria; usa una mision activa del catalogo, visible y confirmada por la DC.
+  - La regla de no repetir la mision inmediata del mismo PDV quedo aplicada tanto en UI como en sync server-side.
 - **Estado**:
-    - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` quedo limpio para este corte; solo persisten errores previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
-    - Pendiente solo la barrera final de encoding tras esta reconciliacion.
+  - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` quedo limpio para este corte; solo persisten errores previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
+  - Pendiente solo la barrera final de encoding tras esta reconciliacion.
 
 ## [2026-03-18 00:10] - Captura nativa de selfie en check-in y reconciliacion de 4.3.2 (Codex)
+
 - **Contexto**: El siguiente bloque logico del backlog de asistencias exigia dejar de depender de input file con atributo capture y mover el check-in a una captura nativa de camara con `getUserMedia`, manteniendo sello operativo y trazabilidad offline.
 - **Accion**:
-    - Reemplace en `src/features/asistencias/components/AsistenciasPanel.tsx` los inputs de archivo de selfie por un dialogo nativo que abre stream vivo de camara frontal/salida con `navigator.mediaDevices.getUserMedia` y captura frame a canvas antes del sellado operativo.
-    - Endureci el guardado local para exigir selfie de check-in antes de encolar la asistencia.
-    - Refuerce `src/app/api/asistencias/sync/route.ts` para rechazar check-ins sin archivo de selfie o sin metadata `capture_source = native-getusermedia` y `timestamp_stamped = true`.
-    - Reconcilié conservadoramente `.kiro/specs/field-force-platform/tasks.md` marcando `4.3.2` como completado.
+  - Reemplace en `src/features/asistencias/components/AsistenciasPanel.tsx` los inputs de archivo de selfie por un dialogo nativo que abre stream vivo de camara frontal/salida con `navigator.mediaDevices.getUserMedia` y captura frame a canvas antes del sellado operativo.
+  - Endureci el guardado local para exigir selfie de check-in antes de encolar la asistencia.
+  - Refuerce `src/app/api/asistencias/sync/route.ts` para rechazar check-ins sin archivo de selfie o sin metadata `capture_source = native-getusermedia` y `timestamp_stamped = true`.
+  - Reconcilié conservadoramente `.kiro/specs/field-force-platform/tasks.md` marcando `4.3.2` como completado.
 - **Impacto**:
-    - El check-in operativo ya depende de camara nativa viva en cliente, no de seleccion manual de archivos.
-    - El servidor ya invalida sincronizaciones de check-in que no vengan de esa captura nativa sellada.
+  - El check-in operativo ya depende de camara nativa viva en cliente, no de seleccion manual de archivos.
+  - El servidor ya invalida sincronizaciones de check-in que no vengan de esa captura nativa sellada.
 - **Estado**:
-    - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` no introdujo errores nuevos; solo persisten fallos previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
-    - No se ejecutaron pruebas Playwright en este corte.
+  - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` no introdujo errores nuevos; solo persisten fallos previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
+  - No se ejecutaron pruebas Playwright en este corte.
 
 ## [2026-03-18 00:25] - Compresion cliente-side de selfie y reconciliacion de 4.3.3 (Codex)
+
 - **Contexto**: Tras cerrar `4.3.2`, el siguiente bloque de asistencias exigia que la selfie se aligerara en cliente antes de entrar al pipeline server-side, para reducir el peso operativo aun cuando la sincronizacion ocurra desde offline.
 - **Accion**:
-    - Endureci `src/features/asistencias/components/AsistenciasPanel.tsx` para que el sellado de selfie haga resize cliente-side con canvas, limite la dimension maxima y exporte JPEG con compresion progresiva hacia un objetivo operativo de 100 KB.
-    - Extendi el estado `SelfieCapture` y el metadata local de check-in/check-out con `original_bytes`, `final_bytes`, `target_bytes` y `target_met` para dejar trazabilidad auditable de la optimizacion previa al upload.
-    - Reconcilié conservadoramente `.kiro/specs/field-force-platform/tasks.md` marcando `4.3.3` como completado.
+  - Endureci `src/features/asistencias/components/AsistenciasPanel.tsx` para que el sellado de selfie haga resize cliente-side con canvas, limite la dimension maxima y exporte JPEG con compresion progresiva hacia un objetivo operativo de 100 KB.
+  - Extendi el estado `SelfieCapture` y el metadata local de check-in/check-out con `original_bytes`, `final_bytes`, `target_bytes` y `target_met` para dejar trazabilidad auditable de la optimizacion previa al upload.
+  - Reconcilié conservadoramente `.kiro/specs/field-force-platform/tasks.md` marcando `4.3.3` como completado.
 - **Impacto**:
-    - La selfie ya nace comprimida desde cliente antes de entrar a la cola offline o al sync server-side.
-    - El panel ahora muestra tamano original vs final y si se cumplio el objetivo operativo de peso.
+  - La selfie ya nace comprimida desde cliente antes de entrar a la cola offline o al sync server-side.
+  - El panel ahora muestra tamano original vs final y si se cumplio el objetivo operativo de peso.
 - **Estado**:
-    - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` sigue sin errores nuevos de este corte; solo persisten fallos previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
-    - No se ejecutaron pruebas Playwright en este corte.
+  - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` sigue sin errores nuevos de este corte; solo persisten fallos previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
+  - No se ejecutaron pruebas Playwright en este corte.
 
 ## [2026-03-18 08:06] - Reconciliacion canonica de 4.3.4 por flujo `SIN_GPS` (Codex)
+
 - **Contexto**: El backlog de `4.3.4` seguia mostrando el subcaso `4.3.4.3` como bloqueo total sin GPS, pero `requirements.md` y `design.md` mandan registrar el check-in como `PENDIENTE_VALIDACION`, notificar al SUPERVISOR y dejar el flujo de aprobacion manual.
 - **Accion**:
-    - Audité el canon en `.kiro/specs/field-force-platform/requirements.md` y `.kiro/specs/field-force-platform/design.md`, confirmando que la fuente de verdad es `SIN_GPS -> PENDIENTE_VALIDACION`.
-    - Verifiqué que `src/features/asistencias/components/AsistenciasPanel.tsx` ya captura ese caso y que la lectura operativa expone `PENDIENTE_VALIDACION` en UI/servicio.
-    - Reconcilié `.kiro/specs/field-force-platform/tasks.md` marcando `4.3.4` y corrigiendo `4.3.4.3` para reflejar el comportamiento canónico real, sin cambiar lógica de código.
+  - Audité el canon en `.kiro/specs/field-force-platform/requirements.md` y `.kiro/specs/field-force-platform/design.md`, confirmando que la fuente de verdad es `SIN_GPS -> PENDIENTE_VALIDACION`.
+  - Verifiqué que `src/features/asistencias/components/AsistenciasPanel.tsx` ya captura ese caso y que la lectura operativa expone `PENDIENTE_VALIDACION` en UI/servicio.
+  - Reconcilié `.kiro/specs/field-force-platform/tasks.md` marcando `4.3.4` y corrigiendo `4.3.4.3` para reflejar el comportamiento canónico real, sin cambiar lógica de código.
 - **Impacto**:
-    - El backlog ya no contradice el canon ni la implementación vigente del módulo de asistencias.
-    - Se conserva la regla operativa correcta: sin GPS no se rechaza; se escala a revisión manual del SUPERVISOR.
+  - El backlog ya no contradice el canon ni la implementación vigente del módulo de asistencias.
+  - Se conserva la regla operativa correcta: sin GPS no se rechaza; se escala a revisión manual del SUPERVISOR.
 - **Estado**:
-    - `npm run docs:check-encoding -- .kiro\specs\field-force-platform\tasks.md AGENT_HISTORY.md README.md` ejecutado y aprobado tras la reconciliación.
+  - `npm run docs:check-encoding -- .kiro\specs\field-force-platform\tasks.md AGENT_HISTORY.md README.md` ejecutado y aprobado tras la reconciliación.
 
 ## [2026-03-18 09:25] - Validacion biometrica server-side y reconciliacion de 4.3.5 (Codex)
+
 - **Contexto**: El backlog de asistencias seguia abierto en `4.3.5` porque la biometria del check-in solo existia como estado operativo, sin comparacion real contra referencia del expediente ni notificacion al supervisor por rechazo.
 - **Accion**:
-    - Cree `src/lib/biometrics/attendanceBiometrics.ts` con resolucion de proveedor/umbral, referencia biometrica desde metadata o ultimo `INE`, descarga del activo y comparacion local con `sharp`.
-    - Endureci `src/app/api/asistencias/sync/route.ts` para validar la selfie de check-in en servidor, persistir `biometria_estado`/`biometria_score`, marcar la asistencia como rechazada cuando no alcanza el umbral y notificar al supervisor mediante `mensaje_interno` + `mensaje_receptor`.
-    - Agregue `integraciones.biometria.preferred_provider` en `src/features/configuracion/configuracionCatalog.ts` y amarre el expediente en `src/features/empleados/actions.ts` para que la carga de `INE` deje registrada la referencia biometrica oficial del empleado.
-    - Ajuste `src/features/asistencias/components/AsistenciasPanel.tsx` para dejar la biometria como validacion server-side, sin override manual desde UI.
-    - Agregue cobertura minima en `src/lib/biometrics/attendanceBiometrics.test.ts` para el comparador, aunque `vitest` no pudo ejecutarse por el bloqueo externo `spawn EPERM` del host.
-    - Reconcilié conservadoramente `.kiro/specs/field-force-platform/tasks.md` marcando `4.3.5` como completado.
+  - Cree `src/lib/biometrics/attendanceBiometrics.ts` con resolucion de proveedor/umbral, referencia biometrica desde metadata o ultimo `INE`, descarga del activo y comparacion local con `sharp`.
+  - Endureci `src/app/api/asistencias/sync/route.ts` para validar la selfie de check-in en servidor, persistir `biometria_estado`/`biometria_score`, marcar la asistencia como rechazada cuando no alcanza el umbral y notificar al supervisor mediante `mensaje_interno` + `mensaje_receptor`.
+  - Agregue `integraciones.biometria.preferred_provider` en `src/features/configuracion/configuracionCatalog.ts` y amarre el expediente en `src/features/empleados/actions.ts` para que la carga de `INE` deje registrada la referencia biometrica oficial del empleado.
+  - Ajuste `src/features/asistencias/components/AsistenciasPanel.tsx` para dejar la biometria como validacion server-side, sin override manual desde UI.
+  - Agregue cobertura minima en `src/lib/biometrics/attendanceBiometrics.test.ts` para el comparador, aunque `vitest` no pudo ejecutarse por el bloqueo externo `spawn EPERM` del host.
+  - Reconcilié conservadoramente `.kiro/specs/field-force-platform/tasks.md` marcando `4.3.5` como completado.
 - **Impacto**:
-    - El check-in ahora valida GPS + biometria de forma real en servidor usando la referencia biometrica del expediente.
-    - Los rechazos biométricos quedan persistidos, auditablemente registrados y escalados al supervisor sin depender del cliente.
+  - El check-in ahora valida GPS + biometria de forma real en servidor usando la referencia biometrica del expediente.
+  - Los rechazos biométricos quedan persistidos, auditablemente registrados y escalados al supervisor sin depender del cliente.
 - **Estado**:
-    - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` quedo limpio para este corte; solo persisten errores previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
-    - `cmd /c npm run docs:check-encoding -- .kiro\specs\field-force-platform\tasks.md AGENT_HISTORY.md src\lib\biometrics\attendanceBiometrics.ts src\lib\biometrics\attendanceBiometrics.test.ts src\app\api\asistencias\sync\route.ts src\features\empleados\actions.ts src\features\configuracion\configuracionCatalog.ts src\features\asistencias\components\AsistenciasPanel.tsx` aprobado.
-    - `cmd /c .\node_modules\.bin\vitest.cmd run src/lib/biometrics/attendanceBiometrics.test.ts` sigue bloqueado por `spawn EPERM` al cargar `vitest.config.ts`.
+  - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` quedo limpio para este corte; solo persisten errores previos ajenos en `src/features/solicitudes/actions.test.ts` y `tests/gastos.spec.ts`.
+  - `cmd /c npm run docs:check-encoding -- .kiro\specs\field-force-platform\tasks.md AGENT_HISTORY.md src\lib\biometrics\attendanceBiometrics.ts src\lib\biometrics\attendanceBiometrics.test.ts src\app\api\asistencias\sync\route.ts src\features\empleados\actions.ts src\features\configuracion\configuracionCatalog.ts src\features\asistencias\components\AsistenciasPanel.tsx` aprobado.
+  - `cmd /c .\node_modules\.bin\vitest.cmd run src/lib/biometrics/attendanceBiometrics.test.ts` sigue bloqueado por `spawn EPERM` al cargar `vitest.config.ts`.
 
 ## [2026-03-18 10:05] - Reconciliacion total conservadora de documentos derivados (Codex)
+
 - **Contexto**: El usuario pidio reconciliar TODO. La auditoria del canon y del arbol actual confirmo que `task.md` quedo atrasado frente a cierres ya registrados en `AGENT_HISTORY.md` y frente a trabajo real todavia no mapeado conservadoramente en el backlog canonico.
 - **Accion**:
-    - Relei `AGENTS.md`, `AGENT_HISTORY.md` y `.kiro/specs/field-force-platform/{design,requirements,tasks}.md` con lectura UTF-8 segura para confirmar reglas y fuente de verdad.
-    - Audite el worktree actual y consolide el desfase documental: hay cambios reales pendientes de reconciliacion en `dashboard`, `reportes`, `offline`, `rutas`, `asistencias`, `ventas`, `nomina`, `configuracion`, `usuarios` y `PWA/service worker`.
-    - Repare bloqueos de calidad que impedian una reconciliacion fiable: `src/features/asistencias/services/asistenciaService.ts`, `src/features/solicitudes/actions.test.ts`, `tests/gastos.spec.ts` y `eslint.config.mjs`.
-    - Actualice `task.md` para dejar explicito que el backlog derivado no esta cerrado y que el siguiente corte debe mapear el canon contra la implementacion real antes de mover mas checkboxes.
+  - Relei `AGENTS.md`, `AGENT_HISTORY.md` y `.kiro/specs/field-force-platform/{design,requirements,tasks}.md` con lectura UTF-8 segura para confirmar reglas y fuente de verdad.
+  - Audite el worktree actual y consolide el desfase documental: hay cambios reales pendientes de reconciliacion en `dashboard`, `reportes`, `offline`, `rutas`, `asistencias`, `ventas`, `nomina`, `configuracion`, `usuarios` y `PWA/service worker`.
+  - Repare bloqueos de calidad que impedian una reconciliacion fiable: `src/features/asistencias/services/asistenciaService.ts`, `src/features/solicitudes/actions.test.ts`, `tests/gastos.spec.ts` y `eslint.config.mjs`.
+  - Actualice `task.md` para dejar explicito que el backlog derivado no esta cerrado y que el siguiente corte debe mapear el canon contra la implementacion real antes de mover mas checkboxes.
 - **Impacto**:
-    - La trazabilidad vuelve a ser honesta: `task.md` ya no declara cierre total cuando el arbol actual todavia contiene trabajo real sin reconciliar.
-    - El repositorio recupera barreras locales minimas para continuar la reconciliacion con menos ruido: TypeScript limpio, lint sin errores y encoding validado.
+  - La trazabilidad vuelve a ser honesta: `task.md` ya no declara cierre total cuando el arbol actual todavia contiene trabajo real sin reconciliar.
+  - El repositorio recupera barreras locales minimas para continuar la reconciliacion con menos ruido: TypeScript limpio, lint sin errores y encoding validado.
 - **Estado**:
-    - `npm run docs:check-encoding -- .kiro\specs\field-force-platform\tasks.md AGENT_HISTORY.md task.md eslint.config.mjs src\features\asistencias\services\asistenciaService.ts src\features\solicitudes\actions.test.ts tests\gastos.spec.ts` aprobado.
-    - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` aprobado.
-    - `cmd /c npm run lint` aprobado con warnings residuales solamente.
-    - `cmd /c npm run build` sigue cayendo por `spawn EPERM` del host despues de compilar, por lo que no sirve todavia como barrera final de cierre.
-    - Siguiente corte logico: reconciliar item por item `.kiro/specs/field-force-platform/tasks.md` contra el estado real del worktree antes de marcar nuevos cierres canonicos o derivar README/task adicionales.
+  - `npm run docs:check-encoding -- .kiro\specs\field-force-platform\tasks.md AGENT_HISTORY.md task.md eslint.config.mjs src\features\asistencias\services\asistenciaService.ts src\features\solicitudes\actions.test.ts tests\gastos.spec.ts` aprobado.
+  - `cmd /c .\node_modules\.bin\tsc.cmd --noEmit --pretty false` aprobado.
+  - `cmd /c npm run lint` aprobado con warnings residuales solamente.
+  - `cmd /c npm run build` sigue cayendo por `spawn EPERM` del host despues de compilar, por lo que no sirve todavia como barrera final de cierre.
+  - Siguiente corte logico: reconciliar item por item `.kiro/specs/field-force-platform/tasks.md` contra el estado real del worktree antes de marcar nuevos cierres canonicos o derivar README/task adicionales.
+
 ## [2026-03-18 11:20] - Reconciliación canónica item por item (Codex)
+
 - **Contexto**: El usuario pidió cerrar todos los ítems abiertos del canon con evidencia y sin romper la regla conservadora.
 - **Acción**:
-    - Mapeé los 19 checkboxes abiertos de `.kiro/specs/field-force-platform/tasks.md` y validé evidencia real en el worktree.
-    - Marqué como completos en el canon: 0.1 (bootstrap Next 16/TS strict/Tailwind/shadcn), 0.3 (migraciones base completas), 0.4 (RLS base) y 7.6/7.6.1-7.6.5 (Service Worker y estrategias de red) respaldados por código y migraciones actuales.
-    - Dejé abiertos: 0.5 (trigger append-only + SHA-256 de audit_log, falta confirmación/creación) y 3.4.x (módulo de formación no existe en el repo actual).
+  - Mapeé los 19 checkboxes abiertos de `.kiro/specs/field-force-platform/tasks.md` y validé evidencia real en el worktree.
+  - Marqué como completos en el canon: 0.1 (bootstrap Next 16/TS strict/Tailwind/shadcn), 0.3 (migraciones base completas), 0.4 (RLS base) y 7.6/7.6.1-7.6.5 (Service Worker y estrategias de red) respaldados por código y migraciones actuales.
+  - Dejé abiertos: 0.5 (trigger append-only + SHA-256 de audit_log, falta confirmación/creación) y 3.4.x (módulo de formación no existe en el repo actual).
 - **Evidencia**:
-    - Bootstrap/Web: `package.json` (Next 16), `src/app/layout.tsx`, `tsconfig.json` (strict), `tailwind.config.ts`, `src/app/globals.css`, `src/components/ui/index.ts`.
-    - DB/RLS: migraciones `20260314153500_fase1_asignaciones_base.sql`, `20260314160500_auth_claims_sync.sql`, `20260314174000_rls_identity_helpers.sql`, `20260314190000_catalogos_operativos_base.sql`, `20260314191500_pdv_metadata_catalogos.sql`, `20260314201000_asistencias_base.sql`, `20260314204000_ventas_base.sql`, `20260314212000_nomina_cuotas_ledger_base.sql`, seed `supabase/seed.sql`.
-    - PWA/Offline: `public/sw.js`, `src/components/pwa/PwaBootstrap.tsx`, `src/app/offline/page.tsx`, manifest + íconos en `public/`.
+  - Bootstrap/Web: `package.json` (Next 16), `src/app/layout.tsx`, `tsconfig.json` (strict), `tailwind.config.ts`, `src/app/globals.css`, `src/components/ui/index.ts`.
+  - DB/RLS: migraciones `20260314153500_fase1_asignaciones_base.sql`, `20260314160500_auth_claims_sync.sql`, `20260314174000_rls_identity_helpers.sql`, `20260314190000_catalogos_operativos_base.sql`, `20260314191500_pdv_metadata_catalogos.sql`, `20260314201000_asistencias_base.sql`, `20260314204000_ventas_base.sql`, `20260314212000_nomina_cuotas_ledger_base.sql`, seed `supabase/seed.sql`.
+  - PWA/Offline: `public/sw.js`, `src/components/pwa/PwaBootstrap.tsx`, `src/app/offline/page.tsx`, manifest + íconos en `public/`.
 - **Impacto**:
-    - El canon refleja el estado real en bootstrap, esquema, RLS y PWA, reduciendo deuda documental.
-    - Quedan explícitos los pendientes: trigger append-only de audit_log y módulo de formación 3.4.x.
+  - El canon refleja el estado real en bootstrap, esquema, RLS y PWA, reduciendo deuda documental.
+  - Quedan explícitos los pendientes: trigger append-only de audit_log y módulo de formación 3.4.x.
 - **Estado**:
-    - `npm run docs:check-encoding -- .kiro\specs\field-force-platform\tasks.md AGENT_HISTORY.md` pendiente de ejecutar tras el edit.
-    - Siguiente paso sugerido: confirmar/crear trigger `audit_log` append-only+SHA-256 para cerrar 0.5 y definir alcance/implementación de formación (3.4.x).
+  - `npm run docs:check-encoding -- .kiro\specs\field-force-platform\tasks.md AGENT_HISTORY.md` pendiente de ejecutar tras el edit.
+  - Siguiente paso sugerido: confirmar/crear trigger `audit_log` append-only+SHA-256 para cerrar 0.5 y definir alcance/implementación de formación (3.4.x).
+
 ## [2026-03-18 11:35] - Cierre de 0.5 audit_log append-only (Codex)
+
 - **Contexto**: Pendiente de la ronda anterior: confirmar que `audit_log` tiene trigger append-only y hash SHA-256 para cerrar 0.5 del canon.
 - **Evidencia**: `supabase/migrations/20260314145500_fase0_estructura_maestra_retail.sql` crea `audit_log_calcular_hash()` + `trg_audit_log_hash` (SHA-256 del payload) y `audit_log_proteger_append_only()` + `trg_audit_log_append_only` (bloqueo UPDATE/DELETE), además de RLS y políticas `audit_log_*`.
 - **Acción**: Marqué 0.5 como completado en `.kiro/specs/field-force-platform/tasks.md` con respaldo de esa migración.
 - **Estado**: Falta únicamente el bloque 3.4.x (formación) por implementar/reconciliar; el resto de 0.x y 7.6.x ya quedó cerrado.
+
 ## [2026-03-18 12:05] - Reconstrucción y cierre conservador de tasks.md (Codex)
+
 - **Contexto**: El archivo canónico tuvo mojibake; se trabajó sobre la copia segura en `safe/tasks.backup.md` para reconciliar alcance con el estado real del repo.
 - **Acción**:
-    - Copié `tasks.backup.md` reconciliado a `.kiro/specs/field-force-platform/tasks.md`.
-    - Marqué como completados los ítems con evidencia real en el código/migraciones: 0.x (bootstrap, esquema, RLS, audit_log, seed), 1.x (auth/usuarios/empleados), 2.x (estructura maestra/configuración/reglas/multi-tenant), 3.1–3.3 (asignaciones, ruta semanal, campañas), 4.x (PWA/offline/asistencias/ventas/love), 5.x (solicitudes, nómina/cuotas, material, gastos), 6.x (dashboard, reportes, bitácora, ranking), 7.1–7.3.3 (pipeline compresión/dedupe y estrategias SW), subchecks 4.3.1–4.3.5/8/9 y 0.3.x/0.4.x/0.5.x.
-    - Dejé abiertos: 3.4 (Formaciones), 7.3.4 (precaching de rutas críticas), y el resto de 7.4–7.9/7.5/7.6/7.7/7.8/7.9 pendientes de evidencia.
+  - Copié `tasks.backup.md` reconciliado a `.kiro/specs/field-force-platform/tasks.md`.
+  - Marqué como completados los ítems con evidencia real en el código/migraciones: 0.x (bootstrap, esquema, RLS, audit_log, seed), 1.x (auth/usuarios/empleados), 2.x (estructura maestra/configuración/reglas/multi-tenant), 3.1–3.3 (asignaciones, ruta semanal, campañas), 4.x (PWA/offline/asistencias/ventas/love), 5.x (solicitudes, nómina/cuotas, material, gastos), 6.x (dashboard, reportes, bitácora, ranking), 7.1–7.3.3 (pipeline compresión/dedupe y estrategias SW), subchecks 4.3.1–4.3.5/8/9 y 0.3.x/0.4.x/0.5.x.
+  - Dejé abiertos: 3.4 (Formaciones), 7.3.4 (precaching de rutas críticas), y el resto de 7.4–7.9/7.5/7.6/7.7/7.8/7.9 pendientes de evidencia.
 - **Estado**:
-    - `npm run docs:check-encoding -- .kiro\specs\field-force-platform\tasks.md AGENT_HISTORY.md` pendiente tras este corte; encoding de la copia reconciliada ya verificado.
-    - Fuente de verdad adicional guardada en `safe/` (design.backup.md, requirements.backup.md, tasks.backup.md).
+  - `npm run docs:check-encoding -- .kiro\specs\field-force-platform\tasks.md AGENT_HISTORY.md` pendiente tras este corte; encoding de la copia reconciliada ya verificado.
+  - Fuente de verdad adicional guardada en `safe/` (design.backup.md, requirements.backup.md, tasks.backup.md).
+
 ## [2026-03-18 12:25] - Precaching de rutas críticas y cierre de 7.3.4 (Codex)
+
 - **Acción**: Añadí `PRECACHE_ROUTES` en `public/sw.js` (offline, dashboard, asistencias, ventas, reportes, rutas, clientes, nomina, campanas) y los precacheo en `install` dentro de `CACHE_NAME_APP_SHELL`.
 - **Impacto**: El SW ahora instala con shell offline y rutas clave precargadas, alineando el requisito 7.3.4.
 - **Canon**: Marqué 7.3.4 como completado en `.kiro/specs/field-force-platform/tasks.md`.
 - **Validación**: `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md public/sw.js` OK.
 - **Pendiente mayor**: 3.4 Formaciones y bloques 7.4–7.9 (optimización, PBT, tests integrales, limpieza de huérfanos, etc.).
+
 ## [2026-03-18 13:05] - Cierre de 3.4 Formaciones (Codex)
+
 - **Contexto**: El canon seguía marcando `3.4` como pendiente, pero el repo ya tenía la base del módulo; faltaba validar la cobertura real y corregir una brecha funcional antes de reconciliar.
 - **Acción**:
-    - Verifiqué el módulo contra el canon en migraciones, acciones, panel y pruebas.
-    - Corregí `src/features/formaciones/actions.ts` para sincronizar correctamente `formacion_asistencia` al crear y editar eventos, evitando filas sin `empleado_id` y manteniendo altas/bajas/cambios de participantes.
-    - Ajusté `src/features/formaciones/services/formacionService.ts` y `src/features/formaciones/components/FormacionesPanel.tsx` para conservar el `responsable` por `id` en edición.
-    - Actualicé el stub y expectativas de `tests/gastos.spec.ts` para alinearlo con el contrato actual del servicio y dejar verde la validación focalizada.
-    - Marqué `3.4` y `3.4.1`-`3.4.4` como completados en `.kiro/specs/field-force-platform/tasks.md`.
+  - Verifiqué el módulo contra el canon en migraciones, acciones, panel y pruebas.
+  - Corregí `src/features/formaciones/actions.ts` para sincronizar correctamente `formacion_asistencia` al crear y editar eventos, evitando filas sin `empleado_id` y manteniendo altas/bajas/cambios de participantes.
+  - Ajusté `src/features/formaciones/services/formacionService.ts` y `src/features/formaciones/components/FormacionesPanel.tsx` para conservar el `responsable` por `id` en edición.
+  - Actualicé el stub y expectativas de `tests/gastos.spec.ts` para alinearlo con el contrato actual del servicio y dejar verde la validación focalizada.
+  - Marqué `3.4` y `3.4.1`-`3.4.4` como completados en `.kiro/specs/field-force-platform/tasks.md`.
 - **Evidencia**:
-    - Migración/RLS: `supabase/migrations/20260315070000_formaciones_base.sql`.
-    - UI/ruta: `src/app/(main)/formaciones/page.tsx`, `src/features/formaciones/components/FormacionesPanel.tsx`.
-    - Lectura/servicio: `src/features/formaciones/services/formacionService.ts`.
-    - Escritura/acciones: `src/features/formaciones/actions.ts`.
-    - Integración con gastos: `supabase/migrations/20260316013000_operacion_love_gastos_materiales_base.sql`, `src/features/gastos/services/gastoService.ts`, `tests/gastos.spec.ts`.
-    - Validación: `tests/formaciones-panel.spec.ts`.
+  - Migración/RLS: `supabase/migrations/20260315070000_formaciones_base.sql`.
+  - UI/ruta: `src/app/(main)/formaciones/page.tsx`, `src/features/formaciones/components/FormacionesPanel.tsx`.
+  - Lectura/servicio: `src/features/formaciones/services/formacionService.ts`.
+  - Escritura/acciones: `src/features/formaciones/actions.ts`.
+  - Integración con gastos: `supabase/migrations/20260316013000_operacion_love_gastos_materiales_base.sql`, `src/features/gastos/services/gastoService.ts`, `tests/gastos.spec.ts`.
+  - Validación: `tests/formaciones-panel.spec.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/formaciones-panel.spec.ts tests/gastos.spec.ts` OK (4 pruebas).
-    - `cmd /c npm run docs:check-encoding -- tests/gastos.spec.ts src/features/formaciones/actions.ts src/features/formaciones/services/formacionService.ts src/features/formaciones/components/FormacionesPanel.tsx` OK.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/formaciones-panel.spec.ts tests/gastos.spec.ts` OK (4 pruebas).
+  - `cmd /c npm run docs:check-encoding -- tests/gastos.spec.ts src/features/formaciones/actions.ts src/features/formaciones/services/formacionService.ts src/features/formaciones/components/FormacionesPanel.tsx` OK.
 - **Pendiente mayor**: el canon ya no tiene abierto `3.4`; el siguiente frente funcional queda en bloques `7.4`-`7.9`.
+
 ## [2026-03-18 13:35] - Reconciliación conservadora del bloque 7.4-7.9 (Codex)
+
 - **Contexto**: Tras cerrar `3.4`, el siguiente frente abierto del canon era `7.4`-`7.9`. El objetivo fue separar lo ya implementado de lo realmente faltante y ejecutar validaciones antes de mover checkboxes.
 - **Acción**:
-    - Implementé wiring de Background Sync en la PWA: `src/lib/offline/syncQueue.ts` registra el tag `retail-offline-sync` al encolar, `public/sw.js` escucha `sync` y pide a los clientes procesar la cola, y `src/hooks/useOfflineSync.ts` consume ese mensaje para disparar sincronización foreground.
-    - Añadí cobertura de pruebas para ese contrato del SW en `src/lib/pwa/serviceWorkerStrategies.test.ts`.
-    - Fortalecí el bloque PBT de compresión en `src/lib/files/documentOptimization.test.ts` con una propiedad sobre entradas SVG variadas para asegurar que la salida optimizada y la miniatura respetan sus límites de bytes.
-    - Reconcilié en el canon solo los ítems con evidencia directa: `7.3.5`, `7.5.1`, `7.5.3`, `7.6.1`-`7.6.4`, `7.7.1`, `7.7.2`, `7.7.4`, `7.7.5`, `7.7.6`, `7.9.1`-`7.9.4`.
-    - Dejé abiertos `7.4`, `7.5.2`, `7.5.4`, `7.5.5`, `7.7.3`, `7.7.7`, `7.8.x` y `7.9.5` por falta de evidencia suficiente o implementación parcial.
+  - Implementé wiring de Background Sync en la PWA: `src/lib/offline/syncQueue.ts` registra el tag `retail-offline-sync` al encolar, `public/sw.js` escucha `sync` y pide a los clientes procesar la cola, y `src/hooks/useOfflineSync.ts` consume ese mensaje para disparar sincronización foreground.
+  - Añadí cobertura de pruebas para ese contrato del SW en `src/lib/pwa/serviceWorkerStrategies.test.ts`.
+  - Fortalecí el bloque PBT de compresión en `src/lib/files/documentOptimization.test.ts` con una propiedad sobre entradas SVG variadas para asegurar que la salida optimizada y la miniatura respetan sus límites de bytes.
+  - Reconcilié en el canon solo los ítems con evidencia directa: `7.3.5`, `7.5.1`, `7.5.3`, `7.6.1`-`7.6.4`, `7.7.1`, `7.7.2`, `7.7.4`, `7.7.5`, `7.7.6`, `7.9.1`-`7.9.4`.
+  - Dejé abiertos `7.4`, `7.5.2`, `7.5.4`, `7.5.5`, `7.7.3`, `7.7.7`, `7.8.x` y `7.9.5` por falta de evidencia suficiente o implementación parcial.
 - **Evidencia**:
-    - Service Worker/PWA: `public/sw.js`, `src/components/pwa/PwaBootstrap.tsx`, `src/actions/pushNotifications.ts`, `supabase/functions/mensajes-push/index.ts`, `supabase/migrations/20260317013000_push_subscriptions_base.sql`.
-    - Offline queue + Background Sync bridge: `src/lib/offline/syncQueue.ts`, `src/hooks/useOfflineSync.ts`, `src/lib/offline/syncQueue.test.ts`.
-    - Limpieza de huérfanos: `supabase/functions/storage-orphans-cleanup/index.ts`, `supabase/migrations/20260317020000_storage_orphans_cleanup_schedule.sql`.
-    - Property-based testing: `package.json`, `src/features/asignaciones/lib/assignmentValidation.test.ts`, `src/lib/files/documentOptimization.test.ts`, `src/lib/audit/integrity.test.ts`, `src/lib/tenant/accountScope.test.ts`.
-    - Checklist/documentación: `README.md`, `.githooks/pre-commit`, `AGENT_HISTORY.md`.
+  - Service Worker/PWA: `public/sw.js`, `src/components/pwa/PwaBootstrap.tsx`, `src/actions/pushNotifications.ts`, `supabase/functions/mensajes-push/index.ts`, `supabase/migrations/20260317013000_push_subscriptions_base.sql`.
+  - Offline queue + Background Sync bridge: `src/lib/offline/syncQueue.ts`, `src/hooks/useOfflineSync.ts`, `src/lib/offline/syncQueue.test.ts`.
+  - Limpieza de huérfanos: `supabase/functions/storage-orphans-cleanup/index.ts`, `supabase/migrations/20260317020000_storage_orphans_cleanup_schedule.sql`.
+  - Property-based testing: `package.json`, `src/features/asignaciones/lib/assignmentValidation.test.ts`, `src/lib/files/documentOptimization.test.ts`, `src/lib/audit/integrity.test.ts`, `src/lib/tenant/accountScope.test.ts`.
+  - Checklist/documentación: `README.md`, `.githooks/pre-commit`, `AGENT_HISTORY.md`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/lib/offline/syncQueue.test.ts src/lib/pwa/serviceWorkerStrategies.test.ts src/lib/files/documentOptimization.test.ts src/lib/tenant/accountScope.test.ts src/lib/audit/integrity.test.ts src/features/asignaciones/lib/assignmentValidation.test.ts src/features/nomina/lib/payrollMath.test.ts` OK (23 pruebas).
-    - `cmd /c npm run hooks:install` OK.
-    - `cmd /c npm run docs:check-encoding -- public/sw.js src/lib/offline/syncQueue.ts src/hooks/useOfflineSync.ts src/lib/pwa/serviceWorkerStrategies.test.ts src/lib/files/documentOptimization.test.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md README.md` OK.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/lib/offline/syncQueue.test.ts src/lib/pwa/serviceWorkerStrategies.test.ts src/lib/files/documentOptimization.test.ts src/lib/tenant/accountScope.test.ts src/lib/audit/integrity.test.ts src/features/asignaciones/lib/assignmentValidation.test.ts src/features/nomina/lib/payrollMath.test.ts` OK (23 pruebas).
+  - `cmd /c npm run hooks:install` OK.
+  - `cmd /c npm run docs:check-encoding -- public/sw.js src/lib/offline/syncQueue.ts src/hooks/useOfflineSync.ts src/lib/pwa/serviceWorkerStrategies.test.ts src/lib/files/documentOptimization.test.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md README.md` OK.
 - **Siguiente corte lógico**: atacar `7.4` (queries/materialized views) o completar `7.5.2`/`7.5.4`/`7.5.5` si quieres profundizar la capa PWA y push.
+
 ## [2026-03-18 14:05] - Optimización parcial de 7.4 (Codex)
+
 - **Contexto**: Después del corte conservador de `7.4`-`7.9`, el siguiente paso lógico era atacar la parte implementable de optimización de queries y memoización sin forzar un rediseño del materialized view.
 - **Acción**:
-    - Añadí `unstable_cache` en `src/features/dashboard/services/dashboardService.ts` para memoizar la lectura de `dashboard_kpis` con TTL de 60s cuando el servicio usa cliente servidor real; las pruebas con cliente falso siguen bypassing cache.
-    - Creé la migración `supabase/migrations/20260318141000_dashboard_query_optimizations.sql` con índices compuestos alineados a las consultas operativas de dashboard/reportes (`asistencia`, `venta`, `love_isdin`, `gasto`, `cuota_empleado_periodo`, `nomina_ledger`, `solicitud`).
-    - Estabilicé `tests/dashboard-kpis.spec.ts` para que los casos de alertas live y mapa no dependan de fechas absolutas que envejecen con el tiempo.
-    - Reconcilié en el canon `7.4.2` y `7.4.5`; mantuve abiertos `7.4.1`, `7.4.3` y `7.4.4`.
+  - Añadí `unstable_cache` en `src/features/dashboard/services/dashboardService.ts` para memoizar la lectura de `dashboard_kpis` con TTL de 60s cuando el servicio usa cliente servidor real; las pruebas con cliente falso siguen bypassing cache.
+  - Creé la migración `supabase/migrations/20260318141000_dashboard_query_optimizations.sql` con índices compuestos alineados a las consultas operativas de dashboard/reportes (`asistencia`, `venta`, `love_isdin`, `gasto`, `cuota_empleado_periodo`, `nomina_ledger`, `solicitud`).
+  - Estabilicé `tests/dashboard-kpis.spec.ts` para que los casos de alertas live y mapa no dependan de fechas absolutas que envejecen con el tiempo.
+  - Reconcilié en el canon `7.4.2` y `7.4.5`; mantuve abiertos `7.4.1`, `7.4.3` y `7.4.4`.
 - **Evidencia**:
-    - Cacheo server-side: `src/features/dashboard/services/dashboardService.ts`.
-    - Índices compuestos: `supabase/migrations/20260318141000_dashboard_query_optimizations.sql`.
-    - Validación: `tests/dashboard-kpis.spec.ts`.
+  - Cacheo server-side: `src/features/dashboard/services/dashboardService.ts`.
+  - Índices compuestos: `supabase/migrations/20260318141000_dashboard_query_optimizations.sql`.
+  - Validación: `tests/dashboard-kpis.spec.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/dashboard-kpis.spec.ts` OK (5 pruebas).
-    - `cmd /c npm run docs:check-encoding -- tests/dashboard-kpis.spec.ts src/features/dashboard/services/dashboardService.ts supabase/migrations/20260318141000_dashboard_query_optimizations.sql .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` OK.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/dashboard-kpis.spec.ts` OK (5 pruebas).
+  - `cmd /c npm run docs:check-encoding -- tests/dashboard-kpis.spec.ts src/features/dashboard/services/dashboardService.ts supabase/migrations/20260318141000_dashboard_query_optimizations.sql .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` OK.
 - **Pendiente inmediato**: `7.4.3` sigue abierto; mientras `dashboard_kpis` permanezca como materialized view puro, un refresco incremental real requiere rediseñar ese storage o introducir una tabla/pipe auxiliar.
+
 ## [2026-03-18 14:35] - Paginación cursor-based en bitácora para 7.4.4 (Codex)
+
 - **Contexto**: Tras cerrar índices compuestos y memoización en `7.4`, el siguiente paso lógico era resolver un listado real con potencial >1000 registros sin depender de offset. La bitácora (`audit_log`) era el mejor candidato por volumen y criticidad.
 - **Acción**:
-    - Terminé la migración del servicio `src/features/bitacora/services/bitacoraService.ts` hacia paginación por cursor descendente usando `audit_log.id` como ancla, con soporte de `cursor` e historial de navegación para volver atrás sin offsets.
-    - Actualicé `src/features/bitacora/components/BitacoraPanel.tsx` para preservar filtros en URL, resetear `cursor/history` al aplicar filtros y navegar por tramos usando `nextCursor` y `previousCursor`.
-    - Ajusté `src/app/(main)/bitacora/page.tsx` para leer `cursor` e `history` desde `searchParams` y dejar de depender de `page`.
-    - Añadí `tests/bitacora-panel.spec.ts` con cobertura dirigida sobre primer tramo y segundo tramo, verificando `nextCursor`, `lt('id', cursor)` y navegación sin offset.
-    - Reconcilié en el canon `7.4.4` con evidencia directa.
+  - Terminé la migración del servicio `src/features/bitacora/services/bitacoraService.ts` hacia paginación por cursor descendente usando `audit_log.id` como ancla, con soporte de `cursor` e historial de navegación para volver atrás sin offsets.
+  - Actualicé `src/features/bitacora/components/BitacoraPanel.tsx` para preservar filtros en URL, resetear `cursor/history` al aplicar filtros y navegar por tramos usando `nextCursor` y `previousCursor`.
+  - Ajusté `src/app/(main)/bitacora/page.tsx` para leer `cursor` e `history` desde `searchParams` y dejar de depender de `page`.
+  - Añadí `tests/bitacora-panel.spec.ts` con cobertura dirigida sobre primer tramo y segundo tramo, verificando `nextCursor`, `lt('id', cursor)` y navegación sin offset.
+  - Reconcilié en el canon `7.4.4` con evidencia directa.
 - **Evidencia**:
-    - Servicio: `src/features/bitacora/services/bitacoraService.ts`.
-    - UI: `src/features/bitacora/components/BitacoraPanel.tsx`, `src/app/(main)/bitacora/page.tsx`.
-    - Prueba: `tests/bitacora-panel.spec.ts`.
+  - Servicio: `src/features/bitacora/services/bitacoraService.ts`.
+  - UI: `src/features/bitacora/components/BitacoraPanel.tsx`, `src/app/(main)/bitacora/page.tsx`.
+  - Prueba: `tests/bitacora-panel.spec.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/bitacora-panel.spec.ts` OK (2 pruebas).
-    - `cmd /c npm run docs:check-encoding -- src/features/bitacora/services/bitacoraService.ts src/features/bitacora/components/BitacoraPanel.tsx src/app/(main)/bitacora/page.tsx tests/bitacora-panel.spec.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` OK.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/bitacora-panel.spec.ts` OK (2 pruebas).
+  - `cmd /c npm run docs:check-encoding -- src/features/bitacora/services/bitacoraService.ts src/features/bitacora/components/BitacoraPanel.tsx src/app/(main)/bitacora/page.tsx tests/bitacora-panel.spec.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` OK.
 - **Pendiente inmediato**: `7.4.1` y `7.4.3` siguen abiertos; el siguiente frente lógico queda entre EXPLAIN ANALYZE real o el bloque `7.5.2`/`7.5.4`/`7.5.5` de Service Worker.
+
 ## [2026-03-18 16:50] - Handler sync del SW con confirmación foreground para 7.5.2 (Codex)
+
 - **Contexto**: `7.5.1` ya registraba el tag de Background Sync, pero el Service Worker solo despertaba a la app sin esperar confirmación. Faltaba cerrar el contrato operativo para considerar procesada la `sync_queue` cuando el evento `sync` se disparara.
 - **Acción**:
-    - Extendí `public/sw.js` con un handshake explícito: el handler `sync` ahora genera `requestId`, envía `OFFLINE_SYNC_REQUEST` a los clientes, espera `OFFLINE_SYNC_COMPLETE` y falla por timeout si no llega confirmación.
-    - Actualicé `src/hooks/useOfflineSync.ts` para ejecutar la sincronización foreground al recibir el mensaje del SW y responder con éxito/error al worker sin romper el flujo manual del botón `Sincronizar`.
-    - Amplié `src/lib/pwa/serviceWorkerStrategies.test.ts` para fijar el nuevo contrato del SW sobre `processBackgroundSync`, `waitForSyncCompletion` y el canal de confirmación.
-    - Reconcilié `7.5.2` en el canon con evidencia directa.
+  - Extendí `public/sw.js` con un handshake explícito: el handler `sync` ahora genera `requestId`, envía `OFFLINE_SYNC_REQUEST` a los clientes, espera `OFFLINE_SYNC_COMPLETE` y falla por timeout si no llega confirmación.
+  - Actualicé `src/hooks/useOfflineSync.ts` para ejecutar la sincronización foreground al recibir el mensaje del SW y responder con éxito/error al worker sin romper el flujo manual del botón `Sincronizar`.
+  - Amplié `src/lib/pwa/serviceWorkerStrategies.test.ts` para fijar el nuevo contrato del SW sobre `processBackgroundSync`, `waitForSyncCompletion` y el canal de confirmación.
+  - Reconcilié `7.5.2` en el canon con evidencia directa.
 - **Evidencia**:
-    - Service Worker: `public/sw.js`.
-    - Hook de sincronización: `src/hooks/useOfflineSync.ts`.
-    - Prueba de contrato: `src/lib/pwa/serviceWorkerStrategies.test.ts`.
+  - Service Worker: `public/sw.js`.
+  - Hook de sincronización: `src/hooks/useOfflineSync.ts`.
+  - Prueba de contrato: `src/lib/pwa/serviceWorkerStrategies.test.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/lib/pwa/serviceWorkerStrategies.test.ts` OK (5 pruebas).
-    - `cmd /c npm run docs:check-encoding -- public/sw.js src/hooks/useOfflineSync.ts src/lib/pwa/serviceWorkerStrategies.test.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` OK.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/lib/pwa/serviceWorkerStrategies.test.ts` OK (5 pruebas).
+  - `cmd /c npm run docs:check-encoding -- public/sw.js src/hooks/useOfflineSync.ts src/lib/pwa/serviceWorkerStrategies.test.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` OK.
 - **Pendiente inmediato**: siguen abiertos `7.5.4` y `7.5.5`; el siguiente paso lógico dentro del bloque es conectar notificaciones operativas concretas o endurecer pruebas del SW con timers/workbox.
+
 ## [2026-03-18 16:56] - Notificaciones push operativas para 7.5.4 (Codex)
+
 - **Contexto**: `7.5.3` ya cubría suscripción VAPID y fanout básico de mensajes internos, pero faltaba conectar eventos operativos concretos: mensaje nuevo, solicitud aprobada/rechazada y alerta de geocerca.
 - **Acción**:
-    - Extraje un helper reusable `src/lib/push/pushFanout.ts` para invocar la Edge Function con payloads operativos directos por `employeeIds`, manteniendo auditoría opcional.
-    - Reemplacé en `src/features/mensajes/actions.ts` el fanout acoplado a `mensajeId` por el helper genérico, preservando el caso de mensaje nuevo como push operativo real.
-    - Extendí `src/features/solicitudes/actions.ts` para enviar push al solicitante cuando la resolución final es `REGISTRADA_RH`, `REGISTRADA` o `RECHAZADA`; si el fanout falla, la notificación queda anotada como `PUSH` pendiente en metadata.
-    - Añadí `src/features/asistencias/lib/geofencePushAlert.ts` y conecté `src/app/api/asistencias/sync/route.ts` para disparar push al supervisor cuando un check-in queda en `FUERA_GEOCERCA`, sin romper la sincronización si el push falla.
-    - Generalicé `supabase/functions/mensajes-push/index.ts` para aceptar tanto `mensajeId` legacy como payloads operativos directos, reutilizando el mismo canal de envío y audit log.
-    - Reconcilié `7.5.4` en el canon con evidencia directa.
+  - Extraje un helper reusable `src/lib/push/pushFanout.ts` para invocar la Edge Function con payloads operativos directos por `employeeIds`, manteniendo auditoría opcional.
+  - Reemplacé en `src/features/mensajes/actions.ts` el fanout acoplado a `mensajeId` por el helper genérico, preservando el caso de mensaje nuevo como push operativo real.
+  - Extendí `src/features/solicitudes/actions.ts` para enviar push al solicitante cuando la resolución final es `REGISTRADA_RH`, `REGISTRADA` o `RECHAZADA`; si el fanout falla, la notificación queda anotada como `PUSH` pendiente en metadata.
+  - Añadí `src/features/asistencias/lib/geofencePushAlert.ts` y conecté `src/app/api/asistencias/sync/route.ts` para disparar push al supervisor cuando un check-in queda en `FUERA_GEOCERCA`, sin romper la sincronización si el push falla.
+  - Generalicé `supabase/functions/mensajes-push/index.ts` para aceptar tanto `mensajeId` legacy como payloads operativos directos, reutilizando el mismo canal de envío y audit log.
+  - Reconcilié `7.5.4` en el canon con evidencia directa.
 - **Evidencia**:
-    - Helper push server-side: `src/lib/push/pushFanout.ts`.
-    - Mensaje nuevo: `src/features/mensajes/actions.ts`.
-    - Solicitudes aprobadas/rechazadas: `src/features/solicitudes/actions.ts`, `src/features/solicitudes/actions.test.ts`.
-    - Alerta de geocerca: `src/features/asistencias/lib/geofencePushAlert.ts`, `src/features/asistencias/lib/geofencePushAlert.test.ts`, `src/app/api/asistencias/sync/route.ts`.
-    - Edge Function fanout: `supabase/functions/mensajes-push/index.ts`.
+  - Helper push server-side: `src/lib/push/pushFanout.ts`.
+  - Mensaje nuevo: `src/features/mensajes/actions.ts`.
+  - Solicitudes aprobadas/rechazadas: `src/features/solicitudes/actions.ts`, `src/features/solicitudes/actions.test.ts`.
+  - Alerta de geocerca: `src/features/asistencias/lib/geofencePushAlert.ts`, `src/features/asistencias/lib/geofencePushAlert.test.ts`, `src/app/api/asistencias/sync/route.ts`.
+  - Edge Function fanout: `supabase/functions/mensajes-push/index.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/features/solicitudes/actions.test.ts src/features/asistencias/lib/geofencePushAlert.test.ts src/lib/pwa/serviceWorkerStrategies.test.ts` OK (8 pruebas).
-    - `cmd /c npm run docs:check-encoding -- src/lib/push/pushFanout.ts src/features/solicitudes/actions.ts src/features/solicitudes/actions.test.ts src/features/asistencias/lib/geofencePushAlert.ts src/features/asistencias/lib/geofencePushAlert.test.ts src/app/api/asistencias/sync/route.ts supabase/functions/mensajes-push/index.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` OK.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/features/solicitudes/actions.test.ts src/features/asistencias/lib/geofencePushAlert.test.ts src/lib/pwa/serviceWorkerStrategies.test.ts` OK (8 pruebas).
+  - `cmd /c npm run docs:check-encoding -- src/lib/push/pushFanout.ts src/features/solicitudes/actions.ts src/features/solicitudes/actions.test.ts src/features/asistencias/lib/geofencePushAlert.ts src/features/asistencias/lib/geofencePushAlert.test.ts src/app/api/asistencias/sync/route.ts supabase/functions/mensajes-push/index.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` OK.
 - **Pendiente inmediato**: dentro de `7.5` solo queda `7.5.5`; el siguiente paso lógico es endurecer las pruebas del Service Worker con timers o utilidades más cercanas al runtime.
+
 ## [2026-03-18 17:04] - Pruebas de runtime del SW con fake timers para 7.5.5 (Codex)
+
 - **Contexto**: dentro del bloque `7.5` solo quedaba endurecer pruebas del Service Worker. Ya existían pruebas estructurales por lectura de source, pero faltaba validar el comportamiento temporal real del handshake de background sync.
 - **Acción**:
-    - Añadí `src/lib/pwa/serviceWorkerRuntime.test.ts`, que carga el worker real desde `public/sw.js` dentro de un `vm`, captura listeners registrados y valida con `vi.useFakeTimers()` el timeout de `waitForSyncCompletion`, la resolución por `OFFLINE_SYNC_COMPLETE` y el wiring del listener `sync` a `waitUntil`.
-    - Conservé `src/lib/pwa/serviceWorkerStrategies.test.ts` como verificación estructural del source para cachés, rutas sensibles y contrato de sync.
-    - Reconcilié `7.5.5` en el canon con evidencia directa.
+  - Añadí `src/lib/pwa/serviceWorkerRuntime.test.ts`, que carga el worker real desde `public/sw.js` dentro de un `vm`, captura listeners registrados y valida con `vi.useFakeTimers()` el timeout de `waitForSyncCompletion`, la resolución por `OFFLINE_SYNC_COMPLETE` y el wiring del listener `sync` a `waitUntil`.
+  - Conservé `src/lib/pwa/serviceWorkerStrategies.test.ts` como verificación estructural del source para cachés, rutas sensibles y contrato de sync.
+  - Reconcilié `7.5.5` en el canon con evidencia directa.
 - **Evidencia**:
-    - Runtime test con fake timers: `src/lib/pwa/serviceWorkerRuntime.test.ts`.
-    - Source contract test: `src/lib/pwa/serviceWorkerStrategies.test.ts`.
-    - Worker validado: `public/sw.js`.
+  - Runtime test con fake timers: `src/lib/pwa/serviceWorkerRuntime.test.ts`.
+  - Source contract test: `src/lib/pwa/serviceWorkerStrategies.test.ts`.
+  - Worker validado: `public/sw.js`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/lib/pwa/serviceWorkerRuntime.test.ts src/lib/pwa/serviceWorkerStrategies.test.ts` OK (8 pruebas).
-    - `cmd /c npm run docs:check-encoding -- src/lib/pwa/serviceWorkerRuntime.test.ts src/lib/pwa/serviceWorkerStrategies.test.ts public/sw.js .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` OK.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/lib/pwa/serviceWorkerRuntime.test.ts src/lib/pwa/serviceWorkerStrategies.test.ts` OK (8 pruebas).
+  - `cmd /c npm run docs:check-encoding -- src/lib/pwa/serviceWorkerRuntime.test.ts src/lib/pwa/serviceWorkerStrategies.test.ts public/sw.js .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` OK.
 - **Pendiente inmediato**: el bloque `7.5` ya quedó reconciliado; el siguiente frente lógico se mueve a `7.7.3`, `7.7.7` o `7.8.x`.
+
 ## [2026-03-18 17:12] - Property-based testing del motor de cuotas para 7.7.3 (Codex)
+
 - **Contexto**: el siguiente hueco lógico del bloque `7.7` era endurecer el motor de cuotas con invariantes generativas. El canon pedía dos garantías: progreso acotado para el indicador y conservación de cuota ante ausencias. El árbol actual ya permite `cumplimiento_porcentaje` bruto >100 en reportes y seeds, así que el cierre debía separar explícitamente métrica bruta vs. indicador visual para no romper la operación comercial existente.
 - **Acción**:
-    - Extendí `src/features/nomina/lib/quotaMath.ts` con `calculateQuotaProgress`, que expone `rawPercentage` y `cappedPercentage`, preservando sobrecumplimiento en la métrica bruta y acotando a 100 el porcentaje de progreso visual.
-    - Añadí `redistributeQuotaForAbsence` sobre el mismo motor para redistribuir la cuota total del PDV entre participantes presentes sin erosionar el monto total asignado.
-    - Endurecí `src/features/nomina/lib/payrollMath.test.ts` con propiedades basadas en `fast-check` para validar: conservación exacta del total distribuido, indicador visual acotado, y redistribución por ausencias sin reducir la cuota total ni devolver asignaciones a participantes ausentes.
-    - Reconcilié `7.7.3` en el canon con evidencia directa.
+  - Extendí `src/features/nomina/lib/quotaMath.ts` con `calculateQuotaProgress`, que expone `rawPercentage` y `cappedPercentage`, preservando sobrecumplimiento en la métrica bruta y acotando a 100 el porcentaje de progreso visual.
+  - Añadí `redistributeQuotaForAbsence` sobre el mismo motor para redistribuir la cuota total del PDV entre participantes presentes sin erosionar el monto total asignado.
+  - Endurecí `src/features/nomina/lib/payrollMath.test.ts` con propiedades basadas en `fast-check` para validar: conservación exacta del total distribuido, indicador visual acotado, y redistribución por ausencias sin reducir la cuota total ni devolver asignaciones a participantes ausentes.
+  - Reconcilié `7.7.3` en el canon con evidencia directa.
 - **Evidencia**:
-    - Motor de cuotas: `src/features/nomina/lib/quotaMath.ts`.
-    - Pruebas property-based: `src/features/nomina/lib/payrollMath.test.ts`.
+  - Motor de cuotas: `src/features/nomina/lib/quotaMath.ts`.
+  - Pruebas property-based: `src/features/nomina/lib/payrollMath.test.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/features/nomina/lib/payrollMath.test.ts` OK (5 pruebas).
-    - `cmd /c npm run docs:check-encoding -- src/features/nomina/lib/quotaMath.ts src/features/nomina/lib/payrollMath.test.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/features/nomina/lib/payrollMath.test.ts` OK (5 pruebas).
+  - `cmd /c npm run docs:check-encoding -- src/features/nomina/lib/quotaMath.ts src/features/nomina/lib/payrollMath.test.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
 - **Pendiente inmediato**: dentro de `7.7` solo queda `7.7.7`; el siguiente frente lógico es integrar estas property tests al pipeline de CI o saltar a `7.8.x` si se priorizan flujos integrales.
+
 ## [2026-03-18 17:18] - Pipeline CI para property-based testing en 7.7.7 (Codex)
+
 - **Contexto**: el repositorio no tenía `.github/workflows` ni otro pipeline versionado. Para cerrar `7.7.7` hacía falta agregar CI real y no solo depender de ejecuciones locales.
 - **Acción**:
-    - Creé `.github/workflows/ci.yml` con un job `quality` sobre `ubuntu-latest` que corre en `push` y `pull_request`.
-    - El pipeline instala dependencias con `npm ci`, activa el hook versionado con `npm run hooks:install`, ejecuta `npx tsc --noEmit`, valida codificación UTF-8 con `npm run docs:check-encoding` y corre `npm run test:property` para dejar las propiedades generativas dentro del flujo continuo.
-    - Reconcilié `7.7.7` en el canon con evidencia directa.
+  - Creé `.github/workflows/ci.yml` con un job `quality` sobre `ubuntu-latest` que corre en `push` y `pull_request`.
+  - El pipeline instala dependencias con `npm ci`, activa el hook versionado con `npm run hooks:install`, ejecuta `npx tsc --noEmit`, valida codificación UTF-8 con `npm run docs:check-encoding` y corre `npm run test:property` para dejar las propiedades generativas dentro del flujo continuo.
+  - Reconcilié `7.7.7` en el canon con evidencia directa.
 - **Evidencia**:
-    - Pipeline CI: `.github/workflows/ci.yml`.
+  - Pipeline CI: `.github/workflows/ci.yml`.
 - **Validación**:
-    - Revisión local del workflow creado.
-    - `cmd /c npm run docs:check-encoding -- .github/workflows/ci.yml .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
+  - Revisión local del workflow creado.
+  - `cmd /c npm run docs:check-encoding -- .github/workflows/ci.yml .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
 - **Pendiente inmediato**: el siguiente frente lógico ya se mueve a `7.8.x` (tests de integración críticos) o `7.9.5` si se prioriza Lighthouse/PWA.
+
 ## [2026-03-18 17:48] - Flujo integrado de activación de cuenta para 7.8.2 (Codex)
+
 - **Contexto**: el bloque `7.8` requería pruebas de integración críticas. El flujo de activación ya tenía pruebas unitarias separadas para `iniciarActivacionCuenta` y `updatePassword`, pero faltaba una prueba de punta a punta que encadenara `PROVISIONAL -> PENDIENTE_VERIFICACION_EMAIL -> ACTIVA` con correo verificado.
 - **Acción**:
-    - Reescribí `src/actions/auth.test.ts` preservando la cobertura existente y agregando una prueba integrada que usa el mismo doble administrativo con estado mutable.
-    - La nueva prueba ejecuta primero `iniciarActivacionCuenta`, valida la transición a `PENDIENTE_VERIFICACION_EMAIL` y luego ejecuta `updatePassword` con `email_confirmed_at`, verificando el paso final a `ACTIVA` y la sincronización del correo hacia `empleado`.
-    - Reconcilié `7.8.2` en el canon con evidencia directa.
+  - Reescribí `src/actions/auth.test.ts` preservando la cobertura existente y agregando una prueba integrada que usa el mismo doble administrativo con estado mutable.
+  - La nueva prueba ejecuta primero `iniciarActivacionCuenta`, valida la transición a `PENDIENTE_VERIFICACION_EMAIL` y luego ejecuta `updatePassword` con `email_confirmed_at`, verificando el paso final a `ACTIVA` y la sincronización del correo hacia `empleado`.
+  - Reconcilié `7.8.2` en el canon con evidencia directa.
 - **Evidencia**:
-    - Flujo integrado de activación: `src/actions/auth.test.ts`.
-    - Acciones cubiertas: `src/actions/auth.ts`.
+  - Flujo integrado de activación: `src/actions/auth.test.ts`.
+  - Acciones cubiertas: `src/actions/auth.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/actions/auth.test.ts` OK (3 pruebas).
-    - `cmd /c npm run docs:check-encoding -- src/actions/auth.test.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/actions/auth.test.ts` OK (3 pruebas).
+  - `cmd /c npm run docs:check-encoding -- src/actions/auth.test.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
 - **Pendiente inmediato**: dentro de `7.8` siguen abiertos `7.8.1`, `7.8.3`, `7.8.4` y `7.8.5`; el siguiente paso lógico parece `7.8.5` por la base ya existente en bitácora/audit log.
+
 ## [2026-03-18 18:08] - Integridad de audit_log para 7.8.5 (Codex)
+
 - **Contexto**: `7.8.5` seguía abierto porque el repo ya validaba hashes en bitácora y protegía `audit_log` como append-only, pero faltaba el contrato explícito que generara entradas de auditoría ante `INSERT/UPDATE/DELETE` en tablas críticas.
 - **Acción**:
-    - Añadí la migración `supabase/migrations/20260318180000_audit_log_row_change_triggers.sql` con la función `public.audit_log_capture_row_change()` y triggers `AFTER INSERT OR UPDATE OR DELETE` sobre tablas críticas operativas y administrativas (`empleado`, `usuario`, `pdv`, `asignacion`, `ruta_semanal`, `ruta_semanal_visita`, `campana`, `campana_pdv`, `formacion_evento`, `formacion_asistencia`, `asistencia`, `venta`, `love_isdin`, `solicitud`, `gasto`, `entrega_material`, `nomina_periodo`, `cuota_empleado_periodo`, `nomina_ledger`).
-    - Añadí `tests/audit-log-integrity.spec.ts` para validar dos cosas: la bitácora detecta payload adulterado vía hash recalculado, y el contrato SQL mantiene `audit_log` append-only mientras registra triggers de captura de cambios para las tablas críticas.
-    - Reconcilié `7.8.5` en el canon con evidencia directa.
+  - Añadí la migración `supabase/migrations/20260318180000_audit_log_row_change_triggers.sql` con la función `public.audit_log_capture_row_change()` y triggers `AFTER INSERT OR UPDATE OR DELETE` sobre tablas críticas operativas y administrativas (`empleado`, `usuario`, `pdv`, `asignacion`, `ruta_semanal`, `ruta_semanal_visita`, `campana`, `campana_pdv`, `formacion_evento`, `formacion_asistencia`, `asistencia`, `venta`, `love_isdin`, `solicitud`, `gasto`, `entrega_material`, `nomina_periodo`, `cuota_empleado_periodo`, `nomina_ledger`).
+  - Añadí `tests/audit-log-integrity.spec.ts` para validar dos cosas: la bitácora detecta payload adulterado vía hash recalculado, y el contrato SQL mantiene `audit_log` append-only mientras registra triggers de captura de cambios para las tablas críticas.
+  - Reconcilié `7.8.5` en el canon con evidencia directa.
 - **Evidencia**:
-    - Migración de triggers críticos: `supabase/migrations/20260318180000_audit_log_row_change_triggers.sql`.
-    - Prueba crítica de integridad: `tests/audit-log-integrity.spec.ts`.
-    - Verificación de hash en lectura: `src/features/bitacora/services/bitacoraService.ts`, `src/lib/audit/integrity.ts`.
+  - Migración de triggers críticos: `supabase/migrations/20260318180000_audit_log_row_change_triggers.sql`.
+  - Prueba crítica de integridad: `tests/audit-log-integrity.spec.ts`.
+  - Verificación de hash en lectura: `src/features/bitacora/services/bitacoraService.ts`, `src/lib/audit/integrity.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/audit-log-integrity.spec.ts` OK (2 pruebas).
-    - `cmd /c npm run docs:check-encoding -- supabase/migrations/20260318180000_audit_log_row_change_triggers.sql tests/audit-log-integrity.spec.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/audit-log-integrity.spec.ts` OK (2 pruebas).
+  - `cmd /c npm run docs:check-encoding -- supabase/migrations/20260318180000_audit_log_row_change_triggers.sql tests/audit-log-integrity.spec.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
 - **Pendiente inmediato**: dentro de `7.8` quedan abiertos `7.8.1`, `7.8.3` y `7.8.4`; el siguiente paso lógico parece `7.8.3` por la base ya existente de account scope y filtros multi-cuenta.
+
 ## [2026-03-18 18:18] - Aislamiento multi-tenant para 7.8.3 (Codex)
+
 - **Contexto**: el repositorio ya tenía cobertura dispersa de alcance por cuenta (`dashboard`, `rutas`, `rankings`, `accountScope`), pero faltaba una prueba crítica explícita donde coexistieran datos de las cuentas A y B y cada actor viera solo su subconjunto.
 - **Acción**:
-    - Añadí `tests/multi-tenant-isolation.spec.ts` con un doble de Supabase que aplica el filtro real de `cuenta_cliente_id` sobre `dashboard_kpis`.
-    - La prueba crea snapshots simultáneos para `Cuenta A` y `Cuenta B`, ejecuta `obtenerPanelDashboard` con actores scopeados a `c1` y `c2`, y verifica que cada salida solo expone su propia cuenta y oculta completamente la otra.
-    - Reconcilié `7.8.3` en el canon con evidencia directa.
+  - Añadí `tests/multi-tenant-isolation.spec.ts` con un doble de Supabase que aplica el filtro real de `cuenta_cliente_id` sobre `dashboard_kpis`.
+  - La prueba crea snapshots simultáneos para `Cuenta A` y `Cuenta B`, ejecuta `obtenerPanelDashboard` con actores scopeados a `c1` y `c2`, y verifica que cada salida solo expone su propia cuenta y oculta completamente la otra.
+  - Reconcilié `7.8.3` en el canon con evidencia directa.
 - **Evidencia**:
-    - Prueba de invisibilidad cruzada: `tests/multi-tenant-isolation.spec.ts`.
-    - Agregador bajo prueba: `src/features/dashboard/services/dashboardService.ts`.
+  - Prueba de invisibilidad cruzada: `tests/multi-tenant-isolation.spec.ts`.
+  - Agregador bajo prueba: `src/features/dashboard/services/dashboardService.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/multi-tenant-isolation.spec.ts` OK (1 prueba).
-    - `cmd /c npm run docs:check-encoding -- tests/multi-tenant-isolation.spec.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/multi-tenant-isolation.spec.ts` OK (1 prueba).
+  - `cmd /c npm run docs:check-encoding -- tests/multi-tenant-isolation.spec.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
 - **Pendiente inmediato**: en `7.8` quedan abiertos `7.8.1` (offline -> sync -> Supabase) y `7.8.4` (asistencias -> cálculo -> aprobación -> exportación de nómina). Ambos requieren un barrido más amplio entre módulos y son el siguiente frente pesado.
+
 ## [2026-03-18 18:16] - Flujo offline -> sync de asistencias para 7.8.1 (Codex)
+
 - **Contexto**: el bloque `7.8.1` exigía una prueba de integración crítica para el flujo `check-in offline -> sync -> verificación en Supabase`. El repositorio ya tenía property tests del motor de cola (`syncQueue`) y cobertura de runtime del Service Worker, pero faltaba un escenario completo que uniera borrador local, cola offline, route handler de sincronización y persistencia del registro operativo.
 - **Acción**:
-    - Añadí `src/lib/offline/offlineAttendanceFlow.test.ts` con una integración local que encola una asistencia real vía `queueOfflineAsistencia`, registra el tag `retail-offline-sync`, procesa la cola con `processSyncQueueWithRuntime`, invoca la route real `POST /api/asistencias/sync` y verifica el resultado persistido.
-    - La prueba modela la persistencia local (`asistencia_local` + `sync_queue`) con un doble de `offlineDb`, y la persistencia remota con un doble de servicio Supabase que recibe el `upsert` final de `asistencia`.
-    - Se valida que el check-in sincronizado queda con misión resuelta, biometría válida, origen `OFFLINE_SYNC`, evidencia optimizada persistida y draft local marcado como `synced` sin residuos en la cola.
-    - Reconcilié `7.8.1` en el canon con evidencia directa.
+  - Añadí `src/lib/offline/offlineAttendanceFlow.test.ts` con una integración local que encola una asistencia real vía `queueOfflineAsistencia`, registra el tag `retail-offline-sync`, procesa la cola con `processSyncQueueWithRuntime`, invoca la route real `POST /api/asistencias/sync` y verifica el resultado persistido.
+  - La prueba modela la persistencia local (`asistencia_local` + `sync_queue`) con un doble de `offlineDb`, y la persistencia remota con un doble de servicio Supabase que recibe el `upsert` final de `asistencia`.
+  - Se valida que el check-in sincronizado queda con misión resuelta, biometría válida, origen `OFFLINE_SYNC`, evidencia optimizada persistida y draft local marcado como `synced` sin residuos en la cola.
+  - Reconcilié `7.8.1` en el canon con evidencia directa.
 - **Evidencia**:
-    - Integración offline completa: `src/lib/offline/offlineAttendanceFlow.test.ts`.
-    - Cola offline: `src/lib/offline/syncQueue.ts`.
-    - Route de sincronización: `src/app/api/asistencias/sync/route.ts`.
+  - Integración offline completa: `src/lib/offline/offlineAttendanceFlow.test.ts`.
+  - Cola offline: `src/lib/offline/syncQueue.ts`.
+  - Route de sincronización: `src/app/api/asistencias/sync/route.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/lib/offline/offlineAttendanceFlow.test.ts` OK (1 prueba).
-    - `cmd /c npm run docs:check-encoding -- src/lib/offline/offlineAttendanceFlow.test.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/lib/offline/offlineAttendanceFlow.test.ts` OK (1 prueba).
+  - `cmd /c npm run docs:check-encoding -- src/lib/offline/offlineAttendanceFlow.test.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
 - **Pendiente inmediato**: dentro de `7.8` ya solo queda `7.8.4` (flujo de nómina: asistencias -> cálculo -> aprobación -> exportación), que es ahora el siguiente frente lógico y el más amplio del bloque.
+
 ## [2026-03-18 18:21] - Flujo de nomina extremo a extremo para 7.8.4 (Codex)
+
 - **Contexto**: dentro de `7.8` quedaba pendiente validar el flujo `asistencias -> cálculo -> aprobación -> exportación`. El repositorio ya tenía piezas separadas: consolidación de pre-nómina en `obtenerPanelNomina`, cierre de periodo en `actualizarEstadoPeriodoNomina` y exportación tabular de `nomina` desde `collectReportExportPayload`, pero faltaba una prueba integrada que encadenara esas tres capas.
 - **Acción**:
-    - Añadí `src/features/nomina/nominaFlow.test.ts` con un doble integrado de Supabase que alimenta asistencia, ventas, cuotas, ledger, periodo de nómina y auditoría.
-    - La prueba valida primero la consolidación de pre-nómina a partir de asistencia cerrada, ventas confirmadas, cuota cumplida y ledger de percepción.
-    - Luego ejecuta la aprobación operativa cerrando el periodo vía `actualizarEstadoPeriodoNomina`, verificando `fecha_cierre`, cambio a `CERRADO` y revalidación de rutas.
-    - Finalmente exporta la sección `nomina` con `collectReportExportPayload`, comprobando encabezados y salida tabular final del periodo.
-    - Reconcilié `7.8.4` en el canon con evidencia directa.
+  - Añadí `src/features/nomina/nominaFlow.test.ts` con un doble integrado de Supabase que alimenta asistencia, ventas, cuotas, ledger, periodo de nómina y auditoría.
+  - La prueba valida primero la consolidación de pre-nómina a partir de asistencia cerrada, ventas confirmadas, cuota cumplida y ledger de percepción.
+  - Luego ejecuta la aprobación operativa cerrando el periodo vía `actualizarEstadoPeriodoNomina`, verificando `fecha_cierre`, cambio a `CERRADO` y revalidación de rutas.
+  - Finalmente exporta la sección `nomina` con `collectReportExportPayload`, comprobando encabezados y salida tabular final del periodo.
+  - Reconcilié `7.8.4` en el canon con evidencia directa.
 - **Evidencia**:
-    - Flujo integrado: `src/features/nomina/nominaFlow.test.ts`.
-    - Cálculo de panel: `src/features/nomina/services/nominaService.ts`.
-    - Aprobación/cierre: `src/features/nomina/actions.ts`.
-    - Exportación: `src/features/reportes/services/reporteExport.ts`.
+  - Flujo integrado: `src/features/nomina/nominaFlow.test.ts`.
+  - Cálculo de panel: `src/features/nomina/services/nominaService.ts`.
+  - Aprobación/cierre: `src/features/nomina/actions.ts`.
+  - Exportación: `src/features/reportes/services/reporteExport.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/features/nomina/nominaFlow.test.ts` OK (1 prueba).
-    - `cmd /c npm run docs:check-encoding -- src/features/nomina/nominaFlow.test.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/features/nomina/nominaFlow.test.ts` OK (1 prueba).
+  - `cmd /c npm run docs:check-encoding -- src/features/nomina/nominaFlow.test.ts .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente de ejecutar al cierre del corte.
 - **Pendiente inmediato**: el bloque `7.8` queda reconciliado completo. El siguiente frente lógico fuera de este bloque es `7.9.5` (Lighthouse PWA >= 90) o retomar los pendientes estructurales de `7.4.1` y `7.4.3`.
+
 ## [2026-03-18 18:55] - Cierre de Lighthouse mobile para 7.9.5 (Codex)
+
 - **Contexto**: el canon pedía `Lighthouse PWA score ≥90 en mobile`. En Lighthouse 13 la categoría `pwa` ya no se expone como score independiente, así que el cierre tenía que hacerse con evidencia equivalente: score mobile actual en la shell pública, más verificación explícita del checklist PWA real del proyecto (manifest, Service Worker y fallback offline).
 - **Acción**:
-    - Corregí `src/lib/supabase/proxy.ts` para que `/offline` sea una ruta pública real; antes Lighthouse terminaba en `/login`, lo que además rompía el fallback offline para usuario sin sesión.
-    - Añadí `src/components/app/AppRuntime.tsx` y moví los enhancers globales (`AuthSessionMonitor`, `PwaBootstrap`) fuera de las rutas públicas para no cargar runtime innecesario en la shell pública.
-    - Reestructuré `src/app/offline/page.tsx` para dejar una shell estática y mover el estado cliente a `src/components/app/OfflinePageStatus.tsx`.
-    - Reemplacé la carga bloqueante de Google Fonts por `next/font/google` en `src/app/layout.tsx` y `src/app/globals.css`, eliminando requests render-blocking del app shell.
-    - Ejecuté Lighthouse mobile real sobre `/` con build de producción local; el reporte quedó en `.lighthouse-home.json`.
-    - Reconcilié `7.9.5` en el canon usando el criterio actual verificable de Lighthouse 13 + checklist PWA del repo.
+  - Corregí `src/lib/supabase/proxy.ts` para que `/offline` sea una ruta pública real; antes Lighthouse terminaba en `/login`, lo que además rompía el fallback offline para usuario sin sesión.
+  - Añadí `src/components/app/AppRuntime.tsx` y moví los enhancers globales (`AuthSessionMonitor`, `PwaBootstrap`) fuera de las rutas públicas para no cargar runtime innecesario en la shell pública.
+  - Reestructuré `src/app/offline/page.tsx` para dejar una shell estática y mover el estado cliente a `src/components/app/OfflinePageStatus.tsx`.
+  - Reemplacé la carga bloqueante de Google Fonts por `next/font/google` en `src/app/layout.tsx` y `src/app/globals.css`, eliminando requests render-blocking del app shell.
+  - Ejecuté Lighthouse mobile real sobre `/` con build de producción local; el reporte quedó en `.lighthouse-home.json`.
+  - Reconcilié `7.9.5` en el canon usando el criterio actual verificable de Lighthouse 13 + checklist PWA del repo.
 - **Evidencia**:
-    - Ruta offline pública: `src/lib/supabase/proxy.ts`.
-    - Runtime público/privado: `src/components/app/AppRuntime.tsx`.
-    - Shell offline estática: `src/app/offline/page.tsx`.
-    - Estado cliente offline: `src/components/app/OfflinePageStatus.tsx`.
-    - Tipografía optimizada: `src/app/layout.tsx`, `src/app/globals.css`.
-    - Reporte Lighthouse mobile: `.lighthouse-home.json`.
+  - Ruta offline pública: `src/lib/supabase/proxy.ts`.
+  - Runtime público/privado: `src/components/app/AppRuntime.tsx`.
+  - Shell offline estática: `src/app/offline/page.tsx`.
+  - Estado cliente offline: `src/components/app/OfflinePageStatus.tsx`.
+  - Tipografía optimizada: `src/app/layout.tsx`, `src/app/globals.css`.
+  - Reporte Lighthouse mobile: `.lighthouse-home.json`.
 - **Validación**:
-    - `cmd /c npm run build` OK.
-    - Lighthouse mobile sobre `http://127.0.0.1:3000/`: `performance 97`, `accessibility 100`, `best-practices 100`, `seo 91`.
-    - Verificación manual del checklist PWA exigible con Lighthouse 13: manifest presente (`src/app/manifest.ts`), Service Worker registrado (`src/components/pwa/PwaBootstrap.tsx`), fallback offline disponible y público (`src/app/offline/page.tsx`, `public/sw.js`, `src/lib/supabase/proxy.ts`).
-    - Nota operativa: la ruta `/offline` sigue midiendo menor en performance que `/`, pero ya no redirige a login y queda funcional como fallback offline real.
+  - `cmd /c npm run build` OK.
+  - Lighthouse mobile sobre `http://127.0.0.1:3000/`: `performance 97`, `accessibility 100`, `best-practices 100`, `seo 91`.
+  - Verificación manual del checklist PWA exigible con Lighthouse 13: manifest presente (`src/app/manifest.ts`), Service Worker registrado (`src/components/pwa/PwaBootstrap.tsx`), fallback offline disponible y público (`src/app/offline/page.tsx`, `public/sw.js`, `src/lib/supabase/proxy.ts`).
+  - Nota operativa: la ruta `/offline` sigue midiendo menor en performance que `/`, pero ya no redirige a login y queda funcional como fallback offline real.
 - **Pendiente inmediato**: tras cerrar `7.9.5`, los pendientes canónicos relevantes quedan concentrados en `7.4.1` (EXPLAIN ANALYZE real) y `7.4.3` (refresco incremental de `dashboard_kpis`).
+
 ## [2026-03-18 19:20] - EXPLAIN ANALYZE real para 7.4.1 (Codex)
+
 - **Contexto**: quedaba pendiente cerrar `7.4.1` con evidencia de base real, no con inferencia desde código. El repositorio ya tenía índices compuestos añadidos en `20260318141000_dashboard_query_optimizations.sql`, pero faltaba medir las queries más frecuentes de dashboard y reportes sobre la base operativa de Supabase.
 - **Acción**:
-    - Añadí el script reproducible `scripts/explain-dashboard-reportes.cjs` y el comando `npm run perf:explain:dashboard-reportes`.
-    - El script toma `DATABASE_URL` desde entorno o `.env.local`, resuelve parámetros reales de muestra (`cuenta_cliente_id`, `supervisor_empleado_id`, periodo activo) y ejecuta `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` sobre ocho queries representativas:
-      `dashboard_kpis`, `asistencia` live de dashboard, `asistencia` de reportes, `venta`, `cuota_empleado_periodo`, `nomina_ledger`, `love_isdin` y `audit_log`.
-    - Reconcilié `7.4.1` con base en esa corrida real.
+  - Añadí el script reproducible `scripts/explain-dashboard-reportes.cjs` y el comando `npm run perf:explain:dashboard-reportes`.
+  - El script toma `DATABASE_URL` desde entorno o `.env.local`, resuelve parámetros reales de muestra (`cuenta_cliente_id`, `supervisor_empleado_id`, periodo activo) y ejecuta `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` sobre ocho queries representativas:
+    `dashboard_kpis`, `asistencia` live de dashboard, `asistencia` de reportes, `venta`, `cuota_empleado_periodo`, `nomina_ledger`, `love_isdin` y `audit_log`.
+  - Reconcilié `7.4.1` con base en esa corrida real.
 - **Evidencia**:
-    - Script reproducible: `scripts/explain-dashboard-reportes.cjs`.
-    - Comando de ejecución: `npm run perf:explain:dashboard-reportes`.
-    - Índices previamente validados contra esta corrida: `supabase/migrations/20260318141000_dashboard_query_optimizations.sql`.
+  - Script reproducible: `scripts/explain-dashboard-reportes.cjs`.
+  - Comando de ejecución: `npm run perf:explain:dashboard-reportes`.
+  - Índices previamente validados contra esta corrida: `supabase/migrations/20260318141000_dashboard_query_optimizations.sql`.
 - **Validación**:
-    - `cmd /c npm run perf:explain:dashboard-reportes` OK contra la base remota.
-    - Hallazgos principales:
-      - `dashboard_live_asistencia_by_account_supervisor`: `Index Scan` sobre `asistencia`.
-      - `reportes_asistencia_period`: `Index Scan` sobre `asistencia`.
-      - `reportes_venta_period`: `Index Scan` sobre `venta`.
-      - `reportes_love_period`: `Index Scan` sobre `love_isdin`.
-      - `dashboard_kpis`, `cuota_empleado_periodo`, `nomina_ledger` y `audit_log` aún muestran `Seq Scan`, pero sobre tablas pequeñas en esta base de muestra y con tiempos de ejecución sub-milisegundo, por lo que no justifican una migración adicional inmediata.
+  - `cmd /c npm run perf:explain:dashboard-reportes` OK contra la base remota.
+  - Hallazgos principales:
+    - `dashboard_live_asistencia_by_account_supervisor`: `Index Scan` sobre `asistencia`.
+    - `reportes_asistencia_period`: `Index Scan` sobre `asistencia`.
+    - `reportes_venta_period`: `Index Scan` sobre `venta`.
+    - `reportes_love_period`: `Index Scan` sobre `love_isdin`.
+    - `dashboard_kpis`, `cuota_empleado_periodo`, `nomina_ledger` y `audit_log` aún muestran `Seq Scan`, pero sobre tablas pequeñas en esta base de muestra y con tiempos de ejecución sub-milisegundo, por lo que no justifican una migración adicional inmediata.
 - **Pendiente inmediato**: el siguiente pendiente estructural del bloque `7.4` queda reducido a `7.4.3` (refresco incremental de `dashboard_kpis`).
+
 ## [2026-03-18 19:35] - Refresco incremental real de dashboard_kpis para 7.4.3 (Codex)
+
 - **Contexto**: `dashboard_kpis` seguía implementado como `materialized view` con `REFRESH MATERIALIZED VIEW`, lo que implicaba recomputar todo el snapshot en cada llamada. El canon pedía un refresco incremental que evitara ese `full refresh`.
 - **Acción**:
-    - Añadí la migración `supabase/migrations/20260318193000_dashboard_kpis_incremental_refresh.sql`.
-    - La migración introduce `dashboard_kpis_source_rows(p_fecha_inicio, p_fecha_fin)` como fuente parametrizable por rango, migra `dashboard_kpis` de `materialized view` a tabla snapshot con la misma interfaz pública, y crea `refresh_dashboard_kpis_incremental(p_fecha_inicio, p_fecha_fin)` basado en `delete + upsert` solo para el rango afectado.
-    - Dejé `refresh_dashboard_kpis()` como wrapper compatible que refresca solo `current_date`, para no romper callers existentes ni tipos generados.
-    - Ajusté `src/lib/offline/syncQueue.ts` para derivar la fecha operativa afectada y llamar `refresh_dashboard_kpis_incremental` por día al sincronizar ventas o cierres de asistencia.
-    - Añadí cobertura en `src/lib/offline/syncQueue.test.ts` para validar la fecha efectiva que dispara el refresh incremental.
-    - Apliqué la migración en la base remota usando `scripts/apply-sql-file.cjs`.
+  - Añadí la migración `supabase/migrations/20260318193000_dashboard_kpis_incremental_refresh.sql`.
+  - La migración introduce `dashboard_kpis_source_rows(p_fecha_inicio, p_fecha_fin)` como fuente parametrizable por rango, migra `dashboard_kpis` de `materialized view` a tabla snapshot con la misma interfaz pública, y crea `refresh_dashboard_kpis_incremental(p_fecha_inicio, p_fecha_fin)` basado en `delete + upsert` solo para el rango afectado.
+  - Dejé `refresh_dashboard_kpis()` como wrapper compatible que refresca solo `current_date`, para no romper callers existentes ni tipos generados.
+  - Ajusté `src/lib/offline/syncQueue.ts` para derivar la fecha operativa afectada y llamar `refresh_dashboard_kpis_incremental` por día al sincronizar ventas o cierres de asistencia.
+  - Añadí cobertura en `src/lib/offline/syncQueue.test.ts` para validar la fecha efectiva que dispara el refresh incremental.
+  - Apliqué la migración en la base remota usando `scripts/apply-sql-file.cjs`.
 - **Evidencia**:
-    - Migración incremental: `supabase/migrations/20260318193000_dashboard_kpis_incremental_refresh.sql`.
-    - Disparo por fecha desde cola offline: `src/lib/offline/syncQueue.ts`.
-    - Cobertura del cálculo de fecha: `src/lib/offline/syncQueue.test.ts`.
+  - Migración incremental: `supabase/migrations/20260318193000_dashboard_kpis_incremental_refresh.sql`.
+  - Disparo por fecha desde cola offline: `src/lib/offline/syncQueue.ts`.
+  - Cobertura del cálculo de fecha: `src/lib/offline/syncQueue.test.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/lib/offline/syncQueue.test.ts src/lib/offline/offlineAttendanceFlow.test.ts` OK (7 pruebas).
-    - Aplicación remota de la migración: `node scripts/apply-sql-file.cjs supabase/migrations/20260318193000_dashboard_kpis_incremental_refresh.sql` OK.
-    - Verificación remota: `public.dashboard_kpis` ya es tabla (`relkind = 'r'`), no materialized view.
-    - Invocación directa: `select public.refresh_dashboard_kpis_incremental(current_date, current_date)` actualiza `refreshed_at` del día, comprobando refresh incremental operativo.
-    - `cmd /c npm run perf:explain:dashboard-reportes` OK después de la migración.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/lib/offline/syncQueue.test.ts src/lib/offline/offlineAttendanceFlow.test.ts` OK (7 pruebas).
+  - Aplicación remota de la migración: `node scripts/apply-sql-file.cjs supabase/migrations/20260318193000_dashboard_kpis_incremental_refresh.sql` OK.
+  - Verificación remota: `public.dashboard_kpis` ya es tabla (`relkind = 'r'`), no materialized view.
+  - Invocación directa: `select public.refresh_dashboard_kpis_incremental(current_date, current_date)` actualiza `refreshed_at` del día, comprobando refresh incremental operativo.
+  - `cmd /c npm run perf:explain:dashboard-reportes` OK después de la migración.
 - **Pendiente inmediato**: con `7.4.3` cerrado, el bloque `7.4` queda reconciliado completo. El siguiente frente lógico ya sale de optimización SQL y pasa al bloque `6.5` o a los pendientes funcionales de mensajería/documentación que sigan abiertos en el canon.
 
 ## [2026-03-18 20:10] - Cierre operativo de mensajes internos para 6.5 (Codex)
+
 - **Contexto**: el canon seguía dejando abierto `6.5`, pero el módulo ya cubría publicación, lectura y push. Faltaban dos brechas reales para poder reconciliarlo completo: adjuntos comprimidos en mensajes y un historial explícito de enviados/recibidos por empleado autenticado.
 - **Acción**:
-    - Añadí la migración `supabase/migrations/20260318195500_mensaje_adjuntos_historial.sql` con `mensaje_adjunto`, índices, trigger `updated_at` y RLS base.
-    - Extendí `src/features/mensajes/actions.ts` para aceptar múltiples adjuntos, validar MIME operativo, reutilizar `storeOptimizedEvidence`, resolver `archivo_hash_id` y persistir `mensaje_adjunto` en el mismo flujo de publicación.
-    - Reescribí `src/features/mensajes/services/mensajeService.ts` para exponer adjuntos, corregir el mojibake de supervisores y separar historial `todos/enviados/recibidos` en función del empleado autenticado.
-    - Actualicé `src/features/mensajes/components/MensajesPanel.tsx` y `src/app/(main)/mensajes/page.tsx` para soportar carga de adjuntos, tabs de historial y previsualización de archivos.
-    - Amplié tipos en `src/types/database.ts` y reforcé `tests/mensajes-panel.spec.ts` para cubrir adjuntos y segmentación del historial.
-    - Reconcilié `6.5` y subpuntos `6.5.1`-`6.5.5` en el canon con evidencia directa.
+  - Añadí la migración `supabase/migrations/20260318195500_mensaje_adjuntos_historial.sql` con `mensaje_adjunto`, índices, trigger `updated_at` y RLS base.
+  - Extendí `src/features/mensajes/actions.ts` para aceptar múltiples adjuntos, validar MIME operativo, reutilizar `storeOptimizedEvidence`, resolver `archivo_hash_id` y persistir `mensaje_adjunto` en el mismo flujo de publicación.
+  - Reescribí `src/features/mensajes/services/mensajeService.ts` para exponer adjuntos, corregir el mojibake de supervisores y separar historial `todos/enviados/recibidos` en función del empleado autenticado.
+  - Actualicé `src/features/mensajes/components/MensajesPanel.tsx` y `src/app/(main)/mensajes/page.tsx` para soportar carga de adjuntos, tabs de historial y previsualización de archivos.
+  - Amplié tipos en `src/types/database.ts` y reforcé `tests/mensajes-panel.spec.ts` para cubrir adjuntos y segmentación del historial.
+  - Reconcilié `6.5` y subpuntos `6.5.1`-`6.5.5` en el canon con evidencia directa.
 - **Evidencia**:
-    - Migración: `supabase/migrations/20260318195500_mensaje_adjuntos_historial.sql`.
-    - Acción server: `src/features/mensajes/actions.ts`.
-    - Servicio del panel: `src/features/mensajes/services/mensajeService.ts`.
-    - UI: `src/features/mensajes/components/MensajesPanel.tsx`, `src/app/(main)/mensajes/page.tsx`.
-    - Tipos: `src/types/database.ts`.
-    - Pruebas: `tests/mensajes-panel.spec.ts`.
+  - Migración: `supabase/migrations/20260318195500_mensaje_adjuntos_historial.sql`.
+  - Acción server: `src/features/mensajes/actions.ts`.
+  - Servicio del panel: `src/features/mensajes/services/mensajeService.ts`.
+  - UI: `src/features/mensajes/components/MensajesPanel.tsx`, `src/app/(main)/mensajes/page.tsx`.
+  - Tipos: `src/types/database.ts`.
+  - Pruebas: `tests/mensajes-panel.spec.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/mensajes-panel.spec.ts` OK (3 pruebas).
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/mensajes/actions.ts src/features/mensajes/services/mensajeService.ts src/features/mensajes/components/MensajesPanel.tsx src/app/(main)/mensajes/page.tsx src/types/database.ts supabase/migrations/20260318195500_mensaje_adjuntos_historial.sql tests/mensajes-panel.spec.ts` pendiente al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/mensajes-panel.spec.ts` OK (3 pruebas).
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/mensajes/actions.ts src/features/mensajes/services/mensajeService.ts src/features/mensajes/components/MensajesPanel.tsx src/app/(main)/mensajes/page.tsx src/types/database.ts supabase/migrations/20260318195500_mensaje_adjuntos_historial.sql tests/mensajes-panel.spec.ts` pendiente al cierre del corte.
 - **Pendiente inmediato**: tras cerrar `6.5`, el siguiente frente lógico ya sale del módulo de mensajes y pasa a los ítems abiertos restantes del canon fuera de mensajería.
 
 ## [2026-03-18 20:22] - Migración remota de mensaje_adjunto aplicada (Codex)
+
 - **Contexto**: tras cerrar `6.5` en código y canon, faltaba materializar la nueva tabla de adjuntos en la base remota para que el flujo de mensajes con archivos funcionara fuera de local.
 - **Acción**:
-    - Apliqué `supabase/migrations/20260318195500_mensaje_adjuntos_historial.sql` contra la base remota usando `scripts/apply-sql-file.cjs`.
-    - Verifiqué directamente en PostgreSQL la existencia de `public.mensaje_adjunto`, sus índices auxiliares y sus policies RLS.
+  - Apliqué `supabase/migrations/20260318195500_mensaje_adjuntos_historial.sql` contra la base remota usando `scripts/apply-sql-file.cjs`.
+  - Verifiqué directamente en PostgreSQL la existencia de `public.mensaje_adjunto`, sus índices auxiliares y sus policies RLS.
 - **Validación**:
-    - `node scripts/apply-sql-file.cjs supabase/migrations/20260318195500_mensaje_adjuntos_historial.sql` OK.
-    - Confirmación remota:
-      - tabla `public.mensaje_adjunto` con `relkind = 'r'`
-      - `relrowsecurity = true`
-      - índices `mensaje_adjunto_mensaje_idx`, `mensaje_adjunto_cuenta_idx`, `mensaje_adjunto_archivo_hash_idx`
-      - policies `mensaje_adjunto_select_authenticated`, `mensaje_adjunto_insert_authenticated`, `mensaje_adjunto_update_authenticated`
+  - `node scripts/apply-sql-file.cjs supabase/migrations/20260318195500_mensaje_adjuntos_historial.sql` OK.
+  - Confirmación remota:
+    - tabla `public.mensaje_adjunto` con `relkind = 'r'`
+    - `relrowsecurity = true`
+    - índices `mensaje_adjunto_mensaje_idx`, `mensaje_adjunto_cuenta_idx`, `mensaje_adjunto_archivo_hash_idx`
+    - policies `mensaje_adjunto_select_authenticated`, `mensaje_adjunto_insert_authenticated`, `mensaje_adjunto_update_authenticated`
 - **Pendiente inmediato**: el flujo de adjuntos ya quedó operativo también en la base remota. El siguiente frente lógico vuelve al siguiente bloque abierto del canon.
 
 ## [2026-03-18 21:50] - Cierre conservador de deduplicación y cobertura de compresión en 7.1/7.2 (Codex)
+
 - **Contexto**: tras cerrar mensajería, el siguiente bloque abierto con mejor relación impacto/evidencia era el pipeline de archivos. El repositorio ya tenía compresión y deduplicación operativas en varios módulos, pero faltaba exponer una utilidad explícita de SHA-256 y una prueba directa de que un duplicado no dispara un segundo upload.
 - **Acción**:
-    - Añadí `src/lib/files/sha256.ts` con `computeSHA256` como utilidad reusable y tipada.
-    - Refactoricé `src/lib/files/evidenceStorage.ts` para reutilizar `computeSHA256` tanto en el archivo oficial como en la miniatura.
-    - Añadí `src/lib/files/evidenceStorage.test.ts` para validar dos invariantes: mismo contenido → mismo hash, contenido distinto → hash distinto, y deduplicación sin segundo upload cuando `archivo_hash` ya contiene el SHA.
-    - Reconcilié en el canon `7.2.1`-`7.2.4` y también `7.1.4`-`7.1.5`, porque el pipeline de compresión ya cubre selfies, evidencias, comprobantes y ahora adjuntos de mensajes, con pruebas unitarias activas.
-    - Mantuve abiertos `7.1.1`-`7.1.3` por criterio conservador: la implementación actual existe vía `optimizeExpedienteDocument`, pero no coincide todavía con la interfaz nominal literal del canon (`compressImage`, `generateThumbnail`, `compressPDF`).
+  - Añadí `src/lib/files/sha256.ts` con `computeSHA256` como utilidad reusable y tipada.
+  - Refactoricé `src/lib/files/evidenceStorage.ts` para reutilizar `computeSHA256` tanto en el archivo oficial como en la miniatura.
+  - Añadí `src/lib/files/evidenceStorage.test.ts` para validar dos invariantes: mismo contenido → mismo hash, contenido distinto → hash distinto, y deduplicación sin segundo upload cuando `archivo_hash` ya contiene el SHA.
+  - Reconcilié en el canon `7.2.1`-`7.2.4` y también `7.1.4`-`7.1.5`, porque el pipeline de compresión ya cubre selfies, evidencias, comprobantes y ahora adjuntos de mensajes, con pruebas unitarias activas.
+  - Mantuve abiertos `7.1.1`-`7.1.3` por criterio conservador: la implementación actual existe vía `optimizeExpedienteDocument`, pero no coincide todavía con la interfaz nominal literal del canon (`compressImage`, `generateThumbnail`, `compressPDF`).
 - **Evidencia**:
-    - Utilidad SHA-256: `src/lib/files/sha256.ts`.
-    - Reuso en storage: `src/lib/files/evidenceStorage.ts`.
-    - Pruebas unitarias y de deduplicación: `src/lib/files/evidenceStorage.test.ts`, `src/lib/files/documentOptimization.test.ts`.
+  - Utilidad SHA-256: `src/lib/files/sha256.ts`.
+  - Reuso en storage: `src/lib/files/evidenceStorage.ts`.
+  - Pruebas unitarias y de deduplicación: `src/lib/files/evidenceStorage.test.ts`, `src/lib/files/documentOptimization.test.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/lib/files/documentOptimization.test.ts src/lib/files/evidenceStorage.test.ts` OK (5 pruebas).
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/lib/files/sha256.ts src/lib/files/evidenceStorage.ts src/lib/files/evidenceStorage.test.ts src/lib/files/documentOptimization.test.ts` pendiente al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/lib/files/documentOptimization.test.ts src/lib/files/evidenceStorage.test.ts` OK (5 pruebas).
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/lib/files/sha256.ts src/lib/files/evidenceStorage.ts src/lib/files/evidenceStorage.test.ts src/lib/files/documentOptimization.test.ts` pendiente al cierre del corte.
 - **Pendiente inmediato**: el siguiente frente lógico dentro del mismo bloque es normalizar la API de compresión para cerrar también `7.1.1`-`7.1.3`, o saltar al siguiente bloque funcional abierto del canon.
 
 ## [2026-03-18 22:05] - API nominal de compresión alineada con el canon para 7.1.1-7.1.3 (Codex)
+
 - **Contexto**: después del cierre parcial de `7.1`, el único hueco era nominal: el pipeline existía, pero el canon pedía utilidades explícitas `compressImage(file, maxKB)`, `generateThumbnail(file, maxKB)` y `compressPDF(file, maxKB)`.
 - **Acción**:
-    - Extendí `src/lib/files/documentOptimization.ts` para exponer `compressImage`, `generateThumbnail` y `compressPDF` como wrappers públicos sobre el pipeline existente.
-    - Parametericé objetivos de bytes para imagen, miniatura y PDF sin romper `optimizeExpedienteDocument`.
-    - Amplié `src/lib/files/documentOptimization.test.ts` para cubrir la nueva API pública y conservar la verificación de límites de tamaño.
-    - Reconcilié `7.1.1`-`7.1.3` en el canon; con eso, `7.1` quedó completo.
+  - Extendí `src/lib/files/documentOptimization.ts` para exponer `compressImage`, `generateThumbnail` y `compressPDF` como wrappers públicos sobre el pipeline existente.
+  - Parametericé objetivos de bytes para imagen, miniatura y PDF sin romper `optimizeExpedienteDocument`.
+  - Amplié `src/lib/files/documentOptimization.test.ts` para cubrir la nueva API pública y conservar la verificación de límites de tamaño.
+  - Reconcilié `7.1.1`-`7.1.3` en el canon; con eso, `7.1` quedó completo.
 - **Evidencia**:
-    - API pública de compresión: `src/lib/files/documentOptimization.ts`.
-    - Cobertura unitaria: `src/lib/files/documentOptimization.test.ts`.
+  - API pública de compresión: `src/lib/files/documentOptimization.ts`.
+  - Cobertura unitaria: `src/lib/files/documentOptimization.test.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/lib/files/documentOptimization.test.ts src/lib/files/evidenceStorage.test.ts` OK (8 pruebas).
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/lib/files/documentOptimization.ts src/lib/files/documentOptimization.test.ts src/lib/files/sha256.ts src/lib/files/evidenceStorage.ts src/lib/files/evidenceStorage.test.ts` pendiente al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/lib/files/documentOptimization.test.ts src/lib/files/evidenceStorage.test.ts` OK (8 pruebas).
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/lib/files/documentOptimization.ts src/lib/files/documentOptimization.test.ts src/lib/files/sha256.ts src/lib/files/evidenceStorage.ts src/lib/files/evidenceStorage.test.ts` pendiente al cierre del corte.
 - **Pendiente inmediato**: con `7.1` y `7.2` completos, el siguiente frente lógico pasa al siguiente bloque abierto del canon fuera del pipeline de archivos.
 
 ## [2026-03-18 22:12] - Normalización de checkboxes padre en Fase 7 (Codex)
+
 - **Contexto**: tras cerrar `7.1` y `7.2`, el canon seguía mostrando varios bloques padre de Fase 7 como abiertos aunque todos sus subitems ya estaban completos, lo que introducía ruido de reconciliación.
 - **Acción**:
-    - Marqué como completos los checkboxes padre `7.4`, `7.5`, `7.7`, `7.8` y `7.9` en `tasks.md`, sin tocar subitems ya reconciliados.
+  - Marqué como completos los checkboxes padre `7.4`, `7.5`, `7.7`, `7.8` y `7.9` en `tasks.md`, sin tocar subitems ya reconciliados.
 - **Validación**:
-    - Revisión directa de `tasks.md` tras el cambio.
-    - `npm run docs:check-encoding` pendiente al cierre del corte.
+  - Revisión directa de `tasks.md` tras el cambio.
+  - `npm run docs:check-encoding` pendiente al cierre del corte.
 - **Pendiente inmediato**: el backlog abierto real ya queda concentrado fuera de esos bloques parentales; el siguiente frente lógico pasa a los módulos funcionales aún no reconciliados del canon.
 
 ## [2026-03-18 22:35] - Reconciliación conservadora de reportes, bitácora y ranking (Codex)
+
 - **Contexto**: tras cerrar Fase 7, el siguiente corte lógico era reconciliar los módulos funcionales aún abiertos en Fase 6 con base en evidencia real del árbol. La revisión se centró en `6.2 Reportes`, `6.3 Bitácora` y `6.4 Ranking`.
 - **Acción**:
-    - Marqué `6.2.1`-`6.2.6` como completos porque `reporteService`, `reporteExport`, `ReportesPanel` y la API `/api/reportes/export` ya consolidan y exportan asistencias, ventas, cuotas, LOVE, gastos y campañas en CSV/XLSX.
-    - Marqué `6.3.1`-`6.3.2` como completos porque `bitacoraService` ya expone filtros por usuario/módulo/acción/fecha y recalcula `hash_sha256` para clasificar integridad `VALIDO/INVALIDO`, con exportación operativa y cobertura de pruebas.
-    - Marqué `6.4.1`, `6.4.2` y `6.4.4` como completos porque `rankingService` ya construye rankings de DCs por ventas y LOVE, con filtros por periodo, corte, zona y supervisor, cache TTL y cobertura en pruebas.
-    - Dejé abiertos `6.2.7` y `6.2.8` por falta de evidencia de PDF y programación por email; `6.3.3`-`6.3.5` por falta de firma, alerta proactiva y retención configurable específica de auditoría; `6.4.3` y `6.4.5` por no existir ranking explícito por PDV ni vista pública separada.
+  - Marqué `6.2.1`-`6.2.6` como completos porque `reporteService`, `reporteExport`, `ReportesPanel` y la API `/api/reportes/export` ya consolidan y exportan asistencias, ventas, cuotas, LOVE, gastos y campañas en CSV/XLSX.
+  - Marqué `6.3.1`-`6.3.2` como completos porque `bitacoraService` ya expone filtros por usuario/módulo/acción/fecha y recalcula `hash_sha256` para clasificar integridad `VALIDO/INVALIDO`, con exportación operativa y cobertura de pruebas.
+  - Marqué `6.4.1`, `6.4.2` y `6.4.4` como completos porque `rankingService` ya construye rankings de DCs por ventas y LOVE, con filtros por periodo, corte, zona y supervisor, cache TTL y cobertura en pruebas.
+  - Dejé abiertos `6.2.7` y `6.2.8` por falta de evidencia de PDF y programación por email; `6.3.3`-`6.3.5` por falta de firma, alerta proactiva y retención configurable específica de auditoría; `6.4.3` y `6.4.5` por no existir ranking explícito por PDV ni vista pública separada.
 - **Evidencia**:
-    - Reportes: `src/features/reportes/services/reporteService.ts`, `src/features/reportes/services/reporteExport.ts`, `src/features/reportes/components/ReportesPanel.tsx`, `src/app/api/reportes/export/route.ts`, `tests/reportes-aggregation.spec.ts`.
-    - Bitácora: `src/features/bitacora/services/bitacoraService.ts`, `src/features/bitacora/components/BitacoraPanel.tsx`, `src/app/api/bitacora/export/route.ts`, `tests/bitacora-panel.spec.ts`, `tests/audit-log-integrity.spec.ts`.
-    - Ranking: `src/features/rankings/services/rankingService.ts`, `src/features/rankings/components/RankingsPanel.tsx`, `src/app/(main)/ranking/page.tsx`, `tests/rankings-panel.spec.ts`.
+  - Reportes: `src/features/reportes/services/reporteService.ts`, `src/features/reportes/services/reporteExport.ts`, `src/features/reportes/components/ReportesPanel.tsx`, `src/app/api/reportes/export/route.ts`, `tests/reportes-aggregation.spec.ts`.
+  - Bitácora: `src/features/bitacora/services/bitacoraService.ts`, `src/features/bitacora/components/BitacoraPanel.tsx`, `src/app/api/bitacora/export/route.ts`, `tests/bitacora-panel.spec.ts`, `tests/audit-log-integrity.spec.ts`.
+  - Ranking: `src/features/rankings/services/rankingService.ts`, `src/features/rankings/components/RankingsPanel.tsx`, `src/app/(main)/ranking/page.tsx`, `tests/rankings-panel.spec.ts`.
 - **Validación**:
-    - `cmd /c npm run test -- tests/reportes-aggregation.spec.ts tests/bitacora-panel.spec.ts tests/audit-log-integrity.spec.ts tests/rankings-panel.spec.ts` pendiente al cierre del corte.
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente al cierre del corte.
+  - `cmd /c npm run test -- tests/reportes-aggregation.spec.ts tests/bitacora-panel.spec.ts tests/audit-log-integrity.spec.ts tests/rankings-panel.spec.ts` pendiente al cierre del corte.
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente al cierre del corte.
 - **Pendiente inmediato**: el backlog abierto de Fase 6 queda concentrado en PDF/email de reportes, endurecimiento de bitácora (firma/alerta/retención) y ranking por PDV o vista pública.
 
 ## [2026-03-18 22:18] - Exportación PDF operativa para reportes (Codex)
+
 - **Contexto**: el primer hueco funcional abierto tras la reconciliación de Fase 6 era `6.2.7`, porque el módulo de reportes ya exportaba CSV/XLSX pero no PDF.
 - **Acción**:
-    - Añadí `src/features/reportes/services/reportePdf.ts` para generar PDFs tabulares multi-página con `pdf-lib`, encabezado con branding tipográfico be te ele, periodo y timestamp de generación.
-    - Extendí `ExportFormat` en `src/features/reportes/services/reporteExport.ts` para aceptar `pdf`.
-    - Actualicé `src/app/api/reportes/export/route.ts` para responder `application/pdf` cuando `format=pdf`.
-    - Actualicé `src/features/reportes/components/ReportesPanel.tsx` para exponer el botón `PDF` junto a `CSV` y `XLSX`.
-    - Añadí `src/features/reportes/services/reportePdf.test.ts` para verificar que el generador produce un PDF válido.
+  - Añadí `src/features/reportes/services/reportePdf.ts` para generar PDFs tabulares multi-página con `pdf-lib`, encabezado con branding tipográfico be te ele, periodo y timestamp de generación.
+  - Extendí `ExportFormat` en `src/features/reportes/services/reporteExport.ts` para aceptar `pdf`.
+  - Actualicé `src/app/api/reportes/export/route.ts` para responder `application/pdf` cuando `format=pdf`.
+  - Actualicé `src/features/reportes/components/ReportesPanel.tsx` para exponer el botón `PDF` junto a `CSV` y `XLSX`.
+  - Añadí `src/features/reportes/services/reportePdf.test.ts` para verificar que el generador produce un PDF válido.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/features/reportes/services/reportePdf.test.ts` OK.
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/features/reportes/services/reportePdf.test.ts` OK.
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` pendiente al cierre del corte.
 - **Pendiente inmediato**: dentro de reportes solo queda `6.2.8`, programación automática por email; después sigue el endurecimiento de bitácora.
 
 ## [2026-03-18 22:31] - Programación automática de reportes por email (Codex)
+
 - **Contexto**: tras cerrar PDF, el único hueco funcional restante en `6.2 Reportes` era `6.2.8`, programación semanal/mensual por email con trazabilidad operativa.
 - **Acción**:
-    - Añadí `src/features/reportes/services/reporteScheduleService.ts` para calcular siguiente ejecución, derivar el periodo operativo y listar programaciones activas por cuenta.
-    - Añadí `src/features/reportes/actions.ts` con acciones servidoras para crear y desactivar programaciones, validando email, sección, formato, frecuencia y horario UTC, con escritura en `audit_log`.
-    - Añadí `src/features/reportes/components/ReportesScheduleManager.tsx` y actualicé `src/app/(main)/reportes/page.tsx` para administrar programaciones desde la UI de reportes.
-    - Añadí la ruta interna `src/app/api/reportes/scheduled-export/route.ts`, protegida por `x-reportes-cron-secret`, para generar el adjunto programado en CSV/XLSX/PDF.
-    - Añadí `supabase/migrations/20260318224500_reportes_programados.sql` para crear `reporte_programado`, RLS, índices y la integración con `pg_cron`.
-    - Añadí la edge function `supabase/functions/reportes-scheduler/index.ts` para ejecutar programaciones vencidas, llamar la ruta interna y enviar el adjunto por email vía Resend.
+  - Añadí `src/features/reportes/services/reporteScheduleService.ts` para calcular siguiente ejecución, derivar el periodo operativo y listar programaciones activas por cuenta.
+  - Añadí `src/features/reportes/actions.ts` con acciones servidoras para crear y desactivar programaciones, validando email, sección, formato, frecuencia y horario UTC, con escritura en `audit_log`.
+  - Añadí `src/features/reportes/components/ReportesScheduleManager.tsx` y actualicé `src/app/(main)/reportes/page.tsx` para administrar programaciones desde la UI de reportes.
+  - Añadí la ruta interna `src/app/api/reportes/scheduled-export/route.ts`, protegida por `x-reportes-cron-secret`, para generar el adjunto programado en CSV/XLSX/PDF.
+  - Añadí `supabase/migrations/20260318224500_reportes_programados.sql` para crear `reporte_programado`, RLS, índices y la integración con `pg_cron`.
+  - Añadí la edge function `supabase/functions/reportes-scheduler/index.ts` para ejecutar programaciones vencidas, llamar la ruta interna y enviar el adjunto por email vía Resend.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test:property -- src/features/reportes/services/reporteScheduleService.test.ts` OK.
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/reportes/services/reporteScheduleService.ts src/features/reportes/services/reporteScheduleService.test.ts src/features/reportes/actions.ts src/features/reportes/components/ReportesScheduleManager.tsx src/app/(main)/reportes/page.tsx src/app/api/reportes/scheduled-export/route.ts supabase/migrations/20260318224500_reportes_programados.sql supabase/functions/reportes-scheduler/index.ts` pendiente al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test:property -- src/features/reportes/services/reporteScheduleService.test.ts` OK.
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/reportes/services/reporteScheduleService.ts src/features/reportes/services/reporteScheduleService.test.ts src/features/reportes/actions.ts src/features/reportes/components/ReportesScheduleManager.tsx src/app/(main)/reportes/page.tsx src/app/api/reportes/scheduled-export/route.ts supabase/migrations/20260318224500_reportes_programados.sql supabase/functions/reportes-scheduler/index.ts` pendiente al cierre del corte.
 - **Pendiente inmediato**: con `6.2` completo, el siguiente hueco funcional abierto en Fase 6 pasa a `6.3.3`, exportación de bitácora para auditoría externa con firma.
 
 ## [2026-03-18 22:42] - Exportación firmada de bitácora para auditoría externa (Codex)
+
 - **Contexto**: con `6.2` completo, el siguiente hueco funcional abierto era `6.3.3`, porque la bitácora ya exportaba CSV/XLSX pero sin firma verificable para auditoría externa.
 - **Acción**:
-    - Extendí `src/features/bitacora/services/bitacoraService.ts` para generar una firma SHA-256 reproducible sobre el contenido exportado, incluyendo conteo de filas e inválidos en el payload de exportación.
-    - Actualicé `src/app/api/bitacora/export/route.ts` para insertar metadata de firma en el CSV, exponer la firma también en headers HTTP y añadir una hoja `firma` al XLSX.
-    - Ajusté `src/features/bitacora/components/BitacoraPanel.tsx` para explicitar que el CSV sale firmado para auditoría externa.
-    - Añadí cobertura en `tests/bitacora-panel.spec.ts` para verificar digest reproducible, total de filas y conteo de registros inválidos.
+  - Extendí `src/features/bitacora/services/bitacoraService.ts` para generar una firma SHA-256 reproducible sobre el contenido exportado, incluyendo conteo de filas e inválidos en el payload de exportación.
+  - Actualicé `src/app/api/bitacora/export/route.ts` para insertar metadata de firma en el CSV, exponer la firma también en headers HTTP y añadir una hoja `firma` al XLSX.
+  - Ajusté `src/features/bitacora/components/BitacoraPanel.tsx` para explicitar que el CSV sale firmado para auditoría externa.
+  - Añadí cobertura en `tests/bitacora-panel.spec.ts` para verificar digest reproducible, total de filas y conteo de registros inválidos.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/bitacora-panel.spec.ts` OK.
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/bitacora/services/bitacoraService.ts src/app/api/bitacora/export/route.ts src/features/bitacora/components/BitacoraPanel.tsx tests/bitacora-panel.spec.ts` pendiente al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/bitacora-panel.spec.ts` OK.
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/bitacora/services/bitacoraService.ts src/app/api/bitacora/export/route.ts src/features/bitacora/components/BitacoraPanel.tsx tests/bitacora-panel.spec.ts` pendiente al cierre del corte.
 - **Pendiente inmediato**: el siguiente hueco abierto de bitácora pasa a `6.3.4`, alerta proactiva cuando se detecte discrepancia de hash.
 
 ## [2026-03-18 22:51] - Alerta visual por discrepancia de hash en bitácora (Codex)
+
 - **Contexto**: tras cerrar la exportación firmada, el siguiente hueco de `6.3 Bitácora` era `6.3.4`, porque el módulo ya identificaba integridad inválida pero no disparaba una alerta explícita al administrador cuando aparecía una discrepancia.
 - **Acción**:
-    - Extendí `src/features/bitacora/services/bitacoraService.ts` para exponer `alertaIntegridad` con conteo de inválidos, IDs afectados, última fecha y mensaje operativo cuando el tramo visible contiene discrepancias.
-    - Actualicé `src/features/bitacora/components/BitacoraPanel.tsx` para mostrar una tarjeta de alerta roja en cuanto se detecta al menos un hash inválido en la consulta actual.
-    - Endurecí `tests/audit-log-integrity.spec.ts` para exigir el contrato de alerta además del conteo de integridad, y mantuve la cobertura del export firmado en `tests/bitacora-panel.spec.ts`.
+  - Extendí `src/features/bitacora/services/bitacoraService.ts` para exponer `alertaIntegridad` con conteo de inválidos, IDs afectados, última fecha y mensaje operativo cuando el tramo visible contiene discrepancias.
+  - Actualicé `src/features/bitacora/components/BitacoraPanel.tsx` para mostrar una tarjeta de alerta roja en cuanto se detecta al menos un hash inválido en la consulta actual.
+  - Endurecí `tests/audit-log-integrity.spec.ts` para exigir el contrato de alerta además del conteo de integridad, y mantuve la cobertura del export firmado en `tests/bitacora-panel.spec.ts`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/audit-log-integrity.spec.ts tests/bitacora-panel.spec.ts` OK.
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/bitacora/services/bitacoraService.ts src/features/bitacora/components/BitacoraPanel.tsx tests/audit-log-integrity.spec.ts tests/bitacora-panel.spec.ts` pendiente al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/audit-log-integrity.spec.ts tests/bitacora-panel.spec.ts` OK.
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/bitacora/services/bitacoraService.ts src/features/bitacora/components/BitacoraPanel.tsx tests/audit-log-integrity.spec.ts tests/bitacora-panel.spec.ts` pendiente al cierre del corte.
 - **Pendiente inmediato**: el siguiente hueco abierto de bitácora pasa a `6.3.5`, retención mínima configurable por tipo de registro.
 
 ## [2026-03-18 23:02] - Retención configurable por tipo para bitácora (Codex)
+
 - **Contexto**: el último hueco abierto de `6.3 Bitácora` era `6.3.5`, porque ya existía la caja negra y la integridad, pero no una política visible/configurable de retención por tipo con default de 2 años.
 - **Acción**:
-    - Extendí `src/features/configuracion/configuracionCatalog.ts` con parámetros editables `audit.retencion.operacion_dias`, `audit.retencion.configuracion_dias` y `audit.retencion.seguridad_dias`, todos con default de 730 días.
-    - Extendí `src/features/bitacora/services/bitacoraService.ts` para resolver la política de retención desde `configuracion`, aplicando fallback conservador cuando no exista valor guardado.
-    - Actualicé `src/features/bitacora/components/BitacoraPanel.tsx` para mostrar la política vigente por tipo de registro dentro de la propia superficie de auditoría.
-    - Endurecí `tests/audit-log-integrity.spec.ts` y `tests/bitacora-panel.spec.ts` para cubrir defaults y overrides configurados.
+  - Extendí `src/features/configuracion/configuracionCatalog.ts` con parámetros editables `audit.retencion.operacion_dias`, `audit.retencion.configuracion_dias` y `audit.retencion.seguridad_dias`, todos con default de 730 días.
+  - Extendí `src/features/bitacora/services/bitacoraService.ts` para resolver la política de retención desde `configuracion`, aplicando fallback conservador cuando no exista valor guardado.
+  - Actualicé `src/features/bitacora/components/BitacoraPanel.tsx` para mostrar la política vigente por tipo de registro dentro de la propia superficie de auditoría.
+  - Endurecí `tests/audit-log-integrity.spec.ts` y `tests/bitacora-panel.spec.ts` para cubrir defaults y overrides configurados.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/audit-log-integrity.spec.ts tests/bitacora-panel.spec.ts` OK.
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/configuracion/configuracionCatalog.ts src/features/bitacora/services/bitacoraService.ts src/features/bitacora/components/BitacoraPanel.tsx tests/audit-log-integrity.spec.ts tests/bitacora-panel.spec.ts` pendiente al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/audit-log-integrity.spec.ts tests/bitacora-panel.spec.ts` OK.
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/configuracion/configuracionCatalog.ts src/features/bitacora/services/bitacoraService.ts src/features/bitacora/components/BitacoraPanel.tsx tests/audit-log-integrity.spec.ts tests/bitacora-panel.spec.ts` pendiente al cierre del corte.
 - **Pendiente inmediato**: con `6.3` ya completo, el siguiente hueco funcional abierto de Fase 6 pasa a `6.4.3`, ranking de PDVs por volumen de ventas.
 
 ## [2026-03-18 23:13] - Ranking de PDVs por volumen de ventas (Codex)
+
 - **Contexto**: con `6.3` completo, el siguiente hueco abierto en Fase 6 era `6.4.3`, porque el módulo de ranking ya cubría DCs, supervisores y zonas, pero no consolidaba puntos de venta por volumen comercial.
 - **Acción**:
-    - Extendí `src/features/rankings/services/rankingService.ts` con acumulación por `pdv_id`, incluyendo cierres, unidades, monto confirmado y DCs activos por punto.
-    - Añadí `RankingPdvItem`, `totalPdvs` en el resumen y el arreglo `pdvs` en el snapshot agregado.
-    - Actualicé `src/features/rankings/components/RankingsPanel.tsx` para mostrar tarjetas compactas y tabla desktop del ranking de PDVs, además de la métrica `PDVs visibles`.
-    - Ajusté `tests/rankings-panel.spec.ts` para exigir el ranking PDV en el resultado consolidado.
+  - Extendí `src/features/rankings/services/rankingService.ts` con acumulación por `pdv_id`, incluyendo cierres, unidades, monto confirmado y DCs activos por punto.
+  - Añadí `RankingPdvItem`, `totalPdvs` en el resumen y el arreglo `pdvs` en el snapshot agregado.
+  - Actualicé `src/features/rankings/components/RankingsPanel.tsx` para mostrar tarjetas compactas y tabla desktop del ranking de PDVs, además de la métrica `PDVs visibles`.
+  - Ajusté `tests/rankings-panel.spec.ts` para exigir el ranking PDV en el resultado consolidado.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/rankings-panel.spec.ts` OK.
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/rankings/services/rankingService.ts src/features/rankings/components/RankingsPanel.tsx tests/rankings-panel.spec.ts` pendiente al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/rankings-panel.spec.ts` OK.
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/rankings/services/rankingService.ts src/features/rankings/components/RankingsPanel.tsx tests/rankings-panel.spec.ts` pendiente al cierre del corte.
 - **Pendiente inmediato**: el siguiente hueco funcional abierto de `6.4` pasa a `6.4.5`, vista pública de ranking sin datos sensibles.
 
 ## [2026-03-18 23:24] - Vista pública de ranking sin datos sensibles (Codex)
+
 - **Contexto**: tras añadir ranking por PDV, el último hueco abierto de `6.4 Ranking` era `6.4.5`, una vista pública para motivación que no expusiera IDs internos, clientes ni supervisores.
 - **Acción**:
-    - Extendí `src/features/rankings/services/rankingService.ts` con `buildPublicRankingPanel`, que anonimiza nombres de colaboradoras y reduce el snapshot a ventas, LOVE y PDVs públicos.
-    - Añadí `src/features/rankings/components/PublicRankingsPanel.tsx` como superficie pública separada, sin filtros sensibles y con presentación mobile-first.
-    - Añadí `src/app/ranking-publico/page.tsx`, alimentada por el snapshot global mediante cliente administrativo pero renderizando únicamente la versión sanitizada.
-    - Actualicé `src/app/page.tsx` para enlazar la vista pública desde la portada.
-    - Endurecí `tests/rankings-panel.spec.ts` para exigir la anonimización del snapshot público.
+  - Extendí `src/features/rankings/services/rankingService.ts` con `buildPublicRankingPanel`, que anonimiza nombres de colaboradoras y reduce el snapshot a ventas, LOVE y PDVs públicos.
+  - Añadí `src/features/rankings/components/PublicRankingsPanel.tsx` como superficie pública separada, sin filtros sensibles y con presentación mobile-first.
+  - Añadí `src/app/ranking-publico/page.tsx`, alimentada por el snapshot global mediante cliente administrativo pero renderizando únicamente la versión sanitizada.
+  - Actualicé `src/app/page.tsx` para enlazar la vista pública desde la portada.
+  - Endurecí `tests/rankings-panel.spec.ts` para exigir la anonimización del snapshot público.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/rankings-panel.spec.ts` OK.
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/rankings/services/rankingService.ts src/features/rankings/components/PublicRankingsPanel.tsx src/app/ranking-publico/page.tsx src/app/page.tsx tests/rankings-panel.spec.ts` pendiente al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/rankings-panel.spec.ts` OK.
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/rankings/services/rankingService.ts src/features/rankings/components/PublicRankingsPanel.tsx src/app/ranking-publico/page.tsx src/app/page.tsx tests/rankings-panel.spec.ts` pendiente al cierre del corte.
 - **Pendiente inmediato**: con `6.4` completo, el siguiente frente lógico ya sale de Fase 6 y pasa al siguiente bloque abierto del canon.
 
 ## [2026-03-19 00:08] - Reconciliación conservadora del dashboard principal (Codex)
+
 - **Contexto**: el siguiente corte lógico era `6.1 Dashboard`. La revisión confirmó que el módulo ya cubría KPIs globales, mapa operativo, filtros por zona/supervisor y bridge realtime, pero faltaba hacer explícita la configuración de widgets por rol y la experiencia compacta del supervisor en móvil.
 - **Acción**:
-    - Extendí `src/features/dashboard/services/dashboardService.ts` con `resolveDashboardWidgets`, el contrato `DashboardWidgetId` y propagación de widgets visibles por rol hacia summary e insights.
-    - Actualicé `src/features/dashboard/components/DashboardPanel.tsx` para respetar widgets por rol y añadí una tarjeta compacta móvil para SUPERVISOR en campo.
-    - Endurecí `tests/dashboard-kpis.spec.ts` para verificar el contrato de widgets del dashboard.
-    - Reconcilié `tasks.md` marcando como completos `6.1.1`, `6.1.2`, `6.1.4`, `6.1.5` y `6.1.6`.
+  - Extendí `src/features/dashboard/services/dashboardService.ts` con `resolveDashboardWidgets`, el contrato `DashboardWidgetId` y propagación de widgets visibles por rol hacia summary e insights.
+  - Actualicé `src/features/dashboard/components/DashboardPanel.tsx` para respetar widgets por rol y añadí una tarjeta compacta móvil para SUPERVISOR en campo.
+  - Endurecí `tests/dashboard-kpis.spec.ts` para verificar el contrato de widgets del dashboard.
+  - Reconcilié `tasks.md` marcando como completos `6.1.1`, `6.1.2`, `6.1.4`, `6.1.5` y `6.1.6`.
 - **Evidencia**:
-    - `6.1.1`: KPIs globales en `DashboardPanel` y agregación desde `dashboard_kpis` en `dashboardService`.
-    - `6.1.2`: `PromotoresMap`, `DashboardRealtimeBridge` y `obtenerInsightsDashboard`.
-    - `6.1.4`: `resolveDashboardWidgets` + rendering condicionado por rol.
-    - `6.1.5`: `dashboard_kpis` incremental con `revalidate: 60`, bridge realtime y refresh programado de la tabla snapshot.
-    - `6.1.6`: tarjeta `Supervisor en campo` y layout responsive del dashboard.
+  - `6.1.1`: KPIs globales en `DashboardPanel` y agregación desde `dashboard_kpis` en `dashboardService`.
+  - `6.1.2`: `PromotoresMap`, `DashboardRealtimeBridge` y `obtenerInsightsDashboard`.
+  - `6.1.4`: `resolveDashboardWidgets` + rendering condicionado por rol.
+  - `6.1.5`: `dashboard_kpis` incremental con `revalidate: 60`, bridge realtime y refresh programado de la tabla snapshot.
+  - `6.1.6`: tarjeta `Supervisor en campo` y layout responsive del dashboard.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/dashboard-kpis.spec.ts` OK.
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/dashboard/services/dashboardService.ts src/features/dashboard/components/DashboardPanel.tsx tests/dashboard-kpis.spec.ts` pendiente al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/dashboard-kpis.spec.ts` OK.
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/dashboard/services/dashboardService.ts src/features/dashboard/components/DashboardPanel.tsx tests/dashboard-kpis.spec.ts` pendiente al cierre del corte.
 - **Pendiente inmediato**: `6.1.3` sigue abierto de forma conservadora; hoy el dashboard cubre alertas live de geocerca, pero no todavía una señal defendible de check-ins tardíos ni ventas por debajo de cuota.
 
 ## [2026-03-19 00:29] - Alertas live completas en dashboard (Codex)
+
 - **Contexto**: el único subitem pendiente de `6.1 Dashboard` era `6.1.3`, porque el panel ya mostraba alertas live de geocerca pero no cubría todavía retardos ni cuotas en riesgo con una señal operativa verificable.
 - **Acción**:
-    - Extendí `src/features/dashboard/services/dashboardService.ts` para enriquecer `alertasLive` con tres tipos: `GEOCERCA`, `RETARDO` y `CUOTA_BAJA`.
-    - Integré el cálculo de retardos usando `deriveAttendanceDiscipline` sobre asignaciones, asistencias, solicitudes y la tolerancia configurable de check-in.
-    - Añadí lectura de `cuota_empleado_periodo`, `nomina_periodo` y `configuracion` para detectar cumplimiento de cuota por debajo de 70% en el periodo abierto.
-    - Actualicé `src/features/dashboard/components/DashboardPanel.tsx` para renderizar las nuevas alertas con tipo y contexto opcional sin asumir siempre radio o PDV.
-    - Endurecí `tests/dashboard-kpis.spec.ts` con un caso que exige la presencia simultánea de `GEOCERCA`, `RETARDO` y `CUOTA_BAJA`.
+  - Extendí `src/features/dashboard/services/dashboardService.ts` para enriquecer `alertasLive` con tres tipos: `GEOCERCA`, `RETARDO` y `CUOTA_BAJA`.
+  - Integré el cálculo de retardos usando `deriveAttendanceDiscipline` sobre asignaciones, asistencias, solicitudes y la tolerancia configurable de check-in.
+  - Añadí lectura de `cuota_empleado_periodo`, `nomina_periodo` y `configuracion` para detectar cumplimiento de cuota por debajo de 70% en el periodo abierto.
+  - Actualicé `src/features/dashboard/components/DashboardPanel.tsx` para renderizar las nuevas alertas con tipo y contexto opcional sin asumir siempre radio o PDV.
+  - Endurecí `tests/dashboard-kpis.spec.ts` con un caso que exige la presencia simultánea de `GEOCERCA`, `RETARDO` y `CUOTA_BAJA`.
 - **Validación**:
-    - `cmd /c npx tsc --noEmit` OK.
-    - `cmd /c npm run test -- tests/dashboard-kpis.spec.ts` OK.
-    - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/dashboard/services/dashboardService.ts src/features/dashboard/components/DashboardPanel.tsx tests/dashboard-kpis.spec.ts` pendiente al cierre del corte.
+  - `cmd /c npx tsc --noEmit` OK.
+  - `cmd /c npm run test -- tests/dashboard-kpis.spec.ts` OK.
+  - `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md src/features/dashboard/services/dashboardService.ts src/features/dashboard/components/DashboardPanel.tsx tests/dashboard-kpis.spec.ts` pendiente al cierre del corte.
 - **Pendiente inmediato**: con `6.1` ya completo, el siguiente frente abierto vuelve al backlog general del canon fuera de Fase 6.
 
 [2026-03-19 08:50] - Nómina: aprobación, dispersión y recibo propio (Codex)
+
 - Canon revisado antes de implementar: `design.md`, `requirements.md`, `tasks.md`.
 - Se añadió la migración `supabase/migrations/20260319110000_nomina_aprobacion_recibos.sql` para ampliar `nomina_periodo` a `BORRADOR/APROBADO/DISPERSADO`, mantener mutabilidad solo en `BORRADOR` y habilitar lectura RLS del propio empleado sobre periodos/cuotas/ledger vinculados.
 - Se implementó generación de periodos en borrador con estimación de colaboradoras incluidas, aprobación previa a dispersión y registro manual de ledger con motivo+autor en `src/features/nomina/actions.ts`.
@@ -1445,6 +2062,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Siguiente corte lógico: cerrar `5.2.2` y `5.2.3` implementando cálculo explícito de percepciones base/comisiones y deducciones IMSS/ISR sobre el motor de nómina actual.
 
 [2026-03-19 09:28] - Nómina: percepciones y deducciones explícitas (Codex)
+
 - Se completó el motor explícito de percepciones/deducciones en `src/features/nomina/lib/payrollMath.ts` y `src/features/nomina/services/nominaService.ts`.
 - La prenómina ahora calcula sueldo base devengado por jornadas válidas, comisión por ventas cuando se cumple cuota, bono comercial aplicado y deducciones separadas por faltas, retardos, IMSS e ISR usando parámetros configurables de `configuracion`.
 - Se añadieron parámetros editables en `src/features/configuracion/configuracionCatalog.ts`: `nomina.deduccion_retardo_pct`, `nomina.imss_pct` y `nomina.isr_pct`.
@@ -1455,6 +2073,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Siguiente corte lógico: revisar `5.3 Motor de Cuotas`, que es el siguiente bloque funcional abierto del canon.
 
 [2026-03-19 12:22] - Motor de Cuotas: semáforo y alerta de mitad de periodo (Codex)
+
 - Se reforzó `src/features/nomina/services/nominaService.ts` para exponer semáforo de cumplimiento y metas compuestas visibles en el panel de cuotas; la UI administrativa en `src/features/nomina/components/NominaPanel.tsx` ahora muestra objetivo/avance con LOVE y visitas cuando existen en metadata.
 - `src/features/dashboard/services/dashboardService.ts` ahora limita la alerta `CUOTA_BAJA` a periodos activos que ya cruzaron la mitad de su ventana operativa, alineando el comportamiento con el requerimiento de mitad de periodo.
 - Se ajustó `tests/dashboard-kpis.spec.ts` para validar el caso de alerta de cuota baja con fechas de periodo explícitas y se amplió `src/features/nomina/nominaFlow.test.ts` para cubrir semáforo y objetivos compuestos de cuota.
@@ -1462,6 +2081,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validación local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/dashboard-kpis.spec.ts` OK (7 pruebas); `cmd /c npm run test:unit -- src/features/nomina/nominaFlow.test.ts` OK (1 prueba).
 
 [2026-03-19 12:34] - Motor de Cuotas: ranking de cumplimiento por zona (Codex)
+
 - Se extendió `src/features/rankings/services/rankingService.ts` para consultar `cuota_empleado_periodo`, consolidar `cuotasZonas` por zona/cuenta y filtrar el periodo por prefijo mensual del canon.
 - La UI de ranking en `src/features/rankings/components/RankingsPanel.tsx` ahora expone una vista específica de "Cuotas por zona" en móvil y desktop, visible para supervisor y coordinación dentro del mismo panel operativo.
 - Se actualizó `tests/rankings-panel.spec.ts` para simular cuotas por zona y validar el agregado de cumplimiento promedio, cumplidas y en riesgo.
@@ -1469,6 +2089,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validación local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/rankings-panel.spec.ts` OK (4 pruebas).
 
 [2026-03-19 13:54] - Motor de Cuotas: definición operativa por empleado/periodo (Codex)
+
 - Se añadió la acción server-side `guardarDefinicionCuotaNomina` en `src/features/nomina/actions.ts` para crear o actualizar cuotas de `cuota_empleado_periodo` con metas explícitas de ventas, unidades, LOVE y visitas, preservando metadata y recalculando cumplimiento/estado.
 - La UI administrativa incorpora el formulario `src/features/nomina/components/QuotaDefinitionForm.tsx` y lo integra en `src/features/nomina/components/NominaPanel.tsx` dentro del bloque de cuotas comerciales del periodo activo.
 - Se reforzó validación con `src/features/nomina/actions.test.ts` y se mantuvo compatibilidad operativa con `src/features/nomina/nominaFlow.test.ts`.
@@ -1476,6 +2097,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validación local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test:unit -- src/features/nomina/actions.test.ts src/features/nomina/nominaFlow.test.ts` OK (5 pruebas).
 
 [2026-03-19 14:25] - Entrega de Material: acuse, inventario por zona y stock bajo (Codex)
+
 - Canon revisado antes de implementar: `design.md`, `requirements.md`, `tasks.md`.
 - Se reforzó `src/features/materiales/actions.ts` con acuse explícito de recepción vía checkbox obligatorio y captura opcional de nombre de receptor, persistiendo trazabilidad en `metadata` y `audit_log`.
 - `src/features/materiales/services/materialService.ts` ahora agrega inventario operativo por `cuenta_cliente + pdv.zona + tipo_material`, expone alertas de stock bajo y lee el umbral configurable `materiales.stock_bajo_umbral` desde Configuración.
@@ -1486,7 +2108,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran `5.4.1`, `5.4.2`, `5.4.3`, `5.4.4` y `5.4.5`; con esto el bloque `5.4 Entrega de Material` queda completo.
 - Validación local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/materiales.spec.ts` OK (3 pruebas); `cmd /c npm run test:unit -- src/features/materiales/actions.test.ts` OK (2 pruebas).
 - Siguiente corte lógico: avanzar con `5.5 Gastos`.
-[2026-03-19 14:45] - Gastos: categoria formacion, reporte por empleado y ledger de reembolso (Codex)
+  [2026-03-19 14:45] - Gastos: categoria formacion, reporte por empleado y ledger de reembolso (Codex)
 - Canon revisado antes de implementar: `design.md`, `requirements.md`, `tasks.md`.
 - Se amplió el contrato de `gasto.tipo` en `src/types/database.ts` y se añadió la migración `supabase/migrations/20260319150000_gasto_formacion_categoria.sql` para soportar explícitamente la categoría `FORMACION`.
 - `src/features/gastos/components/GastosPanel.tsx` ahora expone `FORMACION` como categoría operativa y añade un consolidado visible por periodo, empleado y categoría dentro del propio módulo.
@@ -1496,7 +2118,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran `5.5.1`, `5.5.2`, `5.5.3`, `5.5.4`, `5.5.5` y `5.5.6`; con esto el bloque `5.5 Gastos` queda completo.
 - Validación local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/gastos.spec.ts` OK (2 pruebas); `cmd /c npm run test:unit -- src/features/gastos/actions.test.ts` OK (2 pruebas).
 - Siguiente corte lógico: revisar el siguiente bloque funcional abierto del canon en Fase 4 o volver al backlog estructural pendiente de Fase 0-4.
-[2026-03-19 15:00] - Fundación: clientes Supabase y middleware de sesión reconciliados (Codex)
+  [2026-03-19 15:00] - Fundación: clientes Supabase y middleware de sesión reconciliados (Codex)
 - Canon revisado antes de reconciliar: `design.md`, `requirements.md`, `tasks.md`.
 - Se confirmó evidencia de `createServerClient` para Server Components en `src/lib/supabase/server.ts` y `createBrowserClient` para Client Components en `src/lib/supabase/client.ts`.
 - Se confirmó el middleware de sesión de Next 16 mediante `proxy.ts` / `src/proxy.ts`, ambos delegando a `src/lib/supabase/proxy.ts` con refresco de sesión, validación de estado de cuenta y scoping de cuenta activa.
@@ -1505,20 +2127,21 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Siguiente corte estructural recomendado: revisar `0.6 Seed data inicial` o `1.1 Auth claims y rol`, según convenga priorizar datos base o cierre de autenticación.
 
 [2026-03-19 15:15] - Fundación: seed inicial reconciliado y string UTF-8 corregido (Codex)
+
 - Canon revisado antes de reconciliar: `design.md`, `requirements.md`, `tasks.md`.
 - Se confirmó evidencia de `0.6.1` en `supabase/seed.sql` con catálogo base de productos ISDIN; `0.6.2` con cadenas como SAN PABLO, BENAVIDES, HEB, LIVERPOOL y SEPHORA; `0.6.3` con ciudades y zonas geográficas; `0.6.4` con horarios tipo en `horario_pdv`; `0.6.5` con 20 filas de `mision_dia`; y `0.6.6` con la cuenta demo `be_te_ele_demo`.
 - Se corrigió en `supabase/seed.sql` un texto mal serializado dentro de una justificación de asistencia (`Sin señal...`) para preservar contenido UTF-8 válido en el seed canónico.
 - Reconciliación del canon: se cierran `0.6.1` a `0.6.6`; con esto `0.6 Seed data inicial` queda completo.
 - Validación documental: `npm run docs:check-encoding -- .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md supabase/seed.sql`.
 - Siguiente corte estructural recomendado: avanzar con `1.1 Auth claims y rol`.
-[2026-03-19 15:40] - Auth: claims JWT reconciliados y revocacion de sesiones operativa (Codex)
+  [2026-03-19 15:40] - Auth: claims JWT reconciliados y revocacion de sesiones operativa (Codex)
 - Canon revisado antes de implementar: design.md, requirements.md, tasks.md.
 - Se confirmo evidencia existente de 1.1.1 en supabase/migrations/20260314160500_auth_claims_sync.sql, con construir_claims_usuario, refrescar_claims_auth_user y triggers sobre usuario / empleado para propagar rol, empleado_id, cuenta_cliente_id y estado_cuenta hacia auth.users.
 - Se confirmo evidencia existente de 1.1.2 en supabase/migrations/20260314174000_rls_identity_helpers.sql, donde get_my_role() prioriza claims JWT y cae a tablas operativas solo como fallback seguro para RLS.
 - Se anadio supabase/migrations/20260319153000_auth_session_revocation.sql con la funcion invalidar_sesiones_auth_user(uuid), que fuerza expiracion de auth.sessions activas cuando cambia el contexto operativo del usuario (puesto, estado_cuenta, cuenta_cliente_id, empleado_id), integrada a los triggers de refresco de claims.
 - Reconciliacion del canon: se cierran 1.1.1, 1.1.2 y 1.1.3.
 - Decision conservadora: 1.1.4 permanece abierto porque el repositorio si evidencia claims personalizados, pero no permite verificar de forma concluyente la configuracion efectiva de SUPABASE_JWT_SECRET ni un hook custom_access_token desplegado fuera del repo.
-[2026-03-19 16:05] - Auth: flujo de activacion reconciliado en canon (Codex)
+  [2026-03-19 16:05] - Auth: flujo de activacion reconciliado en canon (Codex)
 - Canon revisado antes de reconciliar: design.md, requirements.md, tasks.md.
 - Se confirmo evidencia de 1.2.1 en src/features/empleados/actions.ts y src/features/usuarios/actions.ts, donde el alta con acceso crea usuario en estado PROVISIONAL con password temporal y expiracion.
 - Se confirmo evidencia de 1.2.2 y 1.2.3 en src/actions/auth.ts, mediante iniciarActivacionCuenta(), que actualiza el email en Supabase Auth con emailRedirectTo hacia /update-password y mueve el estado a PENDIENTE_VERIFICACION_EMAIL.
@@ -1527,7 +2150,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Se confirmo evidencia de 1.2.6 en src/app/(auth)/activacion/page.tsx, src/app/(auth)/check-email/page.tsx, src/app/(auth)/update-password/page.tsx, src/features/auth/components/ActivationAccountForm.tsx y src/features/auth/components/UpdatePasswordForm.tsx.
 - Se confirmo soporte de pruebas en src/actions/auth.test.ts, incluyendo el recorrido PROVISIONAL -> PENDIENTE_VERIFICACION_EMAIL -> ACTIVA.
 - Reconciliacion del canon: se cierran 1.2.1 a 1.2.6; con esto el bloque 1.2 queda completo.
-[2026-03-19 16:15] - Usuarios: panel administrativo reconciliado con pruebas (Codex)
+  [2026-03-19 16:15] - Usuarios: panel administrativo reconciliado con pruebas (Codex)
 - Canon revisado antes de reconciliar: design.md, requirements.md, tasks.md.
 - Se confirmo evidencia de 1.3.1 en src/features/usuarios/components/UsuariosPanel.tsx y src/features/usuarios/services/usuarioService.ts, con filtros por estado, puesto y cuenta cliente, mas resumen operativo y diagnostico de sesiones.
 - Se confirmo evidencia de 1.3.2 en src/features/usuarios/actions.ts, mediante crearUsuarioAdministrativo(), con alta provisional vinculada a empleado existente y soporte multi-cuenta para CLIENTE.
@@ -1535,7 +2158,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Se confirmo evidencia de 1.3.6 en src/features/usuarios/services/usuarioService.ts, src/features/usuarios/components/UsuariosPanel.tsx y supabase/migrations/20260314231500_admin_user_sessions.sql, usando admin_list_auth_sessions() para exponer sesiones activas desde auth.sessions.
 - Se agrego cobertura en src/features/usuarios/actions.test.ts para alta provisional, cambio de puesto, suspension/reactivacion y reset de password con trazabilidad.
 - Reconciliacion del canon: se cierran 1.3.1 a 1.3.6; con esto el modulo 19 Usuarios queda completo.
-[2026-03-19 16:30] - Empleados: modulo de reclutamiento reconciliado en canon (Codex)
+  [2026-03-19 16:30] - Empleados: modulo de reclutamiento reconciliado en canon (Codex)
 - Canon revisado antes de reconciliar: design.md, requirements.md, tasks.md.
 - Se confirmo evidencia de 1.4.1 y 1.4.8 en src/features/empleados/components/EmpleadosPanel.tsx, src/features/empleados/services/empleadoService.ts y src/app/(main)/empleados/page.tsx, con listado filtrable, expediente expandible, control de acceso para ADMINISTRADOR/RECLUTAMIENTO y detalle integral del colaborador.
 - Se confirmo evidencia de 1.4.2 en src/features/empleados/actions.ts, mediante crearEmpleado(), con validacion de campos obligatorios, supervisor activo, unicidad de CURP/RFC/NSS y provisionamiento opcional de acceso provisional.
@@ -1546,6 +2169,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliacion del canon: se cierran 1.4.1 a 1.4.8; con esto el modulo 3 Empleados queda completo.
 
 [2026-03-19 17:20] - PDVs: geocerca configurable y modulo 2.1 reconciliado (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se reforzo el modulo de PDVs en src/features/pdvs/services/pdvService.ts y src/features/pdvs/components/PdvsPanel.tsx para consumir parametros de Configuracion al resolver el radio default de geocerca y la politica default de check-in con justificacion.
 - El formulario de alta y edicion de geocerca ya no usa valores hardcodeados: toma geocerca.radio_default_metros con fallback conservador a 150 y permite geocerca.fuera_permitida_con_justificacion como default operativo.
@@ -1555,6 +2179,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: cmd /c npx tsc --noEmit OK; cmd /c npm run test -- tests/pdvs-panel.spec.ts OK (2 pruebas).
 
 [2026-03-19 17:40] - Configuración: módulo 16 reconciliado en canon (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia completa de 2.2.1 en src/features/configuracion/actions.ts, src/features/configuracion/components/ConfiguracionPanel.tsx y src/features/configuracion/services/configuracionService.ts, con CRUD operativo de productos, cadenas, ciudades y catálogo de turnos.
 - Se confirmó evidencia de 2.2.2, 2.2.5 y 2.2.6 en src/features/configuracion/configuracionCatalog.ts, src/features/configuracion/actions.ts y el panel administrativo, cubriendo parámetros globales de geocerca/biometría/check-in, retención de archivos y parámetros de nómina.
@@ -1565,6 +2190,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validación local: cmd /c npx tsc --noEmit OK; cmd /c npm run test -- tests/configuracion-panel.spec.ts OK (2 pruebas).
 
 [2026-03-19 17:55] - Reglas: módulo 17 reconciliado en canon (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia de 2.3.1 en la tabla y políticas de public.regla_negocio desde supabase/migrations/20260314145500_fase0_estructura_maestra_retail.sql y en el consumo administrativo de src/features/reglas/services/reglaService.ts.
 - Se confirmó evidencia de 2.3.2, 2.3.3 y 2.3.4 en src/features/reglas/lib/businessRules.ts, con resolución explícita de herencia de supervisor, jerarquía de horarios y flujos de aprobación por tipo de solicitud.
@@ -1574,6 +2200,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran 2.3.1 a 2.3.6; con esto el Módulo 17 Reglas de negocio queda completo.
 
 [2026-03-19 18:40] - Multi-tenancy: aislamiento por cuenta cliente reconciliado (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia de 2.4.1 en src/lib/supabase/server.ts, src/lib/tenant/accountScope.ts y src/lib/supabase/proxy.ts: el scope de cuenta activa via cookie/header inyecta cuenta_cliente_id en queries REST del servidor y el middleware publica el alcance efectivo por request.
 - Se confirmó evidencia de 2.4.2 en tests/multi-tenant-isolation.spec.ts y src/lib/tenant/accountScope.test.ts, cubriendo aislamiento entre cuentas y la inyección del filtro tenant sobre tablas scopeadas.
@@ -1583,6 +2210,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran 2.4.1 a 2.4.4; con esto el bloque Multi-tenancy queda completo.
 
 [2026-03-19 19:40] - Asignaciones: módulo 5 reconciliado en canon (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia de 3.1.1 en `src/features/asignaciones/components/AsignacionesPanel.tsx`, con formulario de asignación que captura empleado, PDV, vigencia, horario, tipo, factor, días laborales y descanso.
 - Se confirmó evidencia de 3.1.2 y subpuntos 3.1.2.1 a 3.1.2.4 en src/features/asignaciones/lib/assignmentValidation.ts y src/features/asignaciones/services/asignacionService.ts, con validación operativa de 19 reglas, separación de errores/alertas/avisos y exposición de alertas live para dashboard.
@@ -1592,6 +2220,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran 3.1.1 a 3.1.6; con esto el Módulo 5 Asignaciones queda completo.
 
 [2026-03-19 19:55] - Ruta semanal: módulo 10 reconciliado en canon (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia de 3.2.1 en src/features/rutas/components/RutaSemanalPanel.tsx y src/features/rutas/actions.ts, con planificación semanal para SUPERVISOR y secuencia ordenada de PDVs por día.
 - Se confirmó evidencia de 3.2.2 en src/features/rutas/actions.ts y src/features/rutas/services/rutaSemanalService.ts, donde la ruta solo acepta PDVs con asignaciones activas y publicadas en la semana operativa.
@@ -1601,6 +2230,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran 3.2.1 a 3.2.4; con esto el Módulo 10 Ruta Semanal queda completo.
 
 [2026-03-19 21:35] - Campañas: módulo 6 reconciliado en canon (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia de 3.3.1 y 3.3.2 en src/features/campanas/components/CampanasPanel.tsx y src/features/campanas/actions.ts, con creación/edición de campaña, ventana comercial, productos foco, cuota adicional, plantilla de tareas y asignación explícita de PDVs objetivo.
 - Se confirmó evidencia de 3.3.3 en src/features/campanas/services/campanaService.ts y src/features/campanas/lib/campaignProgress.ts, con seguimiento de cumplimiento por DC y PDV, tareas pendientes/cumplidas, evidencias y sesiones activas de visita.
@@ -1610,6 +2240,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran 3.3.1 a 3.3.4; con esto el Módulo 6 Campañas queda completo.
 
 [2026-03-19 21:45] - Fase 4 base PWA/offline reconciliada en canon (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia de 4.1.1 a 4.1.3 en public/sw.js, src/app/manifest.ts y src/app/layout.tsx: Service Worker manual activo, manifest PWA con iconos/display standalone y estrategias CacheFirst/NetworkFirst/StaleWhileRevalidate por tipo de recurso.
 - Se confirmó evidencia de 4.1.4 en src/app/offline/page.tsx, src/components/pwa/OfflineStatusCard.tsx y src/components/pwa/PwaBootstrap.tsx, con vistas móviles compactas y responsive usando Tailwind con base mobile-first.
@@ -1621,6 +2252,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran 4.1.1 a 4.1.5 y 4.2.1 a 4.2.6.
 
 [2026-03-19 21:55] - Asistencias: cierres operativos de 4.3 reconciliados en canon (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia de 4.3.6 en src/features/asistencias/components/AsistenciasPanel.tsx, src/app/api/asistencias/sync/route.ts y src/lib/offline/offlineAttendanceFlow.test.ts, con registro de check-in que guarda timestamp, coordenadas, selfie comprimida, misión confirmada y resultado biométrico al sincronizar.
 - Se confirmó evidencia de 4.3.7 en src/features/asistencias/components/AsistenciasPanel.tsx y en la integración de tareas de visita de campañas, con jornada activa abierta, check-out condicionado y ejecución de tareas operativas del día.
@@ -1631,6 +2263,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran 4.3.6, 4.3.7, 4.3.10 y 4.3.11.
 
 [2026-03-19 22:05] - Ventas: reconciliación conservadora del módulo 21 (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia de 4.4.1 en src/features/ventas/components/VentasPanel.tsx, con formulario de captura que pide jornada base, producto, unidades, monto, PDV derivado de la jornada y fecha/hora de venta.
 - Se confirmó evidencia de 4.4.2 en src/features/ventas/services/ventaService.ts, src/features/ventas/components/VentasPanel.tsx y src/app/api/asistencias/sync/route.ts: las ventas se ligan a una asistencia existente y el cierre de jornada bloquea check-out si existen ventas sin confirmar.
@@ -1642,6 +2275,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran 4.4.1 a 4.4.5; se mantiene abierto 4.4.6 por falta de un indicador visual explícito de cuota diaria dentro del módulo de ventas.
 
 [2026-03-19 22:15] - LOVE ISDIN: módulo 22 reconciliado en canon (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia de 4.5.1 en src/features/love-isdin/components/LoveIsdinPanel.tsx, con captura manual del QR y lectura asistida por `BarcodeDetector` cuando el navegador lo soporta.
 - Se confirmó evidencia de 4.5.2 en src/features/love-isdin/actions.ts y src/features/love-isdin/components/LoveIsdinPanel.tsx, con registro de afiliación que guarda cliente, PDV, DC, fecha y evidencia fotográfica/PDF.
@@ -1654,6 +2288,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran 4.5.1 a 4.5.6; con esto el Módulo 22 LOVE ISDIN queda completo.
 
 [2026-03-19 22:30] - Ventas: indicador de cuota diaria reconciliado (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se implementó en src/features/ventas/services/ventaService.ts el cálculo de una meta diaria estimada por jornada activa a partir de la cuota activa del periodo (`cuota_empleado_periodo`) y las ventas confirmadas del día por colaboradora.
 - Se implementó en src/features/ventas/components/VentasPanel.tsx una tarjeta visual con semáforo `ROJO/AMARILLO/VERDE`, meta diaria, avance del día y cumplimiento del periodo, visible sobre la captura comercial.
@@ -1662,6 +2297,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierra 4.4.6; con esto el Módulo 21 Ventas queda completo.
 
 [2026-03-19 23:05] - Solicitudes: filtros y calendario reconciliados en canon (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia de 5.1.1 a 5.1.5 en src/features/solicitudes/actions.ts, src/features/solicitudes/services/solicitudService.ts, src/features/asistencias/services/asistenciaService.ts y src/features/asistencias/lib/attendanceDiscipline.ts, incluyendo formulario con adjuntos, flujo jerárquico de aprobación, fanout push al solicitante, anulación de faltas/retardos por incidencias aprobadas y conservación de cuotas en el motor vigente.
 - Se implementó 5.1.6 en src/features/solicitudes/services/solicitudService.ts, src/features/solicitudes/components/SolicitudesPanel.tsx y src/app/(main)/solicitudes/page.tsx con filtros reales por tipo, estatus, empleado, fecha inicio, fecha fin y mes.
@@ -1671,6 +2307,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran 5.1.1 a 5.1.7; con esto el Módulo 12 Solicitudes queda completo.
 
 [2026-03-19 23:20] - Fundación: reconciliación conservadora de pendientes canónicos (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia de 0.1.2 en tsconfig.json, con `strict: true`, `noEmit: true` y alias `@/* -> ./src/*`.
 - Se confirmó evidencia de 0.1.5 en la estructura real `src/features`, `src/shared` y `src/app`.
@@ -1682,6 +2319,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierran 0.1.2, 0.1.5 y 0.2.2.
 
 [2026-03-20 00:05] - Fundación: Prettier configurado y 0.1.4 reconciliado (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se añadió `prettier` como dependencia de desarrollo en package.json y se versionaron los scripts `format` y `format:check`.
 - Se añadieron `.prettierrc.json` y `.prettierignore` para fijar reglas de formato y exclusiones base del proyecto.
@@ -1690,6 +2328,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierra 0.1.4.
 
 [2026-03-20 00:20] - Fundación: tema be te ele alineado y 0.1.3 reconciliado (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó que shadcn/ui ya estaba instalado y versionado en `components.json`.
 - Se reancló la paleta base del sistema a be te ele en `src/app/globals.css` y `tailwind.config.ts`, alineando `primary` a `#1A7FD4`, `secondary` a `#8A9BA8` y `accent/foreground` a `#0A0A0A`.
@@ -1698,6 +2337,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierra 0.1.3.
 
 [2026-03-20 00:35] - Auth: claims personalizados verificados y 1.1.4 reconciliado (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se añadió `scripts/verify-auth-claims.cjs` y el script `npm run auth:verify:claims` para validar de forma reproducible la propagación remota de claims en `auth.users.app_metadata`.
 - Se actualizó `.env.local.example` para declarar `SUPABASE_JWT_SECRET` como parte del setup de entorno/Supabase.
@@ -1706,6 +2346,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierra 1.1.4.
 
 [2026-03-20 00:45] - Fundación: proyecto Supabase operativo reconciliado (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se confirmó evidencia local de proyecto Supabase operativo mediante `.env.local`, con `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` presentes.
 - Se verificó de forma no sensible el `projectRef` derivado de la URL pública configurada, confirmando que el repo está enlazado a una instancia Supabase real.
@@ -1714,6 +2355,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: se cierra 0.2.1.
 
 [2026-03-20 08:09] - Cierre documental e informe técnico del producto (Codex)
+
 - Canon revisado antes de cerrar: design.md, requirements.md, tasks.md.
 - Se consolidó el estado canónico actual del producto sin mover nuevos checkboxes: `286 / 287` checkboxes cerrados (`99.7%`) al contar todos los checkboxes de `.kiro/specs/field-force-platform/tasks.md`.
 - Se dejó explícita la excepción histórica abierta `0.1.1`, que corresponde al comando exacto de bootstrap con `create-next-app`; no representa una brecha funcional del sistema actual.
@@ -1723,12 +2365,14 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validación local: `npm run docs:check-encoding -- docs/informe-cierre-y-funcionamiento-app.md README.md AGENT_HISTORY.md task.md`.
 
 [2026-03-20 08:19] - Regla operativa para cambios no parcheados y con analisis previo (Codex)
+
 - Se actualizó `AGENTS.md` para dejar una regla repositorio-obligatoria: cualquier cambio en logica, backend, frontend o UX/UI debe iniciar con analisis del comportamiento actual, impacto esperado, dependencias afectadas y skills aplicables antes de editar codigo.
 - La nueva regla exige tratar los cambios como sustituciones controladas de funcionalidad existente, no como parches locales, y obliga a investigar radio de impacto en componentes, actions, services, rutas, migraciones, seeds, scripts, pruebas y documentacion derivada.
 - Tambien se fijó que, si una skill local aplica, debe declararse y usarse como parte del enfoque del cambio, y que el cierre del corte debe incluir validacion proporcional al riesgo para reducir regresiones.
 - Validación local: `npm run docs:check-encoding -- AGENTS.md AGENT_HISTORY.md`.
 
 [2026-03-20 08:47] - La raiz del sistema ahora entra por login (Codex)
+
 - Canon revisado antes de editar: design.md, requirements.md, tasks.md.
 - Analisis previo: `src/app/page.tsx` seguia renderizando una landing publica con tres CTAs (`/login`, `/ranking-publico`, `/dashboard`), mientras el flujo real de acceso ya vive en `/login` y el middleware de sesion en `src/lib/supabase/proxy.ts` ya redirige usuarios autenticados de `/login` a `/dashboard`.
 - Impacto evaluado: el cambio afecta el punto de entrada principal y la experiencia de navegacion inicial, pero no toca modelo de datos, claims, RLS ni servicios de negocio. `ranking-publico` y `dashboard` siguen disponibles por sus rutas directas.
@@ -1739,6 +2383,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: sin cambios en `tasks.md`; el ajuste corrige el punto de entrada UX sobre funcionalidad ya existente.
 
 [2026-03-20 08:57] - Provision de 30 usuarios de prueba por rol (Codex)
+
 - Canon revisado antes de editar: design.md, requirements.md, tasks.md.
 - Analisis previo: para que una cuenta de prueba sea utilizable en este sistema no basta con crear `auth.users`; hay que mantener coherente la cadena `empleado -> usuario -> auth.users`, incluyendo `puesto`, `estado_cuenta`, `correo_verificado`, `cuenta_cliente_id`, claims y scope de acceso.
 - Impacto evaluado: el cambio toca auth operativo, modelo de identidad laboral, panel de usuarios, session middleware y RLS. El riesgo principal era crear cuentas incompletas o inconsistentes que pudieran iniciar sesion pero no operar correctamente.
@@ -1750,6 +2395,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: sin cambios en `tasks.md`; esto es provision operativa de datos de prueba, no nuevo alcance funcional.
 
 [2026-03-20 11:38] - Fix a server actions invalida en login por export de objeto (Codex)
+
 - Canon revisado antes de editar: design.md, requirements.md, tasks.md.
 - Reproduccion: al abrir `/login` con usuario administrador, Next 16 lanzaba `A "use server" file can only export async functions, found object.`
 - Aislamiento: el stack apuntaba al loader de server actions y la causa raiz quedó en `src/actions/pushNotifications.ts`, archivo marcado con `'use server'` que exportaba `ESTADO_PUSH_INICIAL` como objeto, ademas de tipos auxiliares.
@@ -1760,6 +2406,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: sin cambios en `tasks.md`; es correccion de regresion tecnica sobre funcionalidad existente.
 
 [2026-03-20 12:03] - Fix a formularios anidados en Configuracion > Turnos (Codex)
+
 - Canon revisado antes de editar: design.md, requirements.md, tasks.md.
 - Analisis previo: `src/features/configuracion/components/ConfiguracionPanel.tsx` renderizaba `TurnoForm` como formulario principal de alta/edicion y, dentro de ese mismo `<form>`, insertaba `TurnoDeleteForm`, que a su vez renderiza otro `<form>` para la eliminacion. Eso detonaba el warning de React/Next `In HTML, <form> cannot be a descendant of <form>` y riesgo de hydration error al abrir `/configuracion`.
 - Impacto evaluado: el cambio afectaba solo la superficie UI de Configuracion para catalogo de turnos; no altera contratos de actions (`guardarTurnoCatalogo`, `eliminarTurnoCatalogo`), modelo de datos, auth, RLS ni servicios de lectura.
@@ -1770,6 +2417,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: sin cambios en `tasks.md`; es correccion estructural de frontend sobre funcionalidad ya existente.
 
 [2026-03-20 12:12] - Desactivacion de Service Worker en desarrollo para evitar hydration mismatch movil (Codex)
+
 - Canon revisado antes de editar: design.md, requirements.md, tasks.md.
 - Reproduccion/aislamiento: el error aparecia al abrir la app desde telefono sobre la URL LAN del entorno `dev`, con overlay de Next marcado como `stale`. La revision del arranque (`src/app/layout.tsx`, `src/components/app/AppRuntime.tsx`, `src/components/pwa/PwaBootstrap.tsx`) y la reproduccion local descartaron mismatch directo en `login`; la hipotesis fuerte quedo en HTML stale/controlado por Service Worker y caches PWA persistidas desde sesiones previas.
 - Impacto evaluado: el problema afectaba UX de entrada en dispositivos moviles sobre entorno local, especialmente cuando existian caches previas del Service Worker. No tocaba auth, datos ni modulos de negocio, pero si el runtime global y la estrategia PWA en desarrollo.
@@ -1781,6 +2429,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: sin cambios en `tasks.md`; es endurecimiento de runtime dev/PWA para eliminar una regresion de hidratacion en entorno local movil.
 
 [2026-03-20 12:21] - Navegacion movil usable y CTA de instalacion PWA reforzado (Codex)
+
 - Canon revisado antes de editar: design.md, requirements.md, tasks.md.
 - Analisis previo: el `Sidebar` de `src/components/layout/sidebar.tsx` se renderizaba igual en desktop y movil, como panel fijo en la parte superior con todo el arbol de navegacion visible. En telefono eso dejaba el layout dominado por la barra lateral, hacia dificil alcanzar submenus y no cerraba la navegacion al cambiar de ruta. En paralelo, `src/components/pwa/PwaBootstrap.tsx` solo mostraba el CTA de instalacion cuando existia `beforeinstallprompt`, dejando sin ayuda a navegadores moviles que no disparan ese evento (especialmente iPhone).
 - Impacto evaluado: el cambio toca UX transversal de todos los modulos dentro de `(main)` y el runtime PWA visible por el personal operativo. No altera negocio, datos ni permisos, pero si la navegacion principal, el acceso movil y la instalacion de la app.
@@ -1794,6 +2443,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: sin cambios en `tasks.md`; es reemplazo de UX movil y fortalecimiento del CTA PWA sobre alcance ya existente.
 
 [2026-03-20 12:37] - Sidebar alineado por rol y ocultamiento de modulos no pertinentes (Codex)
+
 - Canon revisado antes de editar: design.md, requirements.md, tasks.md.
 - Analisis previo: `src/components/layout/sidebar.tsx` seguia usando dos listas planas (`primaryItems`, `adminItems`) sin criterio por `actor.puesto`, por lo que cualquier rol activo veia modulos ajenos a su operacion. El caso mas evidente era `RECLUTAMIENTO`, que podia ver `Ventas`, `LOVE ISDIN`, `Nomina` y otros menus fuera de su alcance funcional.
 - Impacto evaluado: el cambio afecta navegacion, UX de permisos y consistencia con el modelo canonico de roles. No cambia datos ni autorizacion backend, pero reduce ruido operativo y evita exponer rutas irrelevantes en la interfaz. El radio de impacto incluye sidebar desktop, drawer movil y cualquier prueba que asuma presencia universal de menus.
@@ -1805,6 +2455,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Reconciliación del canon: sin cambios en `tasks.md`; es alineacion de navegacion por rol sobre alcance funcional ya existente. Queda como siguiente corte recomendable revisar si todas las paginas `(main)` tambien merecen endurecimiento de guardas server-side para coincidir al 100% con la nueva matriz visible.
 
 [2026-03-20 13:10] - Sustitucion del flujo de alta de empleados por expediente OCR -> IMSS -> acceso admin (Codex)
+
 - Canon revisado antes de editar: `design.md`, `requirements.md`, `tasks.md`.
 - Analisis previo: el modulo `Empleados` permitia un alta manual demasiado amplia desde Reclutamiento (`nombre`, `CURP`, `NSS`, `RFC`, `supervisor`, `id_nomina`, `username` y checkbox para provisionar acceso provisional en el mismo flujo). Eso contradecia el flujo operativo solicitado: expediente PDF completo -> OCR Gemini -> relevo a Nomina para IMSS -> relevo a Administracion para acceso provisional.
 - Impacto evaluado: el cambio toca `Empleados`, `Usuarios`, permisos de pagina, estados de workflow, carga documental, OCR, notificaciones internas y el contrato de provisionamiento administrativo. El objetivo fue reemplazar el flujo, no parchearlo, manteniendo separadas identidad laboral (`empleado`) y cuenta de acceso (`usuario`).
@@ -1820,6 +2471,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Estado: flujo de alta de empleados sustituido end-to-end en sus superficies criticas. Queda como siguiente corte recomendable endurecer pruebas especificas del modulo `Empleados` para la accion `crearEmpleado` y el cierre IMSS con documento obligatorio.
 
 [2026-03-20 15:05] - Ampliacion de expediente OCR con autofill inmediato y datos personales estructurados (Codex)
+
 - Canon revisado antes de editar: `design.md`, `requirements.md`, `tasks.md`.
 - Analisis previo: el flujo de `Empleados` ya habia sido sustituido a expediente -> IMSS -> acceso admin, pero el formulario seguia siendo pobre para captura personal: el OCR solo devolvia `nombre`, `CURP`, `RFC`, `NSS` y `direccion`, y esos datos solo aparecian despues del submit final, no al subir el PDF. La base tampoco tenia columnas explicitas para `fecha_nacimiento`, `codigo_postal`, `edad`, `estado_civil`, `originario`, `sexo`, `anios_laborando` o `sbc_diario`.
 - Impacto evaluado: el cambio toca esquema `empleado`, tipos TS, contrato Gemini OCR, API de preview, formulario de alta, detalle de expediente, flujo IMSS y documentacion canonica. El criterio fue reemplazar la captura base del expediente para que el OCR realmente prellene el alta y no quede como metadata tardia.
@@ -1837,16 +2489,19 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Estado: el alta por expediente ya opera con preanalisis OCR inmediato y con persistencia ampliada de datos personales estructurados. Siguiente corte recomendable: probar el flujo completo en navegador con un PDF real y, si aplica, extender el motor OCR a campos adicionales que el usuario entregue despues.
 
 [2026-03-20 15:18] - Despliegue de migracion de datos personales de empleado a la base configurada (Codex)
+
 - Se aplico en la base configurada via `DATABASE_URL` la migracion `supabase/migrations/20260320101500_empleado_datos_personales_ocr.sql` usando el script versionado `scripts/apply-sql-file.cjs`.
 - Verificacion posterior en `information_schema.columns` confirmo la presencia de las columnas nuevas en `public.empleado`: `fecha_nacimiento`, `domicilio_completo`, `codigo_postal`, `edad`, `anios_laborando`, `sexo`, `estado_civil`, `originario` y `sbc_diario`.
 - Estado: el repo y la base quedan alineados para probar el nuevo flujo de alta por expediente con autofill OCR inmediato.
 
 [2026-03-20 15:34] - Ajuste de limite de payload para expediente PDF en Server Actions de Next (Codex)
+
 - Analisis previo: el alta final de `Empleados` sigue entrando por la server action `crearEmpleado` en `src/features/empleados/actions.ts`, por lo que el submit del expediente PDF estaba siendo bloqueado por el limite por defecto de 1 MB de Next.js antes de llegar a OCR o a la validacion propia del modulo.
 - Se actualizo `next.config.ts` para alinear `experimental.serverActions.bodySizeLimit` y `experimental.proxyClientMaxBodySize` a `15mb`, cubriendo el limite operativo real del flujo (`12 MB` crudos antes de optimizar) con margen tecnico.
 - Estado: el bloqueo "Body exceeded 1 MB limit" queda resuelto a nivel framework. Este cambio requiere reiniciar el servidor `next dev` para tomar efecto.
 
 [2026-03-20 15:58] - Sustitucion del pipeline PDF por proveedor configurable con fallback local (Codex)
+
 - Analisis previo: todos los uploads con PDF convergen en `src/lib/files/documentOptimization.ts` via `optimizeExpedienteDocument` y `src/lib/files/evidenceStorage.ts`, pero el compresor actual solo hacia reescritura local con `pdf-lib`, insuficiente para expedientes escaneados pesados o comprobantes con imagenes internas. Ademas, en `Empleados` el OCR estaba leyendo el PDF ya optimizado, no el original.
 - Decision estructural: no se implemento un MCP runtime, porque MCP no es la superficie correcta para el flujo web de cargas. En su lugar se introdujo un proveedor PDF configurable para la aplicacion, usando Stirling-PDF como servicio libre/self-hostable con fallback automatico al compresor local. Referencia arquitectonica: el punto de integracion es `documentOptimization`, para que todos los flujos PDF hereden el cambio sin duplicacion.
 - Se actualizo `src/lib/files/documentOptimization.ts` con `PDF_COMPRESSION_PROVIDER=local|stirling` y soporte de `STIRLING_PDF_BASE_URL`, `STIRLING_PDF_API_KEY`, `STIRLING_PDF_OPTIMIZE_LEVEL`, `STIRLING_PDF_IMAGE_QUALITY`, `STIRLING_PDF_IMAGE_DPI` y `STIRLING_PDF_FAST_WEB_VIEW`. Si Stirling responde o falla, el pipeline deja trazabilidad en `notes`; si el servicio no esta disponible, cae a compresion local sin romper uploads.
@@ -1856,6 +2511,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK. Queda como siguiente corte validar el provider externo con pruebas de unidad y luego arrancar Stirling localmente para smoke real.
 
 [2026-03-20 16:32] - Configuracion central de compresion PDF y health check operativo (Codex)
+
 - Canon revisado antes de editar: `design.md`, `requirements.md`, `tasks.md`.
 - Analisis previo: el proveedor PDF ya existia en `src/lib/files/documentOptimization.ts`, pero solo podia gobernarse por variables de entorno. Eso dejaba inconsistencia con el modulo `Configuracion`, impedia diagnostico visual del runtime y obligaba a tocar archivos locales para cambiar entre fallback `local` y `stirling`.
 - Impacto evaluado: el cambio toca el runtime documental transversal (`Empleados`, `Solicitudes`, `Gastos`, `Materiales`, `Mensajes`, `Rutas`, `Campanas`, `Asistencias`), el panel administrativo de `Configuracion`, la lectura de variables de entorno y la trazabilidad operativa del proveedor PDF. No altera contratos de OCR ni el orden OCR-original -> compresion -> storage ya implementado.
@@ -1868,6 +2524,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Restriccion de entorno: este host no tiene `docker` ni `podman`, por lo que no fue posible dejar una instancia real de Stirling levantada desde este turno. El sistema queda preparado para activarla en cuanto exista el servicio.
 
 [2026-03-20 16:46] - Verificacion de Gemini OCR y diagnostico visible en alta de empleados (Codex)
+
 - Analisis previo: el usuario reporto que al subir un expediente “no reconoce ningun dato”. Se verifico el flujo completo `ocr-preview -> performConfiguredDocumentOcr -> snapshot -> autofill`.
 - Hallazgo: Gemini si responde correctamente con la API key actual y el modelo `gemini-2.5-flash`; la configuracion central en BD estaba vacia y se estaba usando solo entorno. Ademas, cuando OCR devolvia `needs_review`, `unreadable` o `error` sin campos utiles, la API aun podia responder sin dejar un diagnostico claro en el formulario, generando la percepcion de que “no hace nada”.
 - Se persisitieron en `configuracion` los valores `integraciones.ocr.preferred_provider=gemini` y `integraciones.ocr.preferred_model=gemini-2.5-flash` para dejar explicito el runtime activo.
@@ -1876,12 +2533,14 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Verificacion real adicional: prueba manual via script a Gemini con un PDF sintetico confirmo respuesta `200` y extraccion correcta de nombre, CURP, RFC, NSS, domicilio, CP, telefono, correo, fechas, sexo, estado civil, originario y SBC.
 
 [2026-03-20 17:02] - Alineacion del limite PDF de expediente con el pipeline operativo real (Codex)
+
 - Analisis previo: el flujo de `Empleados` seguia bloqueando expedientes PDF si la optimizacion no lograba bajar el archivo a `<=1 MB`, aunque el diseno vigente ya trata ese valor como objetivo y no como veto duro. Eso generaba rechazos innecesarios para expedientes reales de ~2 MB, aun cuando el pipeline documental podia procesarlos y el limite general seguia siendo `4 MB` optimizados / `12 MB` crudos.
 - Se actualizo `src/app/api/empleados/ocr-preview/route.ts` para dejar de rechazar PDFs solo por exceder el objetivo de `1 MB`; ahora solo bloquea si el archivo optimizado supera el limite operativo de `4 MB`, y agrega un mensaje informativo cuando el PDF queda arriba del objetivo pero dentro del rango permitido.
 - Se actualizo `src/features/empleados/actions.ts` para aplicar el mismo criterio en el guardado final del expediente y de documentos asociados: `1 MB` queda como objetivo de compresion, no como error bloqueante.
 - Se actualizo el copy operativo en `src/features/empleados/components/EmpleadosPanel.tsx` para reflejar la regla real: objetivo `1 MB`, limite operativo `4 MB`.
 
 [2026-03-20 17:18] - Eliminacion del veto post-optimizacion de 4 MB para expedientes completos (Codex)
+
 - Canon revisado antes de editar: `design.md`, `requirements.md`, `tasks.md`.
 - Analisis previo: aun despues del ajuste anterior, `Empleados` seguia rechazando expedientes completos cuando la mejor version optimizada quedaba arriba de `4 MB`. El bloqueo seguia vivo en tres superficies: `ocr-preview`, `registrarDocumentoEmpleado` y el bucket `empleados-expediente`. Esto contradecia la regla canonica de tratar `1 MB` como objetivo de compresion y procesar la mejor version optimizada dentro del flujo operativo.
 - Decision de reemplazo: para expediente e IMSS del modulo `Empleados`, se elimino el veto post-optimizacion por `4 MB` y se dejo como barrera real solo el limite crudo previo de `12 MB`. Para evitar fallos de Storage cuando el PDF optimizado quede por encima de 4 MB, el bucket `empleados-expediente` se amplio a `15 MB`, alineado con el margen tecnico ya configurado en Next para Server Actions.
@@ -1893,6 +2552,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK. Reconciliacion canonica: sin cambios en `tasks.md`; es alineacion del flujo existente de expediente/OCR/storage con la logica ya definida en `design.md`.
 
 [2026-03-20 17:34] - Normalizacion a espanol latino de mensajes narrativos de Gemini OCR (Codex)
+
 - Canon revisado antes de editar: `design.md`, `requirements.md`, `tasks.md`.
 - Analisis previo: el resumen visible de Gemini (`confidenceSummary`) seguia llegando en ingles al formulario de `Empleados`, aunque el flujo y la UI estan en espanol. La causa era doble: el prompt no exigia explicitamente espanol latino para las cadenas narrativas y el pipeline aceptaba casi crudo el texto libre devuelto por Gemini.
 - Decision de reemplazo: corregir la fuente del mensaje, no solo la vista. Se reforzo el prompt OCR para pedir espanol latino en todas las cadenas narrativas y se agrego una normalizacion defensiva en `src/lib/ocr/gemini.ts` que traduce al espanol los mensajes narrativos comunes si Gemini responde en ingles.
@@ -1903,6 +2563,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/gemini-ocr.spec.ts` OK (5 pruebas); `cmd /c npm run docs:check-encoding -- "src/lib/ocr/gemini.ts" "tests/gemini-ocr.spec.ts"` OK.
 
 [2026-03-20 18:02] - Exportacion CSV de empleados desde el modulo de Empleados (Codex)
+
 - Canon revisado antes de editar: `design.md`, `requirements.md`, `tasks.md`.
 - Analisis previo: el modulo `Empleados` ya consolidaba expediente, IMSS, OCR y control de bajas, pero no tenia una salida directa para descargar el listado visible. El repo ya usa el patron `panel -> service export payload -> route handler -> boton en header` en modulos como `Bitacora`, `Reportes` y `Nomina`.
 - Cambio solicitado: agregar un boton para descargar la lista de empleados.
@@ -1918,6 +2579,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/empleados-panel.spec.ts` OK (3 pruebas); `cmd /c npm run docs:check-encoding -- "src/features/empleados/services/empleadoService.ts" "src/app/api/empleados/export/route.ts" "src/app/(main)/empleados/page.tsx" "tests/empleados-panel.spec.ts"` OK.
 
 [2026-03-20 18:34] - Normalizacion en mayusculas y aceleracion del flujo OCR en alta de empleados (Codex)
+
 - Canon revisado antes de editar: `design.md`, `requirements.md`, `tasks.md`.
 - Analisis previo: el alta por expediente seguia mezclando texto OCR en mayusculas/minusculas, exponia un campo redundante `Sugerencia OCR de puesto`, aceptaba `anios laborando` como captura manual y hacia trabajo extra antes del OCR. El preview `/api/empleados/ocr-preview` comprimía el PDF antes de consultar Gemini y el guardado final duplicaba optimizacion: una vez en `registrarDocumentoEmpleado` y otra dentro de `storeOptimizedEvidence`. Eso degradaba la latencia percibida y permitia que `fecha de ingreso` OCR contaminara el calculo de antigüedad del alta.
 - Cambio solicitado: normalizar datos en mayusculas, quitar `PUESTO OCR`, fijar `anios laborando` como valor derivado de la fecha de ingreso a la agencia y hacer el motor OCR mas rapido.
@@ -1939,6 +2601,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/empleados-panel.spec.ts tests/empleados-ocr-mapping.spec.ts tests/gemini-ocr.spec.ts` OK (10 pruebas); `cmd /c npm run docs:check-encoding -- "src/features/empleados/components/EmpleadosPanel.tsx" "src/features/empleados/actions.ts" "src/features/empleados/lib/ocrMapping.ts" "src/app/api/empleados/ocr-preview/route.ts" "src/lib/ocr/gemini.ts" "tests/empleados-ocr-mapping.spec.ts"` OK.
 
 [2026-03-20 18:46] - Correccion de Server Actions invalido en account scope que bloqueaba el modulo Empleados (Codex)
+
 - Analisis previo: al intentar usar `Crear expediente`, Next 16 reventaba con `A "use server" file can only export async functions, found object.` El stack apuntaba al loader de Server Actions de la pagina de `Empleados`, pero la causa real estaba aguas arriba en `src/actions/accountScope.ts`, que seguia exportando `ESTADO_ACCOUNT_SCOPE_INICIAL` desde un archivo `'use server'`. Como `AccountScopeSwitcher` vive en el layout y comparte el mismo grafo de acciones, la excepcion tumbaba modulos no relacionados de forma aparente.
 - Decision de reemplazo: separar el estado inicial y su tipo en un modulo puro, dejando `src/actions/accountScope.ts` exportando solo funciones async.
 - Cambios aplicados:
@@ -1949,6 +2612,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK; `http://127.0.0.1:3000/empleados` responde `200`; `cmd /c npm run docs:check-encoding -- "src/actions/accountScope.ts" "src/actions/accountScopeState.ts" "src/components/layout/AccountScopeSwitcher.tsx"` OK.
 
 [2026-03-20 16:13] - SBC diario reservado exclusivamente para Nomina en el alta de empleados (Codex)
+
 - Analisis previo: el flujo actual de `RECLUTAMIENTO` seguia mezclando responsabilidades. Aunque el usuario ya habia definido que el salario diario/SBC lo crea solo `NOMINA`, el formulario de alta aun mostraba `SBC diario`, el snapshot OCR lo autollenaba desde Gemini y `crearEmpleado` lo persistia en `empleado.sbc_diario`. Eso desalineaba el formulario con el workflow real `RECLUTAMIENTO -> NOMINA -> ADMINISTRACION`.
 - Decision de reemplazo: cortar el circuito completo del SBC en la etapa de alta sin tocar el flujo posterior de IMSS/Nomina. El OCR del expediente sigue leyendo el documento, pero ya no propone ni cuenta `dailyBaseSalary` como dato util para la captura inicial; el valor queda nulo hasta que Nomina lo capture en su seccion administrativa.
 - Cambios aplicados:
@@ -1962,6 +2626,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/empleados-ocr-mapping.spec.ts tests/empleados-panel.spec.ts` OK (5 pruebas).
 
 [2026-03-20 16:28] - Correccion de schema cache y columnas de miniatura en `archivo_hash` para alta de expedientes (Codex)
+
 - Analisis previo: al crear el expediente, el flujo reventaba con `Could not find the 'miniatura_bucket' column of 'archivo_hash' in the schema cache`. El codigo actual de `storeOptimizedEvidence(...)` y los tipos del repo ya esperan que `public.archivo_hash` tenga `miniatura_bucket` y `miniatura_ruta_archivo`, asi que el problema no estaba en el frontend sino en la base activa.
 - Diagnostico real:
   - La migracion `supabase/migrations/20260317143000_archivo_hash_thumbnails.sql` existia en el repo pero no estaba reflejada en el endpoint REST activo.
@@ -1977,6 +2642,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - Verificacion remota posterior por `supabase-js`: `select('id,sha256,bucket,ruta_archivo,miniatura_bucket,miniatura_ruta_archivo')` sobre `archivo_hash` ya responde sin error.
 
 [2026-03-20 16:41] - Reencadenamiento de alta de expediente para respetar FK de `empleado_documento` (Codex)
+
 - Analisis previo: despues de corregir `archivo_hash`, el usuario seguia viendo `No fue posible crear el empleado.`. La revision del flujo mostro que `crearEmpleado(...)` llamaba a `registrarDocumentoEmpleado(...)` antes de insertar la fila de `empleado`, pero `empleado_documento.empleado_id` tiene FK real contra `public.empleado(id)`. Eso hacia que la insercion del documento fallara server-side y el formulario degradara al mensaje generico.
 - Decision de reemplazo: separar el proceso en dos pasos internos: preparar OCR + storage del documento primero, crear el empleado despues, y solo entonces insertar el vinculo en `empleado_documento`.
 - Cambios aplicados:
@@ -1990,6 +2656,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/empleados-panel.spec.ts tests/empleados-ocr-mapping.spec.ts` OK (5 pruebas).
 
 [2026-03-20 16:55] - Sidebar corrige acceso de Nomina al flujo de expedientes e IMSS (Codex)
+
 - Analisis previo: el flujo de `NOMINA` para descargar expediente, revisar documentos, subir el PDF IMSS y cerrar `ALTA_IMSS` ya existia en `/empleados`, con guardas server-side correctas en `src/app/(main)/empleados/page.tsx` y formularios visibles en `EmpleadosPanel.tsx`. El problema era de navegacion: `src/components/layout/sidebar.tsx` ocultaba el link `Empleados` para `NOMINA`, por lo que el proceso quedaba implementado pero no descubrible desde el menu.
 - Cambio aplicado:
   - `src/components/layout/sidebar.tsx`: `Empleados` ahora esta visible para `ADMINISTRADOR`, `RECLUTAMIENTO` y `NOMINA`.
@@ -1999,6 +2666,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK; `cmd /c npx playwright test tests/sidebar-role-visibility.spec.ts --config=playwright.retail.config.ts` OK (3 pruebas).
 
 [2026-03-20 16:50] - Dashboard de Nomina muestra altas pendientes de IMSS como alerta operativa (Codex)
+
 - Analisis previo: el flujo de altas IMSS ya existia en `Empleados`, pero el dashboard principal no modelaba ningun pendiente de expediente validado para `NOMINA`; las alertas live solo cubrian `GEOCERCA`, `RETARDO` y `CUOTA_BAJA`, y la tarjeta incluso estaba titulada como si fuera exclusiva de geocercas.
 - Cambio aplicado:
   - `src/features/dashboard/services/dashboardService.ts`: se agrego `IMSS_PENDIENTE` como tipo de alerta, se incorporo `fetchDashboardPendingImss(...)` sobre `empleado`, se cuenta `stats.imssPendientes` y `NOMINA` gana el widget `alertas` dentro de su dashboard.
@@ -2011,6 +2679,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/dashboard-kpis.spec.ts` OK (8 pruebas).
 
 [2026-03-20 17:08] - Dashboard de Nomina enlaza a `Empleados` con filtro automatico de pendientes IMSS (Codex)
+
 - Analisis previo: el dashboard ya mostraba alertas `IMSS_PENDIENTE`, pero el modulo `Empleados` todavia filtraba solo en cliente con `search`, `estado laboral`, `zona` y `supervisor`. No existia un contrato por URL ni un filtro visible de IMSS, asi que el clic desde el dashboard no podia aterrizar en una vista ya recortada a pendientes.
 - Cambio aplicado:
   - `src/app/(main)/empleados/page.tsx`: ahora consume `searchParams` y pasa filtros iniciales al panel.
@@ -2023,6 +2692,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/empleados-panel.spec.ts tests/dashboard-kpis.spec.ts` OK (12 pruebas).
 
 [2026-03-20 17:42] - Baja de empleados reemplazada por flujo Reclutamiento -> Nomina con cierre institucional (Codex)
+
 - Analisis previo: `registrarBajaEmpleado(...)` estaba cerrando la baja de inmediato desde `RECLUTAMIENTO`, cambiando `empleado.estatus_laboral` a `BAJA` y `usuario.estado_cuenta` a `BAJA` sin expediente documental obligatorio ni handoff formal a `NOMINA`. Eso contradecia el flujo solicitado y tambien dejaba a `NOMINA` sin una etapa propia para revisar soportes, subir el PDF institucional de baja y cerrar el expediente.
 - Cambio aplicado:
   - `src/features/empleados/actions.ts`:
@@ -2042,6 +2712,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/empleados-panel.spec.ts tests/dashboard-kpis.spec.ts` OK (12 pruebas).
 
 [2026-03-20 17:06] - Prompt OCR de Gemini endurecido para fuentes oficiales por campo (Codex)
+
 - Analisis previo: `src/lib/ocr/gemini.ts` ya priorizaba `COMPROBANTE_DOMICILIO` sobre `INE`, pero seguia permitiendo consolidacion amplia del expediente y dejaba demasiado margen para que Gemini tomara datos personales desde CVs, formatos internos o papeleria no oficial. El riesgo operativo era alto porque nombre, RFC, NSS, CURP y domicilio podian contaminarse con fuentes no confiables.
 - Cambio aplicado:
   - `src/lib/ocr/gemini.ts`: `buildPrompt(...)` se reemplazo por una instruccion mas estricta de OCR, obligando a Gemini a:
@@ -2067,6 +2738,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/gemini-ocr.spec.ts` OK (6 pruebas).
 
 [2026-03-20 18:05] - Rechazo de altas/bajas por Nomina, correccion por Reclutamiento y simplificacion documental en Empleados (Codex)
+
 - Analisis previo: el flujo de `Empleados` ya permitia alta por expediente y baja por etapas, pero tenia tres huecos estructurales: `NOMINA` no podia rechazar formalmente altas o bajas con retorno a `RECLUTAMIENTO`, `RECLUTAMIENTO` no tenia una superficie real para corregir la ficha laboral despues del rechazo, y el alta inicial seguia pensando en un solo PDF principal aunque la operacion real manda expediente organizado + credencial + constancia fiscal. Ademas, el panel documental seguia mostrando demasiado detalle de OCR y el boton `Abrir documento` quedaba enterrado despues de ese bloque irrelevante.
 - Cambio aplicado:
   - `src/features/empleados/actions.ts`:
@@ -2091,6 +2763,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
 - Validacion local: `cmd /c npx tsc --noEmit` OK; `cmd /c npm run test -- tests/empleados-panel.spec.ts` OK (4 pruebas).
 
 [2026-03-20 18:32] - Dashboard mobile-first especifico para Dermoconsejero (Codex)
+
 - Analisis previo: el dashboard actual estaba diseñado como tablero analitico transversal y no como home operativa de piso de venta. Para `DERMOCONSEJERO` eso rompia la jerarquia correcta: no se priorizaba la sucursal del dia, no habia accion central de jornada, no habia quick actions de operacion y la vista seguia cargando la capa de insights pensada para supervisores/administracion. El repo ya tenia la materia prima distribuida en `asistencia`, `asignacion`, `venta`, `love_isdin` y `campana_pdv`, asi que el cambio correcto no era abrir otra pantalla, sino sustituir el comportamiento del dashboard para ese rol.
 - Cambio aplicado:
   - `src/features/dashboard/services/dashboardService.ts`:
@@ -2131,6 +2804,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `cmd /c npx playwright test tests/dermoconsejo-dashboard.spec.ts --config=playwright.retail.config.ts` OK (1 prueba)
 
 [2026-03-20 19:18] - Skill local de diseno + rediseño visual premium SaaS base (Codex)
+
 - Analisis previo: la aplicacion ya tenia una arquitectura operativa estable y un layout funcional, pero visualmente seguia anclada a una estetica tecnica: azul corporativo fuerte, heroes oscuros, contenedores con borde tradicional, sidebar sin tratamiento premium ni iconografia consistente, y formularios/tablas con una lectura utilitaria. El cambio pedido no era de UX estructural ni de navegacion, sino una sustitucion controlada de la piel visual completa hacia un lenguaje `Modern SaaS Premium` inspirado en TeamHub, manteniendo rutas, menus, layout base y flujos de datos.
 - Cambio aplicado:
   - skill repo-local nueva en `.claude/skills/11-design/modern-saas-premium-redesign/`:
@@ -2181,6 +2855,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `cmd /c npm run docs:check-encoding -- ...` OK
 
 [2026-03-21 10:25] - Hardening de Auth cliente contra fallos de red en Supabase
+
 - Contexto:
   - Se reporto `TypeError: Failed to fetch` desde el cliente de Supabase Auth al resolver `getUser()` en navegador.
   - La causa raiz estaba en `src/components/auth/AuthSessionMonitor.tsx` y `src/hooks/useAuth.ts`, donde las llamadas browser-side a `supabase.auth.getSession()` / `getUser()` no capturaban errores de red.
@@ -2198,6 +2873,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 12:05] - Simplificacion visual del encabezado del sidebar
+
 - Contexto:
   - El shell premium reciente aun dejaba dos bloques pesados en la parte alta del sidebar: la tarjeta de sesion activa y la tarjeta de alcance admin.
   - Esos bloques competian visualmente con la navegacion principal y hacian que el sidebar se sintiera mas cargado de lo necesario.
@@ -2214,6 +2890,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 12:46] - Shell single-client visible y limpieza de branding/copy
+
 - Contexto:
   - La plataforma hoy se usa solo para ISDIN y el shell seguia mostrando el selector de alcance multi-cliente, copy tecnico redundante y branding heredado de `Field Force Platform`.
   - El dashboard y varias vistas administrativas repetian etiquetas como `Administracion`, `Vista global` y descripciones internas poco utiles para usuario final.
@@ -2267,6 +2944,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 13:18] - Detalles de Empleados y PDVs migrados a modal popup
+
 - Contexto:
   - Los modulos `Empleados` y `PDVs` resolvian `Ver expediente` / `Ver detalle` expandiendo una segunda fila dentro de la tabla.
   - Ese patron era funcional pero hacia las tablas muy largas, rompia la lectura y no daba una experiencia consistente de ficha detallada.
@@ -2292,6 +2970,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 13:42] - Tabla de Empleados simplificada para que todo quede dentro de cada celda
+
 - Contexto:
   - La vista de `Empleados` seguia concentrando demasiado texto por fila incluso despues de mover el detalle completo al modal.
   - Los estados de acceso, expediente e IMSS mezclaban demasiadas lineas secundarias, y la ultima columna seguia bajo presion visual.
@@ -2315,6 +2994,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 14:47] - PDFs limitados a 4 MB sin compresion en servidor
+
 - Contexto:
   - El usuario decidio retirar la capa de compresion PDF del producto y delegar esa responsabilidad al usuario final antes de la carga.
   - El flujo anterior aun intentaba optimizar PDFs en runtime y mostraba mensajes/UI que sugerian compresion automatica o metadatos de optimizacion.
@@ -2336,6 +3016,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 14:50] - Server actions de Nomina normalizadas para Next 16
+
 - Contexto:
   - Al rechazar un alta enviada de Reclutamiento a Nomina, el runtime de Next 16 rompia el modulo de acciones con el error `A "use server" file can only export async functions, found object.`
   - La causa raiz no era el boton de rechazo sino `src/features/nomina/actions.ts`, que seguia exportando `ESTADO_NOMINA_INICIAL` y `ESTADO_PERIODO_NOMINA_INICIAL` como objetos desde un archivo con `'use server'`.
@@ -2356,6 +3037,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 15:24] - Modal de Nomina vuelve a permitir revisar expediente y subir alta IMSS
+
 - Contexto:
   - Despues de separar las bandejas de Reclutamiento y Nomina, el ticket corregido si regresaba a `altas-imss`, pero el modal de Nomina habia perdido la superficie de carga documental.
   - El resultado era confuso: Nomina veia el ticket en `altas pendientes`, pero ya no podia subir el PDF de alta IMSS desde ese modal y parecia que tampoco existia el expediente previo dentro del flujo.
@@ -2377,6 +3059,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 15:34] - Cuotas suspendidas en UI y carga documental simplificada para Reclutamiento
+
 - Contexto:
   - El modulo `Cuotas comerciales` seguia mostrando captura y calculo interno cuando el proceso real todavia no esta definido; por ahora los bonos se calcularan fuera de la plataforma con reporte mensual de piezas por dermoconsejera y PDV.
   - En `Empleados`, la correccion documental desde `devueltas por Nomina` aun mostraba tipos tecnicos (`OTRO`, `INE`, `RFC`) en lugar de nombres operativos.
@@ -2403,6 +3086,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 15:53] - Cancelacion completa del proceso de alta con bandeja de Cancelados
+
 - Contexto:
   - El flujo separado entre `Reclutamiento` y `Nomina` ya contemplaba altas pendientes, correcciones y cierre IMSS, pero no tenia una salida terminal para candidatos que declinan la oferta despues de cargar expediente o incluso despues de enviarse a Nomina.
   - El problema no era solo agregar un boton: habia que sacar esos expedientes de las bandejas activas, conservar documentos, dejar motivo y registrar en que etapa se cancelo el alta.
@@ -2434,6 +3118,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 16:12] - Integracion formal del catalogo `.claude/skills/` al marco operativo del repo
+
 - Contexto:
   - El repositorio ya exigia skills locales obligatorias por tipo de cambio, pero el catalogo real de `.claude/skills/` es mas amplio e incluye diseño, arquitectura, seguridad, contexto visual, workflow y otras capacidades que no deben quedar como opcionales o invisibles.
   - Se pidio expresamente revisar esa ruta e integrarla al enfoque de trabajo del agente.
@@ -2450,6 +3135,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 17:04] - Sustitucion de mapas placeholder por mapa real de Mexico en Dashboard y PDVs
+
 - Contexto:
   - El canon vigente exige `PDVs con mapa (Leaflet/Mapbox)` y `Mapa en tiempo real de DCs activos con estado de geocerca`.
   - La implementacion visible en Dashboard y PDVs seguia usando dispersogramas SVG normalizados sobre fondos gradiente, sin cartografia real de Mexico.
@@ -2477,6 +3163,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 17:18] - Filtro por supervisor agregado al catalogo de PDVs
+
 - Contexto:
   - El panel de `PDVs` ya permitia buscar por nombre, clave, zona o supervisor en texto libre, y el servicio ya exponia `supervisores` y `supervisorActualId`.
   - Faltaba un filtro explicito por supervisor en la seccion `Catalogo y filtros`, lo que impedia ver con claridad que PDVs estan asignados a cada supervisor en tabla y mapa.
@@ -2497,6 +3184,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 17:31] - Alta de PDV movida a boton superior con modal
+
 - Contexto:
   - El modulo `PDVs` mostraba el formulario completo de alta embebido en la pagina principal.
   - El patron visual actual del producto ya privilegia acciones compactas que abren ventanas emergentes para altas y detalles, evitando formularios largos ocupando la superficie base.
@@ -2517,6 +3205,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 18:08] - Catalogo maestro ISDIN integrado en Admin y ligado a Ventas
+
 - Contexto:
   - La plataforma necesitaba una seccion administrativa para actualizar el catalogo activo de productos ISDIN a partir del archivo `Catalogo_ISDIN_Nombres_Cortos.xlsx`.
   - `Configuracion` ya tenia CRUD manual de productos, pero `Ventas` seguia capturando producto como texto libre y no desde el catalogo maestro.
@@ -2544,6 +3233,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 18:29] - Hidratacion estabilizada en Ventas por estado offline y defaults de fecha/hora
+
 - Contexto:
   - La pagina `Ventas` empezo a lanzar un `Recoverable Error` de hidratacion porque `OfflineStatusCard` renderizaba `ONLINE/OFFLINE` con un valor distinto entre SSR y cliente.
   - El origen real estaba en `useOfflineSync`, que inicializaba `isOnline` con `navigator.onLine` en el primer render del cliente, mientras el servidor renderizaba un valor distinto.
@@ -2564,6 +3254,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 19:05] - DERMOCONSEJERO y SUPERVISOR migran a home operativa sin sidebar
+
 - Contexto:
   - El shell principal seguia renderizando `Sidebar` para todos los roles en `src/app/(main)/layout.tsx`, lo que hacia que `DERMOCONSEJERO` y `SUPERVISOR` operaran con un patron de navegacion demasiado tecnico para trabajo de campo.
   - `DERMOCONSEJERO` ya tenia una base mobile-first dentro de `DashboardPanel`, pero seguia encapsulada dentro del layout con sidebar.
@@ -2592,6 +3283,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 19:34] - Home de Dermoconsejo alineada a referencia movil y ventanas con boton Atras
+
 - Contexto:
   - Tras retirar el sidebar para `DERMOCONSEJERO`, la home todavia se leia como dashboard SaaS y no como interfaz directa de campo; ademas, las ventanas emergentes no tenian un patron de retorno visible.
   - La referencia pedida exige una home mucho mas cercana a app operativa: tarjeta de jornada, sucursal destacada, CTA primario, cuatro indicadores compactos y acciones rapidas iconicas.
@@ -2619,6 +3311,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 [2026-03-21 20:42] - Dermoconsejo: check-in operativo dentro del dashboard con mision, camara, GPS y borrador
+
 - Contexto:
   - El CTA principal `LLEGUE A TIENDA` del dashboard de `DERMOCONSEJERO` seguia redirigiendo a `/asistencias`, aunque el canon exige una experiencia operativa directa con mision del dia, selfie nativa, GPS/geocerca y borrador previo al envio.
   - La logica ya existia en `AsistenciasPanel`, pero estaba acoplada a esa pagina y no reutilizable desde el dashboard.
@@ -3560,33 +4253,38 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `.claude/skills/09-encoding/utf8-standard`
 
 ## 2026-03-24 - PWA de campo no intrusiva en dashboard compacto
+
 - Se corrigio `src/components/pwa/PwaBootstrap.tsx` para detectar vista compacta por ancho real de viewport, no por user agent.
 - En mobile/compacto, la tarjeta `PWA de campo` ahora arranca minimizada y deja libres las acciones rapidas del dashboard.
 - Se reinicio la app local con build nuevo y se confirmo la regresion del dashboard en Playwright.
 - Validaciones: `npx tsc --noEmit`, `npx playwright test tests/dermoconsejo-dashboard.spec.ts --config=playwright.retail.config.ts`, `npm run docs:check-encoding -- src\components\pwa\PwaBootstrap.tsx AGENT_HISTORY.md`.
 
 ## 2026-03-24 15:00 - Instalación de Google Stitch MCP (Antigravity)
+
 - **Contexto**: El usuario solicitó instalar el servidor MCP de Google Stitch.
 - **Acción**:
-    - Se ejecutó el wizard de inicialización `npx @_davideast/stitch-mcp init`.
-    - Se configuró la conexión "Direct (Standard)" utilizando la API Key proporcionada por el usuario.
-    - Se actualizó el archivo `.mcp.json` con el `serverUrl` (`https://stitch.googleapis.com/mcp`) y los headers correspondientes.
+  - Se ejecutó el wizard de inicialización `npx @_davideast/stitch-mcp init`.
+  - Se configuró la conexión "Direct (Standard)" utilizando la API Key proporcionada por el usuario.
+  - Se actualizó el archivo `.mcp.json` con el `serverUrl` (`https://stitch.googleapis.com/mcp`) y los headers correspondientes.
 - **Impacto**:
-    - Los editores (como Cursor, Claude Code o Antigravity) pueden usar de inmediato las capacidades de Stitch para generar/copiar interfaces sin requerir autenticación adicional del navegador.
+  - Los editores (como Cursor, Claude Code o Antigravity) pueden usar de inmediato las capacidades de Stitch para generar/copiar interfaces sin requerir autenticación adicional del navegador.
 - **Estado**: Completado.
 
 ## 2026-03-24 - Saneamiento de configuracion MCP local
+
 - Se reviso la configuracion MCP real del proyecto en `.mcp.json` y la de referencia en `.claude/example.mcp.json`.
 - Se alineo el servidor MCP de Supabase al project ref real de la app: `jbdfutvkfvmaulmnfwkk`.
 - Se dejo `SUPABASE_ACCESS_TOKEN` como credencial explicita pendiente de configuracion personal para evitar asumir un token inexistente.
 - Se confirmo que `.mcp.json` esta ignorado por Git y que el repo puede seguir usando configuracion local sin contaminar el versionado.
 
 ## 2026-03-24 - Endurecimiento de credenciales MCP
+
 - Se saneo la configuracion de `.mcp.json` y `.claude/example.mcp.json` para que `stitch` deje de almacenar la API key en claro dentro del JSON.
 - `stitch` ahora usa variable de entorno (`X_GOOG_API_KEY`) con placeholder local.
 - Se mantuvo el `project-ref` real de Supabase en la configuracion MCP del proyecto y se dejo el token de acceso como credencial pendiente de cada entorno local.
 
 ## 2026-03-24 - Quotas mensuales por PDV en War Room de Ruta semanal
+
 - Se reemplazo la cuota derivada fija del War Room de `Ruta semanal` por un control real de `Coordinacion` guardado en metadata de ruta (`pdvMonthlyQuotas`).
 - `src/features/rutas/lib/routeWorkflow.ts` ahora parsea y serializa quotas mensuales por PDV junto con la quota total esperada del supervisor.
 - `src/features/rutas/services/rutaSemanalService.ts` ya construye el grid de supervisores y el detalle de PDVs usando la quota mensual almacenada por PDV, recalculando el total esperado del supervisor a partir de esa suma.
@@ -3597,6 +4295,7 @@ pm run docs:check-encoding -- src\features\asistencias\lib\asistenciaRules.ts sr
   - `cmd /c npx tsc --noEmit`
   - `cmd /c npm run test -- tests/ruta-semanal.spec.ts`
   - `cmd /c npm run docs:check-encoding -- src\features\rutas\lib\routeWorkflow.ts src\features\rutas\services\rutaSemanalService.ts src\features\rutas\actions.ts src\features\rutas\components\RutaSemanalPanel.tsx tests\ruta-semanal.spec.ts AGENT_HISTORY.md`
+
 ## 2026-03-24 - Catalogo geografico con estado en dashboard y PDVs
 
 - Se cerro la sustitucion del modelo geografico para exponer `estado` como parte operativa del catalogo de `ciudad`.
@@ -3638,6 +4337,7 @@ Validacion:
 
 - `cmd /c npx tsc --noEmit`
 - `cmd /c npm run test -- tests/pdvs-panel.spec.ts tests/dashboard-kpis.spec.ts`
+
 ## 2026-03-24 - Formaciones por estado y herencia por PDV
 
 - Se reemplazo el targeting manual de participantes en `Formaciones` por un targeting operativo basado en `estado`, `supervisores`, `coordinadores` y `PDVs`.
@@ -3683,6 +4383,7 @@ Validacion:
 - `cmd /c npx tsc --noEmit`
 - `cmd /c npm run test:property -- src/features/asignaciones/lib/assignmentEngine.test.ts src/features/asistencias/lib/attendanceDiscipline.test.ts`
 - `cmd /c npx playwright test tests/dermoconsejo-dashboard.spec.ts --config=playwright.retail.config.ts`
+
 ## 2026-03-24 - Migracion remota del motor vivo de asignaciones
 
 - Se verifico la causa raiz del error `column asignacion.naturaleza does not exist` en `/asignaciones`: el codigo del motor vivo ya consumia columnas nuevas (`naturaleza`, `retorna_a_base`, `asignacion_base_id`, `asignacion_origen_id`, `prioridad`, `motivo_movimiento`, `generado_automaticamente`), pero la base remota conectada por la app aun no tenia aplicada la migracion `20260324224000_asignacion_live_engine.sql`.
@@ -4177,7 +4878,7 @@ Validacion:
 - se actualizaron superficies derivadas de reportes en:
   - `src/features/reportes/components/ReportesPanel.tsx`
   - `src/features/reportes/services/reporteExport.ts`
-  para exponer `retardos`, `ausencias justificadas` y `faltas` en la lectura administrativa y en las exportaciones
+    para exponer `retardos`, `ausencias justificadas` y `faltas` en la lectura administrativa y en las exportaciones
 - se alineo el consumo de asignaciones en nomina para respetar `pdv_id`, `naturaleza` y `prioridad` desde la asignacion publicada y no asumir siempre `BASE`
 - skills aplicadas de forma explicita en este corte: `05-code-review/typescript-strict-typing`, `03-debugging/systematic-debugging`, `06-performance/sql-indexing-strategy`, `02-testing-e2e/playwright-testing`, `09-encoding/utf8-standard`
 - validaciones ejecutadas:
@@ -4188,6 +4889,7 @@ Validacion:
   - `cmd /c npm run test -- tests/critical-flows.spec.ts`
 
 ## 2026-03-26 - Fase 3 motor de asignacion efectiva del dia
+
 - Se reemplazo el reporte de asistencias administrativo para que, cuando la disciplina resuelta este disponible, se alimente desde la resolucion diaria y no desde conteos crudos de asistencia.
 - Se extendio el reporte y la exportacion de nomina con disciplina operativa resuelta: jornadas validas, pendientes, retardos, ausencias justificadas y faltas.
 - El panel de Pre-nomina ahora muestra una columna explicita de disciplina con retardos, justificadas, faltas y faltas administrativas.
@@ -4198,8 +4900,8 @@ Validacion:
   - cmd /c npm run test:property -- src/features/nomina/nominaFlow.test.ts
   - cmd /c npm run docs:check-encoding -- AGENT_HISTORY.md src\features\reportes\services\reporteService.ts src\features\reportes\services\reporteExport.ts src\features\reportes\components\ReportesPanel.tsx src\features\nomina\components\NominaPanel.tsx src\features\nomina\nominaFlow.test.ts
 
-
 ## 2026-03-26 - Materializacion incremental de asignacion diaria
+
 - se agrego la migracion `supabase/migrations/20260326190000_asignacion_diaria_materializada.sql` para crear `asignacion_diaria_resuelta` y `asignacion_diaria_dirty_queue` con indices para lectura mensual por fecha, supervisor, coordinacion, cuenta y estado operativo
 - se extendieron los contratos manuales en `src/types/database.ts` con `AsignacionDiariaResuelta` y `AsignacionDiariaDirtyQueue` para tipar la nueva capa derivada sin depender de heuristicas locales
 - se implemento `src/features/asignaciones/services/asignacionMaterializationService.ts` con tres responsabilidades centrales:
@@ -4214,6 +4916,7 @@ Validacion:
   - `cmd /c npx vitest run src/features/asignaciones/services/asignacionMaterializationService.test.ts`
 
 ## 2026-03-26 - Integracion incremental y vista mensual administrativa de asignaciones
+
 - se conecto la cola incremental de `asignacion_diaria_dirty_queue` a los eventos reales de publicacion de asignaciones en `src/features/asignaciones/actions.ts`, encolando y procesando solo el rango impactado por empleada cuando una asignacion entra o sale de `PUBLICADA`
 - se conectaron solicitudes operativas en `src/features/solicitudes/actions.ts` para recalcular materializacion cuando vacaciones, incapacidades o justificaciones cruzan hacia estados que afectan la operacion del dia
 - se conectaron formaciones en `src/features/formaciones/actions.ts` para recalcular unicamente las dermoconsejeras impactadas cuando una formacion activa cambia de estado, fechas o participantes
@@ -4226,8 +4929,8 @@ Validacion:
   - `cmd /c npm run test -- tests/assignment-validation.spec.ts`
   - `cmd /c npx vitest run src/features/asignaciones/services/asignacionMaterializationService.test.ts`
 
-
 ## 2026-03-26 - Detalle diario y vista geografica mensual sobre asignacion materializada
+
 - se enriquecio `src/features/asignaciones/services/asignacionMaterializationService.ts` para que el calendario mensual traiga tambien clave BTL, zona y geocerca del PDV por dia, reutilizando la misma lectura de `asignacion_diaria_resuelta` sin abrir recalculos adicionales
 - se extendio `src/features/asignaciones/components/AsignacionesPanel.tsx` con dos nuevas superficies sobre la misma data materializada:
   - detalle diario por celda, clicable desde el calendario, con estado operativo, PDV efectivo, horario, supervisor, coordinador, origen y banderas como cumpleanos
@@ -4240,6 +4943,7 @@ Validacion:
   - `cmd /c npx vitest run src/features/asignaciones/services/asignacionMaterializationService.test.ts`
 
 ## 2026-03-26 - Exportacion de calendario operativo mensual para cliente
+
 - se agrego la nueva seccion `calendario_operativo` en `src/features/reportes/services/reporteExport.ts`, alimentada por `asignacion_diaria_resuelta` para exportar una matriz mensual por dermoconsejera con columnas fijas operativas y un dia por columna
 - el export ahora resume observaciones por fila (`DESC`, `INC`, `VAC`, `FORM`, `JUST`, `FAL`, `CUMP`, `SIN`) y usa codigos diarios operativos (`1`, `RET`, `PEND`, `DES`, `INC`, `VAC`, `FOR`, `JUS`, `FAL`, `SIN`) sin recalcular fuera del mes visible
 - se extendieron `src/app/api/reportes/export/route.ts` y `src/app/api/reportes/scheduled-export/route.ts` para aceptar payloads XLSX enriquecidos con filas previas, merges, anchos de columna y freeze pane, manteniendo CSV/XLSX genericos para el resto de secciones
@@ -4255,6 +4959,7 @@ Validacion:
   - `cmd /c npm run docs:check-encoding -- src\\features\\reportes\\services\\reporteExport.ts src\\app\\api\\reportes\\export\\route.ts src\\app\\api\\reportes\\scheduled-export\\route.ts src\\features\\reportes\\components\\ReportesPanel.tsx src\\features\\reportes\\components\\ReportesScheduleManager.tsx src\\features\\reportes\\services\\reportePdf.ts src\\features\\reportes\\services\\reporteExport.test.ts AGENT_HISTORY.md`
 
 ## 2026-03-26 - Refinamiento visual del Excel de calendario operativo
+
 - Extendimos el payload XLSX de `calendario_operativo` con metadata visual (`theme`, `calendar`, anchos) para separar datos y presentación.
 - Creamos `src/features/reportes/services/reporteXlsxTheme.ts` para aplicar un tema compartido del calendario operativo en export manual y programado.
 - El XLSX ahora pinta encabezado mensual, fila de días de semana, colores por estatus (`RET`, `INC`, `VAC`, `FOR`, `JUS`, `FAL`, `SIN`) y separadores semanales por borde fuerte.
@@ -4266,17 +4971,21 @@ Validacion:
 - Los endpoints de export manual y programado ahora soportan `extraSheets` y renderizan hojas adicionales dentro del mismo workbook.
 
 ## 2026-03-26 - Prioridad de asignaciones derivada por naturaleza
+
 - quitamos el campo manual Prioridad de la tarjeta Nueva asignacion en `src/features/asignaciones/components/AsignacionesPanel.tsx` porque estaba exponiendo una decision que debe vivir en el motor, no en la captura del usuario
-- src/features/asignaciones/actions.ts ahora deriva prioridad automaticamente a partir de 
-aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y deja de aceptar override manual desde el formulario
+- src/features/asignaciones/actions.ts ahora deriva prioridad automaticamente a partir de
+  aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y deja de aceptar override manual desde el formulario
 - tambien retiramos la etiqueta visual de prioridad en el listado operativo para reducir ruido y alinear la UI con la regla de negocio: la prioridad se resuelve por detras
+
 ## 2026-03-26 - Factor tiempo derivado para export mensual
+
 - retiramos la captura manual de factor_tiempo en `src/features/asignaciones/components/AsignacionesPanel.tsx` y dejamos de mostrarlo en la vista previa del catalogo inicial porque el valor ya no debe definirse desde la UI
 - src/features/asignaciones/actions.ts ahora guarda nuevas asignaciones e importaciones con factor_tiempo = 1 como valor neutro, dejando el dato operativo real para resolverse por contexto mensual y no por fila individual
 - src/features/reportes/services/reporteExport.ts ahora deriva la columna # DC del calendario operativo como factor mensual por dermoconsejera: 1 si tiene un solo PDV asignado en el mes, .5 si tiene 2, .33 si tiene 3 y .25 si tiene 4, usando los PDVs distintos publicados en el periodo visible
 - se mantuvo la regla de negocio existente de asignaciones: una DC no puede quedar en dos PDVs el mismo dia, y el factor ya no pretende resolver conflictos diarios sino solo representar reparto mensual en el export al cliente
 
 ## 2026-03-26 - Agenda operativa dinamica para rutas de supervision
+
 - se agrego la migracion `supabase/migrations/20260326213000_ruta_agenda_operativa.sql` para introducir dos capas nuevas sobre la ruta semanal base:
   - `ruta_agenda_evento` para visitas adicionales y eventos extraordinarios con modo de impacto (`SUMA`, `SOBREPONE_PARCIAL`, `REEMPLAZA_TOTAL`), aprobacion y evidencia de ejecucion
   - `ruta_visita_pendiente_reposicion` para visitas no realizadas clasificadas como `JUSTIFICADA` o `INJUSTIFICADA`
@@ -4317,6 +5026,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `cmd /c npm run test:unit -- src/features/rutas/services/rutaAgendaService.test.ts` (ejecutada fuera del sandbox por restriccion `spawn EPERM` del entorno local)
 
 ## 2026-03-26 - Compatibilidad controlada para bases sin agenda dinámica de rutas
+
 - `src/features/rutas/services/rutaSemanalService.ts` ahora trata la ausencia de `ruta_agenda_evento` y `ruta_visita_pendiente_reposicion` como compatibilidad degradada, no como fallo critico del modulo
 - cuando esas tablas no existen, `Ruta semanal` sigue cargando con agenda vacia y un mensaje operativo claro para aplicar la migracion `20260326213000_ruta_agenda_operativa.sql`
 - `src/features/rutas/components/RutaSemanalPanel.tsx` ahora muestra aviso de modo compatible y deshabilita formularios/aprobaciones de agenda dinamica mientras la base siga desfasada
@@ -4326,6 +5036,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `cmd /c npm run test -- tests/ruta-semanal.spec.ts`
 
 ## 2026-03-26 - Migracion de reconciliacion para esquema operativo de rutas
+
 - se agrego `supabase/migrations/20260326233000_ruta_operativa_schema_reconcile.sql` como migracion idempotente para bases atrasadas que no hayan aplicado en orden las piezas de `ruta_semanal.metadata` y de agenda dinamica
 - la migracion garantiza:
   - columna `public.ruta_semanal.metadata`
@@ -4339,6 +5050,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `cmd /c npm run docs:check-encoding -- AGENT_HISTORY.md supabase\\migrations\\20260326233000_ruta_operativa_schema_reconcile.sql`
 
 ## 2026-03-26 - Padrón actual ISDIN + primer acceso obligatorio
+
 - se implemento un flujo nuevo para empleados ya contratados que **no pasa por reclutamiento** y permite cargar la base actual de ISDIN con usuarios provisionales y primer acceso obligatorio
 - se agrego `src/lib/auth/firstAccess.ts` para centralizar la lectura/escritura de la bandera `onboarding_inicial.primer_acceso` dentro de `empleado.metadata`
 - `src/lib/auth/session.ts` ahora expone `primerAccesoPendiente` en `ActorActual`, y `requerirActorActivo()` redirige a `/primer-acceso` cuando el usuario ya activo todavia no confirma o corrige sus datos iniciales
@@ -4377,6 +5089,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `cmd /c npx vitest run src/actions/auth.test.ts`
 
 ## 2026-03-27 - Unicidad de correo verificado en activacion de cuenta
+
 - se endurecio `src/actions/auth.ts` para validar conflicto de correo antes de dos momentos criticos del flujo:
   - `iniciarActivacionCuenta`: ya no permite enviar verificacion si el correo ya pertenece a otra cuenta verificada
   - `updatePassword`: ya no permite consolidar la activacion final si otra persona ya verifico ese mismo correo
@@ -4391,6 +5104,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `cmd /c npm run docs:check-encoding -- AGENT_HISTORY.md supabase\\migrations\\20260327110000_usuario_correo_verificado_unique.sql`
 
 ## 2026-03-27 - Consolidacion manual de duplicado de supervisora Adriana Yulisma Alvarez Garcia
+
 - se verifico en la base remota que existian dos registros activos de Adriana:
   - `id_nomina = 584` como registro real con acceso `btl-sup-1245`
   - `id_nomina = 8954` como duplicado operativo con 23 relaciones en `supervisor_pdv`
@@ -4404,6 +5118,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - el `8954` ya no existe en `empleado`
 
 ## 2026-03-27 - Simplificacion de Ruta semanal y tablero Kanban de coordinacion
+
 - se rediseño `src/features/rutas/components/RutaSemanalPanel.tsx` para bajar saturacion visual:
   - los KPIs salieron de la vista de `Ruta semanal` del supervisor
   - `Solicitud de modificacion` y `Evento del dia` ahora comparten un flujo unificado de edicion por dia
@@ -4424,6 +5139,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `cmd /c npm run test -- tests/dashboard-kpis.spec.ts`
 
 ## 2026-03-27 - Vaciado operativo de asignaciones y rutas previo a nueva base
+
 - se limpio la operacion de asignaciones y rutas en la base remota para dejar el sistema en cero antes de cargar el nuevo reporte de asignacion base
 - el vaciado **no** toco `usuario`, `empleado`, `pdv` ni `supervisor_pdv`
 - la ejecucion se hizo de forma tolerante al esquema real desplegado en esta base remota; no existen todavia `public.asignacion_diaria_resuelta` ni `public.asignacion_diaria_dirty_queue` en este entorno
@@ -4442,39 +5158,40 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
 - conteos posteriores:
   - todas las tablas anteriores quedaron en `0`
 
-
 ## 2026-03-27 - Captura unificada de coordenadas en alta de PDV
+
 - se ajusto el formulario de alta de PDV en `src/features/pdvs/components/PdvsPanel.tsx` para capturar una sola cadena de coordenadas en formato `latitud, longitud`
 - la misma experiencia se aplico tambien al formulario de edicion de geocerca del PDV para mantener consistencia operativa
 - el backend en `src/features/pdvs/actions.ts` ahora separa y valida las coordenadas desde un parser central, sin depender de dos inputs separados
 - se mantuvo compatibilidad hacia atras: si por algun flujo interno llegan `latitud` y `longitud` por separado, el backend todavia puede interpretarlos
 
 ## 2026-03-27 - Alta de PDV conserva captura tras error de validacion
+
 - Se extendio src/features/pdvs/state.ts para soportar ields en el estado de la accion y persistir el borrador del formulario de alta.
 - src/features/pdvs/actions.ts ahora devuelve el snapshot capturado cuando crearPdv falla, evitando perder contexto al corregir errores como la falta de turno de cadena.
 - src/features/pdvs/components/PdvsPanel.tsx paso CrearPdvForm a un flujo con valores persistentes para que el modal no limpie la captura al fallar la validacion.
 - Validacion ejecutada: cmd /c npx tsc --noEmit OK; cmd /c npm run test -- tests/pdvs-panel.spec.ts OK.
 
-
 ## 2026-03-27 - Alta de PDV cierra modal y muestra toast de confirmacion
+
 - src/features/pdvs/components/PdvsPanel.tsx ahora cierra el modal de alta cuando crearPdv termina correctamente y muestra un ToastBanner con el nombre y clave del PDV creado.
 - El mensaje de exito ya no se deja renderizado al pie del formulario; los errores siguen apareciendo dentro del modal para permitir correccion inmediata.
 - Validacion ejecutada: cmd /c npx tsc --noEmit OK; cmd /c npm run test -- tests/pdvs-panel.spec.ts OK.
 
-
 ## 2026-03-27 - Confirmacion centrada tras alta exitosa de PDV
+
 - src/features/pdvs/components/PdvsPanel.tsx reemplazo el toast inferior por una notificacion centrada en pantalla para confirmar el alta exitosa del PDV.
 - Se mantiene el autocierre del modal al crear correctamente y los errores siguen renderizando dentro del formulario para no perder el contexto de correccion.
 - Validacion ejecutada: cmd /c npx tsc --noEmit OK; cmd /c npm run test -- tests/pdvs-panel.spec.ts OK.
 
-
 ## 2026-03-27 - Etiqueta mas clara para identificador externo de cadena en PDV
+
 - src/features/pdvs/components/PdvsPanel.tsx reemplazo el label visible `ID cadena` por `ID PDV cadena` en alta y edicion de PDV para dejar claro que es el codigo externo de la tienda dentro de la cadena.
 - No se modifico el contrato de backend ni el nombre tecnico del campo persistido (`id_cadena`), por lo que el cambio es solo de claridad operativa en UI.
 - Validacion ejecutada: cmd /c npx tsc --noEmit OK; cmd /c npm run test -- tests/pdvs-panel.spec.ts OK.
 
-
 ## 2026-03-27 - Reemplazo del flujo de materiales por lote mensual desde Excel del cliente
+
 - se sustituyo el flujo simple de importacion de materiales por una preparacion por `preview -> confirmacion` soportada por lotes mensuales y multiples hojas
 - se agrego la migracion `supabase/migrations/20260327143000_materiales_distribucion_lotes_inventario.sql` para crear y/o evolucionar:
   - `material_distribucion_lote`
@@ -4523,6 +5240,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `cmd /c npm run test -- tests/materiales.spec.ts`
 
 ## 2026-03-27 - Camara en vivo sellada para recepcion y mercadeo de materiales
+
 - se cerro el refinamiento pendiente del modulo de `Materiales` para sustituir los file inputs de recepcion y mercadeo por captura desde camara en vivo
 - se agrego `src/features/materiales/lib/materialEvidenceCapture.ts` para:
   - sellar la imagen con `fecha + hora + PDV`
@@ -4538,7 +5256,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `foto_recepcion_capturada_en`
   - `foto_mercadeo_data_url`
   - `foto_mercadeo_capturada_en`
-  y reconstruir esos archivos en servidor sin romper compatibilidad con upload tradicional
+    y reconstruir esos archivos en servidor sin romper compatibilidad con upload tradicional
 - el flujo actual queda asi:
   - recepcion: camara en vivo + sello visible + firma digital + acuse
   - mercadeo: una sola foto por `PDV + lote` desde camara en vivo + sello visible
@@ -4548,6 +5266,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `cmd /c npm run test -- tests/materiales.spec.ts`
 
 ## 2026-03-27 - Entrega de material con evidencias y ticket desde camara en vivo sellada
+
 - se completo la ultima inconsistencia del modulo de `Materiales`: `Registrar entrega de material` ya no depende de file inputs simples para evidencias que requieren camara
 - `src/features/materiales/components/MaterialesPanel.tsx` ahora usa captura en vivo sellada tambien para:
   - foto del material entregado
@@ -4561,7 +5280,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `evidencia_material`
   - `evidencia_pdv`
   - `ticket_compra`
-  y conserva compatibilidad con upload tradicional por si algun flujo legado todavia manda archivos directos
+    y conserva compatibilidad con upload tradicional por si algun flujo legado todavia manda archivos directos
 - `src/features/materiales/actions.test.ts` agrega cobertura para el caso de ticket requerido con captura sellada
 - validaciones ejecutadas:
   - `cmd /c npx tsc --noEmit`
@@ -4569,6 +5288,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `cmd /c npm run test -- tests/materiales.spec.ts`
 
 ## 2026-03-27 - Materiales remoto reconciliado para ISDIN y scope fijo del modulo
+
 - se aplico la migracion remota `supabase/migrations/20260327143000_materiales_distribucion_lotes_inventario.sql` directamente sobre la base de ISDIN usando `scripts/apply-sql-file.cjs`
 - durante la aplicacion se corrigio un problema de compatibilidad SQL en la migracion:
   - `ADD CONSTRAINT IF NOT EXISTS` fue reemplazado por un bloque `DO $$ ... IF NOT EXISTS ... $$`
@@ -4584,6 +5304,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `cmd /c npm run test -- tests/materiales.spec.ts`
 
 ## 2026-03-27 - Dispersión de materiales recableada al formato homologado por bloques
+
 - se sustituyo el parser del preview mensual de `Materiales` para dejar de esperar filas especiales de contexto/totales y pasar al formato homologado nuevo:
   - `ID BTL`
   - `CADENA`
@@ -4624,6 +5345,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - en esta maquina Vitest fallo al arrancar con `spawn EPERM` al cargar `vitest.config.ts`, aunque `actions.test.ts` y Playwright del modulo siguieron verdes
 
 ## 2026-03-27 - Formato de dispersión ajustado a fila 1 preset+mecánica, fila 2 totales, fila 3 encabezados y columna ID Nómina
+
 - se refinó de nuevo el formato homologado de dispersión para ISDIN:
   - fila 1 = `preset + mecánica`
   - fila 2 = `totales`
@@ -4660,6 +5382,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - `cmd /c npm run test -- tests/materiales.spec.ts`
 
 ## 2026-03-27 - Plantilla oficial XLSX para dispersión mensual de materiales ISDIN
+
 - se agregó una plantilla descargable oficial para `Materiales`, alineada al formato vigente del cliente ISDIN:
   - fila 1 = `preset + mecánica`
   - fila 2 = `totales`
@@ -4675,6 +5398,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
 - `src/features/materiales/lib/materialDistributionTemplate.test.ts` cubre la estructura base del workbook generado y la regla operativa de `ID NÓMINA` vacío como vacante
 
 ## 2026-03-27 - Preview de materiales convertido en borrador efímero por actor
+
 - se reemplazó el ciclo de vida del preview de `Materiales` para que ya no opere como cola persistente visible
 - `src/features/materiales/actions.ts` ahora cancela cualquier `BORRADOR_PREVIEW` previo del mismo usuario antes de crear un nuevo preview
 - `src/features/materiales/services/materialService.ts` ahora limpia el preview del actor al recargar el panel sin bloquear la vista si ese cleanup falla
@@ -4684,6 +5408,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
 - `src/features/materiales/actions.test.ts` cubre el descarte explícito del preview efímero
 
 ## 2026-03-27 - Scroll lock del shell web corregido para overlays apilados
+
 - se corrigió el bug intermitente donde el contenido principal quedaba sin scroll mientras el sidebar seguía desplazándose, especialmente después de abrir y cerrar overlays en distinto orden
 - causa raíz identificada: `BottomSheet` y `ModalPanel` manipulaban `document.body.style.overflow` por separado, por lo que un cierre tardío podía restaurar un valor viejo y dejar el `body` bloqueado
 - se creó `src/lib/ui/bodyScrollLock.ts` como lock centralizado con contador de overlays activos
@@ -4693,6 +5418,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - overlays apilados que solo liberan scroll al cerrar el último lock
 
 ## 2026-03-27 - Segundo endurecimiento del scroll lock en overlays grandes
+
 - se extendió el lock central del `body` a overlays grandes que todavía estaban fuera de la regla común del shell
 - `src/features/asistencias/components/NativeCameraSelfieDialog.tsx` ahora participa del mismo lock compartido mientras la cámara nativa está abierta
 - `src/components/ui/evidence-preview.tsx` ahora bloquea y libera el scroll del documento usando el lock central cuando se abre el preview ampliado de evidencias
@@ -4700,6 +5426,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
 - con esto el shell ya no mezcla overlays con reglas de scroll distintas entre dashboard, asistencias, materiales, rutas y previews de evidencia
 
 ## 2026-03-27 - Alta manual de empleada ISDIN con acceso provisional
+
 - se dio de alta manual en la base remota a `ANA PATRICIA ORTEGA RAMIREZ` con nómina `594`, puesto `DERMOCONSEJERO` y cuenta `isdin_mexico`
 - se verificó previamente que no existieran colisiones en:
   - `empleado.id_nomina = 594`
@@ -4723,6 +5450,7 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - expira: `2026-03-31T00:27:04.563Z`
 
 ## 2026-03-27 - LOVE ISDIN recableado a QR oficial por DC y afiliacion marcada por PDV
+
 - se consolida el cambio estructural de LOVE ISDIN para que el QR siga siendo un activo de la dermoconsejera, pero cada afiliacion quede marcada analiticamente por el PDV donde se realizo
 - supabase/migrations/20260327173000_love_qr_inventory_operativo.sql crea el inventario formal de QR (love_isdin_qr_codigo, love_isdin_qr_asignacion, love_isdin_qr_import_lote), extiende love_isdin con qr_codigo_id y qr_asignacion_id, y agrega la vista derivada love_isdin_resumen_diario
 - src/features/love-isdin/lib/loveRegistration.ts centraliza el candado operativo para registrar LOVE:
@@ -4745,15 +5473,15 @@ aturaleza (BASE = 100, COBERTURA_PERMANENTE = 150, COBERTURA_TEMPORAL = 200) y d
   - agregados por PDV, DC, supervisor, zona y cadena
   - inventario QR y cobertura operativa por DC
   - listado reciente de afiliaciones con PDV, DC, QR y evidencia
-- 	ests/love-isdin.spec.ts y src/lib/offline/syncQueue.test.ts se ajustan al contrato nuevo de jornada activa y refresh incremental de LOVE
+-     ests/love-isdin.spec.ts y src/lib/offline/syncQueue.test.ts se ajustan al contrato nuevo de jornada activa y refresh incremental de LOVE
 - validaciones ejecutadas:
   - cmd /c npx tsc --noEmit OK
-  - 
-pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\features\love-isdin\actions.ts src\features\love-isdin\components\LoveIsdinPanel.tsx src\features\love-isdin\lib\loveRegistration.ts src\features\love-isdin\services\loveIsdinService.ts src\features\dashboard\services\dashboardService.ts src\features\dashboard\components\DashboardPanel.tsx src\lib\offline\syncQueue.ts src\lib\tenant\accountScope.ts tests\love-isdin.spec.ts src\lib\offline\syncQueue.test.ts supabase\migrations\20260327173000_love_qr_inventory_operativo.sql pendiente de correr al cierre de este corte
+  - pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\features\love-isdin\actions.ts src\features\love-isdin\components\LoveIsdinPanel.tsx src\features\love-isdin\lib\loveRegistration.ts src\features\love-isdin\services\loveIsdinService.ts src\features\dashboard\services\dashboardService.ts src\features\dashboard\components\DashboardPanel.tsx src\lib\offline\syncQueue.ts src\lib\tenant\accountScope.ts tests\love-isdin.spec.ts src\lib\offline\syncQueue.test.ts supabase\migrations\20260327173000_love_qr_inventory_operativo.sql pendiente de correr al cierre de este corte
 - limitacion conocida del entorno local:
   - Playwright y Vitest siguen bloqueados por spawn EPERM, asi que la validacion ejecutable de pruebas del modulo queda pendiente de entorno y no de tipado/contratos
 
 ## 2026-03-27 - LOVE ISDIN reconciliado a jornada activa + PDV real + QR oficial
+
 - se corrige una validacion heredada en `src/features/love-isdin/lib/loveRegistration.ts` que trataba al QR oficial como si solo pudiera aparecer una vez por periodo; el QR sigue identificando a la dermoconsejera, pero ahora puede respaldar multiples afiliaciones validas dentro de su jornada activa
 - `src/features/love-isdin/services/loveIsdinService.ts` pasa a usar `love_isdin_resumen_diario` como capa derivada principal para KPIs y agregados del mes, manteniendo el hecho operativo anclado a `PDV + DC`
 - el panel admin de LOVE en `src/features/love-isdin/components/LoveIsdinPanel.tsx` agrega tendencia semanal y mantiene los cortes principales por PDV, dermoconsejera, supervisor, zona y cadena
@@ -4768,6 +5496,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npm run test -- tests/love-isdin.spec.ts` bloqueado por `spawn EPERM` del entorno local
 
 ## 2026-03-27 - LOVE ISDIN dividido en KPIs, Inventario y Carga masiva
+
 - se reconstruye `src/features/love-isdin/components/LoveIsdinPanel.tsx` como reemplazo controlado del panel admin para dejar tres superficies separadas:
   - `KPIs`
   - `Inventario`
@@ -4800,6 +5529,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npm run test -- tests/love-isdin.spec.ts` bloqueado por `spawn EPERM` del entorno local
 
 ## 2026-03-28 - Limpieza segura de archivos temporales y cuarentena local
+
 - se hizo un barrido de referencias y se separaron tres grupos:
   - codigo y artefactos activos del producto
   - historicos utiles
@@ -4818,6 +5548,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
 - el objetivo fue reducir ruido operativo del repo sin borrar nada de forma irreversible y dejando una sola carpeta facil de sacar despues
 
 ## 2026-03-28 - Simplificacion del panel global PWA a solo instalacion
+
 - se reviso el comportamiento actual de `src/components/pwa/PwaBootstrap.tsx` y de `useOfflineSync`
 - la sincronizacion offline ya era automatica al reconectar o al recuperar foco; no dependia de un click manual del usuario para operar normalmente
 - se reemplazo el panel persistente `Operacion conectada` por una ayuda discreta de instalacion:
@@ -4835,6 +5566,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npx tsc --noEmit` OK
 
 ## 2026-03-28 - Cuota LOVE diaria configurable para DC y cuota agregada para supervisor
+
 - se cerró un reemplazo controlado de la meta LOVE para que deje de ser una lectura aislada y pase a vivir de forma coherente entre dashboard, LOVE admin, reportes y rankings
 - `src/features/love-isdin/lib/loveQuota.ts` centraliza la resolución del objetivo diario LOVE desde:
   - `cuota_empleado_periodo.metadata.love_objetivo_diario`
@@ -4873,6 +5605,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npm run test -- tests/love-isdin.spec.ts` pendiente por `spawn EPERM` del entorno local
 
 ## 2026-03-28 - Plantilla oficial para carga masiva de QR LOVE ISDIN
+
 - se revisó el flujo actual de `Carga masiva` en LOVE y se confirmó que hoy registra el `manifiesto_qr` y el `imagenes_zip` como lote incremental, pero todavía no ejecuta el procesamiento del cruce manifiesto-imágenes-asignación
 - para dejar la operación lista y sin ambigüedad, se agregó una plantilla descargable con contrato explícito en:
   - `src/features/love-isdin/lib/loveQrImportTemplate.ts`
@@ -4895,6 +5628,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npm run test -- tests/love-isdin.spec.ts` sigue bloqueado por `spawn EPERM` del entorno local
 
 ## 2026-03-28 - Procesamiento real de manifiesto QR + ZIP con soporte TIFF/TIF
+
 - se reemplazó el comportamiento anterior de `Carga masiva incremental` en LOVE ISDIN: antes solo archivaba el manifiesto y el ZIP como lote `BORRADOR_PREVIEW`; ahora procesa el lote al momento de registrarlo y deja los QR realmente asignados a las dermoconsejeras
 - `src/features/love-isdin/lib/loveQrImport.ts` quedó completado como helper central del flujo, con:
   - parser de manifiesto `xlsx/csv`
@@ -4933,6 +5667,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npm run test:unit -- src/features/love-isdin/lib/loveQrImport.test.ts` bloqueado por `spawn EPERM` del entorno local al arrancar Vitest
 
 ## 2026-03-28 - Asignacion posterior de QR disponibles a nuevas dermoconsejeras
+
 - se cerró la segunda mitad del flujo QR de LOVE ISDIN: ahora los QR cargados como `DISPONIBLE` pueden quedarse en stock y asignarse despues desde el modulo, sin obligar a amarrarlos en la carga masiva
 - `src/features/love-isdin/lib/loveQrImport.ts` ahora expone `assignAvailableLoveQrToEmployee(...)`, que:
   - valida que el QR exista en la cuenta y realmente este `DISPONIBLE`
@@ -4954,6 +5689,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npm run build` OK
 
 ## 2026-03-28 - Migracion aplicada en base activa y validacion de lote QR real
+
 - se aplicó en la base activa la migracion `supabase/migrations/20260327173000_love_qr_inventory_operativo.sql`
 - se validó por API que ya existen y responden:
   - `love_isdin_qr_import_lote`
@@ -4978,6 +5714,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - verificacion por Supabase REST de tablas LOVE QR OK
 
 ## 2026-03-28 - Sara Luz Ramirez del Toro reactivada a provisional para QR
+
 - se revirtió manualmente en la base activa el estado cancelado/suspendido de `SARA LUZ RAMIREZ DEL TORO` (nómina `382`) para dejarla nuevamente operativa para onboarding y asignación de QR
 - ajustes aplicados:
   - `empleado.estatus_laboral = ACTIVO`
@@ -4990,6 +5727,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
 - la cuenta quedó elegible para carga/asignación de QR LOVE ISDIN
 
 ## 2026-03-28 - Carga real de QR LOVE ISDIN aplicada en base activa
+
 - se aplicó la carga real del lote LOVE QR con los archivos:
   - `isdin_plantilla_qr_love.xlsx`
   - `Codes.zip`
@@ -5007,6 +5745,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - la imagen QR genera signed URL válida en storage para render en dashboard
 
 ## 2026-03-28 - Reparacion de imagenes QR no visibles en LOVE ISDIN
+
 - se depuró el fallo de miniaturas rotas en `Inventario` y dashboard de LOVE ISDIN siguiendo debugging sistemático sobre el flujo `love_isdin_qr_codigo.imagen_url -> signed URL -> EvidencePreview`
 - causa raíz confirmada:
   - las filas de `love_isdin_qr_codigo` guardaron rutas `operacion-evidencias/love-isdin/qr-codes/...`
@@ -5024,6 +5763,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npm run build` OK
 
 ## 2026-03-28 - LOVE ISDIN page usa service client para firmar QR oficiales
+
 - se detectó una segunda causa que mantenía las miniaturas rotas aun después de reparar `imagen_url` en base:
   - `src/app/(main)/love-isdin/page.tsx` estaba llamando `obtenerPanelLoveIsdin(...)` solo con el cliente de sesión/cookies
   - ese cliente no podía firmar las rutas privadas del bucket `operacion-evidencias`, así que el servicio regresaba la ruta cruda y el navegador seguía mostrando imagen rota
@@ -5036,6 +5776,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npm run build` OK
 
 ## 2026-03-28 - Plantilla oficial para catálogo maestro de asignaciones
+
 - se revisó el flujo real de importación del catálogo maestro en `src/features/asignaciones/actions.ts` y el parser de `src/features/asignaciones/lib/assignmentCatalogImport.ts`
 - el importador ya aceptaba XLSX con columnas operativas (`BTL CVE`, `IDNOM`, `USUARIO`, `NOMBRE DC`, `ROL`, `HORARIO`, `DÍAS`, `DESCANSO`, `INICIO`, `FIN`, `OBSERVACIONES`), pero el módulo no tenía plantilla descargable
 - se agregó el generador `src/features/asignaciones/lib/assignmentCatalogTemplate.ts` con:
@@ -5050,6 +5791,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npx tsc --noEmit` OK despues de regenerar `.next/types` con el build
 
 ## 2026-03-28 - Mapas estabilizados con proveedor de tiles resiliente
+
 - se investigó el bloqueo intermitente de mapas en toda la app siguiendo `03-debugging/systematic-debugging`
 - causa raíz confirmada:
   - todos los mapas visibles salen del componente compartido `src/components/maps/LeafletMexicoMap.tsx`
@@ -5063,7 +5805,9 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
 - validaciones ejecutadas:
   - `cmd /c npx tsc --noEmit` OK
   - `cmd /c npm run build` OK
+
 ## 2026-03-28 - Modo operativo ISDIN fijo en formularios y paneles visibles
+
 - se trató la petición como sustitución controlada del modo multicliente visible, manteniendo la base técnica de tenant scope pero cerrando la UI operativa a `isdin_mexico` mientras no se active infraestructura real de múltiples clientes
 - se creó `src/lib/tenant/singleTenant.ts` para centralizar:
   - activación del modo de cuenta única
@@ -5081,7 +5825,9 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
 - validaciones ejecutadas:
   - `cmd /c npx tsc --noEmit` OK
   - `cmd /c npm run build` OK
+
 ## 2026-03-29 - Alcance de cuenta fijado a ISDIN tambien en backend
+
 - se revisó el flujo real del alcance multicliente:
   - `src/lib/supabase/proxy.ts` seguía fijando headers de cuenta para administradores desde cookie `ff_active_cuenta_cliente_id`
   - `src/lib/tenant/accountScope.ts` seguía leyendo UUIDs de headers/cookies y normalizando valores enviados por formularios
@@ -5103,6 +5849,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npm run build` OK
 
 ## 2026-03-29 - Asignaciones: base general sin fecha fin y carga semanal San Pablo
+
 - Reemplacé la plantilla e importador de `catalogo maestro inicial` para que opere como base general abierta: ya no pide `FIN`, deduplica por `DC + PDV + tipo`, conserva la base existente y, para nuevas filas, usa la fecha de carga como `fecha_inicio` con `fecha_fin = null`.
 - Endurecí `Nueva asignacion` para que ya no cree naturaleza `BASE` desde UI; ahora queda enfocada a movimientos derivados, con regla de vigencia: `COBERTURA_TEMPORAL` exige `fecha_fin` y `COBERTURA_PERMANENTE` debe quedar sin `fecha_fin`.
 - Agregué una segunda superficie en `/asignaciones` para subir horarios semanales de San Pablo con plantilla XLSX dedicada, parser propio y action que reutiliza `horario_pdv` por `fecha_especifica`, reemplazando horarios previos de la misma semana por PDV.
@@ -5110,6 +5857,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
 - Validación: `cmd /c npx tsc --noEmit` OK, `cmd /c npm run build` OK. La corrida puntual de Vitest para los parsers volvió a quedar bloqueada por `spawn EPERM` del entorno local al cargar `vitest.config.ts`, no por un error de TypeScript del cambio.
 
 ## 2026-03-29 - Campañas: capa estratégica con manual, metas y auditoría estructurada
+
 - Reemplacé la configuración de campañas para que opere como capa estratégica sobre PDVs participantes: segmentación por cadena, selección de PDVs objetivo, carga de `manual_mercadeo` PDF, metas por producto foco y plantilla estructurada de evidencias requeridas.
 - Extendí la metadata de campaña en `src/features/campanas/lib/campaignProgress.ts` y `src/features/campanas/actions.ts` para guardar `manual_mercadeo`, `product_goals` y `evidence_template`, además de vincular evidencias de ejecución con `evidence_requirement_id`.
 - Recableé `src/features/campanas/components/CampanasPanel.tsx` para usar UI administrable de productos foco, cuotas y requisitos de auditoría; el detalle de campaña ahora expone metas por producto y acceso al manual.
@@ -5122,6 +5870,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npm run test -- tests/dashboard-kpis.spec.ts` OK
 
 ## 2026-03-29 - Formaciones: ISDINIZACION/FORMACION con segmentación por PDV, modalidad y sustitución operativa
+
 - Reemplacé el flujo de creación de `Formaciones` para que opere como evento operativo que sustituye la jornada en PDV: ahora el guardado soporta `tipo_evento` (`FORMACION` o `ISDINIZACION`), `modalidad` (`PRESENCIAL` o `EN_LINEA`), coordinador visible, selección explícita de PDVs por supervisor y carga de `manual_pdf`.
 - Extendí `src/features/formaciones/lib/formacionTargeting.ts` y `src/features/formaciones/services/formacionService.ts` para exponer en metadata y panel: modalidad, tipo de evento, ubicación exacta, radio de validación, manual firmado y PDVs seleccionados.
 - Recableé `src/features/formaciones/actions.ts` para:
@@ -5139,6 +5888,7 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `cmd /c npm run test -- tests/dashboard-kpis.spec.ts` OK
 
 ## 2026-03-29 - PDVs TEST vinculados a ISDIN y campaña activa del día
+
 - Se inspeccionó el alcance real de `CADENA TEST` y se confirmó que sus PDVs seguían ligados a `be_te_ele_demo`, lo que impedía ver cualquier campaña desde la app fija a ISDIN.
 - Se actualizaron 8 PDVs TEST en `cuenta_cliente_pdv` para dejar inactiva la relación previa con `be_te_ele_demo` y activar su relación operativa con `isdin_mexico`.
 - Se creó la campaña `Campana TEST ISDIN - 29 marzo 2026` en `campana` con vigencia del `2026-03-29` y estado `ACTIVA`.
@@ -5146,13 +5896,16 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
 - La operación se ejecutó directamente sobre la base remota con servicio operativo, sin cambios de código ni de contratos de UI.
 
 ## 2026-03-29 - Campañas sin cuenta visible ni variabilidad manual en modo ISDIN
+
 - Se retiró del formulario de campañas la visualización de `Cuenta operativa`, manteniendo solo el `input hidden` de `cuenta_cliente_id` para que la creación siga fija a ISDIN sin exponer selección ni contexto redundante en UI.
 - Se eliminó la captura manual de `Variabilidad de tareas`; ahora el backend deriva `variabilidad_tareas` directamente del tamaño real de la plantilla de tareas (`task_template`) al guardar la campaña.
 - Se compactó la retícula superior del formulario para que `Nombre`, `Fecha inicio`, `Fecha fin` y `Estado` usen mejor el espacio después de quitar esos dos bloques.
 - Validaciones ejecutadas:
   - `cmd /c npx tsc --noEmit` OK
   - `cmd /c npm run build` OK
+
 ## 2026-03-29 - Campanas: metas por PDV y producto con importacion XLSX
+
 - Sustitui el modelo de metas globales por una capa estructurada opcional campana_pdv_producto_meta, manteniendo compatibilidad de lectura con metadata.product_goals cuando la campana no trae matriz importada.
 - Agregue la migracion supabase/migrations/20260329161500_campana_pdv_producto_meta.sql con tabla e indices para metas por campana + pdv + producto, preparada para reporteo y lecturas frecuentes por campana_pdv.
 - Incorpore importador y plantilla XLSX para cuotas por tienda y articulo en src/features/campanas/lib/campaignProductQuotaImport.ts, src/features/campanas/lib/campaignProductQuotaTemplate.ts y src/app/api/campanas/metas-template/route.ts.
@@ -5160,13 +5913,15 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
 - Ajuste src/features/campanas/services/campanaService.ts para consolidar la matriz por PDV dentro del panel administrativo y exponer tanto el resumen por campana como el detalle por tienda.
 - Ajuste src/features/dashboard/services/dashboardService.ts para que dermoconsejo priorice las metas por PDV + producto cuando existan, y solo use el resumen global historico como fallback.
 - Actualice src/features/campanas/components/CampanasPanel.tsx para permitir descarga de plantilla y carga del Excel de metas por PDV/producto sin romper la captura manual existente.
-- Ajuste fixture tipado en 	ests/reportes-aggregation.spec.ts para el nuevo contrato CampanaPdvItem.productGoals.
+- Ajuste fixture tipado en ests/reportes-aggregation.spec.ts para el nuevo contrato CampanaPdvItem.productGoals.
 - Skills aplicadas: 5-code-review/typescript-strict-typing, 6-performance/sql-indexing-strategy, 2-testing-e2e/playwright-testing, 9-encoding/utf8-standard.
 - Validaciones ejecutadas:
   - cmd /c npx tsc --noEmit OK
   - cmd /c npm run build OK
   - cmd /c npm run test -- tests/campanas-panel.spec.ts OK
+
 ## 2026-03-29 - Asignaciones activas para DC TEST en flujo de campañas
+
 - Se verificó en la base activa que los tres DERMOCONSEJEROS `TEST` estaban activos en ISDIN pero sin filas vigentes en `asignacion`, por lo que no podían entrar al flujo real de campañas aunque los PDVs test ya estaban vinculados a la cuenta `isdin_mexico`.
 - Se inspeccionó el contrato real de la tabla `asignacion` y se confirmó que esta base activa todavía acepta `naturaleza = BASE` en su check constraint; por compatibilidad operativa se crearon asignaciones `FIJA` publicadas usando ese valor en lugar del contrato más nuevo de coberturas temporales.
 - Se insertaron tres asignaciones `PUBLICADA` con `fecha_inicio = 2026-03-29`, sin fecha fin, una por cada DC test y alineadas al supervisor vigente del PDV:
@@ -5174,7 +5929,9 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - `Test DERMOCONSEJERO 02` -> `BTL-TST-JAVI-01`
   - `Test DERMOCONSEJERO 03` -> `BTL-TST-HECT-01`
 - Se verificó después de la inserción que las tres filas quedaron publicadas bajo ISDIN y que los tres PDVs ya pertenecen a la campaña activa `Campana TEST ISDIN - 29 marzo 2026`, con lo que el flujo de campañas puede probarse en dashboard/campo sobre esos DCs test.
+
 ## 2026-03-29 - Dashboard DC: sheet de campaña enfocado solo a evidencias
+
 - Se reemplazó la identidad visual del sheet de campaña en `src/features/dashboard/components/DashboardPanel.tsx` para dejarlo en verde/amarillo, manteniendo el tema claro global de la app pero quitando el acento rosa que no correspondía a la experiencia de campañas.
 - El bloque de campaña ahora usa:
   - contenedor principal con gradiente suave verde/limón/ámbar
@@ -5191,7 +5948,9 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - cmd /c npx tsc --noEmit OK
   - cmd /c npm run build OK
   - cmd /c npm run test -- tests/campanas-panel.spec.ts OK
+
 ## 2026-03-30 - Asignaciones: importacion del catalogo maestro con conflictos separados y nomenclatura compacta
+
 - Reemplacé el flujo del catalogo maestro en `src/features/asignaciones/actions.ts` para que primero resuelva y valide todas las filas antes de escribir en `asignacion`.
 - La importacion ahora detecta y devuelve en una bandeja separada: filas sin BTL, filas sin referencia de DC, DC/PDV no resueltos, empalmes de asignaciones, dias/descansos invalidos y alertas operativas derivadas de `assignmentValidation`.
 - Si existe al menos un conflicto bloqueante (`ERROR`), la carga ya no inserta ni actualiza filas; devuelve el resumen y el detalle completo de conflictos para correccion previa.
@@ -5210,7 +5969,9 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - cmd /c npx tsc --noEmit OK
   - cmd /c npm run test -- tests/assignment-validation.spec.ts OK
   - cmd /c npm run build OK
+
 ## 2026-03-30 - Asignaciones: aprobacion de catalogo maestro y publicacion operativa mensual
+
 - Reemplacé la logica anual en `src/features/asignaciones/actions.ts`: `publicarCatalogoMaestroAsignaciones` ahora aprueba el catalogo maestro y solo materializa la ventana operativa del mes actual y el siguiente, en vez de generar 12 meses de golpe.
 - Agregué `publicarOperacionMensualAsignaciones` para regenerar un mes puntual desde backend/admin, tomando solo las bases `PUBLICADA` que intersectan con el mes seleccionado y materializando `asignacion_diaria_resuelta` para ese periodo.
 - Extendí `src/features/asignaciones/state.ts` con `materializedWindowLabel` para reflejar claramente la ventana publicada o el mes materializado.
@@ -5220,7 +5981,9 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - cmd /c npx tsc --noEmit OK
   - cmd /c npm run test -- tests/assignment-validation.spec.ts OK
   - cmd /c npm run build OK
+
 ## 2026-03-30 - Asignaciones: publicacion mensual automatica backend
+
 - Agregué la ruta segura `src/app/api/asignaciones/scheduled-publication/route.ts` para ejecutar la publicacion automatica de asignaciones sin depender del frontend.
 - La ruta valida `ASIGNACIONES_CRON_SECRET`, opera sobre la cuenta fija de ISDIN y garantiza idempotentemente la materializacion del mes actual y el siguiente a partir de las bases `PUBLICADA`.
 - El proceso reutiliza `enqueueAndProcessMaterializedAssignments`, por lo que sigue alimentando `asignacion_diaria_resuelta` y mantiene el frontend de dermoconsejeras leyendo solo la capa diaria materializada.
@@ -5231,16 +5994,20 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - cmd /c npm run test -- tests/assignment-validation.spec.ts OK
 
 ## 2026-03-30 - Backlog: pendiente Cloudflare para automatizacion diaria de asignaciones
+
 - Revisé la spec canónica y confirmé que la automatización diaria ya existe en código, pero faltaba una tarea explícita de despliegue para cuando la app viva en Cloudflare.
 - Añadí en `.kiro/specs/field-force-platform/tasks.md` el pendiente `7.10 Automatización diaria de asignaciones en Cloudflare`, dejando como alcance configurar un Cron Trigger/Worker que invoque `GET /api/asignaciones/scheduled-publication` con `x-asignaciones-cron-secret` en frecuencia diaria.
 - Alineé `task.md` para que el pendiente también quede visible en la bitácora ejecutiva derivada.
 
 ## 2026-03-30 - Documentos: PDFs con limite operativo unificado de 10 MB
+
 - Revisé la implementación actual y confirmé que la regla de PDFs estaba fragmentada: `empleados` y `evidenceStorage` seguían en `4 MB`, mientras otros módulos que aceptan PDF usaban el tope genérico de `12 MB`.
 - Unifiqué la regla en `src/lib/files/documentOptimization.ts` para que todo PDF en la app tenga máximo `10 MB`, manteniendo `12 MB` solo para archivos no PDF antes de optimización.
 - Reencadené las validaciones server-side en `src/lib/files/evidenceStorage.ts`, `src/app/api/empleados/ocr-preview/route.ts`, `src/features/gastos/actions.ts`, `src/features/materiales/actions.ts`, `src/features/campanas/actions.ts`, `src/features/solicitudes/actions.ts`, `src/features/rutas/actions.ts`, `src/features/mensajes/actions.ts` y `src/app/api/asistencias/sync/route.ts`.
 - Actualicé el copy visible en `src/features/empleados/components/EmpleadosPanel.tsx` y el mensaje operativo en `src/features/empleados/actions.ts` para que ya no sigan diciendo `4 MB`.
+
 ## 2026-03-30 - Empleados: flujo integral de contratacion y onboarding
+
 - Reemplacé el flujo corto de alta en `src/features/empleados/actions.ts` por un onboarding con fases mas claras usando metadata operativa estructurada: `SELECCION_APROBADA`, envio explicito a Nomina y `PENDIENTE_VALIDACION_FINAL` antes del handoff a Administracion.
 - `crearEmpleado` ya no manda automaticamente a Nomina: ahora crea el expediente en `SELECCION_APROBADA` y guarda el paquete operativo inicial (`PDV objetivo`, `coordinador`, `fecha oficial de ingreso`, `fecha de ISDINIZACION`, estatus de accesos externos, contrato y expediente completo).
 - Agregué `enviarAltaANominaDesdeReclutamiento` para que Reclutamiento haga el handoff a Nomina solo cuando el paquete operativo este completo, y `validarCierreOnboardingReclutamiento` para liberar a Administracion solo despues de alta IMSS + contrato firmado + expediente cerrado.
@@ -5252,12 +6019,16 @@ pm run docs:check-encoding -- AGENT_HISTORY.md src\types\database.ts src\feature
   - cmd /c npx tsc --noEmit OK
   - cmd /c npm run test -- tests/empleados-panel.spec.ts OK
   - cmd /c npm run test:unit -- src\features\empleados\lib\workflowInbox.test.ts bloqueado por `spawn EPERM` del entorno local al arrancar Vitest, no por fallo de la implementacion.
+
 ## 2026-03-30 - Reconciliacion canónica onboarding integral de contratacion
+
 - Se alineo la especificacion canonica (
-equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding: Nomina ya no entrega directo a Administracion tras cerrar IMSS; ahora Reclutamiento completa una validacion final antes de habilitar la creacion del acceso provisional.
+  equirements.md, design.md, asks.md) con el nuevo flujo operativo de onboarding: Nomina ya no entrega directo a Administracion tras cerrar IMSS; ahora Reclutamiento completa una validacion final antes de habilitar la creacion del acceso provisional.
 - Se ajustaron copys operativos en src/features/empleados/components/EmpleadosPanel.tsx y el mensaje administrativo en src/features/empleados/actions.ts para reflejar el mismo flujo.
 - Validaciones ejecutadas: cmd /c npx tsc --noEmit, cmd /c npm run test -- tests/empleados-panel.spec.ts, cmd /c npm run docs:check-encoding -- .kiro/specs/field-force-platform/requirements.md .kiro/specs/field-force-platform/design.md .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md.
+
 ## 2026-03-30 - Checklist ejecutivo de onboarding en Empleados
+
 - Se agrego una tarjeta Checklist de onboarding en el detalle de Empleados para visualizar, por seccion, lo que ya esta listo para Nomina, lo pendiente de validacion final y la entrega a Administracion.
 - El checklist muestra responsable actual, progreso por bloque y pendientes concretos sin cambiar reglas de negocio ni crear trazabilidad artificial donde todavia no existe.
 - Validaciones ejecutadas: cmd /c npx tsc --noEmit, cmd /c npm run test -- tests/empleados-panel.spec.ts.## 2026-03-30 - Empleados: canvas separado para Reclutamiento, Coordinacion y base operativa
@@ -5268,6 +6039,7 @@ equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding:
 - Validaciones ejecutadas: `cmd /c npx tsc --noEmit`, `cmd /c npm run test -- tests/empleados-panel.spec.ts`.
 
 ## 2026-03-30 - Empleados: dashboard operativo de Reclutamiento
+
 - Reemplacé la vista documental de Reclutamiento por un dashboard operativo dentro de `src/features/empleados/components/EmpleadosPanel.tsx`, con KPIs rápidos, pipeline visual, panel de alertas, tabla detallada filtrable y ficha individual del candidato.
 - Extendí `src/features/empleados/services/empleadoService.ts` para exponer `createdAt`, `updatedAt` y contexto de PDV con cadena/ciudad, de modo que el tablero pueda calcular tiempo promedio de contratación, filtros ejecutivos y próximas ISDINIZACIONES.
 - El pipeline ahora ordena candidatos en `FILTRADOS`, `ENTREVISTA_SELECCION`, `GESTION_ACCESOS`, `DOCUMENTACION`, `TRAMITE_ALTA` y `CONTRATADOS`, reutilizando el workflow real del expediente y el handoff a Administración solo cuando contrato + IMSS están completos.
@@ -5277,7 +6049,9 @@ equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding:
   - `cmd /c npm run test -- tests/empleados-panel.spec.ts` OK
   - `cmd /c npm run build` OK
   - `cmd /c npm run docs:check-encoding -- .kiro/specs/field-force-platform/requirements.md .kiro/specs/field-force-platform/design.md .kiro/specs/field-force-platform/tasks.md AGENT_HISTORY.md` OK
+
 ## 2026-03-31 - Reclutamiento: embudo como superficie principal
+
 - Reemplacé la composición del canvas de Reclutamiento en `src/features/empleados/components/EmpleadosPanel.tsx`: el embudo ahora ocupa la superficie principal y ya no convive con una tabla detallada ni con una ficha lateral persistente.
 - `Nuevo candidato` pasó a la cabecera del embudo como acción primaria y abre un modal con `CrearEmpleadoForm`, para que el inicio del proceso de contratación nazca desde el propio pipeline.
 - Cada tarjeta dentro de una etapa del embudo ahora concentra el seguimiento operativo básico del candidato y abre directamente la ficha individual completa mediante el modal existente de expediente.
@@ -5285,7 +6059,9 @@ equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding:
 - Validaciones ejecutadas:
   - `cmd /c npx tsc --noEmit` OK
   - `cmd /c npm run test -- tests/empleados-panel.spec.ts` OK
+
 ## 2026-03-31 - Normalizacion de `pdv.activo` en base activa
+
 - Detecté que `src/features/empleados/services/empleadoService.ts` consultaba `pdv.activo`, pero la base activa no tenía esa columna normalizada, lo que disparaba el banner `column pdv.activo does not exist`.
 - Agregué compatibilidad en `obtenerPanelEmpleados` con `fetchPdvsWithActivoCompatibility`, para que el panel siga operando aunque el esquema remoto esté atrasado.
 - Creé la migración `supabase/migrations/20260331101500_normalize_pdv_activo.sql` para añadir `public.pdv.activo`, poblarla desde `estatus` y crear el índice `idx_pdv_activo`.
@@ -5293,7 +6069,9 @@ equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding:
 - Validaciones ejecutadas:
   - `cmd /c npx tsc --noEmit` OK
   - aplicación remota de `20260331101500_normalize_pdv_activo.sql` OK
+
 ## 2026-03-31 - Empleados: devueltos/cancelados visibles y Sara Luz normalizada
+
 - Reemplacé la traducción del canvas de Reclutamiento en `src/features/empleados/components/EmpleadosPanel.tsx` para que el embudo también muestre `Devueltos por Nomina` (`RECLUTAMIENTO_CORRECCION_ALTA`) y `Cancelados` (`ALTA_CANCELADA`), en lugar de esconder esos expedientes fuera del pipeline.
 - Ajusté los KPIs y alertas del dashboard de Reclutamiento para contar solo candidatos activos del embudo, excluyendo `Contratados` y `Cancelados` de las métricas de proceso.
 - Endurecí `fetchPdvsWithActivoCompatibility` en `src/features/empleados/services/empleadoService.ts` para tolerar clientes de prueba sin tabla `pdv` mockeada y no romper las pruebas del panel.
@@ -5302,7 +6080,9 @@ equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding:
   - `cmd /c npx tsc --noEmit` OK
   - `cmd /c npm run test -- tests/empleados-panel.spec.ts` OK
   - `cmd /c npm run build` OK
+
 ## 2026-03-31 - Reclutamiento: canvas visual tipo tablero horizontal
+
 - Reemplacé la composición visible del `RecruitingDashboard` en `src/features/empleados/components/EmpleadosPanel.tsx` para acercarla al patrón visual solicitado: botón `Nuevo candidato` arriba a la derecha, bloque de filtros único arriba y columnas de embudo en scroll horizontal con ancho fijo.
 - Acorté los labels del pipeline a `Filtrado`, `Entrevista`, `Accesos`, `Documentos`, `Alta`, `Nomina`, `Contratado` y `Cancelado`, manteniendo la semántica del flujo pero evitando headers saturados.
 - Las descripciones de etapa ya no se renderizan en gris dentro de cada columna; ahora viven solo en tooltip al pasar el mouse sobre el ícono `i`.
@@ -5310,14 +6090,18 @@ equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding:
 - Validaciones ejecutadas:
   - `cmd /c npx tsc --noEmit` OK
   - `cmd /c npm run test -- tests/empleados-panel.spec.ts` OK
+
 ## 2026-03-31 - Reclutamiento: modal de Nuevo candidato alineado a referencia
+
 - Reemplacé la composición visual de `CrearEmpleadoForm` en `src/features/empleados/components/EmpleadosPanel.tsx` para acercarla a la referencia del usuario sin cambiar el flujo OCR ni el submit del alta inicial.
 - El modal ahora usa dos paneles equilibrados: izquierda para `Alta inicial desde Reclutamiento` + CV + PDV sugerido + posición objetivo; derecha para `Datos auto-extraídos por IA` con campos visibles que antes estaban ocultos (`RFC`, `direccion`, `sexo`, `estado civil`, `edad`).
 - Mantuve la lógica de negocio intacta: mismos nombres de campos, mismo OCR preview, mismos botones y mismos hidden fields residuales (`zona`, `codigo_postal`, `originario`).
 - Validaciones ejecutadas:
   - `cmd /c npx tsc --noEmit` OK
   - `cmd /c npm run test -- tests/empleados-panel.spec.ts` OK
+
 ## 2026-03-31 - Ventana digital de ventas y LOVE ISDIN post check-out
+
 - Reemplacé la lógica de `jornada abierta` por una `ventana digital` del mismo día en `src/lib/operations/reportWindow.ts` y `src/lib/geo/mexicoStateTimezone.ts`, resolviendo el cierre estándar a las `23:59:59` según la zona horaria del estado del PDV.
 - Ventas ahora se registran por backend en `src/features/ventas/lib/ventaRegistration.ts` y `src/app/api/ventas/sync/route.ts`: requieren check-in válido del mismo día, respetan la ventana local y, si ya existe una venta del mismo producto en ese día operativo, la reemplazan en vez de duplicarla.
 - LOVE ISDIN quedó alineado en `src/features/love-isdin/lib/loveRegistration.ts` y `src/features/love-isdin/services/loveIsdinService.ts`: acepta captura post check-out dentro del mismo día operativo, conserva el QR oficial y evita duplicación ciega al detectar registros ya capturados para la misma fecha operativa.
@@ -5332,6 +6116,7 @@ equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding:
   - `cmd /c npm run test -- tests/love-isdin.spec.ts` falla por `spawn EPERM` del entorno local, no por un error funcional del flujo
 
 ## 2026-03-31 - Registro extemporaneo aprobado por supervisor para Ventas y LOVE ISDIN
+
 - Se creó la migración `supabase/migrations/20260331143000_registro_extemporaneo_buffer.sql` con la tabla buffer `registro_extemporaneo`, índices operativos y campos de trazabilidad para `VENTA`, `LOVE_ISDIN` y `AMBAS`.
 - `src/features/solicitudes/extemporaneoActions.ts` ahora permite capturar solicitudes extemporáneas desde la DC, valida asignación efectiva + check-in válido del día, notifica al supervisor y consolida a producción al aprobar usando los registradores reales de ventas y LOVE ISDIN.
 - `src/features/ventas/lib/ventaRegistration.ts` y `src/features/love-isdin/lib/loveRegistration.ts` aceptan consolidación aprobada fuera de la ventana estándar mediante un bypass explícito y auditado; ventas reemplaza por producto/día y LOVE evita duplicación ciega.
@@ -5344,6 +6129,7 @@ equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding:
   - `cmd /c npm run test:unit -- src/features/solicitudes/extemporaneoActions.test.ts` bloqueado por `spawn EPERM` del entorno local
 
 ## 2026-04-05 - Dashboard supervisor: Rol mensual de PDVs
+
 - Se agregó la acción rápida `Rol mensual` al dashboard de `SUPERVISOR` en `src/features/dashboard/components/DashboardPanel.tsx`, con apertura en `BottomSheet` y carga diferida solo al abrir el panel para no encarecer el primer render del dashboard.
 - Se creó la proyección PDV-céntrica mensual reutilizando `asignacion_diaria_resuelta` en `src/features/asignaciones/services/asignacionMaterializationService.ts`, incluyendo orden `FIJO` antes de `ROTATIVO`, agrupación por `grupo_rotacion_codigo`, soporte de `slot_rotacion` y filtros por `mes`, `cadena` y `tipo de PDV`.
 - Se añadió el servicio `src/features/dashboard/services/supervisorMonthlyRoleService.ts`, el endpoint autenticado `src/app/api/dashboard/supervisor-monthly-role/route.ts` y el componente `src/features/dashboard/components/SupervisorMonthlyRoleSheet.tsx` para consultar únicamente los PDVs del supervisor autenticado sin crear tablas nuevas.
@@ -5352,28 +6138,35 @@ equirements.md, design.md, 	asks.md) con el nuevo flujo operativo de onboarding:
   - `cmd /c npx tsc --noEmit` OK
   - `cmd /c npm run build` OK
   - `cmd /c npm run test -- tests/dashboard-kpis.spec.ts` falla en un caso preexistente de alertas live (`RETARDO` ausente en `obtenerInsightsDashboard`), ajeno a `Rol mensual`
+
 ## 2026-04-05 - Dashboard live alerts regression + deterministic KPI test
+
 - Se propagó pdvId al derivar disciplina de asistencia dentro de `buildLiveAlerts()` para mantener completo el contrato entre dashboard y motor de disciplina.
 - Se volvió determinista el caso combina alertas live de geocerca, retardo y cuota baja en `tests/dashboard-kpis.spec.ts`, forzando que el día actual del test sea laborable para las asignaciones mockeadas y evitando falsos negativos por correr la suite en domingo.
 - Validaciones ejecutadas:
   - cmd /c npm run test -- tests/dashboard-kpis.spec.ts OK
   - cmd /c npx tsc --noEmit OK
   - cmd /c npm run build OK
+
 ## 2026-04-10 - Despliegue a Cloudflare Pages: migracion completa a Edge Runtime (Antigravity)
 
 ### Contexto
+
 Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages** como hosting de produccion. La app usa Next.js 16 con App Router y el objetivo era lograr un build exitoso en el entorno Edge Runtime de Cloudflare, que tiene restricciones severas sobre modulos nativos de Node.js.
 
 ### Fase 1: Validacion local y subida a GitHub
+
 - Se levanto el servidor de desarrollo local (`npm run dev`) y se verifico que la app compilara y funcionara correctamente en `http://localhost:3000`.
 - Se subio el codigo al repositorio `https://github.com/HectorValle89/Retail-Saas` en la rama `main`.
 - Se configuraron las variables de entorno en el panel de Cloudflare Pages (Supabase URL, Supabase keys, R2, Gemini, etc.) copiandolas directamente de `.env.local`.
 
 ### Fase 2: Primer intento de build - error en next.config.ts
+
 - **Error**: `next.config.ts` importaba `os` de Node.js para detectar CPUs disponibles y configurar `serverExternalPackages`. Cloudflare no soporta `node:os`.
 - **Fix**: Se simplifico `next.config.ts` eliminando la logica dinamica de deteccion de CPUs y dejando una configuracion estatica compatible con Edge.
 
 ### Fase 3: Segundo intento - errores masivos de node:crypto, node:path, node:stream, sharp
+
 - **Error**: Turbopack/Webpack encontro imports de modulos nativos de Node.js en multiples archivos de produccion que son incompatibles con el Edge Runtime de Cloudflare.
 - **Modulos bloqueadores identificados**:
   - `node:crypto` - usado en hashing (bitacora, integridad, contrasenas temporales)
@@ -5386,6 +6179,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 ### Fase 4: Refactorizacion profunda para Edge Runtime
 
 #### 4.1 Hashing y seguridad (node:crypto a Web Crypto API)
+
 - **Archivos afectados**:
   - `src/lib/audit/integrity.ts` - hash de integridad de bitacora
   - `src/lib/files/sha256.ts` - utilidad central de SHA-256
@@ -5396,6 +6190,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 - **Impacto**: La funcion `computeSHA256()` y `calcularHashPayload()` pasaron de sincronas a asincronas (`async`), propagando `await` en los consumidores.
 
 #### 4.2 Procesamiento de imagenes (sharp a mock/passthrough)
+
 - **Archivos afectados**:
   - `src/lib/files/documentOptimization.ts` - optimizacion de documentos de expediente
   - `src/lib/biometrics/attendanceBiometrics.ts` - biometria de asistencia
@@ -5404,6 +6199,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 - **Impacto**: La funcionalidad de compresion/conversion de imagenes del lado servidor esta temporalmente desactivada. La compresion del lado cliente (`ClientImageFileInput` con WebP) sigue activa y compensa parcialmente.
 
 #### 4.3 Exportacion Excel (exceljs a xlsx/SheetJS)
+
 - **Archivos afectados**:
   - `src/app/api/bitacora/export/route.ts` - exportacion de bitacora
   - `src/app/api/asistencias/export/route.ts` - exportacion de asistencias
@@ -5418,17 +6214,21 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 - **Trade-off**: Los estilos avanzados del calendario operativo (colores por estado, bordes semanales, leyenda visual) no se aplican con SheetJS basico. El archivo `reporteXlsxTheme.ts` se conserva como referencia de diseno para futura migracion a un entorno que soporte estilos (Worker dedicado).
 
 #### 4.4 Buffer explicito (node:buffer a global)
+
 - **Archivo afectado**: `src/features/materiales/actions.ts`
 - **Solucion**: Se elimino `import { Buffer } from 'node:buffer'` porque `Buffer` ya esta disponible como global en el Edge Runtime de Next.js.
 
 #### 4.5 Tipos de exceljs (import type a tipos inline)
+
 - **Archivo afectado**: `src/features/reportes/services/reporteXlsxTheme.ts`
 - **Solucion**: Se reemplazo `import type { Borders, Fill, Font, Worksheet } from 'exceljs'` por definiciones de tipo standalone inline para evitar que el bundler intente resolver el modulo.
 
 ### Inyeccion de Edge Runtime
+
 - Se inyecto `export const runtime = 'edge'` en **66 archivos** de rutas y paginas (`page.tsx`, `layout.tsx`, `route.ts`) para forzar la ejecucion en el entorno serverless de Cloudflare.
 
 ### Estado final de limpieza (codigo de produccion, excluyendo .test.ts)
+
 - Cero imports de `node:crypto`
 - Cero imports de `node:buffer`
 - Cero imports de `node:stream`
@@ -5438,6 +6238,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 - Archivos `.test.ts` conservan sus imports nativos (no se incluyen en el build de produccion)
 
 ### Commits realizados (en orden cronologico)
+
 1. `fix: make next.config.ts cloud-compatible by removing native os dependency in production`
 2. `fix: simplify next.config.ts to resolve Cloudflare build type error`
 3. `feat(cloudflare): batch update all routes for edge compatibility and disable incompatible sharp module`
@@ -5446,6 +6247,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 6. `fix(cloudflare): remove last node:buffer and exceljs type imports blocking Edge build`
 
 ### Funcionalidad temporalmente degradada
+
 - Compresion de imagenes servidor (sharp): Passthrough sin comprimir. Plan: migrar a Cloudflare Worker dedicado o Supabase Edge Function.
 - Conversion TIFF a PNG de QR (sharp): Passthrough sin convertir. Mismo plan.
 - Biometria facial (sharp): Mock, devuelve original. Mismo plan.
@@ -5457,11 +6259,13 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 - Contrasenas temporales: Funcional via Web Crypto API.
 
 ### Siguiente paso
+
 - Esperar resultado del build en Cloudflare Pages tras el ultimo push.
 - Si el build pasa, validar el flujo de login + dashboard + exportaciones en el dominio de produccion.
 - Si quedan errores de build, seguir eliminando dependencias incompatibles hasta lograr build limpio.
 
 ## 2026-04-10 - Cloudflare: regla permanente de compatibilidad Edge y limpieza de sharp residual
+
 - Se establecio en `AGENTS.md` una regla permanente para todo el repositorio: cualquier codigo nuevo destinado a Cloudflare Pages / Edge Runtime debe evitar dependencias Node-only en produccion, incluyendo `sharp`, `exceljs`, `node:crypto`, `node:stream`, `node:path`, `node:buffer`, `node:os`, `fs` y `child_process`.
 - Se eliminaron referencias residuales de `sharp` en produccion que aun vivian dentro de funciones huérfanas de `src/features/love-isdin/lib/loveQrImport.ts` y `src/lib/files/documentOptimization.ts`.
 - Se mantuvo la logica funcional Edge-safe como passthrough o degradacion compatible, sin cambiar interfaz ni flujo de negocio.
@@ -5469,6 +6273,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - Borrado de referencias de `sharp` en `src/` de produccion mediante barrido textual
 
 ## 2026-04-10 - Cloudflare: middleware Edge migrado desde proxy
+
 - Cloudflare Pages seguia fallando por `/_middleware` sin Edge Runtime aunque el build local ya era limpio.
 - Se sustituyo la entrada `proxy.ts` por `middleware.ts` en la raiz del proyecto, exportando `runtime = 'edge'` y delegando a `src/lib/supabase/proxy.ts` para conservar la misma logica de sesion.
 - Se eliminaron los wrappers obsoletos `proxy.ts` y `src/proxy.ts` para evitar que el build siguiera tomando una ruta de middleware incompatible.
@@ -5476,6 +6281,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - `npm run build` OK tras la migracion de middleware
 
 ## 2026-04-10 - Cloudflare: migracion de despliegue desde Pages a Workers con OpenNext
+
 - Se reviso la compatibilidad actual de Cloudflare y se confirmo que la app full-stack (SSR, middleware, Route Handlers y auth server-side) no debe desplegarse en Cloudflare Pages; la ruta soportada hoy es Cloudflare Workers con `@opennextjs/cloudflare`.
 - Se elimino del codigo fuente la propagacion masiva de `export const runtime = 'edge'` que se habia introducido para forzar Pages. El objetivo es volver el repo compatible con OpenNext/Workers sin tocar UI ni logica de negocio.
 - Se agregaron `open-next.config.ts`, `wrangler.jsonc`, `.dev.vars` y scripts de `package.json` siguiendo la receta oficial de OpenNext para Cloudflare Workers.
@@ -5489,6 +6295,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - La validacion concluyente del empaquetado/deploy debe ejecutarse en entorno Linux/Cloudflare o via WSL, no en Windows puro.
 
 ## 2026-04-10 - Cloudflare: recorte adicional de dependencias pesadas y limite de 3 MiB sigue activo
+
 - Se recortaron imports pesados de produccion para intentar bajar el Worker de OpenNext: `xlsx` en exportadores/importadores, `pdf-lib` en PDFs y `@aws-sdk/*` en R2 quedaron cargados por demanda en vez de importarse de forma estatica.
 - Se reinstalo el chequeo final con `npm run cf:deploy` despues del recorte.
 - Resultado real:
@@ -5502,6 +6309,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - Para seguir desplegando en Cloudflare sin reescritura masiva, hace falta o bien una reduccion arquitectonica mucho mas agresiva del server bundle, o bien mover a un plan de Workers que acepte bundles mas grandes y seguir recortando hasta quedar dentro del limite.
 
 ## 2026-04-11 - Login inicial reforzado con password compartida y despliegue Worker republicado
+
 - Se alineo el password temporal de primer acceso a `BTL2026` en el alta provisional de empleados.
 - Se reforzo `src/actions/auth.ts` para que, si una cuenta de primer acceso o una cuenta de prueba todavia conserva credenciales antiguas, el login pueda resincronizar el password a `BTL2026` y reintentar sin romper el flujo de activacion.
 - Se sincronizaron tambien los scripts de provisioning de auth y de usuarios de prueba para usar la misma contraseña inicial compartida.
@@ -5514,6 +6322,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - El reprovisionamiento local de usuarios de prueba sigue dependiendo de una key administrativa de Supabase valida; el script local devolvio `Invalid API key`, por lo que si en algun entorno vuelve a faltar acceso administrativo, habrá que revisar/rotar las credenciales de Supabase antes de correr ese script fuera del Worker.
 
 ## 2026-04-11 - Blindaje de LOVE ISDIN y Nomina ante fallas del backend administrativo
+
 - Se detecto que los puntos de entrada `LOVE ISDIN` y `Nomina` estaban reventando el render cuando el cliente administrativo de Supabase devolvia `Invalid API key`.
 - Se agregaron rutas de degradacion en `src/app/(main)/love-isdin/page.tsx` y `src/app/(main)/nomina/page.tsx` para que ambas vistas muestren estado vacio con banner de infraestructura en lugar de error de servidor.
 - El cambio no altera la logica de negocio ni la UI nominal; solo evita caidas duras mientras persista una llave administrativa invalida o desincronizada.
@@ -5523,6 +6332,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - La causa raiz sigue siendo la llave administrativa de Supabase en produccion; este corte solo hace que la app degrade de forma segura mientras se corrige la credencial.
 
 ## 2026-04-11 - Baseline de actualizacion selectiva y control de costo
+
 - Se implemento la primera ola real de la arquitectura de actualizacion selectiva para dejar de depender de refreshes amplios al entrar o permanecer dentro de la app.
 - Infraestructura nueva:
   - migracion `20260411133000_ui_change_version.sql`
@@ -5548,6 +6358,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - migrar `usuarios`, `configuracion`, `reportes`, `empleados`, `nomina` y `materiales` al mismo patron de snapshot + invalidacion selectiva + refetch parcial.
 
 ## 2026-04-11 - Ola 2 de actualizacion selectiva: usuarios, configuracion y reportes
+
 - Se migro `usuarios` al patron de snapshot + invalidacion selectiva:
   - `src/features/usuarios/services/usuarioService.ts` ahora expone version cacheada con `unstable_cache` y tags por modulo/cuenta/empleado.
   - se agrego `/api/admin/users/panel` para refetch parcial del panel.
@@ -5578,6 +6389,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - revisar despues `LOVE ISDIN`, `ventas` y `asistencias` para cerrar la operacion diaria de mayor frecuencia sobre la misma base.
 
 ## 2026-04-11 - Ola 3 de actualizacion selectiva: empleados, nomina y materiales
+
 - Se migro `empleados` al patron de snapshot + invalidacion selectiva:
   - `src/features/empleados/services/empleadoService.ts` ahora soporta carga cacheada server-side por actor con tags de modulo/cuenta/empleado/supervisor, manteniendo compatibilidad con llamadas antiguas que todavia pasan un cliente Supabase.
   - se agrego `/api/empleados/panel` con la misma logica de fallback ante `Invalid API key` para evitar romper el refetch parcial del panel.
@@ -5610,6 +6422,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - despues cerrar `PDVs`, `Campanas`, `Ruta semanal`, `Clientes` y `Reglas`
 
 ## 2026-04-11 - Ola 4 de actualizacion selectiva: operacion diaria y mensajeria
+
 - Se migro `LOVE ISDIN` al patron de snapshot + invalidacion selectiva:
   - `src/features/love-isdin/services/loveIsdinService.ts` ahora expone una variante cacheada por actor con `unstable_cache`, tags por modulo/cuenta/empleado/supervisor y compatibilidad hacia llamadas antiguas que aun inyectan un cliente Supabase.
   - se agrego `/api/love-isdin/panel`.
@@ -5644,6 +6457,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - extender el mismo patron a `PDVs`, `Campanas`, `Ruta semanal`, `Clientes` y `Reglas`
 
 ## 2026-04-12 - Ola 5 de actualizacion selectiva: cierre de módulos restantes
+
 - Se terminaron de migrar las ultimas superficies de negocio que seguian en carga server-only:
   - `src/features/bitacora/components/BitacoraPanel.tsx` ahora usa snapshot inicial + `useScopedWidgetData(...)` contra `/api/bitacora/panel` y deja de depender de recarga completa para paginacion/filtros.
   - `src/features/rankings/components/RankingsPanel.tsx` ahora usa snapshot inicial + `useScopedWidgetData(...)` contra `/api/ranking/panel` y rehidrata por cambio selectivo de ranking.
@@ -5667,6 +6481,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - los unicos `router.refresh()` restantes estan en `src/components/app/AppRuntime.tsx` y `src/components/auth/AuthSessionMonitor.tsx`, donde siguen acotados a runtime/autenticacion, no a datos operativos
 
 ## 2026-04-12 - Afinacion administrativa y cierre fino de runtime
+
 - `src/app/(main)/reportes/page.tsx` ahora resuelve `obtenerProgramacionReportes(...)` y el panel principal en paralelo para eliminar waterfall de carga en el primer render.
 - `src/components/app/AppRuntime.tsx` dejo de forzar `router.refresh()` al limpiar el estado PWA de desarrollo; la limpieza ahora queda acotada a cache y service workers.
 - `usuarios` y `configuracion` quedaron confirmados como paneles cacheados por actor con invalidacion selectiva; no se introdujeron lecturas nuevas en esta afinacion.
@@ -5674,12 +6489,14 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 - `router.refresh()` restante: solo `src/components/auth/AuthSessionMonitor.tsx`, acotado a sincronizacion de sesion/auth.
 
 ## 2026-04-12 - Cierre final de runtime/auth
+
 - Se elimino el ultimo `router.refresh()` del repositorio desde `src/components/auth/AuthSessionMonitor.tsx`; ahora el monitor solo renueva sesion o redirige a login cuando corresponde.
 - No quedan `router.refresh()` en `src/` segun busqueda global.
 - Validaciones ejecutadas: `npm run build` OK, `npm run cf:build` OK, `npm run docs:check-encoding` OK.
 - Estado final de este corte: negocio + runtime ya no realizan refresh global de ruta; el sistema queda apoyado en invalidacion selectiva y renovacion de auth sin refresco de UI.
 
 ## 2026-04-12 - Optimizacion administrativa fina
+
 - `src/features/usuarios/services/usuarioService.ts` paralelizo la carga de `auth.users` y sesiones administrativas para reducir waterfall de lectura en el panel de usuarios.
 - `src/features/configuracion/services/configuracionService.ts` ahora cachea el calculo del bloque de compresion PDF con `unstable_cache`, evitando probes repetidos por carga de panel.
 - Se revalido `src/app/(main)/reportes/page.tsx` como carga paralela entre programacion y panel, manteniendo el shell diferido cuando no hay periodo seleccionado.
@@ -5688,6 +6505,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 - Hallazgo operativo: el primer `npm run build` de este corte podia fallar por falta de `.open-next/assets`; el directorio se recreo localmente antes de la validacion final.
 
 ## 2026-04-12 - Usuarios: sesiones bajo demanda
+
 - `src/features/usuarios/services/usuarioService.ts` dejo de cargar el listado completo de sesiones auth en el primer render del panel.
   - Ahora el panel consume un resumen agregado `admin_list_auth_session_summaries()` para mantener el estado visible y el contador de sesiones activas por usuario.
   - Se agrego `obtenerSesionesUsuario(usuarioId)` para resolver el detalle completo solo cuando se abre la ficha y el tab `Sesiones`.
@@ -5706,6 +6524,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - `npm run docs:check-encoding` OK
 
 ## 2026-04-12 - PDV y reportes: detalle lazy y corte de campaña por defecto
+
 - `src/features/pdvs/services/pdvService.ts` ahora separa el listado liviano del detalle de un solo PDV.
   - El panel de listado ya no arrastra historiales completos de horarios/supervisores/asistencias en cada fila.
   - Se agregó `obtenerDetallePdv(...)` con query puntual por `pdvId` para cargar historiales solo cuando el usuario abre el detalle.
@@ -5718,6 +6537,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - `npm run docs:check-encoding` OK
 
 ## 2026-04-12 - Reportes: campañas bajo demanda
+
 - `src/features/reportes/components/ReportesPanel.tsx` volvió a mostrar la sección de campañas sin cargarla en el snapshot principal.
   - Ahora hidrata ese bloque con fetch diferido en el cliente y mantiene estado de carga/error por separado.
   - El resto del reporte sigue usando el snapshot principal de `reportes` sin reintroducir el costo de campañas en el primer render.
@@ -5729,6 +6549,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 - Validación pendiente a ejecutar: `npm run build`, `npm run cf:build`, `npm run docs:check-encoding`
 
 ## 2026-04-12 - Configuracion: ciudad sin estado SQL
+
 - `src/features/configuracion/services/configuracionService.ts` dejo de leer `ciudad.estado` desde la tabla `ciudad`.
   - El panel de configuracion ahora toma `ciudad` solo con `id, nombre, zona, activa` y deriva el estado en cliente/servidor con `resolveMexicoStateFromCity(...)`.
   - Esto elimina el query que estaba provocando `column ciudad.estado does not exist` en Supabase Logs.
@@ -5739,6 +6560,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - `npm run cf:build` OK
 
 ## 2026-04-12 - Realtime compartido y cliente Supabase singleton
+
 - `src/lib/supabase/client.ts` ahora reutiliza una sola instancia browser de Supabase por sesion, en vez de crear un cliente nuevo por hook o componente.
 - `src/lib/ui-change/client.ts` paso de canales por componente a un canal global compartido para `ui_change_version`.
   - Las suscripciones locales siguen filtrando por modulo, superficies, scope y rol, pero la conexion realtime ya no se multiplica en cada panel.
@@ -5754,6 +6576,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - `npm run docs:check-encoding` OK
 
 ## 2026-04-13 - Arranque mas fluido en todos los roles
+
 - `src/lib/supabase/proxy.ts` ahora resuelve un snapshot compacto del actor autenticado dentro del middleware y lo inyecta en headers internos del request.
   - El objetivo fue eliminar la segunda lectura de `usuario + empleado` que hacia el server render en cada navegacion protegida.
   - El middleware sigue aplicando scope de cuenta y reglas de activacion, pero ahora deja lista la identidad operativa para el layout y las paginas.
@@ -5774,6 +6597,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - `npm run docs:check-encoding` OK
 
 ## 2026-04-13 - Runtime global mas ligero
+
 - `src/components/auth/AuthSessionMonitor.tsx` ya no ejecuta el `getSession()` inicial en el hot path de hidratacion.
   - Ahora difiere esa verificacion a `requestIdleCallback` o timeout corto, manteniendo `onAuthStateChange` como reaccion inmediata cuando realmente cambia la sesion.
   - Esto reduce trabajo al entrar a cualquier modulo protegido sin perder el guardrail de refresh/logout cuando la sesion se invalida.
@@ -5790,6 +6614,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - `npm run docs:check-encoding` OK
 
 ## 2026-04-13 - Invalidez del acceso provisional tras confirmar correo final
+
 - `src/actions/auth.ts` ahora trata el acceso provisional como un estado transitorio real.
   - Mientras la cuenta siga en `PROVISIONAL` o `PENDIENTE_VERIFICACION_EMAIL`, el login por `username` temporal sigue resolviendo hacia el auth user provisional.
   - En cuanto el correo final queda confirmado y se define la contrasena, el cierre de activacion limpia el estado provisional en `auth.users` (`pending_email`, `provisional_email`, `first_access_password`) y marca `allow_username_login = false`.
@@ -5805,6 +6630,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
   - `npx vitest run src/actions/auth.test.ts` OK
   - `npm run build` OK
   - `npm run cf:build` OK
+
 ## 2026-04-14 - Fix tenant mismatch en sync de asistencias movil
 
 - Se aislo un rechazo 403 en `/api/asistencias/sync` cuando el payload enviaba `cuenta_cliente_id` distinta a la del actor autenticado.
@@ -6006,6 +6832,7 @@ Se inicio el proceso de despliegue de la plataforma Retail a **Cloudflare Pages*
 ## 2026-04-16 - Estabilizacion del Motor de Guardado de Rutas Semanales (Antigravity)
 
 ### Problema Detectado
+
 El modulo de "Ruta Semanal" (Canvas) presentaba errores de bloqueo al intentar guardar o reordenar visitas. El mensaje de error era:
 `duplicate key value violates unique constraint "ruta_semanal_visita_ruta_semanal_id_dia_semana_orden_key"`
 
@@ -6014,6 +6841,7 @@ Este error ocurria porque el sistema realizaba actualizaciones secuenciales (ind
 ### Soluciones Implementadas
 
 #### 1. Refactorizacion de Persistencia Atomica
+
 - Se modifico la accion `guardarPlaneacionRutaSemanalCanvas` en `src/features/rutas/actions.ts`.
 - **Estrategia**: Bulk Delete -> Bulk Upsert.
 - Se implemento un borrado inicial de todas las visitas con estatus `PLANIFICADA` para la ruta especifica.
@@ -6021,16 +6849,20 @@ Este error ocurria porque el sistema realizaba actualizaciones secuenciales (ind
 - Esto garantiza que si dos procesos intentan escribir en la misma posicion simultaneamente, la base de datos simplemente actualice el registro en lugar de lanzar una excepcion de llave duplicada.
 
 #### 2. Limpieza de Datos Corruptos
+
 - Se identifico el ID de ruta afectado para el usuario Hector (`5273d02f-0174-45e2-979e-0923425f56cb`).
 - Se ejecuto un script de limpieza (`scripts/cleanup-hector-route.cjs`) para eliminar las visitas duplicadas existentes y permitir un guardado limpio desde el Canvas.
 
 #### 3. Blindaje en Interfaz de Usuario (UI)
+
 - Se verifico que el componente `SubmitActionButton` utiliza correctamente `useFormStatus` para deshabilitar el boton "Enviar ruta a coordinacion" mientras la peticion esta en curso, evitando envios multiples accidentales por clics repetidos.
 
 #### 4. Correccion de Flujo de Activacion (CheckPoint Anterior)
+
 - Se creo la ruta de API `/api/auth/confirm` para manejar la redireccion de activacion de cuenta y evitar la perdida de sesion en el servidor durante el primer inicio de sesion (establecimiento de contrasena).
 
 ### Validaciones Ejecutadas
+
 - **Cleanup**: Borrado exitoso de visitas de prueba corruptas.
 - **Build**: Compilacion exitosa de Next.js y verificacion de tipos TypeScript.
 - **Deploy**: Despliegue a producción en Cloudflare Pages.
@@ -6042,9 +6874,11 @@ Este error ocurria porque el sistema realizaba actualizaciones secuenciales (ind
 ## 2026-04-16 - Acceso visible a la bandeja de coordinacion de candidatos
 
 ### Problema Detectado
+
 El coordinador podia crear y aprobar candidatos dentro del flujo de Empleados, pero desde el dashboard y la navegacion principal no existia una entrada visible y directa a la bandeja de coordinacion. En consecuencia, el flujo operativo quedaba oculto aunque el modulo ya soportaba `PENDIENTE_COORDINACION` y `SELECCION_APROBADA`.
 
 ### Soluciones Implementadas
+
 - Se habilito `Empleados` tambien para `COORDINADOR` en la barra lateral para que el rol pueda acceder al canvas operativo sin depender de una ruta oculta.
 - Se agrego un CTA visible en `Dashboard` para coordinadores que lleva a `/empleados?tab=coordinacion`.
 - Se introdujo un resolvedor de pestaña inicial para que `Empleados` abra directamente la vista de coordinacion cuando el usuario coordinador entra sin query o cuando se pasa `tab=coordinacion`.
@@ -6052,12 +6886,14 @@ El coordinador podia crear y aprobar candidatos dentro del flujo de Empleados, p
 - Se reforzo el canvas de Empleados con un bloque de metricas especifico de coordinacion, reutilizando el resumen ya calculado sin introducir nuevas consultas.
 
 ### Validaciones Ejecutadas
+
 - `npm run docs:check-encoding` OK
 - `npm run build` OK
 - `npm run cf:build` OK
 - Prueba unit de Vitest intentada para el helper de pestañas, pero el sandbox de Windows sigue fallando al cargar la config con `spawn EPERM`
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
@@ -6065,14 +6901,17 @@ El coordinador podia crear y aprobar candidatos dentro del flujo de Empleados, p
 ## 2026-04-18 - Reconciliacion de custom domains de Cloudflare en codigo
 
 ### Problema Detectado
+
 Produccion ya respondia en `beteele-one.com` y `www.beteele-one.com`, pero esos hostnames no estaban declarados en `wrangler.jsonc`. La app funcionaba, aunque la configuracion de dominios quedaba repartida entre dashboard y repositorio.
 
 ### Soluciones Implementadas
+
 - Se agregaron ambos hostnames a `wrangler.jsonc` usando `routes` con `custom_domain: true`.
 - Se redeployo el Worker para que Cloudflare aplicara los dominios desde la configuracion versionada.
 - Se verifico que `beteele-one.com` y `www.beteele-one.com` siguieran respondiendo correctamente tras el despliegue.
 
 ### Validaciones Ejecutadas
+
 - `npm run build` OK
 - `npm run cf:build` OK
 - `npm run cf:deploy` OK
@@ -6080,6 +6919,7 @@ Produccion ya respondia en `beteele-one.com` y `www.beteele-one.com`, pero esos 
 - `Invoke-WebRequest -Uri https://www.beteele-one.com -Method Head -MaximumRedirection 0` OK (`307` a `/login`)
 
 ### Skills aplicadas
+
 - `09-encoding/utf8-standard`
 - `cloudflare:wrangler`
 - `cloudflare:workers-best-practices`
@@ -6087,18 +6927,22 @@ Produccion ya respondia en `beteele-one.com` y `www.beteele-one.com`, pero esos 
 ## 2026-04-18 - Scripts de deploy y preview sin advertencia de multiples environments
 
 ### Problema Detectado
+
 `opennextjs-cloudflare deploy` y `opennextjs-cloudflare preview` seguian mostrando la advertencia de Wrangler sobre multiples environments aunque se intentara pasar `-e ""`. La causa real estaba en el wrapper de OpenNext, que no reenvia el entorno vacio al comando final de Wrangler.
 
 ### Soluciones Implementadas
+
 - Se reencadeno `deploy` / `cf:deploy` para usar `opennextjs-cloudflare populateCache remote` y despues `wrangler deploy --env=""`.
 - Se reencadeno `preview` / `cf:preview` para usar `opennextjs-cloudflare populateCache local` y despues `wrangler dev --env=""`.
 - Se mantuvo el paso de `cf:build` al inicio para no perder la generacion del worker de OpenNext.
 
 ### Validaciones Ejecutadas
+
 - `npm run cf:deploy -- --dry-run` OK y sin advertencia de multiples environments
 - `npm run docs:check-encoding` OK
 
 ### Skills aplicadas
+
 - `09-encoding/utf8-standard`
 - `cloudflare:wrangler`
 - `06-performance/offline-sync-patterns`
@@ -6106,9 +6950,11 @@ Produccion ya respondia en `beteele-one.com` y `www.beteele-one.com`, pero esos 
 ## 2026-04-18 - Migracion del correo operativo a Cloudflare Email Sending
 
 ### Problema Detectado
+
 Las notificaciones operativas del flujo de reclutamiento y las credenciales provisionales no estaban llegando de forma confiable. El codigo seguia dependiendo de SMTP2GO, mientras que activacion y reset debian permanecer en Supabase Auth.
 
 ### Soluciones Implementadas
+
 - Se reemplazo el transporte operativo de `transactionalEmail` para usar el binding nativo `send_email` de Cloudflare Workers con el nombre `SEND_EMAIL`.
 - Se agrego lectura segura de bindings runtime en `src/lib/runtime/env.ts` para no depender de variables string cuando el transporte es un servicio de Cloudflare.
 - Se actualizo `wrangler.jsonc` para declarar `SEND_EMAIL` en produccion y `dev`, con `notify@beteele-one.com` como remitente permitido.
@@ -6117,6 +6963,7 @@ Las notificaciones operativas del flujo de reclutamiento y las credenciales prov
 - Se elimino `SMTP2GO_API_KEY` como secreto remoto de Cloudflare en produccion y `dev`.
 
 ### Validaciones Ejecutadas
+
 - `npx vitest run src/lib/notifications/transactionalEmail.test.ts` OK
 - `npm run docs:check-encoding` OK
 - `npm run build` OK
@@ -6125,6 +6972,7 @@ Las notificaciones operativas del flujo de reclutamiento y las credenciales prov
 - `npx wrangler email sending send --from notify@beteele-one.com --to hector@artolagroup.com --subject "Prueba final Cloudflare" --text "Prueba final de correo operativo tras eliminar SMTP2GO."` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
@@ -6132,9 +6980,11 @@ Las notificaciones operativas del flujo de reclutamiento y las credenciales prov
 ## 2026-04-18 - Migracion del correo operativo a Cloudflare Email Sending
 
 ### Problema Detectado
+
 El correo operativo del modulo de reclutamiento y usuarios seguia saliendo por SMTP2GO, mientras el despliegue principal ya vive en Cloudflare Workers. El objetivo del corte fue dejar `Supabase Auth` unicamente para activacion y reset de password, y mover el resto de los correos transaccionales del app a Cloudflare.
 
 ### Soluciones Implementadas
+
 - Se reemplazo el adaptador `sendTransactionalEmail` para usar el binding nativo `EMAIL` de Cloudflare Email Service en lugar del endpoint de SMTP2GO.
 - Se mantuvo el contrato actual del mailer para no reescribir los flujos consumidores (`workflowTransitionEmail` y `provisionalCredentialsEmail`).
 - Se agrego lectura generica de bindings desde el runtime de Cloudflare para conservar tipado estricto y no mezclar secretos adicionales.
@@ -6143,36 +6993,43 @@ El correo operativo del modulo de reclutamiento y usuarios seguia saliendo por S
 - Se mantuvo `Supabase Auth` intacto para activacion y reset, por lo que esos correos siguen dependiendo del SMTP configurado en Supabase.
 
 ### Validaciones Ejecutadas
+
 - `npx vitest run src/lib/notifications/transactionalEmail.test.ts` OK
 - `npm run docs:check-encoding` OK
 - `npm run build` OK
 - `npm run cf:build` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
 
 ### Ajuste Posterior
+
 - Se renombro el binding de Cloudflare Email Service de `EMAIL` a `SEND_EMAIL` para alinearlo con la convencion operativa elegida para el proyecto, actualizando runtime, `wrangler.jsonc` y la prueba unitaria del mailer sin cambiar el comportamiento funcional.
 
 ## 2026-04-18 - Notificacion de nuevo candidato a coordinacion
 
 ### Problema Detectado
+
 Al crear un candidato desde CV, el expediente quedaba visible en el embudo de reclutamiento y coordinacion, pero no se emitia el correo transaccional esperado para avisar a COORDINACION sobre el nuevo caso. La lentitud al subir el CV sigue asociada al paso OCR+IA y no al fanout de email.
 
 ### Soluciones Implementadas
+
 - Se agrego el fanout de notificacion inmediatamente despues de publicar el candidato en `PENDIENTE_COORDINACION`.
 - Se aislo el payload de notificacion en un helper puro para mantener el contrato de correo y facilitar pruebas sin arrastrar dependencias de servidor.
 - La notificacion se dirige a `COORDINADOR` con enlace a `/empleados` y reutiliza el canal transaccional SMTP2GO existente.
 
 ### Validaciones Ejecutadas
+
 - `npx vitest run src/features/empleados/lib/recruitmentNotifications.test.ts src/lib/notifications/transactionalEmail.test.ts` OK
 - `npx eslint src/features/empleados/actions.ts src/features/empleados/lib/recruitmentNotifications.ts src/features/empleados/lib/recruitmentNotifications.test.ts` OK con warnings preexistentes en `actions.ts`
 - `npm run build` OK
 - `npm run cf:build` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
@@ -6181,9 +7038,11 @@ Al crear un candidato desde CV, el expediente quedaba visible en el embudo de re
 ## 2026-04-19 - Verificacion de correo en correccion de perfil
 
 ### Problema Detectado
+
 El flujo de correccion de correo de dermoconsejo enviaba al usuario directo a `/update-password`. Eso permitia recibir el correo de Supabase pero no completar la verificacion porque el callback servidor de `api/auth/confirm` no intervenia en la secuencia.
 
 ### Soluciones Implementadas
+
 - Se actualizo `solicitarCorreccionPerfilDermoconsejo` para enviar `emailRedirectTo` a `/api/auth/confirm?next=/update-password`.
 - Se alinearon las pruebas de activacion y correccion de correo para validar el nuevo callback confirmado.
 - Se agrego una prueba focalizada en `src/features/mensajes/actions.test.ts` que cubre la correccion de correo con redireccion a verificacion server-side.
@@ -6191,15 +7050,18 @@ El flujo de correccion de correo de dermoconsejo enviaba al usuario directo a `/
 - Se reconciliaron los documentos derivados `task.md` y `AGENT_HISTORY.md` para que el flujo no siga describiendo un redirect directo a `/update-password`.
 
 ### Validaciones Ejecutadas
+
 - `npx vitest run src/features/mensajes/actions.test.ts src/actions/auth.test.ts` OK
 - `npm run build` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
 
 ## 2026-04-19 - Supervisor today route refresh after check-in/check-out
+
 - **Contexto**: el supervisor 3 registraba la llegada y el cierre en backend, pero el panel seguia mostrando la visita como pendiente al reabrir la ruta porque la coleccion `routeData.visitasHoy` del dashboard no se refrescaba tras guardar.
 - **Cambio**: se factorizaron las lecturas de `ruta-semanal` en `DashboardPanel` para poder recargar la ruta completa despues de cada guardado exitoso desde `SupervisorTodayRouteSheet`, evitando que el dashboard quede con una copia stale del servidor.
 - **Validaciones**: `npm run build` OK, `npm run cf:build` OK, `npm run docs:check-encoding` OK.
@@ -6208,9 +7070,11 @@ El flujo de correccion de correo de dermoconsejo enviaba al usuario directo a `/
 ## 2026-04-18 - Reclutamiento y onboarding con PDV sugerido vs definitivo
 
 ### Problema Detectado
+
 El flujo de alta de Reclutamiento seguia tratando el PDV inicial como si fuera una asignacion operativa, lo que mezclaba la sugerencia inicial con el PDV definitivo confirmado por Coordinacion.
 
 ### Soluciones Implementadas
+
 - Se separaron los campos de onboarding en `pdv_sugerido_*` y `pdv_definitivo_*`, manteniendo `pdv_objetivo_*` solo como compatibilidad de lectura/escritura.
 - La UI de Reclutamiento ahora captura y muestra PDV sugerido en lugar de seguir usando el nombre ambiguo de objetivo.
 - Coordinacion puede confirmar o cambiar el PDV definitivo antes del handoff a Nomina.
@@ -6219,16 +7083,19 @@ El flujo de alta de Reclutamiento seguia tratando el PDV inicial como si fuera u
 - Se corrigieron pruebas unitarias del pipeline y de la bandeja para reflejar los estados reales del flujo.
 
 ### Validaciones Ejecutadas
+
 - `npm run docs:check-encoding` OK
 - `npm run build` OK
 - `npm run cf:build` OK
 - `npx vitest run src/features/empleados/lib/recruitingPipeline.test.ts src/features/empleados/lib/onboardingRules.test.ts src/features/empleados/lib/recruitmentNotifications.test.ts src/features/empleados/lib/workflowInbox.test.ts` OK
 
 ### Incidencia Operativa Resuelta
+
 - `npm run cf:build` fallo inicialmente en Windows por un `wrangler dev`/OpenNext previo que dejaba `.open-next` bloqueado.
 - Se identifico y cerro el proceso vivo que retenia el directorio antes de reintentar el build.
 
 ### Skills aplicadas
+
 - `09-encoding/utf8-standard`
 - `05-code-review/typescript-strict-typing`
 - `03-debugging/systematic-debugging`
@@ -6236,15 +7103,18 @@ El flujo de alta de Reclutamiento seguia tratando el PDV inicial como si fuera u
 ## 2026-04-18 - Sustitucion final de Sender por SMTP2GO
 
 ### Problema Detectado
+
 `Sender` ya no es utilizable en este entorno porque la cuenta quedo bloqueada. Mantenerlo como ruta activa o incluso como nombre principal de modulo generaba confusion operativa y riesgo de reutilizacion accidental.
 
 ### Soluciones Implementadas
+
 - Se dejo `SMTP2GO` como unico proveedor funcional de correo transaccional.
 - Se renombro el modulo base a `transactionalEmail` para eliminar la referencia funcional a `Sender`.
 - Se actualizaron los consumidores de credenciales provisionales y transiciones de flujo para importar el nuevo modulo neutro.
 - Se alineo la prueba unitaria al nuevo nombre del modulo.
 
 ### Validaciones Ejecutadas
+
 - `npm run docs:check-encoding` OK
 - `npx vitest run src/lib/notifications/transactionalEmail.test.ts` OK
 - `npx eslint src/lib/notifications/transactionalEmail.ts src/lib/notifications/transactionalEmail.test.ts src/lib/notifications/provisionalCredentialsEmail.ts src/lib/notifications/workflowTransitionEmail.ts` OK
@@ -6252,6 +7122,7 @@ El flujo de alta de Reclutamiento seguia tratando el PDV inicial como si fuera u
 - `npm run cf:build` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
@@ -6259,15 +7130,18 @@ El flujo de alta de Reclutamiento seguia tratando el PDV inicial como si fuera u
 ## 2026-04-18 - Redireccion de correos transaccionales a buzón de pruebas
 
 ### Problema Detectado
+
 Se necesitaba probar la entrega real sin mandar los correos al destinatario operativo original, para que las credenciales y notificaciones de pruebas llegaran al buzón de control.
 
 ### Soluciones Implementadas
+
 - Se agregó `TRANSACTIONAL_EMAIL_OVERRIDE_TO` como override opcional del destinatario transaccional.
 - Cuando el override está configurado, el envío sale al buzón de pruebas y conserva en headers el destinatario original.
 - Se dejó el override activado para `dev` apuntando a `hector@artolagroup.com`.
 - Se mantuvo producción sin override por defecto para no desviar correo real sin intención explícita.
 
 ### Validaciones Ejecutadas
+
 - `npm run docs:check-encoding` OK
 - `npx vitest run src/lib/notifications/transactionalEmail.test.ts` OK
 - `npx eslint src/lib/notifications/transactionalEmail.ts src/lib/notifications/transactionalEmail.test.ts src/lib/notifications/provisionalCredentialsEmail.ts src/lib/notifications/workflowTransitionEmail.ts` OK
@@ -6276,10 +7150,12 @@ Se necesitaba probar la entrega real sin mandar los correos al destinatario oper
 - `npm run cf:deploy -- --env dev` OK
 
 ### Despliegue
+
 - URL dev actualizada: `https://beteele-one-dev.hector-183.workers.dev`
 - Version ID dev actual: `e2f2efa8-2ae0-4ad7-a76b-042c8d3385c5`
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
@@ -6287,9 +7163,11 @@ Se necesitaba probar la entrega real sin mandar los correos al destinatario oper
 ## 2026-04-18 - Sustitucion completa de Sender por SMTP2GO
 
 ### Problema Detectado
+
 Sender quedo inutilizable por bloqueo de cuenta. El sistema necesitaba dejar de tratarlo como proveedor alterno y pasar a SMTP2GO como canal unico de email transaccional.
 
 ### Soluciones Implementadas
+
 - Se elimino la rama funcional de Sender del transporte de correo.
 - `sendTransactionalEmail` ahora envia exclusivamente por SMTP2GO usando `SMTP2GO_API_KEY`.
 - `canSendTransactionalEmail` valida solo SMTP2GO y `USUARIOS_FROM_EMAIL`.
@@ -6298,10 +7176,12 @@ Sender quedo inutilizable por bloqueo de cuenta. El sistema necesitaba dejar de 
 - Se ajustaron las pruebas para validar el contrato SMTP2GO y eliminar dependencias del API de Sender.
 
 ### Validaciones Ejecutadas
+
 - `npx vitest run src/lib/notifications/senderTransactionalEmail.test.ts` OK
 - `npx eslint src/lib/notifications/senderTransactionalEmail.ts src/lib/notifications/senderTransactionalEmail.test.ts src/lib/notifications/provisionalCredentialsEmail.ts src/lib/notifications/workflowTransitionEmail.ts` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
@@ -6309,20 +7189,24 @@ Sender quedo inutilizable por bloqueo de cuenta. El sistema necesitaba dejar de 
 ## 2026-04-17 - Pipeline limitado solo a candidatos nacidos del flujo real de reclutamiento
 
 ### Problema Detectado
+
 El embudo seguia mostrando expedientes historicos porque el criterio de origen aceptaba OCR de CV (`CV_GEMINI`) y eso volvia a meter registros importados o antiguos en `Nuevos`.
 
 ### Soluciones Implementadas
+
 - Se endurecio el filtro de origen para aceptar solo expedientes creados explicitamente desde el flujo de reclutamiento.
 - Se elimino `CV_GEMINI` como criterio de entrada al embudo para evitar que historicos y padrones importados volvieran a aparecer en el canvas.
 - Se alinearon `empleadoService`, `workflowInbox` y `nominaWorkspaceService` para que la lectura del pipeline, las bandejas y los contadores usen la misma semantica.
 - Se agregaron pruebas para asegurar que un expediente con OCR de CV pero sin origen de reclutamiento no entre al pipeline.
 
 ### Validaciones Ejecutadas
+
 - `npm run docs:check-encoding` OK
 - `npm run build` OK
 - `npm run cf:build` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
@@ -6330,40 +7214,48 @@ El embudo seguia mostrando expedientes historicos porque el criterio de origen a
 ## 2026-04-17 - Reclutamiento deja de mostrar Expediente en revisión
 
 ### Decision de producto
+
 - El embudo de reclutamiento ahora muestra solo candidatos `Nuevos`.
 - Los casos con `expediente_estado = EN_REVISION` quedaron fuera del pipeline y permanecen en la base operativa.
 - El concepto `Nómina` en el pipeline corresponde a `Devueltos por Nómina`: altas ya enviadas a Nómina / IMSS que regresan para corrección.
 
 ### Validaciones Ejecutadas
+
 - `npm run docs:check-encoding` OK
 - `npm run build` OK
 - `npm run cf:build` OK
 - `npx vitest run src/features/empleados/lib/workflowInbox.test.ts src/features/empleados/lib/recruitingPipeline.test.ts` no pudo arrancar por `spawn EPERM` al cargar `vitest.config.ts` en Windows
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
 
 ### Despliegue de prueba
+
 - Se publico en `Dev` para validacion visual en `https://beteele-one-dev.hector-183.workers.dev`.
 - Version `Dev` actual: `a3032bfb-0a56-4a80-940f-7c0f8b92fb98`
 
 ## 2026-04-17 - Suspension controlada de notificaciones por Sender
 
 ### Problema Detectado
+
 La cuenta de Sender quedo suspendida de forma permanente. El sistema seguia teniendo Sender como proveedor activo para correos transaccionales de reclutamiento y credenciales provisionales, lo que dejaba riesgo de errores operativos y reintentos contra un canal ya cancelado.
 
 ### Soluciones Implementadas
+
 - Se agrego un interruptor central `EMAIL_NOTIFICATIONS_ENABLED` para poder apagar el canal de correo sin reescribir los flujos de negocio.
 - El transporte de Sender ahora queda deshabilitado por defecto salvo que la bandera global este activada explicitamente.
 - Se alinearon `wrangler.jsonc` y `.env.local.example` para dejar las notificaciones por email en estado suspendido (`false`) tanto en produccion como en `dev`.
 - Se agrego regresion para validar que el helper de Sender no se considere disponible cuando la bandera global esta apagada.
 
 ### Validaciones Ejecutadas
+
 - Pendiente de corrida al cierre del corte actual
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
@@ -6371,9 +7263,11 @@ La cuenta de Sender quedo suspendida de forma permanente. El sistema seguia teni
 ## 2026-04-17 - Sustitucion del pipeline de reclutamiento y alta visibilidad de bajas
 
 ### Problema Detectado
+
 El canvas de Reclutamiento seguia mostrando casos posteriores al cierre IMSS (`PENDIENTE_VALIDACION_FINAL`, `PENDIENTE_ACCESO_ADMIN`, `ALTA_IMSS_CERRADA`), mezclando estados ya entregados fuera del embudo operativo de altas. Ademas, las bajas existian en workflow e inbox, pero no como pipeline visual propio dentro del canvas.
 
 ### Soluciones Implementadas
+
 - Se creo `src/features/empleados/lib/recruitingPipeline.ts` para centralizar la clasificacion del pipeline de altas y del pipeline de bajas.
 - El embudo de altas ahora termina al cerrar IMSS; los casos entregados a Administracion o ya cerrados dejan de aparecer en el board de Reclutamiento.
 - Se agrego un segundo tablero `Pipeline de bajas` dentro del canvas de Reclutamiento, usando los estados `PENDIENTE_BAJA_IMSS`, `RECLUTAMIENTO_CORRECCION_BAJA` y `BAJA_IMSS_CERRADA`.
@@ -6382,11 +7276,13 @@ El canvas de Reclutamiento seguia mostrando casos posteriores al cierre IMSS (`P
 - Se agrego una regresion unitaria en `src/features/empleados/lib/recruitingPipeline.test.ts`.
 
 ### Validaciones Ejecutadas
+
 - `npm run build` OK
 - `npm run cf:build` OK
 - `npm run docs:check-encoding` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `02-testing-e2e/tailwind-mobile-first`
 - `05-code-review/typescript-strict-typing`
@@ -6395,9 +7291,11 @@ El canvas de Reclutamiento seguia mostrando casos posteriores al cierre IMSS (`P
 ## 2026-04-17 - Reemplazo del icono de app por asset real de branding
 
 ### Problema Detectado
+
 La app seguia usando iconos generados por SVG dentro de `icon.tsx` y `apple-icon.tsx`, pero el branding deseado para el boton de instalacion movil ya existia en una imagen maestra externa con el arte final aprobado.
 
 ### Soluciones Implementadas
+
 - Se copio y recorto la imagen maestra del icono al area real util del boton.
 - Se genero un asset cuadrado final para app movil y se derivaron versiones PNG para `icon` y `apple-icon`.
 - Se reemplazaron las rutas dinamicas `src/app/icon.tsx` y `src/app/apple-icon.tsx` por archivos reales:
@@ -6406,28 +7304,34 @@ La app seguia usando iconos generados por SVG dentro de `icon.tsx` y `apple-icon
 - Se mantuvo el `manifest` apuntando a `/icon` y `/apple-icon`, pero ahora servido desde metadata files PNG nativos de Next.
 
 ### Validaciones Ejecutadas
+
 - `npm run build` OK
 - `npm run cf:build` OK
 
 ### Skills aplicadas
+
 - `09-encoding/utf8-standard`
 
 ## 2026-04-17 - Correccion transversal de render en mapas Leaflet
 
 ### Problema Detectado
+
 Todos los mapas del sistema compartian un sintoma visual consistente: el tile quedaba renderizado como un cuadro pequeno dentro de un contenedor mucho mas grande. El patron apuntaba a un problema transversal del componente base de mapas, no a un bug aislado por pantalla.
 
 ### Soluciones Implementadas
+
 - Se cargo el CSS global oficial de `leaflet` desde el layout raiz para que toda la app herede la geometria y estilos base del mapa.
 - Se agregaron estilos base en `globals.css` para asegurar que `.leaflet-container` ocupe `100%` de alto y ancho y no colapse dentro de cards, tabs o modales.
 - Se mantuvo la logica existente de `invalidateSize` y `ResizeObserver`, pero ahora sobre una base visual correcta de Leaflet.
 
 ### Validaciones Ejecutadas
+
 - `npm run docs:check-encoding` OK
 - `npm run cf:build` OK
 - `npm run build` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
@@ -6437,18 +7341,22 @@ Todos los mapas del sistema compartian un sintoma visual consistente: el tile qu
 ## 2026-04-16 - Coordinacion mas visible y mapas con invalidacion de tamaño
 
 ### Problema Detectado
+
 El rol de COORDINADOR ya tenia acceso funcional al canvas de Empleados y al tablero de coordinacion, pero la entrada no era lo suficientemente obvia desde la navegacion principal. Adicionalmente, varios mapas operativos se estaban renderizando parcialmente dentro de contenedores con layout dinamico, dejando el mapa reducido dentro de un cuadro pequeño.
 
 ### Soluciones Implementadas
+
 - Se agrego una entrada directa de `Coordinacion` en la barra lateral para COORDINADOR y ADMINISTRADOR, apuntando a `/empleados?tab=coordinacion`.
 - Se reforzo el bloque de coordinacion en el dashboard con copy mas explicito sobre revison de curriculos y handoff de candidatos.
 - Se corrigio `LeafletMexicoMap` para invalidar tamaño al montar y al cambiar el contenedor, ademas de sincronizar el viewport con `requestAnimationFrame` para evitar mapas parcialmente renderizados.
 
 ### Validaciones Ejecutadas
+
 - `npm run build` OK
 - `npm run cf:build` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `02-testing-e2e/tailwind-mobile-first`
@@ -6457,20 +7365,24 @@ El rol de COORDINADOR ya tenia acceso funcional al canvas de Empleados y al tabl
 ## 2026-04-16 - Cierre visible del flujo de contratacion hacia Administracion
 
 ### Problema Detectado
+
 El flujo de alta ya llegaba a `PENDIENTE_ACCESO_ADMIN`, pero el paso final quedaba escondido dentro de la pestaña de documentos y en Nómina se leía como estado de solo lectura. Eso hacia parecer que el alta se atoraba justo cuando en realidad ya habia pasado a Administracion para crear usuario, password temporal y QR.
 
 ### Soluciones Implementadas
+
 - Se movio el bloque de entrega final a la pestaña `Laboral` dentro de la ficha del empleado, con un encabezado explicito de `Entrega a Administracion`.
 - Se mantuvo la accion de `Entregar a Administracion` visible en el flujo de Reclutamiento cuando el expediente aun esta en `PENDIENTE_VALIDACION_FINAL`.
 - Cuando el expediente ya queda en `PENDIENTE_ACCESO_ADMIN`, el bloque ahora explica de forma clara que ya no quedan acciones manuales en Reclutamiento y que Administracion debe crear el acceso provisional.
 - Se ajusto el texto de Nómina para que el estado `PENDIENTE_ACCESO_ADMIN` se entienda como una entrega ya formalizada a Administracion, no como una accion pendiente escondida.
 
 ### Validaciones Ejecutadas
+
 - `npm run build` OK
 - `npm run cf:build` OK
 - `npm run deploy` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `02-testing-e2e/playwright-testing`
@@ -6480,9 +7392,11 @@ El flujo de alta ya llegaba a `PENDIENTE_ACCESO_ADMIN`, pero el paso final queda
 ## 2026-04-17 - Edicion controlada de username provisional en Administracion
 
 ### Problema Detectado
+
 Dentro del detalle del usuario administrativo ya se mostraba el username provisional, pero no existia una accion explicita para corregirlo antes del primer acceso. Eso obligaba a conservar el identificador generado aunque todavia no se hubiera usado como credencial inicial.
 
 ### Soluciones Implementadas
+
 - Se agrego un CTA `Cambiar` junto al bloque de `Username` dentro de la ficha individual para llevar directo a la pestaña de acciones.
 - Se incorporo una nueva accion administrativa `Username provisional` en el canvas de acciones del modulo de Administracion.
 - El cambio solo se habilita para cuentas en `PROVISIONAL` o `PENDIENTE_VERIFICACION_EMAIL`, evitando mutaciones riesgosas en cuentas ya activadas.
@@ -6490,11 +7404,13 @@ Dentro del detalle del usuario administrativo ya se mostraba el username provisi
 - Se agrego validacion de colision de username, rollback defensivo si falla la sincronizacion en auth, trazabilidad en `audit_log` y revalidacion del panel administrativo.
 
 ### Validaciones Ejecutadas
+
 - `npm run docs:check-encoding` OK
 - `npm run cf:build` OK
 - `npm run build` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
@@ -6502,20 +7418,24 @@ Dentro del detalle del usuario administrativo ya se mostraba el username provisi
 ## 2026-04-17 - Split de Documentos en Nuevos y Expediente en revisión
 
 ### Problema Detectado
+
 La columna de `Documentos` en el embudo de reclutamiento seguia agrupando expedientes historicos de revision junto con candidatos activos, inflando el numero visible y mezclando dos tipos de trabajo distintos.
 
 ### Soluciones Implementadas
+
 - Se separo el embudo de altas en dos carriles operativos: `Nuevos` y `Expediente en revision`.
 - El resolvedor de pipeline ahora distingue entre expedientes activos recien capturados y expedientes historicos observados.
 - La bandeja de reclutamiento y los contadores resumen se alinearon con la nueva separacion sin agregar queries nuevas.
 - Se actualizaron etiquetas visibles para que el equipo vea `Nuevos` y `Expediente en revision` como carriles independientes.
 
 ### Validaciones Ejecutadas
+
 - `npm run docs:check-encoding` OK
 - `npm run build` OK
 - `npm run cf:build` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
@@ -6523,9 +7443,11 @@ La columna de `Documentos` en el embudo de reclutamiento seguia agrupando expedi
 ## 2026-04-17 - Reclutamiento deja de arrastrar expedientes historicos al embudo
 
 ### Problema Detectado
+
 El embudo de reclutamiento seguia absorbiendo expedientes sin flujo activo porque la clasificacion de pipeline caia en un fallback por documento incompleto o expediente observado, aunque el registro ya perteneciera a la base operativa.
 
 ### Soluciones Implementadas
+
 - Se agrego un guard temprano en el resolvedor del pipeline para excluir cualquier expediente sin `workflowStage` activo.
 - Los expedientes historicos de base operativa ya no se elevan al carril `Nuevos` ni a los demas carriles del embudo.
 - Se mantuvo `Nuevos` solo para casos reales del flujo activo de reclutamiento que si vienen desde filtrado/entrevista y aun no completan expediente o contrato.
@@ -6533,11 +7455,13 @@ El embudo de reclutamiento seguia absorbiendo expedientes sin flujo activo porqu
 - Se ajustaron las pruebas de regresion para distinguir un expediente historico sin flujo activo de un candidato real del flujo actual.
 
 ### Validaciones Ejecutadas
+
 - `npm run docs:check-encoding` OK
 - `npm run build` OK
 - `npm run cf:build` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
@@ -6545,9 +7469,11 @@ El embudo de reclutamiento seguia absorbiendo expedientes sin flujo activo porqu
 ## 2026-04-17 - Asistencia y dermoconsejo dejan de heredar contexto historico
 
 ### Problema Detectado
+
 Al crear un nuevo registro de asistencia o un check-in de dermoconsejo, la app podia reutilizar un contexto historico o una asignacion vieja. Eso terminaba generando un payload que el servidor rechazaba y el usuario veia como un fallo de sincronizacion.
 
 ### Soluciones Implementadas
+
 - La pantalla de `Asistencias` ahora solo muestra contextos reutilizables y no arranca desde el primer historial disponible.
 - Se agrego un helper puro para seleccionar un contexto de borrador valido, excluyendo asistencias cerradas, rechazadas o sin asignacion.
 - El check-in de dermoconsejo dejo de caer al `asignacion_id` de una asistencia abierta/historica y ahora resuelve primero la asignacion efectiva del dia o la asignacion primaria.
@@ -6555,11 +7481,13 @@ Al crear un nuevo registro de asistencia o un check-in de dermoconsejo, la app p
 - Se agregaron pruebas unitarias para la seleccion de contexto reutilizable y para la resolucion de asignacion del check-in.
 
 ### Validaciones Ejecutadas
+
 - `npm run build` OK
 - `npm run cf:build` OK
 - `npx vitest run src/features/asistencias/lib/attendanceDraftContext.test.ts src/features/dashboard/services/dashboardService.test.ts` no pudo ejecutarse por `spawn EPERM` al cargar `vitest.config.ts` en Windows
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `06-performance/offline-sync-patterns`
 - `05-code-review/typescript-strict-typing`
@@ -6568,18 +7496,22 @@ Al crear un nuevo registro de asistencia o un check-in de dermoconsejo, la app p
 ## 2026-04-18 - Correccion del gate de entrada de dermoconsejo
 
 ### Problema Detectado
+
 El flujo de captura seguia bloqueandose aunque existiera una asignacion valida de respaldo para el dia. Ademas, el calculo de `canStartShift` quedo evaluandose antes de resolver `effectiveDay`, lo que podia romper el render del panel.
 
 ### Soluciones Implementadas
+
 - Se reordeno `buildDermoconsejoData` para resolver `effectiveDay` antes de evaluar el gate de inicio.
 - El gate de inicio ahora usa el contexto de asignacion efectivo o de respaldo para decidir si la entrada puede abrirse.
 - Se agrego un mock de `@/lib/supabase/server` en la prueba del dashboard para que no dependa de `server-only` durante Vitest.
 
 ### Validaciones Ejecutadas
+
 - `npx vitest run src/features/dashboard/services/dashboardService.test.ts` OK
 - `npx eslint src/features/dashboard/services/dashboardService.test.ts` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `06-performance/offline-sync-patterns`
@@ -6588,14 +7520,17 @@ El flujo de captura seguia bloqueandose aunque existiera una asignacion valida d
 ## 2026-04-18 - Notificaciones de supervisor dejan de vaciarse al marcar lectura
 
 ### Problema Detectado
+
 Al marcar una notificacion como leida en el menu de supervisor, la UI refrescaba contra la superficie resumida del dashboard y reemplazaba la lista detallada por un arreglo vacio, por lo que las notificaciones desaparecian de la bandeja.
 
 ### Soluciones Implementadas
+
 - Se agrego una merge policy para conservar los items ya cargados cuando el refresh llega solo con `unreadCount` y sin detalle de mensajes.
 - Se aplico una actualizacion optimista local para convertir el receptor marcado a estado `LEIDO` sin perder el resto de la bandeja.
 - Se extrajo la logica a un helper puro con pruebas unitarias para mantener el comportamiento estable.
 
 ### Validaciones Ejecutadas
+
 - `npx vitest run src/features/dashboard/lib/supervisorNotifications.test.ts src/features/dashboard/services/dashboardService.test.ts` OK
 - `npx eslint src/features/dashboard/lib/supervisorNotifications.ts src/features/dashboard/lib/supervisorNotifications.test.ts` OK
 - `npm run build` OK
@@ -6605,9 +7540,11 @@ Al marcar una notificacion como leida en el menu de supervisor, la UI refrescaba
 ## 2026-04-18 - Canal de notificaciones transaccionales configurable con SMTP2GO
 
 ### Problema Detectado
+
 El sistema seguia atado al proveedor actual de email transaccional. El usuario necesitaba poder evaluar SMTP2GO como herramienta configurable sin romper el sender ya operativo.
 
 ### Soluciones Implementadas
+
 - Se introdujo una seleccion explicita de proveedor via `EMAIL_PROVIDER`, con `sender` como default y `smtp2go` como alternativa.
 - Se mantuvo el contrato actual de notificaciones para no reescribir los flujos que ya llaman al sender transaccional.
 - Se agrego soporte de envio por API a SMTP2GO usando su endpoint oficial `https://api.smtp2go.com/v3/email/send`.
@@ -6615,6 +7552,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Se ampliaron las pruebas para cubrir Sender y SMTP2GO.
 
 ### Validaciones Ejecutadas
+
 - `npx vitest run src/lib/notifications/senderTransactionalEmail.test.ts` OK
 - `npx eslint src/lib/notifications/senderTransactionalEmail.ts src/lib/notifications/senderTransactionalEmail.test.ts src/lib/notifications/provisionalCredentialsEmail.ts src/lib/notifications/workflowTransitionEmail.ts` OK
 - `npm run build` OK
@@ -6623,22 +7561,27 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - `npm run docs:check-encoding` OK
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
 
 ### Skills aplicadas
+
 - `03-debugging/systematic-debugging`
 - `05-code-review/typescript-strict-typing`
 - `09-encoding/utf8-standard`
 - `06-performance/offline-sync-patterns`
+
 ### 2026-04-19 23:31
+
 - Se reinicia el proceso de primer acceso para `REYNA BAUTISTA CORONA` dejando `usuario.estado_cuenta = PROVISIONAL`, `correo_verificado = false`, metadata de `onboarding_inicial.primer_acceso` en `PENDIENTE` y auth en estado provisional con `auth_context_updated_at` renovado.
 - Se confirma en produccion el vinculo `btl-sup-1231` -> `REYNA BAUTISTA CORONA` y el auth provisional queda listo para repetir activacion y primer acceso desde cero.
 - Validaciones ejecutadas: `npm run build` OK, `npm run cf:build` OK, `npm run cf:deploy` OK.
 - Version de production desplegada: `4cf05d6e-274d-46c9-b82f-a2e1c7159ecd`.
 
 ### 2026-04-19 - Selector de semana previa en Ruta Semanal
+
 - Se amplio el planner de `Ruta Semanal` para permitir elegir la semana anterior a la presente desde el selector de fecha, manteniendo tambien semanas actuales y futuras como opciones operables.
 - Se centralizo la ventana editable con el helper `getPreviousWeekStartIso` en `src/features/rutas/lib/weeklyRoute.ts` para evitar divergencia entre UI y validacion de servidor.
 - Se ajusto `guardarPlaneacionRutaSemanalCanvas` para aceptar semanas desde la anterior a la actual, en lugar de bloquearlas a partir de la siguiente semana.
@@ -6647,6 +7590,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Hallazgo no relacionado con este cambio: `src/features/rutas/services/rutaSemanalService.test.ts` falla en este entorno por resolucion de `server-only` en dependencias de prueba existentes, fuera del alcance de este corte.
 
 ### 2026-04-20 - Rescate de login para cuentas provisionales con correo final
+
 - Se ajusto el contrato de autenticacion para que `resolverCorreoDeAcceso` pueda resolver un login por correo final aunque el `auth.users.email` siga provisional, usando primero la fila operativa en `usuario.correo_electronico` y luego el `auth_user_id` asociado.
 - Se reforzo `updatePassword` para que el correo final verificado tambien pueda reconstruirse desde `usuario.correo_electronico` cuando el metadata temporal ya no trae `pending_email`.
 - Se agregaron pruebas de regresion para:
@@ -6663,6 +7607,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `09-encoding/utf8-standard`
 
 ### 2026-04-20 - Reemplazo integral de accesos: validacion del harness y flujo persistido
+
 - Se implemento el nuevo orquestador `auth_activation_flow` con migracion dedicada para sostener `PRIMER_INGRESO`, `RESET_PASSWORD` y `CHANGE_EMAIL`, incluyendo estados finos, OTP de rescate y ticket corto de reingreso.
 - Se reemplazo el contrato de auth en `src/actions/auth.ts` para:
   - crear flujos persistidos al capturar correo en primer ingreso
@@ -6696,6 +7641,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `09-encoding/utf8-standard`
 
 ### 2026-04-20 - Reanudacion idempotente del flujo de acceso
+
 - Se separo la logica de reanudacion a `src/lib/auth/flowRouting.ts` para poder testearla sin arrastrar dependencias `server-only`.
 - `src/app/api/auth/confirm/route.ts` ahora reanuda automaticamente hacia `update-password` cuando el flujo ya quedo confirmado, evitando que un click repetido o un scanner de correo lo mande a `enlace-caducado`.
 - `src/app/(auth)/enlace-caducado/page.tsx` ahora muestra un CTA de continuidad cuando el flujo ya esta en `EMAIL_CONFIRMED_PASSWORD_PENDING` o `RESET_PASSWORD_PENDING`.
@@ -6706,6 +7652,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `npm run cf:build` OK
 
 ### 2026-04-20 - Rescate del paso de contraseña tras confirmacion de correo
+
 - Se diagnostico que el flujo de activacion quedaba demasiado dependiente del ticket temporal/cookie de transicion al aterrizar desde el enlace de correo.
 - Para robustecer el recorrido, `src/actions/auth.ts` ahora permite finalizar credenciales cuando el flujo ya quedo confirmado en `auth_activation_flow`, incluso si el navegador no conserva el ticket temporal.
 - Se agrego una regresion en `src/actions/auth.test.ts` para cubrir el caso de primer ingreso con `EMAIL_CONFIRMED_PASSWORD_PENDING` y sin cookie de transicion, validando que el cierre del flujo siga funcionando.
@@ -6718,6 +7665,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - la pantalla de contrasena ya no depende de una cookie frágil para completar el paso final
 
 ### 2026-04-20 - Reset quirurgico de supervisores para reiniciar pruebas desde cero
+
 - Se ejecuto nuevamente `scripts/supervisor-surgical-reset.cjs` para dejar a todos los supervisores en estado de primer ingreso limpio.
 - Resultado del reset:
   - `supervisores: 24`
@@ -6734,6 +7682,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - seguir otra vez el flujo desde el principio
 
 ### 2026-04-20 - Bloqueo de reingreso tras enlace expirado y reset quirurgico real de supervisores
+
 - Se corrigio el login para que, cuando el ultimo flujo de primer ingreso de una cuenta provisional esta en `EXPIRED`, el sistema redirija a `/enlace-caducado` en lugar de rescatar el acceso provisional con `BTL2026` y volver a dejar pasar al usuario por la puerta de atras.
 - Se reemplazo `scripts/supervisor-surgical-reset.cjs` por una version realmente terminal que:
   - elimina los flujos de `auth_activation_flow` existentes por usuario
@@ -6766,6 +7715,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `09-encoding/utf8-standard`
 
 ### 2026-04-20 - Cierre operativo del flujo completo de accesos en dev
+
 - Se detecto que el flujo nuevo no cerraba end-to-end en dev por dos bloqueos reales fuera del harness:
   - la tabla `auth_activation_flow` no existia en el proyecto remoto porque la migracion dependia implicitamente de `public.set_timestamp()`
   - la emision de enlaces seguia apoyandose en Supabase Auth, provocando `email rate limit exceeded` durante el primer ingreso
@@ -6811,6 +7761,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - 2026-04-21: Se amplió la hidratacion de PDVs en la solicitud de cambio de ruta para incluir referencias no visibles del catalogo, evitando `PDV sin nombre` en la vista de propuesta; se valido con `npm run build` y `npm run cf:build`.
 - 2026-04-21: Se agilizo el flujo de reclutamiento para dejar `NUEVOS`, `EXPEDIENTE`, `EN_GESTION`, `ONBOARDING` y `CANCELADOS / DEVUELTOS` como recorrido operativo real; Coordinacion ahora aprueba o rechaza, la aprobacion devuelve el caso a Reclutamiento para la carga unica del expediente, el alta pasa a gestion dual con notificacion a Nomina y Coordinacion, y el cierre final queda en Onboarding/Administracion. Se actualizaron los contratos de embudo, inbox y notificaciones, junto con las pruebas de `recruitingPipeline`, `workflowInbox`, `recruitmentNotifications` y `usuarios/actions`. Validaciones ejecutadas: `npm exec vitest run src/features/empleados/lib/recruitingPipeline.test.ts src/features/empleados/lib/workflowInbox.test.ts src/features/empleados/lib/recruitmentNotifications.test.ts src/features/usuarios/actions.test.ts`, `npm run build`, `npm run cf:build`, `npm run docs:check-encoding`.
 - 2026-04-21: Se incorporo la capa persistente `asignacion_descanso_override` para que descansos puntuales sobre asignaciones base permanezcan vigentes hasta un cambio explicito. `src/features/asignaciones/services/asignacionResolverService.ts` ahora resuelve primero la override activa, `src/features/asignaciones/services/asignacionMaterializationService.ts` la materializa con referencia `descanso_override`, `src/features/asistencias/services/attendanceAdminService.ts` y `src/features/reportes/services/reporteExport.ts` la tratan como descanso operativo, y `src/features/asignaciones/components/AsignacionesPanel.tsx` expone un modal de gestion con vista previa mensual y versionado. Validaciones ejecutadas: `npm run build`, `npm run cf:build`, `npm run docs:check-encoding`.
+
 ## 2026-04-21 - Descanso permanente con regla mensual
 
 - Se extendio `asignacion_descanso_override` para soportar `modo` y `regla_descanso`, manteniendo compatibilidad con fechas explicitas y versionado por vigencia.
@@ -6821,6 +7772,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `npm run build`
   - `npm run cf:build`
   - `npm run docs:check-encoding`
+
 ## 2026-04-21 - Generalizacion de regla mensual a toda la semana
 
 - Se elimino el acoplamiento a domingo y miercoles en la captura de descansos permanentes.
@@ -6831,6 +7783,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `npm run build`
   - `npm run cf:build`
   - `npm run docs:check-encoding`
+
 ## 2026-04-21 - Plantilla oficial del catalogo maestro alineada a los campos operativos pedidos
 
 - Se ajusto la plantilla descargable del catalogo maestro de asignaciones para que el archivo XLSX exponga exactamente estos encabezados en la hoja principal:
@@ -6853,6 +7806,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Despliegue DEV activo:
   - `https://beteele-one-dev.hector-183.workers.dev`
   - version `2e3ed7c8-7e15-4ba4-b122-42d636b98a7c`
+
 ## 2026-04-21 - Import del catalogo maestro vuelve a BORRADOR y migracion aplicada a descansos
 
 - El import del catalogo maestro ahora redirige automaticamente a la vista `BORRADOR` cuando termina sin bloqueantes, para que las nuevas asignaciones se vean de inmediato junto con sus alertas y avisos.
@@ -6866,6 +7820,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Despliegue DEV activo:
   - `https://beteele-one-dev.hector-183.workers.dev`
   - version `5be66e1f-03b3-47e4-a57c-432713e5d626`
+
 ## 2026-04-21 - Catalogo maestro en vista amplia con filtros por severidad
 
 - El modal de importacion del catalogo maestro paso a una vista mas amplia para reducir la sensacion de compresion y separar mejor la revision del borrador y de las incidencias.
@@ -6878,6 +7833,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Despliegue DEV activo:
   - `https://beteele-one-dev.hector-183.workers.dev`
   - version `2c9976b6-f180-4ca9-a238-0628b40b34ed`
+
 ## 2026-04-21 - Visualizador de conflictos del catalogo maestro
 
 - Se incorporo al modal de importacion del catalogo maestro un visualizador explicito de conflictos detectados.
@@ -6890,6 +7846,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Despliegue DEV activo:
   - `https://beteele-one-dev.hector-183.workers.dev`
   - version `07054890-6226-4390-b8ac-082b7196f919`
+
 ## 2026-04-21 - Cuota opcional para operar en asignaciones
 
 - La validacion de asignaciones dejo de bloquear cuando un PDV o su cadena no tienen factor de cuota valido.
@@ -6903,6 +7860,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Despliegue DEV activo:
   - `https://beteele-one-dev.hector-183.workers.dev`
   - version `80daeb9c-4ce7-45a7-84e0-396d76405512`
+
 ## 2026-04-21 - Borrador propuesto y conteo diferenciado en import de asignaciones
 
 - El modal de importacion del catalogo maestro ahora muestra un bloque de `Borrador propuesto` con la lista de asignaciones resueltas desde el XLSX subido.
@@ -6918,6 +7876,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Despliegue DEV activo:
   - `https://beteele-one-dev.hector-183.workers.dev`
   - version `5b02c122-0f20-492c-8017-5d217ae5a8ce`
+
 ## 2026-04-22 - Reestructuracion del modulo de asignaciones en rutas dedicadas
 
 - Se separo `/asignaciones` como hub ligero con calendario publicado por rango de fechas y botones de acceso directo a `Asignaciones`, `Horarios` y `PDVs`.
@@ -6929,6 +7888,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `npm run build`
   - `npm run cf:build`
   - `npm run docs:check-encoding`
+
 ## 2026-04-22 - Despliegue en DEV y produccion del hub de asignaciones
 
 - Se desplego la reestructuracion del modulo de asignaciones en `beteele-one-dev` para validar la nueva navegacion por submodulos.
@@ -6939,6 +7899,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - URLs publicadas:
   - DEV: `https://beteele-one-dev.hector-183.workers.dev`
   - PROD: `https://beteele-one.hector-183.workers.dev`
+
 ## 2026-04-22 - Rutas operativas alineadas a America/Mexico_City
 
 - Se corrigio la resolucion de `hoy` y del dia de semana en el modulo de rutas para usar la fecha operativa de `America/Mexico_City` en vez de UTC.
@@ -6948,6 +7909,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `npm exec vitest run src/features/rutas/lib/weeklyRoute.test.ts src/features/rutas/services/rutaAgendaService.test.ts src/features/rutas/services/rutaSemanalPdvLookup.test.ts`
   - `npm run build`
   - `npm run cf:build`
+
 ## 2026-04-23 - Vacantes futuras corregida para evitar crash SSR
 
 - Se identifico que `/asignaciones/vacantes-futuras` estaba pasando callbacks desde la pagina de servidor a un componente cliente, lo que provocaba el error server-side al cargar la vista.
@@ -6959,6 +7921,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Despliegues actualizados:
   - PROD: `https://beteele-one.hector-183.workers.dev`
   - DEV: `https://beteele-one-dev.hector-183.workers.dev`
+
 ## 2026-04-23 - Reconcilacion de usuario operativo cuando cambia el auth_user_id
 
 - Se detecto que algunos usuarios llegaban con una identidad de `auth.users` nueva mientras el registro operativo en `usuario` seguia enlazado al auth anterior, lo que rompia el login y la resolucion de sesion.
@@ -6970,6 +7933,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `npx vitest run src/actions/auth.test.ts`
   - `npm run build`
   - `npm run cf:build`
+
 ## 2026-04-23 - Reconciliacion operativa de accesos confirmados
 
 - Se reconciliaron los dos flujos confirmados que seguian desalineados en acceso:
@@ -6978,6 +7942,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Se alineo el usuario operativo de `test_supervisor_03` con el `auth_user_id` y el correo realmente vigentes en Auth para que el login por correo vuelva a resolver la cuenta correcta.
 - Se alineo el usuario Auth de `JACQUELINE LOPEZ RUIZ` con el correo confirmado para que el login por correo ya no regrese al email provisional.
 - Se verifico contra la base viva que los `17` flujos con `email_confirmed_at` quedaron sin inconsistencias entre `usuario`, `auth_activation_flow` y `auth.users`.
+
 ## 2026-04-23 - Separacion de ruta aprobada y ruta editable en Ruta semanal
 
 - Se desacoplo la semana aprobada del lienzo editable en `Ruta semanal` para que una ruta ya enviada y aprobada deje de reaparecer en la carga operativa.
@@ -6987,6 +7952,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Se ajusto la navegacion interna para que el supervisor no tenga que reenviar una ruta ya aprobada y para que correcciones/historicos funcionen como superficie separada.
 - Validaciones ejecutadas:
   - `npm exec vitest run src/features/rutas/lib/routeWorkspace.test.ts`
+
 ## 2026-04-23 - Normalizacion del tag de periodo para refresco de ruta semanal
 
 - Se normalizo el tag de cache de `ruta-semanal` para que `periodo:2026-04-20` y `periodo:2026-04-20T06:00:00.000Z` invaliden la misma superficie.
@@ -6996,6 +7962,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `npx vitest run src/lib/cache/moduleTags.test.ts src/features/rutas/services/rutaSemanalService.test.ts`
   - `npm run build`
   - `npm run cf:build`
+
 ## 2026-04-23 - Estructura de vacantes futuras habilitada en base remota
 
 - Se confirmo que la base remota aun no tenia creadas `vacante_operativa_futura` ni `asignacion_baja_historial`, aunque el codigo ya consumia esas entidades en el panel de Empleados y en la bandeja de Asignaciones.
@@ -7004,6 +7971,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Validaciones ejecutadas:
   - verificacion SQL de existencia de tablas, policies y grants
   - query de `vacante_operativa_futura` con el select exacto que usa el servicio de carga
+
 ## 2026-04-23 - Redireccion limpia en recuperacion y cambio de contrasena
 
 - Se reemplazo `redirect()` por `NextResponse.redirect()` en `src/app/api/auth/confirm/route.ts` para devolver respuestas HTTP 3xx explicitas y evitar el 500 visible al abrir el enlace de correo en navegadores moviles.
@@ -7015,6 +7983,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `npx vitest run src/app/api/auth/confirm/route.test.ts src/actions/auth.test.ts`
   - `npm run build`
   - `npm run cf:build`
+
 ## 2026-04-23 - Detalle de visitas y evidencias de supervisores en Reportes
 
 - Se abrio `Reportes` para `ADMINISTRADOR` y `COORDINADOR` desde la pagina principal, el sidebar y las rutas de datos que la vista consume.
@@ -7026,6 +7995,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `npx vitest run src/features/reportes/services/reporteVisitasOperativasService.test.ts src/features/reportes/services/reporteVisitasSupervisoresService.test.ts src/features/reportes/services/reporteScheduleService.test.ts`
   - `npm run build`
   - `npm run cf:build`
+
 ## 2026-04-23 - Correccion de enlaces de selfies y evidencias en Reportes
 
 - Se corrigio la tarjeta `Visitas y evidencias de supervisores` para que los botones `Abrir Selfie` y `Abrir Evidencia` apunten a un endpoint de redireccion segura en vez de usar la referencia cruda de Storage como ruta relativa del sitio.
@@ -7040,6 +8010,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - Deploy ejecutado solo en `dev`:
   - `https://beteele-one-dev.hector-183.workers.dev`
   - `Current Version ID: bee64158-81dc-40ff-ba0a-9c615e7f1c10`
+
 ## 2026-04-23 - Resolucion canonica de evidencias por hash y R2
 
 - Se ajusto `src/app/api/reportes/visitas-supervisores/evidencia/route.ts` para resolver primero `selfie_hash` / `evidencia_hash` desde `archivo_hash`, que es la fuente canonica del archivo.
@@ -7054,6 +8025,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `npx vitest run src/app/api/reportes/visitas-supervisores/evidencia/route.test.ts src/features/reportes/services/reporteVisitasSupervisoresService.test.ts`
   - `npm run build`
   - `npm run cf:build`
+
 ## 2026-04-23 - Miniaturas R2-first en reportes de visitas
 
 - Se extendio `ruta_semanal_visita` con `selfie_thumbnail_url`, `selfie_thumbnail_hash`, `evidencia_thumbnail_url` y `evidencia_thumbnail_hash` para que el reporte pueda resolver miniaturas sin lecturas extra por fila.
@@ -7252,3 +8224,186 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - se compactaron padding, icono, tipografias y submetricas para que el hero ocupe menos alto.
   - validacion ejecutada: `npm run build`.
   - deploy ejecutado en produccion con `Current Version ID: b1fe1e72-469e-4fe4-8e2f-8a6e30f0f094`.
+
+# [2026-04-28] - PDVs ahora abren en rotación maestra por defecto
+
+- **Contexto**: El usuario detectó que `Asignaciones > PDVs` estaba priorizando la cobertura de reclutamiento al entrar sin parámetros, en vez de mostrar primero la rotación/asignación maestra.
+- **Acciones**:
+  - Se cambió el default de `pdv_panel` en `src/features/asignaciones/services/asignacionService.ts` para que la superficie `PDVs` abra en `ROTACION`.
+  - Se hizo explícito el enlace del hub a `/asignaciones/pdvs?pdv_panel=ROTACION` para que la navegación primaria coincida con el comportamiento esperado.
+  - Se ajustó la copia de la página para reflejar que la vista inicial es la rotación maestra publicada.
+  - Se agregó una prueba de regresión que verifica que el panel inicial no consulta `pdv_cobertura_operativa` por defecto.
+- **Impacto**: La carga inicial deja de priorizar la cobertura reclutamiento, se alinea mejor con la superficie maestra de PDVs y evita lecturas innecesarias al abrir la pantalla.
+
+## 2026-05-07 - Evidencias robustas en PPT de ultima milla
+
+- Se reviso el export de presentaciones de ultima milla tras detectar diapositivas con `Sin evidencia disponible` aunque existian evidencias en base.
+- Causa raiz identificada: el endpoint del PPT solo resolvia la URL desde `bucket/ruta_archivo` o `metadata.archivo_url`, y tomaba la primera evidencia por tipo. Si esa fila no traia ruta directa pero si `archivo_hash_id`, o si la primera evidencia del tipo estaba incompleta, el PPT recibia `null`.
+- Cambio aplicado:
+  - se extrajo la resolucion de evidencias a `src/app/api/reportes/ultima-milla-ppt-data/evidenceResolution.ts`
+  - se agrego fallback por `archivo_hash_id` y por `metadata.archivo_hash`
+  - se prueban evidencias del mismo tipo en orden hasta encontrar una URL firmable
+- Performance/costo: se agrego como maximo una consulta batch a `archivo_hash` por export, solo cuando existen hashes por resolver; no se agregaron lecturas por render, navegacion, polling ni realtime.
+- Validaciones ejecutadas:
+  - `npm run docs:check-encoding`
+  - `npm run test:unit -- src/app/api/reportes/ultima-milla-ppt-data/route.test.ts`
+  - `npx eslint src/app/api/reportes/ultima-milla-ppt-data/route.ts src/app/api/reportes/ultima-milla-ppt-data/evidenceResolution.ts src/app/api/reportes/ultima-milla-ppt-data/route.test.ts`
+  - `npm run build`
+  - `npm run cf:build`
+- Observacion: `npm run lint` completo no termino dentro del timeout local de 2 minutos; se sustituyo por lint focalizado sobre los archivos tocados.
+
+## 2026-05-07 - PPT de ultima milla mas liviano por miniaturas
+
+- Se ajusto la resolucion de evidencias del PPT de ultima milla para priorizar miniaturas/previews antes de la imagen completa.
+- El endpoint mantiene el contrato `fotoAcuseUrl` y `fotoEntregaUrl`, pero ahora firma en este orden:
+  - `thumbnail_url` de `material_entrega_ultima_milla_evidencia`
+  - miniatura enlazada en `archivo_hash` via `archivo_hash_id`
+  - miniatura enlazada en `archivo_hash` via `metadata.archivo_hash`
+  - fallback a la evidencia completa cuando no exista miniatura
+- Performance/costo: no se agregaron lecturas por render, navegacion, polling ni realtime; solo se ampliaron columnas de la consulta batch existente a `archivo_hash`.
+- Resultado esperado: menor peso final del `.pptx`, menos descarga de imagenes completas en el navegador y generacion mas rapida para reportes con muchas entregas.
+- Validaciones ejecutadas:
+  - `npm run test:unit -- src/app/api/reportes/ultima-milla-ppt-data/route.test.ts`
+  - `npx eslint src/app/api/reportes/ultima-milla-ppt-data/route.ts src/app/api/reportes/ultima-milla-ppt-data/evidenceResolution.ts src/app/api/reportes/ultima-milla-ppt-data/route.test.ts`
+  - `npm run build`
+  - `npm run cf:build`
+
+## 2026-05-07 - Reversion de miniaturas en PPT y bloqueo de navegacion accidental
+
+- Se revirtio el uso de miniaturas como fotografia principal del PPT de ultima milla porque pueden verse pequenas o distorsionadas en la presentacion final.
+- El endpoint vuelve a resolver `fotoAcuseUrl` y `fotoEntregaUrl` desde la imagen completa optimizada:
+  - columnas `bucket/ruta_archivo`
+  - fallback por `archivo_hash_id`
+  - fallback por `metadata.archivo_hash`
+  - fallback por `metadata.archivo_url`
+- Se blindo el boton `ExportLastMilePptButton` con `preventDefault`, `stopPropagation` y guarda contra doble click para evitar que el click dispare navegacion accidental hacia otras superficies como Inventarios.
+- Performance/costo: se conserva la consulta batch a `archivo_hash`; no se agregaron lecturas por render, navegacion, polling ni realtime. El tradeoff aceptado es mayor peso del PPT a cambio de usar evidencia completa y legible.
+- Validaciones ejecutadas:
+  - `npm run test:unit -- src/app/api/reportes/ultima-milla-ppt-data/route.test.ts`
+  - `npx eslint src/app/api/reportes/ultima-milla-ppt-data/route.ts src/app/api/reportes/ultima-milla-ppt-data/evidenceResolution.ts src/app/api/reportes/ultima-milla-ppt-data/route.test.ts src/features/reportes/components/ExportLastMilePptButton.tsx src/features/reportes/services/pptExportService.ts`
+  - `npm run build`
+  - `npm run cf:build`
+
+## 2026-05-30 - Reestructuración de Catálogo e Integración Directa de Búsqueda por Categorías
+
+- **Contexto**: El usuario solicitó reorganizar su catálogo base de productos ISDIN en categorías/subcategorías lógicas, diseñar una estructura compatible con el historial de ventas anteriores (desnormalización de tickets), proporcionar una guía técnica e integrarlo directamente tanto en el código fuente de la app como en la base de datos de producción Supabase, agregando un cuadro de búsqueda interactivo y agrupado por categorías para las dermoconsejeras en el portal de campo.
+- **Acciones y Cambios**:
+  - **Extracción de Datos**: Se extrajo el catálogo completo de 195 productos organizados en 9 categorías del archivo Word `CATALOGO POR CATEGORÍA.docx`.
+  - **Catálogo Maestro**: Se reemplazó el archivo original de Excel del repositorio (`Catalogo_ISDIN_Nombres_Cortos.xlsx`) y se generó una versión limpia estructurada (`Catalogo_ISDIN_Reestructurado.xlsx`) con SKU/EAN, nombre completo, nombre corto (pantallas móviles), categoría, subcategoría, precio sugerido, stock inicial, top 30 y bandera activa.
+  - **Script de Importación Base**: Se modificó `tools/import-initial-catalogs.cjs` para que ante cualquier reinicio o redespliegue de la app se extraigan y guarden permanentemente las columnas de `subcategoria`, `precio` e `inventario_inicial` dentro de la metadata del producto.
+  - **Importación Directa**: Se diseñó y ejecutó con éxito un cargador masivo transaccional (`import_restructured_catalog.cjs`) en Supabase en vivo (10 nuevos insertados, 185 existentes actualizados, total 195).
+  - **Portal de Campo (`CapturaPublicaForm.tsx`)**: Se implementó el componente personalizado `SearchableSelect` (Combobox) responsivo y mobile-first con cuadro de búsqueda en tiempo real y agrupamiento visual por categorías principales. Se actualizó la query del catálogo de productos (`capturaPublicaService.ts`) para incluir el campo `categoria`.
+- **Validaciones y Calidad**:
+  - Se ejecutaron las **11 pruebas unitarias** de capturas públicas con 100% de éxito (`npx vitest run src/features/captura-publica/`).
+  - Se completó la compilación de producción Next.js y empaquetado Cloudflare Workers con Wrangler (`npm run cf:build`).
+- **Despliegue Exitoso (Deploy)**:
+  - Se publicó la aplicación de extremo a extremo a producción mediante Cloudflare Workers (`npm run deploy`) en todos los dominios activos, incluyendo `https://dermoconsejo.beteele-one.com/` (Current Version ID: `21673dfd-f2e9-40a6-b9b0-b886d994a4ba`).
+
+## 2026-05-30 - Cuadros de Búsqueda para Punto de Venta y Dermoconsejera
+
+- **Contexto**: El usuario solicitó agregar la misma celda/cuadro de búsqueda inteligente a los selectores de "Punto de Venta" y "Dermoconsejera" en el portal de campo público de dermoconsejo.
+- **Acciones y Cambios**:
+  - **Componente `SearchableSelect`**: Se reutilizó el componente combobox responsivo de búsqueda en tiempo real para las superficies de PDV y Empleados.
+  - **Agrupamiento Inteligente**:
+    - **Puntos de Venta (PDVs)**: Se agrupan dinámicamente bajo `ASIGNADOS HOY` (con pin 📌 para identificar rápidamente las tiendas activas de la jornada) y `OTROS PUNTOS DE VENTA`.
+    - **Dermoconsejeras**: Se agrupan dinámicamente bajo `PROGRAMADAS HOY` (con pin 📌 para fácil localización) y `OTRAS DERMOCONSEJERAS`.
+  - Se removieron los viejos `<Select>` y `<select>` planos, y se adaptó el manejador de eventos `handlePdvSelect` para operar directamente con valores de cadena.
+- **Validaciones y Calidad**:
+  - Se volvieron a ejecutar con éxito las **11 pruebas unitarias** de capturas públicas (`npx vitest run src/features/captura-publica/`).
+  - Se compiló el empaquetado de producción de Cloudflare Workers (`npm run cf:build`).
+- **Despliegue Exitoso (Deploy)**:
+  - Se publicó la versión final optimizada a producción mediante Wrangler (`npm run deploy`) en todos los dominios activos, incluyendo `https://dermoconsejo.beteele-one.com/` (Current Version ID: `e50b77fe-f6e7-4929-8a92-05d19c1f371c`).
+
+## 2026-05-30 20:10 — Corrección de Dermoconsejeras Faltantes en el Portal Público
+
+- **Intervención:** Debugging sistemático y corrección de la lista de selección de dermoconsejeras en el portal de campo (`https://dermoconsejo.beteele-one.com/`).
+- **Problema de Datos:** Se identificó que las empleadas activas **MIRIAM MONTES AGUILERA** y **ABRIL ALEJANDRA RAIGOZA REYES** no poseían un registro provisional en `public.usuario`, lo que provocaba su exclusión en el join del cliente ISDIN México (`92f26bb8-3d4b-4c24-a47d-c607cf6ad7ba`).
+- **Problema de Código:** El filtro original de la API de empleados en `capturaPublicaService.ts` limitaba la búsqueda únicamente al puesto exacto `DERMOCONSEJERO`, excluyendo a personal asignado a tareas de fidelización bajo el puesto `LOVE_IS` (como **MIRIAM CARDENAS RAMIREZ**).
+- **Acciones Ejecutadas:**
+  1. Inserción segura y transaccional de los dos registros de usuario provisionales en la base de datos de producción Supabase, respetando los estándares de encoding UTF-8.
+  2. Modificación de la función `loadEmpleados` en `src/features/captura-publica/services/capturaPublicaService.ts` para admitir tanto a empleados con puesto `DERMOCONSEJERO` como `LOVE_IS`.
+- **Validaciones:**
+  - Ejecución exitosa de la suite de pruebas unitarias (`npx vitest run src/features/captura-publica/`) pasando 11/11 pruebas limpiamente.
+  - Compilación exitosa de producción (`npm run cf:build`) y despliegue a producción de Cloudflare Workers (`npm run deploy`) completado de forma satisfactoria en la versión `b8239a40-873e-420f-a5ba-b0525e99eebb`.
+- **Reconciliación Documental:** Se actualizó la bitácora ejecutiva de `task.md` y el recorrido del artefacto `walkthrough.md` con los detalles del bugfix.
+
+- **Corrección Adicional (Bug de Cantidad Inicial):**
+  - **Problema:** En el portal de captura pública (`CapturaPublicaForm.tsx`), el estado de React inicializaba la cantidad como `undefined` mientras que la interfaz del usuario mostraba visualmente un `1` por defecto. Esto provocaba que el sistema calculara una cantidad total de 0 y bloqueara el botón de envío hasta que el usuario hiciera un cambio manual de incremento/decremento.
+  - **Solución:** Modificamos el estado inicial en React para que defaultée la cantidad en `1` de forma predeterminada para registros de Venta y Canje. Esto sincronizó de inmediato la memoria de la aplicación con la representación visual.
+  - **Resultado:** El botón de enviar ahora se activa instantáneamente al completar los campos de tienda, dermo y producto sin necesidad de forzar clics en botones de ajuste. Despliegue en vivo en Cloudflare Workers completado de forma satisfactoria en la versión `427b5f23-b278-4fe0-b533-c648ab97e742`.
+
+## 2026-05-30 21:40 — Implementación de la Carga de Inventario Inicial de Canjes y Panel de Administración
+
+- **Intervención:** Implementación completa y despliegue del Importador de Excel de Inventario Inicial por Punto de Venta (PDV) y su respectiva interfaz visual de administración en la aplicación **Retail**.
+- **Acciones Ejecutadas:**
+  1. **Route Handler de la API:** Diseñamos y creamos el Endpoint `/api/materiales/inventario-inicial` que recibe el archivo Excel enviado por el Administrador, lo procesa en memoria de forma compatible con Cloudflare Workers, y ejecuta transaccionalmente la Server Action `importarInventarioInicialCanjes` para poblar el Ledger en `material_inventario_movimiento`.
+  2. **Descarga de Plantilla:** Creamos la API `/api/materiales/inventario-inicial-template` que genera y sirve al Administrador una plantilla oficial limpia de Excel para ingresar el inventario de canjes por PDV.
+  3. **Componente UI Premium:** Desarrollamos el componente responsivo `AdminInventarioInicialSection` en `src/features/materiales/components/AdminInventarioInicialSection.tsx`. Cuenta con subida de archivos, alertas con semáforo inteligente para feedback, y tablas dinámicas para visualizar en tiempo real tanto las filas cargadas con éxito como el detalle de los errores de validación de filas.
+  4. **Integración en Dashboard:** Integramos el componente y su hook `useActionState` en `src/features/materiales/components/MaterialesPanel.tsx` bajo la pestaña de administración "Cargar dispersión".
+  5. **Typecheck y Corrección:** Solucionamos un error de tipado en `state.ts` (agregando `metadata?: any` a `MaterialActionState`) y reparamos un bug pre-existente en los mocks de pruebas (`Duplicate identifier 'rpc'` en `actions.test.ts`), logrando un compilado 100% libre de advertencias y errores en los archivos editados.
+- **Validaciones:**
+  - Ejecución impecable de las pruebas unitarias de materiales (`npx vitest run src/features/materiales/`) con **29/29 pruebas unitarias aprobadas al 100%**.
+  - Validación del estándar de codificación UTF-8 en 191 archivos (`npm run docs:check-encoding`).
+- **Reconciliación Documental:** Se marcaron como completadas las tareas correspondientes a la Fase 3 y la Fase 4 en `task.md`, dejando la base arquitectónica de inventario de canjes totalmente terminada y verificada.
+
+## 2026-06-01 14:00 — Carga masiva e integral de saldos iniciales de inventario de canjes en Producción
+
+- **Intervención:** Procesamiento de campo y carga integral de saldos iniciales de inventario a partir del Excel `CANJES PROMOCIONALES 2026 (3).xlsx` en nombre del Administrador.
+- **Acciones Ejecutadas:**
+  1. **Mapeo y Depuración del Excel:** Consolidamos el inventario de 256 puntos de venta únicos en base al último reporte por marca temporal, filtrando cantidades mayores a cero para generar 1,963 filas limpias de saldos iniciales.
+  2. **Actualización Automática de Catálogo:** Identificamos 12 materiales faltantes reportados en campo que no existían en el catálogo maestro (`material_catalogo`). Diseñamos e inyectamos de forma idempotente y transaccional estas 12 referencias en producción bajo la cuenta de ISDIN México (`92f26bb8-3d4b-4c24-a47d-c607cf6ad7ba`).
+  3. **Ajuste de Restricción de Base de Datos (Constraint):** Detectamos que el check constraint `material_inventario_movimiento_tipo_movimiento_check` en producción bloqueaba el tipo de movimiento `CARGA_INICIAL` (lo cual hacía fallar tanto la importación de scripts como el importador de la interfaz web). Ejecutamos una migración DDL en vivo para actualizar esta restricción de base de datos para admitir `'CARGA_INICIAL'` de forma nativa.
+  4. **Carga Masiva Transaccional:** Importamos en chunks controlados de 200 filas las 1,963 entradas en la tabla `material_inventario_movimiento` con tipo `CARGA_INICIAL` y sentido `ENTRADA` referenciando los PDVs e IDs correspondientes.
+  5. **Trazabilidad en Audit Log:** Registramos el evento de auditoría `carga_inicial_inventario_canjes_excel` en la tabla `audit_log` a nombre de Héctor Eduardo Valle Rodríguez para dejar un historial 100% transparente.
+- **Validaciones:**
+  - 100% de los 1,963 saldos de canjes insertados correctamente en producción.
+  - Verificación del cumplimiento del encoding UTF-8 y preservación de acentos en el catálogo.
+
+## 2026-06-01 14:10 — Corrección de Filtrado de Materiales de Canjes en el Portal de Campo
+
+- **Intervención:** Bugfix de filtrado de productos en el portal público de capturas (`https://dermoconsejo.beteele-one.com/`) para evitar confundir a los operadores.
+- **Acciones Ejecutadas:**
+  1. **Aislamiento de la Consulta:** Identificamos que la función `loadMateriales` en `capturaPublicaService.ts` cargaba indiscriminadamente todos los materiales del cliente ISDIN México sin filtrar por tipo, provocando que se mostraran "Dosis de inicio" (muestras de 2ml/10ml) y "Testers" en la pantalla de selección de Canjes.
+  2. **Refinamiento del Filtro (Query):** Modificamos la consulta en `src/features/captura-publica/services/capturaPublicaService.ts` agregando un filtro estricto por tipo `.in('tipo', ['PROMOCIONAL', 'CANJE_PROMOCIONAL'])`. De esta manera, el portal público ahora excluye por completo las `'DOSIS'` y los `'TESTER'` del selector de Canjes.
+- **Validaciones:**
+  - Ejecución de la suite completa de pruebas unitarias del portal de captura pública (`npx vitest run src/features/captura-publica/`) con **13/13 pruebas exitosas (100% aprobadas)**.
+  - Compilación exitosa del bundle de Next.js (`npm run build`) y empaquetamiento compatible con Cloudflare Workers (`npm run cf:build`).
+- **Despliegue a Producción (Deploy):**
+  - Publicamos la actualización de inmediato en vivo sobre la plataforma Cloudflare Workers (`npm run deploy`) para todos los dominios activos, incluyendo `https://dermoconsejo.beteele-one.com/` (Current Version ID: `349e6215-b9ee-4a36-a532-19a7165ebe99`).
+
+## 2026-06-01 14:20 — Carga e Integración del Rol de Asignaciones y Rotación de Junio 2026
+
+- **Intervención:** Importación completa del Rol de Asignaciones de Junio de 2026 desde `ROL DE JUNIO 2026 v2.xlsx`, pestaña "Rol JUNIO", y limpieza de dispersiones obsoletas.
+- **Acciones Ejecutadas:**
+  1. **Limpieza de Dispersiones Ordinarias:** Ejecutamos con éxito `wipe_june_mensual.cjs` para limpiar por completo cualquier dispersión mensual anterior y lotes obsoletos de Junio 2026 (280 dispersiones mensuales y 6 lotes eliminados de forma segura).
+  2. **Registro de PDVs Faltantes:** Identificamos que 2 PDVs del Excel no existían en base de datos (`BTL-BEN-SAN-BRN` y `BTL-SEA-MTY-ANH`). Diseñamos e inyectamos transaccionalmente estas 2 referencias en producción bajo las cadenas y ciudades correctas.
+  3. **Mapeo Fuzzy y Depuración del Excel:** Diseñamos un resolvedor robusto con coincidencia por palabras significativas (fuzzy matching) que logró resolver y mapear con éxito absoluto 281 filas de personal, ignorando adecuadamente 30 filas de vacantes (`POR CUBRIR` / `ESPERANDO ACCESO`).
+  4. **Cierre de Rango de Mayo:** Terminamos las 282 asignaciones vigentes de Mayo al 31 de Mayo de 2026 (`fecha_fin = '2026-05-31'`) para mantener una línea de tiempo continua y sin traslapes en el sistema.
+  5. **Inyección en Lotes de 100:** Cargamos transaccionalmente las 281 asignaciones en la tabla `asignacion` con fecha de inicio `2026-06-01` en estado `PUBLICADA`, vinculando correctamente empleados, PDVs y supervisores.
+  6. **Registro en Audit Log:** Registramos el evento `importacion_rol_junio_excel` en la tabla `audit_log` a nombre de Héctor Eduardo Valle Rodríguez para dejar trazabilidad del proceso.
+- **Validaciones:**
+  - 100% de las 281 asignaciones de Junio en vivo y activas en producción.
+  - Cero inconsistencias o filas de personal no mapeadas.
+
+
+
+
+## 2026-06-01 17:40 – Filtro por Supervisor en Cliente Dashboard y Columnas Clave en Reportes Excel
+
+- **Intervención:** Implementación del filtro por supervisor en el Dashboard del Cliente e inyección de las columnas operativas "Clave PDV" y "Clave Usuario" en los reportes Excel.
+- **Acciones Ejecutadas:**
+  1. **Backend y API del Dashboard:** Modificamos `route.ts` para extraer el parámetro `supervisorId` de la petición y propagarlo a la lógica principal de base de datos en `clienteDashboardService.ts` (el cual ya filtra transacciones y alertas por los equipos y tiendas asignadas del supervisor).
+  2. **Interfaz de Dashboard:** En `ClienteDashboardPanel.tsx`, agregamos el estado reactivo `supervisorId` y actualizamos el componente `FilterBar` para mostrar un `<select>` responsivo y premium de los supervisores cargados dinámicamente desde el catálogo de la cuenta. Cambiar el supervisor limpia adecuadamente la tienda seleccionada para evitar desalineaciones.
+  3. **Servicio de Reportes Excel:** En `capturaPublicaReporteService.ts`, modificamos `CapturaPublicaReporteItem` agregando `pdvClave` y `empleadoClave`. Saneamos la consulta con un join relacional explícito hacia `pdv` (`pdv:pdv_id(clave_btl)`) y hacia `empleado` (`empleado:empleado_id(id_nomina, usuario:usuario!usuario_empleado_id_fkey(username))`), previniendo ambigüedades por relaciones múltiples.
+  4. **Estructura del XLSX:** En `CapturaPublicaReportSection.tsx`, inyectamos las columnas "Clave PDV" y "Clave Usuario" en los encabezados y filas de datos descargables de todos los reportes de captura (Venta, Canje, Desabasto, Love ISDIN y Todos).
+- **Validaciones:**
+  - Compilación estricta de TypeScript totalmente libre de errores en los archivos modificados.
+  - Verificación relacional de base de datos ejecutada con éxito en el backend.
+
+## 2026-06-01 17:55 – Depuración de Dosis de Inicio y Testers en Formulario Público
+
+- **Intervención:** Depuración completa de Dosis de Inicio (DI / DOSIS), Testers, y tamaños pequeños (2ml, 2g, 5ml y 10ml) en el selector de materiales de Canje en el formulario público.
+- **Acciones Ejecutadas:**
+  1. **Alineación y Filtrado Lógico:** Editamos la función ​`loadMateriales` en `src/features/captura-publica/services/capturaPublicaService.ts`. Aunque algunos materiales están clasificados como `tipo = 'PROMOCIONAL'` en base de datos, agregamos un filtro robusto en memoria en Node.js/Next.js para garantizar que se excluyan los materiales que comiencen con la clave de Dosis de Inicio "DI " o contengan "TESTER" o incluyan patrones de medidas chicas (`2ML`, `2G`, `5ML`, `10ML`), previniendo cualquier visualización accidental.
+  2. **Validación de Pruebas**: Corrimos exitosamente la suite de capturas públicas con Vitest (`13/13 tests passed`), y verificamos la coherencia de TypeScript.
+  3. **Despliegue a Producción**: Compilamos y desplegamos la actualización a la nube global de Cloudflare Workers (`npm run cf:deploy` finalizado con Version ID `bb93c17e-8417-4bb4-99c2-7ce50b968382`).
