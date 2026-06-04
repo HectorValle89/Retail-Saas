@@ -1,5 +1,24 @@
 # 📜 AGENT_HISTORY.md - Registro Maestro de la Fábrica
 
+## [2026-06-04 09:00] - Feature: Integración de SKU y Optimización de Texto en Selector de Productos de Portal Público (Antigravity)
+
+- **Contexto**: El usuario solicitó mostrar el código SKU (código de barras/catálogo) en el selector de productos del portal de captura pública (`dermoconsejo.beteele-one.com`) para evitar confusiones de las dermoconsejeras durante el registro de ventas. También solicitó que los nombres de los productos no se recorten (puntos suspensivos) y que la letra sea ligeramente más pequeña para mejorar la legibilidad y visibilidad.
+- **Causa Raíz / Retos Técnicos**:
+  - En `capturaPublicaService.ts`, el método `loadProductos` no seleccionaba el campo `sku` de la tabla `producto` ni lo inyectaba en la visualización, dejando solo el nombre corto/nombre del artículo.
+  - La interfaz de `SearchableSelect` en `CapturaPublicaForm.tsx` utilizaba la clase de Tailwind `truncate` que cortaba los nombres largos en dispositivos móviles de pantalla pequeña.
+- **Acciones Ejecutadas**:
+  - **Servicios y Datos (SaaS)**:
+    * Modificamos la consulta de productos en [capturaPublicaService.ts](file:///d:/IA/Retail/src/features/captura-publica/services/capturaPublicaService.ts) para seleccionar la columna `sku`.
+    * Formateamos el nombre del producto inyectando el SKU al principio: `[SKU] Nombre`. Esto también habilitó de forma automática que las dermoconsejeras puedan buscar productos tecleando directamente el código SKU en el cuadro de búsqueda.
+  - **Componentes Visuales (UI/UX)**:
+    * Rediseñamos los estilos de `SearchableSelect` en [CapturaPublicaForm.tsx](file:///d:/IA/Retail/src/features/captura-publica/components/CapturaPublicaForm.tsx) para cambiar el tamaño de letra de las opciones a `text-xs` (haciéndola más compacta y densa).
+    * Quitamos la propiedad `truncate` y agregamos `break-words leading-normal` en el botón y opciones, lo que permite saltos de línea automáticos para que los nombres de producto muy extensos se lean completos en teléfonos móviles de campo.
+  - **Verificación y Despliegue**:
+    * Validamos la compilación completa de Next.js/OpenNext mediante `npm run cf:build` (exitosa sin errores).
+    * Verificamos la codificación UTF-8 sin BOM y LF en todo el repositorio con `npm run docs:check-encoding` (906 archivos correctos).
+    * Desplegamos la nueva versión en la red de Cloudflare Workers (`npm run cf:deploy`), quedando activa al instante en producción (Current Version ID: `2bc92642-752e-4228-966e-f49357bd4f9d`).
+- **Resultado**: Las dermoconsejeras en campo ahora visualizan el código SKU de cada artículo, pueden buscar tecleando los números del SKU directamente y leen los nombres completos sin recortes en cualquier celular.
+
 ## [2026-06-03 19:15] - Feature: Visualización Diferenciada de Dermoconsejeras Pendientes en Dashboard y WhatsApp (Antigravity)
 
 - **Contexto**: El usuario solicitó separar y distinguir visualmente a las dermoconsejeras en la pestaña de **"Dermos Pendientes"** en dos categorías: aquellas que no han enviado ningún reporte (en ceros) de aquellas que enviaron canjes o desabastos, pero les falta registrar Ventas o Love ISDIN. También solicitó que el copiado para WhatsApp refleje esta misma división para que los supervisores puedan dar un seguimiento preciso.
