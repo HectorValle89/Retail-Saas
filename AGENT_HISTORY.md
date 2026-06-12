@@ -1,5 +1,142 @@
 # 📜 AGENT_HISTORY.md - Registro Maestro de la Fábrica
 
+## [2026-06-09 09:35] - Feature: Exclusión de Incentivos D.I (Dosis Individual) del Listado de Canjes (Antigravity)
+
+- **Contexto**: El usuario solicitó quitar de la lista de canjes del formulario de captura pública los materiales tipo "D.I" (Dosis Individual) sin stock: `D.I ISDIN COVERAGE 1 PERL SPF50`, `D.I ISDIN COVERAGE 2 BEIGE SPF50`, y `D.I ISDIN COVERAGE 3 SAND SPF50`.
+- **Causa Raíz / Retos Técnicos**: La lógica de filtrado de materiales (`ordenarYFiltrarMateriales`) descartaba materiales que iniciaran con el prefijo `"DI "` (con espacio), pero los incentivos afectados tenían el formato `"D.I "` (con puntos), por lo que se saltaban el filtro y se mostraban en el dropdown.
+- **Acciones Ejecutadas**:
+  - **Lógica de Filtros**: Modificamos `ordenarYFiltrarMateriales` en `capturaPublicaService.ts` para verificar y excluir de forma robusta las cadenas que comiencen con `"D.I "` o `"D.I. "`.
+  - **Pruebas y Verificación (TDD)**: Agregamos una prueba unitaria en `capturaPublicaService.test.ts` para corroborar el correcto descarte de materiales que comiencen con `"D.I "`. Las pruebas unitarias pasaron con éxito (5 de 5).
+  - **Despliegue y Compilación**:
+    * Verificamos compilación completa con `npx tsc --noEmit` y ejecutamos `npm run docs:check-encoding` (con éxito).
+    * Compilamos la aplicación de Cloudflare Workers (`npm run cf:build`).
+    * Desplegamos la nueva versión a producción en Cloudflare con éxito (`npm run deploy`).
+
+## [2026-06-08 19:30] - Feature: Dashboard Ejecutivo de Cliente Adaptado a Supervisores con Navegación Diaria (Antigravity)
+
+- **Contexto**: El usuario solicitó que la interfaz de reportes de los supervisores fuera idéntica a la del panel del cliente (con indicadores de colores, avance de materiales, alertas y desabastos), filtrada exclusivamente para sus PDVs y equipo, y que incluyera botones para avanzar/retroceder de día (`←` y `→`).
+- **Causa Raíz / Retos Técnicos**:
+  - El panel del cliente original (`ClienteDashboardPanel.tsx`) permitía consultar y filtrar todos los supervisores de la cuenta.
+  - No existía control de botones para cambiar la fecha de día en día en la interfaz móvil.
+- **Acciones Ejecutadas**:
+  - **Componentes de Interfaz (UI/UX)**:
+    * Agregamos la propiedad `isSupervisorMode` a `ClienteDashboardPanel`. Si es verdadera, cambia el título a "Reportes de Campo" y oculta la selección manual de supervisores.
+    * Implementamos los botones `←` y `→` al lado del input de fecha. Programamos la función `handleDayOffset` en `FilterBar` para desplazarse día a día validando los límites de fecha del mes.
+    * Ocultamos la tarjeta global de "Avance Diario por Supervisor" del tab de resumen general para supervisores.
+  - **API y Seguridad**:
+    * Modificamos la API `/api/dashboard/cliente-panel` para forzar que el parámetro `supervisorId` sea siempre `actor.empleadoId` si el puesto es `SUPERVISOR`, bloqueando accesos cruzados entre equipos.
+  - **Página de Reportes (SSR)**:
+    * Actualizamos la ruta `/reportes/page.tsx` para cargar el servicio `obtenerDashboardCliente` en el servidor acotado al supervisor logueado, y renderizar el panel completo `ClienteDashboardPanel` junto con la bitácora detallada de capturas `CapturaPublicaReportSection` al final.
+  - **Despliegue y Calidad**:
+    * Validamos la compilación completa de TypeScript (`npx tsc --noEmit`) y la codificación UTF-8 en el proyecto.
+    * Realizamos el deploy exitoso a Cloudflare Workers (`npm run deploy`) en la versión `160eaddc`.
+
+## [2026-06-08 19:18] - Feature: Integración de Reportes de Capturas de Campo para Supervisores (Antigravity)
+
+- **Contexto**: El usuario solicitó agregar los reportes de captura de campo de las dermoconsejeras (que se muestran en el dashboard de cliente `reportes.beteele-one.com`) a la aplicación de los supervisores, garantizando que cada supervisor pueda ver únicamente la información perteneciente a su propio equipo (scoping por supervisor).
+- **Causa Raíz / Retos Técnicos**: 
+  - La ruta `/reportes` estaba restringida exclusivamente a `ADMINISTRADOR` y `COORDINADOR`.
+  - Las consultas del servicio `obtenerReporteCapturaPublica` no soportaban filtros por supervisor, trayendo los registros globales de la cuenta de cliente.
+- **Acciones Ejecutadas**:
+  - **Servicios y API Backend**:
+    * Agregamos el parámetro `supervisorEmpleadoId?: string` a la firma del servicio `obtenerReporteCapturaPublica`.
+    * Implementamos un inner join dinámico en PostgREST (`empleado:empleado_id!inner(...)`) para filtrar registros por `empleado.supervisor_empleado_id = supervisorEmpleadoId`.
+    * Refactorizamos las consultas agregadas paralelas de KPIs usando un helper unificado `buildCountQuery` para aplicar el mismo filtro de supervisor.
+    * Actualizamos la ruta de la API `/api/reportes/captura-publica` para inyectar automáticamente el `actor.empleadoId` si el usuario es `SUPERVISOR`.
+  - **Enrutamiento y Vistas simplificadas (UI/UX)**:
+    * Permitimos el acceso de `SUPERVISOR` a la ruta `/reportes` en el middleware.
+    * Adaptamos `/reportes/page.tsx` para detectar si el usuario es supervisor, en cuyo caso se omiten las consultas consolidadas pesadas de administración y se sirve únicamente el componente `<CapturaPublicaReportSection />` con cabeceras personalizadas de "Reportes de campo" y KPIs acotados.
+    * Habilitamos el enlace de "Reportes" en el menú de navegación lateral `sidebar.tsx` para supervisores.
+  - **Acceso Directo (Dashboard)**:
+    * Añadimos la tarjeta de acceso rápido "Reportes de campo" en el panel del supervisor (`DashboardPanel.tsx` dentro de `SupervisorFieldDashboard`) bajo el grid de "Acciones rápidas", utilizando el icono `reports` en color azul/celeste.
+  - **Validación de Calidad**:
+    * Verificamos la suite de tipos con `npx tsc --noEmit` y el build local de producción con `npm run cf:build` con éxito.
+    * Comprobamos la codificación con `npm run docs:check-encoding`.
+
+## [2026-06-08 18:46] - Fix: Depuración Histórica de Registros Duplicados en Producción (Antigravity)
+
+- **Contexto**: El usuario solicitó auditar y eliminar los registros duplicados acumulados en el reporte completo de la aplicación.
+- **Causa Raíz / Retos Técnicos**: Los duplicados en la tabla temporal/staging `captura_publica_registro` disparaban triggers automáticos BEFORE/AFTER INSERT que a su vez creaban duplicados en las tablas consolidadas de producción (`venta`, `love_isdin`, `material_inventario_movimiento`), sesgando los KPIs de ventas y restando stock de inventario de canjes múltiples veces de forma incorrecta.
+- **Acciones Ejecutadas**:
+  - **Auditoría e Identificación**: Desarrollamos y ejecutamos `scratch/audit_duplicates.cjs` para escanear de forma paginada los 16,689 registros de la tabla `captura_publica_registro`. Identificamos registros con contenido 100% idéntico y diferencia de creación menor a 60 segundos. Encontramos 3,797 duplicados.
+  - **Limpieza Transaccional**: Desarrollamos y corrimos `scratch/delete_duplicates.cjs` con el parámetro `--confirm` para realizar la limpieza atómica en producción por lotes de 100 IDs.
+  - **Resultados del Borrado**:
+    * **3,797** capturas borradas de `captura_publica_registro`.
+    * **2,866** ventas consolidadas duplicadas borradas de `venta`.
+    * **737** afiliaciones Love ISDIN duplicadas borradas de `love_isdin`.
+    * **164** salidas de inventario duplicadas borradas de `material_inventario_movimiento`.
+- **Resultado**: Los reportes acumulados, KPIs del dashboard ejecutivo y el inventario de canjes quedaron 100% limpios y corregidos, eliminando todas las discrepancias de datos históricos.
+
+## [2026-06-08 18:32] - Fix: Prevención de Capturas Duplicadas en el Portal de Campo (Antigravity)
+
+- **Contexto**: El usuario reportó que se estaban generando registros duplicados en los reportes de captura de campo con diferencias de segundos entre sí. Específicamente, se identificaron registros duplicados para la dermoconsejera Nancy Guadalupe en la tienda Sanapiel Oblatos el 8 de junio de 2026.
+- **Causa Raíz / Retos Técnicos**:
+  - En la interfaz móvil (`CapturaPublicaForm.tsx`), al presionar "Enviar" y procesar la solicitud con éxito, el formulario no se limpiaba ni se ocultaba, permitiendo al usuario volver a pulsar el botón "Enviar" con los mismos datos.
+  - En el backend (`capturaPublicaActions.ts`), no existía validación de duplicidad ni control de debounce temporal para ignorar llamadas consecutivas idénticas.
+- **Acciones Ejecutadas**:
+  - **Servidor y Backend**:
+    * Implementamos una consulta previa en `registrarCapturaPublica` para buscar capturas del mismo empleado, tienda, tipo de actividad y fecha operativa dentro de una ventana de **15 segundos**.
+    * Agregamos la función `checkDuplicateSubmission` para comparar detalladamente que los ítems del lote enviado (producto/material, cantidad, subtipo y observaciones) coincidan exactamente con la base de datos y, en tal caso, omitir la inserción devolviendo un estado exitoso (`DUPLICATE_OMITTED`).
+  - **Interfaz de Usuario (UI/UX)**:
+    * Añadimos el estado `showSuccess` y un componente de pantalla de éxito con confirmación y resumen visual premium.
+    * Incorporamos la función `handleResetForm` que limpia los campos de captura locales y los archivos del DOM, facilitando un nuevo registro al presionar el botón "Registrar otra captura" mientras conserva el PDV y dermoconsejera seleccionados.
+  - **Calidad y Validación (TDD)**:
+    * Escribimos pruebas unitarias en `capturaPublicaActions.test.ts` para verificar la lógica de debounce de 15 segundos (las cuales pasaron con éxito).
+    * Validamos la compilación completa con `npm run cf:build` y la codificación UTF-8 con `npm run docs:check-encoding` (926 archivos correctos).
+- **Resultado**: Se eliminaron por completo las inserciones duplicadas causadas por dobles clics o reenvíos accidentales, garantizando reportes de campo limpios y una experiencia de usuario optimizada en dispositivos móviles.
+
+## [2026-06-08 17:10] - Feature: Ordenamiento Estricto y Completitud de Catálogo de Canjes ISDIN (Antigravity)
+
+- **Contexto**: El usuario solicitó auditar y alinear el catálogo de canjes e incentivos que aparece en el formulario público del módulo de Dermoconsejo. Específicamente, solicitó asegurar que todos los 23 canjes de su lista estén presentes, activos, y se muestren exactamente en el orden indicado.
+- **Causa Raíz / Retos Técnicos**:
+  - Seis de los materiales de la lista (`COSMETIQUERAS`, `FP PROTECTOR LABIAL HV ISDIN 46`, `NECESER PLAYA ISDIN`, `PORTA TOTTLE FWM 2025`, `PORTATOTTLE FWM ALCARAZ 2025`, y `PORTATOTTLE STICK PEDIATRICS 2025`) no existían en la tabla `material_catalogo` en Supabase.
+  - Varios canjes requeridos (las versiones promocionales de `10 ML`) están registrados bajo el tipo `DOSIS` en la base de datos. La lógica del endpoint y del servicio `loadMateriales` sólo cargaba los tipos `PROMOCIONAL` y `CANJE_PROMOCIONAL`, y tenía un regex en memoria JS que excluía explícitamente cualquier producto de `10 ML` o `Tester`.
+  - El dropdown del portal de campo no ordenaba según una lista personalizada, sino de forma alfabética simple en SQL.
+- **Acciones Ejecutadas**:
+  - **Base de Datos (SaaS)**:
+    * Escribimos y ejecutamos el script transaccional `scratch/insert_missing_materiales.cjs` para insertar los 6 materiales faltantes en la tabla `material_catalogo` bajo la cuenta de ISDIN (`92f26bb8-3d4b-4c24-a47d-c607cf6ad7ba`) como activos y de tipo `PROMOCIONAL`.
+  - **Servicios y Reglas de Negocio**:
+    * Modificamos la consulta SQL en [capturaPublicaService.ts](file:///d:/IA/Retail/src/features/captura-publica/services/capturaPublicaService.ts) para incluir el tipo `'DOSIS'` además de `'PROMOCIONAL'` y `'CANJE_PROMOCIONAL'`.
+    * Definimos la lista estricta ordenada de canjes `LISTA_ORDEN_CANJES_ISDIN` con el orden exacto del usuario.
+    * Implementamos la función `ordenarYFiltrarMateriales`, la cual salta los filtros estándar de exclusión (como el de `10 ML`) si el material está listado explícitamente por el usuario, y ordena el listado resultante según los índices de coincidencia de dicha lista.
+  - **Pruebas y Verificación (TDD)**:
+    * Escribimos y agregamos 2 pruebas unitarias robustas en [capturaPublicaService.test.ts](file:///d:/IA/Retail/src/features/captura-publica/services/capturaPublicaService.test.ts) para validar el ordenamiento exacto de los canjes y el bypass de las exclusiones estándar para los canjes de 10ml permitidos.
+    * Ejecutamos `npm run test:unit` para correr las pruebas locales (exitosas, 4 de 4 pasaron).
+    * Validamos la codificación UTF-8 en todo el repositorio con `npm run docs:check-encoding` (925 archivos correctos).
+- **Resultado**: El formulario de registro de Dermoconsejo ahora cuenta con el catálogo de canjes 100% completo, permite el registro de los promocionales de 10ml requeridos, y despliega las opciones a las dermoconsejeras en el orden exacto especificado por el cliente.
+
+## [2026-06-08 07:58] - Feature: Carga Bajo Demanda de Reporte de Mecánicas de Canje (Antigravity)
+
+- **Contexto**: El usuario solicitó ocultar el reporte de "Propuestas de Mecánicas de Canje" de la pantalla principal de reportes para que solo aparezca bajo demanda, reduciendo la saturación de información y optimizando la carga de la pantalla.
+- **Causa Raíz / Retos Técnicos**:
+  - El componente `MecanicasReportSection` realizaba un fetch automático del endpoint `/api/reportes/mecanicas-propuestas` al montarse.
+  - Al renderizarse estáticamente por defecto en `ReportesPanel.tsx`, se disparaban lecturas y consultas a la base de datos de Supabase en cada carga de la página de reportes, independientemente de si el usuario quería consultar esa información.
+- **Acciones Ejecutadas**:
+  - **Componentes y Estado (UI/UX)**:
+    * Agregamos el estado local `showMecanicas` (booleano, por defecto `false`) en [ReportesPanel.tsx](file:///d:/IA/Retail/src/features/reportes/components/ReportesPanel.tsx).
+    * Creamos una tarjeta colapsada responsiva y adaptada a móviles (mobile-first) que muestra el título y propósito del reporte con un botón elegante: `🔍 Cargar reporte bajo demanda`.
+    * Implementamos la visualización condicional: al dar clic en el botón de carga, el estado `showMecanicas` cambia a `true`, montando `<MecanicasReportSection />` y disparando la consulta en el cliente únicamente cuando es necesario.
+    * Añadimos un botón de control `🙈 Ocultar reporte` en la vista expandida para colapsar el reporte nuevamente cuando el usuario termine de usarlo.
+  - **Verificación**:
+    * Iniciamos el build de producción con `npm run build` para asegurar la compilación completa de Next.js.
+- **Resultado**: La pantalla de reportes ahora carga de forma instantánea sin disparar consultas automáticas del reporte de mecánicas a la base de datos, cumpliendo la regla de optimización de costos y rendimiento, y limpiando la interfaz visual del usuario.
+
+## [2026-06-08 07:53] - Fix: Diagnóstico Detallado de Errores de Tienda en Validación de Ruta Semanal (Antigravity)
+
+- **Contexto**: El usuario reportó que la supervisora Silvia Estrada no podía enviar su ruta semanal de la semana del 8 de junio de 2026 debido a un error de validación genérico: *"Uno de los PDVs del canvas ya no pertenece al supervisor para esa semana."* Se solicitó investigar cuál es la tienda en conflicto.
+- **Causa Raíz / Retos Técnicos**:
+  - Al fallar la validación y realizarse un rollback completo en la base de datos, el canvas inválido de Silvia Estrada (de 32 visitas) solo vivía localmente en la memoria de su navegador (LocalStorage / estado React de la aplicación). No existían registros históricos ni log del PDV exacto en la base de datos que permitieran aislarlo remotamente.
+  - La Server Action `guardarPlaneacionRutaSemanalCanvas` en `actions.ts` arrojaba un mensaje genérico que no identificaba cuál de los `pdvIds` enviados era el responsable del fallo, imposibilitando el autodiagnóstico del supervisor.
+- **Acciones Ejecutadas**:
+  - **Diagnóstico Transaccional**: Ejecutamos el script de consulta y cruce de datos `scratch/diagnose_silvia_route.cjs` para cruzar sus 15 tiendas visitadas históricamente y sus asignaciones actuales vigentes para la semana del 2026-06-08. Confirmamos que todas sus tiendas pasadas siguen siendo válidas, lo que indica que Silvia agregó una nueva tienda que fue dada de baja o transferida de su supervisión.
+  - **Lógica de Negocio y Server Action**:
+    * Modificamos la validación en [actions.ts](file:///d:/IA/Retail/src/features/rutas/actions.ts). En lugar de retornar un error estático, si el sistema detecta que un `pdvId` del canvas no pertenece a la supervisión para esa semana, realiza una consulta rápida a la tabla `pdv` para extraer su nombre y clave BTL.
+    * Personalizamos el mensaje de retorno de la Server Action: `El punto de venta "[Nombre]" ([Clave]) ya no pertenece al supervisor para esta semana. Por favor, retíralo de tu borrador e intenta de nuevo.`
+  - **Verificación y Seguridad**:
+    * Ejecutamos `npm run build` para asegurar la compilación perfecta de producción (exitosa en 13.7s).
+    * Validamos la codificación UTF-8 en todo el repositorio con `npm run docs:check-encoding` (924 archivos limpios).
+- **Resultado**: La próxima vez que Silvia intente presionar el botón para enviar su ruta semanal a coordinación, la interfaz de su celular le informará exactamente cuál es el punto de venta problemático por su nombre y clave. Esto le permitirá remover la tienda del borrador local y completar el envío de su ruta de forma autónoma.
+
 ## [2026-06-04 09:00] - Feature: Integración de SKU y Optimización de Texto en Selector de Productos de Portal Público (Antigravity)
 
 - **Contexto**: El usuario solicitó mostrar el código SKU (código de barras/catálogo) en el selector de productos del portal de captura pública (`dermoconsejo.beteele-one.com`) para evitar confusiones de las dermoconsejeras durante el registro de ventas. También solicitó que los nombres de los productos no se recorten (puntos suspensivos) y que la letra sea ligeramente más pequeña para mejorar la legibilidad y visibilidad.
@@ -8426,3 +8563,301 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   1. **Alineación y Filtrado Lógico:** Editamos la función ​`loadMateriales` en `src/features/captura-publica/services/capturaPublicaService.ts`. Aunque algunos materiales están clasificados como `tipo = 'PROMOCIONAL'` en base de datos, agregamos un filtro robusto en memoria en Node.js/Next.js para garantizar que se excluyan los materiales que comiencen con la clave de Dosis de Inicio "DI " o contengan "TESTER" o incluyan patrones de medidas chicas (`2ML`, `2G`, `5ML`, `10ML`), previniendo cualquier visualización accidental.
   2. **Validación de Pruebas**: Corrimos exitosamente la suite de capturas públicas con Vitest (`13/13 tests passed`), y verificamos la coherencia de TypeScript.
   3. **Despliegue a Producción**: Compilamos y desplegamos la actualización a la nube global de Cloudflare Workers (`npm run cf:deploy` finalizado con Version ID `bb93c17e-8417-4bb4-99c2-7ce50b968382`).
+
+## 2026-06-04 15:15 – Reportes de Actividad Cero ("Hoy no tuve ventas" y "Hoy no hice registros")
+
+- **Intervención:** Implementación de flujos de reporte en cero para que las dermoconsejeras puedan reportar de forma explícita que no tuvieron ventas ni registros de Love ISDIN en su día de trabajo. Esto les permite cumplir con su reporte diario para las metas de supervisión al 100%, pero sin registrar ventas vacías en el sistema.
+- **Acciones Ejecutadas:**
+  1. **Migración en Base de Datos:** Redefinimos la función disparadora `fn_captura_publica_consolidacion_automatica` en `20260604100000_captura_publica_sin_ventas_love.sql`. Si el reporte es `VENTA` con `subtipo_registro = 'SIN_VENTAS'`, o `LOVE_ISDIN` con `subtipo_registro = 'SIN_REGISTROS'`, crea o valida la asistencia ordinaria del día para acreditar el cumplimiento del 100%, pero omite insertar registros en las tablas físicas de `venta` y `love_isdin` respectivamente.
+  2. **Acción del Servidor:** En `capturaPublicaActions.ts`, modificamos `registrarCapturaPublica` para que, cuando el lote de captura venga con `subtipo_registro = 'SIN_VENTAS'` o `subtipo_registro = 'SIN_REGISTROS'`, el servidor no requiera la selección de producto ni una cantidad mayor a cero (se guardan como `null` en la base de datos).
+  3. **Interfaz del Portal Público:** En `CapturaPublicaForm.tsx`, agregamos switches premium estilo iOS para indicar "¿No tuviste ventas hoy?" y "¿No registraste ningún Love ISDIN hoy?". Si se activan, la lista de artículos se oculta de forma responsiva y se deshabilitan las validaciones de producto/cantidad en el cliente, serializando los subtipos correspondientes en `items_json`.
+  4. **Exclusión de KPIs de Ventas y Afiliaciones:** En `clienteDashboardService.ts` y `capturaPublicaReporteService.ts`, excluimos los subtipos `SIN_REGISTROS` y `SIN_VENTAS` de las sumas totales en dashboards e informes para que no alteren las unidades reales del mes.
+  5. **Traducciones en Tabla:** En `CapturaPublicaReportSection.tsx` mapeamos los subtipos en `SUBTIPO_LABELS` para mostrar `"Hoy no tuve ventas"` y `"Hoy no hice registros"` en la tabla administrativa.
+- **Validaciones:**
+  - TypeScript libre de errores en los archivos modificados.
+  - Compilación Next.js y OpenNext con `npm run cf:build` con éxito.
+  - Verificación de codificación UTF-8 aprobada para todo el proyecto.
+  - Despliegue completado con éxito a producción en Cloudflare Workers (`npm run cf:deploy`).
+
+- **Depuración Post-Despliegue:**
+  - **Problema:** El botón de enviar formulario seguía bloqueado con la leyenda "Completa la lista para enviar" tras activar el switch de reportes en cero.
+  - **Causa Raíz:** El hook reactivo `isBatchIncomplete` no tenía `noVentas` ni `noLoveIsdin` en su arreglo de dependencias de `useMemo`, lo que impedía que el botón se habilitara inmediatamente al encender los toggles.
+  - **Corrección:** Corregimos las dependencias de `useMemo` agregando `noVentas` y `noLoveIsdin` y saneamos un detalle de cierre sintáctico de llaves en la serialización.
+  - **Despliegue:** Nueva versión compilada y desplegada exitosamente a Cloudflare Workers (`Version ID: 88e7f4cf-77a0-4a8c-9277-4c0473c4f393`).
+
+## 2026-06-09 11:50 – Flexibilización de Validación de Supervisores y Dashboard de Asistencia Optimizado
+
+- **Intervención:** Habilitación de registro de asistencia manual y solicitudes para colaboradoras asignadas operativamente a un supervisor y ocultación de cápsulas finalizadas en el dashboard.
+- **Acciones Ejecutadas:**
+  1. **Lógica de Registro de Asistencia Manual:** En `registrarAsistenciaManualSupervisor` (`src/features/asistencias/actions.ts`), modificamos la validación para consultar primero la asignación activa (`activeAssignment`) para esa colaboradora en esa fecha y PDV. Se permite el registro si es su supervisada estructural (`empleado.supervisor_empleado_id`) o si el supervisor es el responsable de esa asignación activa del día (`activeAssignment.supervisor_empleado_id`). Reutilizamos la consulta para evitar redundancia.
+  2. **Lógica de Registro de Solicitudes:** En `registrarSolicitudOperativa` (`src/features/solicitudes/actions.ts`), flexibilizamos igualmente la validación para permitir solicitudes operativas (incapacidades, justificaciones de falta, vacaciones) si existe una asignación operativa activa vinculada al supervisor en el rango de fechas de la solicitud.
+  3. **Optimización de Dashboard:** En `DashboardPanel.tsx`, introdujimos el filtro `visibleDailyItems` en el componente `SupervisorFieldDashboard` para excluir a las colaboradoras que ya finalizaron su check-in y check-out (`flowState === 'FINALIZADA'`).
+  4. **Contador y Retroalimentación UI:** En `DashboardPanel.tsx`, actualizamos el badge contador para reflejar sólo los registros pendientes y agregamos un mensaje positivo ("¡Excelente! Has registrado todas las asistencias de hoy.") en el estado vacío cuando todas las asistencias diarias han sido registradas.
+- **Validaciones:**
+  - TypeScript libre de errores en los archivos modificados.
+  - Verificación de codificación UTF-8 aprobada para todo el proyecto.
+- **Skills Aplicadas:**
+  - `03-debugging/systematic-debugging`
+  - `02-testing-e2e/tailwind-mobile-first`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-09 12:20 – Implementación de Falta Injustificada en Registro Manual y Visualización de Retardos
+
+- **Intervención:** Adición de opción de Falta Injustificada en el formulario de asistencia manual, permitiendo ocultar sus respectivas cápsulas tras el registro.
+- **Acciones Ejecutadas:**
+  1. **Lógica de Falta Injustificada:** En `registrarAsistenciaManualSupervisor` (`src/features/asistencias/actions.ts`), permitimos el tipo de registro `'FALTA'`. Al registrarse, se almacena sin horas de entrada/salida (`null`), con estatus `'RECHAZADA'` en base de datos (lo que activa la falta injustificada en las métricas) y se marca `tipo_registro: 'FALTA'` en los metadatos.
+  2. **Resolución de Flujo del Dashboard:** En `dashboardService.ts`, modificamos `readSupervisorFlowState` para mapear asistencias marcadas como falta manual o rechazadas sin entrada al estado `'FINALIZADA'`, asegurando que la cápsula desaparezca de la lista del supervisor del día.
+  3. **Selector en Formulario UI:** En `DashboardPanel.tsx`, en el modal de asistencia manual, agregamos la opción "Falta Injustificada" que oculta los campos de selección de horas. Adaptamos el grid a `grid-cols-2 xl:grid-cols-4` para visualización responsiva óptima en celulares.
+- **Validaciones:**
+  - Compilación de TypeScript y verificación UTF-8 aprobadas.
+- **Skills Aplicadas:**
+  - `03-debugging/systematic-debugging`
+  - `02-testing-e2e/tailwind-mobile-first`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-09 13:00 – Conciliación e Importación del Rol de Asignaciones de Junio 2026 y Futuro
+
+- **Intervención:** Importación completa y conciliación de la asignación mensual y rotación del mes de junio de 2026 a partir del archivo Excel `ROL JUNIO ACTUALIZADO.xlsx`, y propagación indefinida para los meses subsecuentes.
+- **Acciones Ejecutadas:**
+  1. **Análisis Comparativo y Detección de Diferencias:** Diseñamos un resolvedor relacional y script de comparación de doble llave `(empleado_id, pdv_id)` (`compare_db_vs_excel.cjs`) para alinear de forma robusta las asignaciones activas de la base de datos (281 registros) contra las del Excel (275 registros), encontrando coincidencia perfecta en 263 y aislando exactamente: 9 bajas, 3 altas y 1 modificación.
+  2. **Aplicación Transaccional de Bajas, Altas y Modificaciones:** Diseñamos y ejecutamos `actualizar_rol_junio.cjs` para:
+     - Eliminar las 9 asignaciones obsoletas de Junio de la base de datos de manera transaccional.
+     - Insertar las 3 nuevas asignaciones con fecha de inicio `2026-06-01` y `fecha_fin = null` (Claudia Fernanda Gómez Galván en `Soriana Gran Terraza` y `Soriana Pilares`, y María del Rosario Limón López en `S Pablo Muzquiz`), heredando automáticamente sus supervisores correspondientes.
+     - Actualizar los días laborables de Luz Adriana Mancilla Gutiérrez en `HEB Cerro Gordo` a `'MAR-JUE-SAB'`.
+  3. **Re-vinculación de Asistencias Históricas:** Mapeamos y re-enlazamos automáticamente las asistencias históricas ya registradas en junio de los colaboradores con nuevas asignaciones (como Claudia Fernanda) para garantizar la coherencia de datos sin perder trazabilidad.
+  4. **Rematerialización del Calendario Diario:** Diseñamos y corrimos un test temporal en Vitest (`materialize_june.test.ts`) para procesar la cola de materialización y regenerar la tabla `asignacion_diaria_resuelta` para los 9 colaboradores afectados durante todo el mes de junio de 2026.
+  5. **Registro de Auditoría:** Registramos la bitácora `conciliacion_rol_junio_actualizado` en la tabla `audit_log` a nombre de Héctor Eduardo Valle Rodríguez para total trazabilidad.
+- **Validaciones:**
+  - 100% de las diferencias del rol actualizadas correctamente en base de datos.
+  - Rematerialización diaria de junio concluida con éxito para todos los afectados.
+  - Verificación del encoding UTF-8 en todo el proyecto.
+- **Skills Aplicadas:**
+  - `01-testing-tdd/test-driven-development`
+  - `07-architecture/adr-templates`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-09 13:45 – Exclusión de Afiliaciones Fallidas e Implementación de Reporte de Fallos
+
+- **Intervención:** Exclusión de registros fallidos y duplicados de Love Isdin de las métricas principales de cumplimiento y desarrollo de pestaña de reporte de fallos.
+- **Acciones Ejecutadas:**
+  1. **Lógica de Negocio y Exclusión:** Modificamos `obtenerPanelLoveIsdinUncached` en `loveIsdinService.ts` para que sólo cuente afiliaciones con estatus `['VALIDA', 'PENDIENTE_VALIDACION']` para las métricas principales (`total`, `hoy`, `semana`, `mes`, `alcance`). Excluimos los registros con estatus `'RECHAZADA'`, `'DUPLICADA'` y capturas fallidas en el cliente y reportes.
+  2. **Recolección y Clasificación de Fallas:** Implementamos en `loveIsdinService.ts` la recolección de capturas públicas fallidas (`LOVE_FALLIDO`) y afiliaciones rechazadas/duplicadas, y las clasificamos mediante palabras clave en base a sus observaciones (desistimiento, lentitud, duplicados, acumulación de compra).
+  3. **Alineación de Reportes y Dashboards:**
+     - Modificamos `clienteDashboardService.ts` para contar únicamente registros `LOVE_EXITOSO`.
+     - Modificamos `capturaPublicaReporteService.ts` para excluir fallas del total de Love Isdin.
+     - Modificamos `reporteService.ts` para no sumar afiliaciones duplicadas o rechazadas en el acumulado de reportes.
+  4. **Pestaña de Fallos en UI:** Creamos la pestaña "Registros fallidos" en `LoveIsdinPanel.tsx` con un diseño responsivo y premium, mostrando métricas de fallos totales, intentos y re-procesados, desglose de causas principales en formato de barras y tabla cronológica de registros fallidos con sus observaciones.
+- **Validaciones:**
+  - `npm run build` y `npm run cf:build` completados con éxito y listos para Cloudflare Workers.
+- **Skills Aplicadas:**
+  - `03-debugging/systematic-debugging`
+  - `02-testing-e2e/tailwind-mobile-first`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-09 15:20 – Corrección de Meta Mensual Love Isdin mediante Paginación de Consulta
+
+- **Intervención:** Solución al error de meta mensual de registros de Love Isdin de Junio de 2026 que mostraba 3,000 en lugar del real 17,940, causado por truncamiento de Supabase/PostgREST.
+- **Acciones Ejecutadas:**
+  1. **Análisis de Causa Raíz:** Comprobamos que el archivo `ROL JUNIO ACTUALIZADO.xlsx` sumaba 5,980 días laborales, coincidiendo exactamente con las 5,980 asignaciones en la base de datos. Identificamos que `fetchLoveQuotaTargetRows` en `loveQuota.ts` limitaba la consulta a 5,000 registros, pero la API Supabase (PostgREST) truncaba la respuesta a 1,000 registros por petición.
+  2. **Implementación de Paginación:** Modificamos `fetchLoveQuotaTargetRows` para implementar consultas iterativas paginadas mediante `.range(from, to)` en un ciclo de 1,000 en 1,000 registros, hasta recuperar todas las asignaciones correctas del periodo de tiempo.
+  3. **Ajuste de Límite sin Alcance:** Incrementamos `MAX_ASSIGNMENT_ROWS_UNSCOPED` de 5,000 a 12,000 para soportar meses completos con dotación máxima de dermoconsejeras (~300-350 operarias).
+  4. **Pruebas y Verificación:** Escribimos una prueba unitaria (TDD) en `src/features/love-isdin/lib/loveQuota.test.ts` simulando paginación de 1,500 asignaciones divididas en dos páginas y comprobando la correcta agregación de resultados. Corrimos y verificamos el test localmente con Vitest.
+- **Validaciones:**
+  - `npm run test:unit` y la nueva prueba `loveQuota.test.ts` pasaron exitosamente.
+  - El proyecto compiló y se desplegó a producción con `npm run deploy` en Cloudflare.
+- **Skills Aplicadas:**
+  - `01-testing-tdd/test-driven-development`
+  - `03-debugging/systematic-debugging`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-09 15:40 – Visualización de Alcance por Supervisor en Love Isdin (UI/UX)
+
+- **Intervención:** Ajustar el acumulado por supervisor para mostrar el porcentaje de alcance / cumplimiento de forma destacada y ordenar por este indicador.
+- **Acciones Ejecutadas:**
+  1. **Modificación de KpiBarChartCard:** Añadimos la opción `showPercentageAsPrimary` a `KpiBarChartCard` en `LoveIsdinPanel.tsx`. Cuando esta opción está activa, calcula el porcentaje de alcance de cada elemento (`(total / objetivo) * 100`) y lo muestra como la métrica principal en lugar del contador absoluto.
+  2. **Barras de Progreso basadas en Alcance:** Ajustamos el ancho de la barra para que represente directamente del 0% al 100% del alcance individual de cada supervisor, mejorando la comparación de desempeño del equipo.
+  3. **Ordenamiento por Desempeño:** Modificamos el orden en `KpiBarChartCard` para que ordene por porcentaje de cumplimiento descendente cuando `showPercentageAsPrimary` esté activo.
+  4. **Activación en Panel de Supervisor:** Habilitamos `showPercentageAsPrimary={true}` en la tarjeta "Acumulado por supervisor" en el panel Love Isdin.
+- **Validaciones:**
+  - Limpieza de cachés de compilación `.next` y `.open-next` en Windows.
+  - Compilación de TypeScript y empaquetado para Cloudflare Workers exitoso (`cf:build`).
+  - Despliegue completado con éxito a producción mediante `npm run deploy`.
+- **Skills Aplicadas:**
+  - `02-testing-e2e/tailwind-mobile-first`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-09 15:50 – Corrección de Supervisores sin Asignar en la Zona Centro (Antigravity)
+
+- **Intervención:** Corrección de registros "sin supervisor" en la zona Centro en el panel Love Isdin actualizando las relaciones de las dermoconsejeras e integrando sus asignaciones diarias.
+- **Acciones Ejecutadas:**
+  1. **Auditoría e Identificación:** Identificamos que las nuevas colaboradoras Claudia Fernanda Gómez Galván y María del Rosario Limón López no tenían supervisor asignado en su ficha base de empleado.
+  2. **Asignación de Supervisores:**
+     - A Claudia Fernanda Gómez Galván le asignamos a la supervisora Miriam Rocío Estrada Nava.
+     - A María del Rosario Limón López le asignamos a la supervisora Liliana Reyes Aybar.
+  3. **Actualización de Base de Datos:**
+     - Modificamos el registro base en la tabla `empleado` asignando `supervisor_empleado_id` y definiendo `zona = 'Centro'`.
+     - Actualizamos 30 registros de asignaciones diarias para cada una en la tabla `asignacion_diaria_resuelta` desde el 1 de junio en adelante.
+  4. **Verificación:** Corrimos consultas de verificación en la base de datos confirmando que el número de asignaciones sin supervisor en la zona Centro para junio de 2026 es ahora **0**.
+- **Validaciones:**
+  - Verificación relacional ejecutada con éxito.
+  - Validación del estándar de codificación UTF-8 en 946 archivos (`npm run docs:check-encoding`).
+- **Skills Aplicadas:**
+  - `03-debugging/systematic-debugging`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-09 16:25 – Reorganización de Dashboard Love Isdin: Acumulado por Supervisor en Dos Columnas (Antigravity)
+
+- **Intervención:** Remoción del acumulado por zona y expansión del acumulado por supervisor para mostrar la lista completa en dos columnas en el dashboard ejecutivo.
+- **Acciones Ejecutadas:**
+  1. **Remoción de Sección de Zonas:** Eliminamos la tarjeta `<KpiBarChartCard title="Acumulado por zona" ... />` en `LoveIsdinPanel.tsx` como parte de la reorganización solicitada por el usuario.
+  2. **Flexibilización de KpiBarChartCard:** Modificamos el componente en `LoveIsdinPanel.tsx` para aceptar las propiedades opcionales `showAll?: boolean`, `gridCols?: 1 | 2` y `className?: string`. Esto permite que se muestre la lista completa (sin recortar a los primeros 8) y se distribuya en una rejilla interna de dos columnas.
+  3. **Expansión del Panel de Supervisores:** Actualizamos la llamada a la tarjeta de supervisores pasando `showAll={true}`, `gridCols={2}` y `className="xl:col-span-2"`. La tarjeta ahora abarca todo el ancho del grid ejecutivo (`xl:col-span-2`) y muestra la lista completa de supervisores distribuida en 2 columnas internas en pantallas de escritorio, y en 1 sola columna en dispositivos móviles.
+- **Validaciones:**
+  - Compilación de TypeScript y bundle de OpenNext completado con éxito (`npm run cf:build`).
+  - Despliegue exitoso a la red de producción de Cloudflare Workers (`npm run deploy`) en la versión `2b5db6fc`.
+  - Verificación del estándar de codificación UTF-8 en 946 archivos (`npm run docs:check-encoding`).
+- **Skills Aplicadas:**
+  - `02-testing-e2e/tailwind-mobile-first`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-09 16:35 – Conciliación Masiva de Supervisores en la Tabla Empleado (Antigravity)
+
+- **Intervención:** Vinculación masiva de supervisores base y zonas para 218 dermoconsejeras en la tabla base de empleados y resolución global de los 95 registros "Sin supervisor" en Love Isdin.
+- **Acciones Ejecutadas:**
+  1. **Análisis de Causa Raíz:** Detectamos que al importar el rol de asignaciones de junio, los supervisores asignados a las dermoconsejeras en la tabla `asignacion` no se sincronizaron hacia la tabla base `empleado`. Como la vista `love_isdin_resumen_diario` une la tabla `empleado` para obtener el supervisor, 95 registros válidos en junio aparecían como "Sin supervisor".
+  2. **Actualización Masiva en Ficha de Empleado:**
+     - Diseñamos y ejecutamos `scratch/update_all_base_supervisors.cjs`.
+     - Actualizamos con éxito `supervisor_empleado_id` y `zona` en la tabla `empleado` para **218 colaboradores** basándonos en sus asignaciones activas de junio de 2026.
+  3. **Corrección de Colaborador Externo:**
+     - Detectamos que la captura de `FLORES GARCIA BRIAN` el 2 de junio no tenía asignación alguna. Lo vinculamos manualmente en la tabla base a su supervisora correspondiente de la sucursal San Pablo Muzquiz: **Liliana Reyes Aybar**.
+  4. **Verificación:** Corrimos una consulta sobre la vista consolidada de Love Isdin para junio de 2026, confirmando que el número de registros válidos y pendientes sin supervisor asignado bajó a **0** en todas las zonas del país.
+- **Validaciones:**
+  - 100% de los 218 registros en la tabla base actualizados con éxito.
+  - Cero discrepancias o registros sin supervisor remanentes en todo el dashboard de Love Isdin.
+  - Validación del estándar de codificación UTF-8 en 946 archivos (`npm run docs:check-encoding`).
+- **Skills Aplicadas:**
+  - `03-debugging/systematic-debugging`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-09 18:30 – Exportación de Reporte Completo de LOVE ISDIN a Excel (Antigravity)
+
+- **Intervención:** Implementación de la descarga del reporte completo de afiliaciones LOVE ISDIN en formato Excel, con hojas desglosadas por supervisor, dermoconsejera, cadena, pdv y resumen global.
+- **Acciones Ejecutadas:**
+  1. **Servicio de Exportación Cliente:** Creamos `src/features/love-isdin/lib/loveIsdinExport.ts` para estructurar y construir un libro de Excel con 5 hojas específicas usando la librería `xlsx`. El porcentaje de cumplimiento se calcula dinámicamente utilizando fórmulas de Excel (ej. `SUM` y división condicionada), y se configuraron formatos numéricos y anchos de columnas óptimos.
+  2. **Integración en Interfaz de Usuario:** Modificamos `src/features/love-isdin/components/LoveIsdinPanel.tsx` para importar dinámicamente el servicio de exportación y agregar el botón de descarga "Exportar Reporte (Excel)" en la barra de filtros de KPIs. El botón cuenta con un estado de carga y un spinner animado durante el proceso.
+  3. **Verificación de Empaquetado:** Ejecutamos `npm run build` en el proyecto Next.js y el build completó exitosamente sin errores de TypeScript o empaquetado.
+- **Validaciones:**
+  - Compilación exitosa del proyecto Next.js.
+  - Validación del estándar de codificación UTF-8 en 954 archivos (`npm run docs:check-encoding`).
+- **Skills Aplicadas:**
+  - `05-code-review/nextjs-app-router-patterns`
+  - `02-testing-e2e/tailwind-mobile-first`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-09 18:50 – Filtrado por Mes del Tablero de LOVE ISDIN y Despliegue en Producción (Antigravity)
+
+- **Intervención:** Habilitación del filtrado por mes en el tablero de control de LOVE ISDIN en producción, permitiendo consultar registros de meses anteriores (ej. Mayo, Abril) de forma aislada y generar sus respectivos reportes individuales en Excel.
+- **Acciones Ejecutadas:**
+  1. **Filtrado Backend & Base de Datos:** Modificamos `src/features/love-isdin/services/loveIsdinService.ts` para aceptar el parámetro `month` en la función `obtenerPanelLoveIsdin`, filtrando tanto el conteo total (`countQuery`) como la lista paginada (`loveListQuery`) de registros mediante `.gte('fecha_operacion', ...)` y `.lte('fecha_operacion', ...)`.
+  2. **Actualización de API y Página:** Actualizamos el endpoint `/api/love-isdin/panel` y la página `/love-isdin/page.tsx` para recibir y pasar este parámetro de mes.
+  3. **Control Visual (Month Picker):** Integramos un componente de entrada `<input type="month" />` en la cuadrícula de filtros de la interfaz en `LoveIsdinPanel.tsx`. Al modificar el mes, la URL se actualiza y la interfaz se recarga, mostrando todas las gráficas y registros de forma congruente.
+  4. **Compilación y Despliegue en Cloudflare:** Ejecutamos `npm run cf:build` exitosamente para empaquetar el Worker mediante OpenNext. Desplegamos los cambios en producción con `npm run deploy` en Cloudflare.
+- **Validaciones:**
+  - Compilación del Worker local exitosa.
+  - Carga de archivos y despliegue exitoso en Cloudflare.
+  - Validación del estándar de codificación UTF-8 en 954 archivos (`npm run docs:check-encoding`).
+- **Skills Aplicadas:**
+  - `05-code-review/nextjs-app-router-patterns`
+  - `02-testing-e2e/tailwind-mobile-first`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-09 19:20 — Rediseño del Reporte de Excel en Formato Dashboard Premium (Antigravity)
+
+- **Intervención:** Rediseño del reporte descargable de Excel de LOVE ISDIN para transformarlo en un Dashboard Premium estilizado utilizando `exceljs` en lugar de una simple tabla de datos en SheetJS, y corrección de un error de referencia de objeto global (`XLSX`).
+- **Acciones Ejecutadas:**
+  1. **Rediseño con ExcelJS:** Migramos el motor de exportación en [loveIsdinExport.ts](file:///d:/IA/Retail/src/features/love-isdin/lib/loveIsdinExport.ts) a `exceljs`. Diseñamos una primera pestaña `Dashboard Global` que emula una aplicación web: deshabilitando líneas de cuadrícula y agregando tarjetas de KPI combinadas con tipografía grande (`20pt Bold`), colores de marca (Rosa ISDIN `#FF7FA5`, azul, verde y amarillo pastel), sumatorias y cálculos dinámicos.
+  2. **Formato en Pestañas de Desglose:** Diseñamos las 4 hojas de agregación (Supervisor, Dermoconsejera, Cadena, PDV) aplicando cabeceras en Rosa ISDIN, filas con colores alternos para legibilidad, renglón de totales con línea doble inferior, fórmulas nativas (`SUM` e `IF`), formato condicional en celdas de cumplimiento (verde, amarillo, rojo pastel) y paneles congelados (freeze panes) para mantener los títulos y la columna de nombres al hacer scroll vertical u horizontal.
+  3. **Solución del Bug de Referencia:** Implementamos funciones helper locales `encodeCol` y `encodeCell` para calcular coordenadas de celdas de Excel, eliminando llamadas a `XLSX.utils` no definidas que causaban `ReferenceError` al descargar.
+  4. **Compilación y Despliegue:** Ejecutamos `npm run build` confirmando que Next.js compila el proyecto completo y desplegamos los cambios en producción con `npm run deploy` a Cloudflare.
+- **Validaciones:**
+  - Compilación local Next.js exitosa.
+  - Carga y despliegue exitosos en Cloudflare Workers (versión `90914c3d-39ff-4675-adda-124d327bbf92`).
+  - Validación del estándar UTF-8 (`npm run docs:check-encoding`).
+- **Skills Aplicadas:**
+  - `09-encoding/utf8-standard`
+  - `03-debugging/systematic-debugging`
+  - `02-testing-e2e/playwright-testing`
+
+## 2026-06-09 19:35 — Simplificación del Reporte de Excel Removiendo Columnas de Validación (Antigravity)
+
+- **Intervención:** Eliminación de los campos detallados de validación (Válidas, Pendientes, Rechazadas y Duplicadas) del reporte de Excel descargable, a petición del usuario para simplificar el tablero y centrarse en las afiliaciones agregadas y metas.
+- **Acciones Ejecutadas:**
+  1. **Ajuste del Dashboard Global (Excel):** Removimos la tarjeta de KPI de "Válidas" y reajustamos el espaciado para alinear simétricamente las 4 tarjetas restantes (Afiliaciones, Meta, Cumplimiento, Restante) en la cabecera. Removimos asimismo las columnas de Válidas, Pendientes, Rechazadas y Duplicadas en las tablas de tendencias diaria y semanal.
+  2. **Ajuste en Hojas de Desglose:** Eliminamos estas 4 columnas de las tablas y del cálculo de fórmulas en las hojas de Supervisor, Dermoconsejera, Cadena y PDV. Actualizamos la estructura de anchos de columna y de filas de totales para reflejar la menor cantidad de columnas.
+  3. **Compilación y Despliegue:** Ejecutamos `npm run build` confirmando que Next.js compila el proyecto completo sin fallos y realizamos el despliegue a producción con `npm run deploy` en Cloudflare.
+- **Validaciones:**
+  - Compilación local Next.js y empaquetado exitoso.
+  - Carga y despliegue exitosos en Cloudflare Workers (versión `3bdc8519-e6bf-4fc4-aa7c-1bf04b59dabb`).
+  - Validación del estándar de codificación UTF-8 en todos los archivos del proyecto (`npm run docs:check-encoding`).
+- **Skills Aplicadas:**
+  - `09-encoding/utf8-standard`
+  - `02-testing-e2e/playwright-testing`
+
+
+
+
+## 2026-06-10 10:55 — Reporte y Dashboard Premium de Ventas para Administrador y Exportación a ExcelJS (Antigravity)
+
+- **Intervención:** Creación de un Dashboard de Ventas interactivo para el Administrador, filtros por mes, rango y jerarquías, exportador a Excel premium usando `exceljs` y remoción de la sección de captura local para administradores.
+- **Acciones Ejecutadas:**
+  1. **Dashboard y Filtros (UI/UX):** Modificamos `src/features/ventas/components/VentasPanel.tsx` para agregar un panel de filtros superior interactivo. El Administrador puede filtrar por mes de consulta (month picker), rango (Hoy/Semana/Mes) y por menús desplegables (Supervisor, Dermoconsejera, Cadena, Zona, PDV). Los KPIs superiores y la lista de ventas se recalculan dinámicamente en memoria con base en el set filtrado.
+  2. **Rol de Administrador:** Condicionamos la tarjeta "Captura Local" (borrador de ventas) y el estado offline para que solo se muestren si el usuario no es de puesto `ADMINISTRADOR`.
+  3. **Exportador a Excel Premium:** Implementamos la descarga de reporte de ventas en ExcelJS en `src/features/ventas/lib/ventaExport.ts`. Este reporte cuenta con 5 pestañas (`Dashboard Global`, `Por Supervisor`, `Por Dermoconsejera`, `Por Cadena`, `Por PDV`) estilizadas con cabeceras Rosa ISDIN, celdas zebra, fórmulas de totales dinámicas, scroll congelado y sin cuadrícula en la pestaña global para emular un tablero de control profesional.
+  4. **Corrección de Servicios:** Ajustamos `src/features/ventas/services/ventaService.ts` para recibir y procesar el parámetro de mes de consulta, recuperar el dataset mensual extendido (hasta 3000 registros) cruzando jerarquías de supervisores y cadenas, y proveer opciones únicas de selección. Corregimos un error de ordenamiento de supervisores en el servicio.
+  5. **Despliegue y Validación:** Ejecutamos `npm run build` confirmando que Next.js compila el proyecto completo y desplegamos los cambios en producción con `npm run deploy` a Cloudflare.
+- **Validaciones:**
+  - Compilación Next.js local exitosa.
+  - Carga y despliegue exitosos en Cloudflare Workers (versión `75f25921-eee6-42a3-9122-7c04165dccf4`).
+  - Validación del estándar de codificación UTF-8 en todos los archivos del proyecto (`npm run docs:check-encoding`).
+- **Skills Aplicadas:**
+  - `09-encoding/utf8-standard`
+  - `05-code-review/nextjs-app-router-patterns`
+  - `02-testing-e2e/tailwind-mobile-first`
+
+## 2026-06-10 11:10 — Paginación Completa de Dataset de Ventas y Cápsulas de Alcance en Producción (Antigravity)
+
+- **Intervención:** Remoción del límite implícito de 1,000 registros en la consulta mensual de ventas e implementación de cápsulas de desglose de alcance por jerarquía.
+- **Acciones Ejecutadas:**
+  1. **Servicio y Paginación (Servidor):** Modificamos `src/features/ventas/services/ventaService.ts` reemplazando la consulta única `monthVentasQuery` con un bucle paginado de bloques de 1,000 registros mediante `.range()`. Esto evita la restricción de filas por defecto de PostgREST en Supabase, trayendo el 100% de los datos mensuales.
+  2. **Cápsulas de Alcance (UI/UX):** Desarrollamos el componente responsivo `<VentasAggregateCard />` en `src/features/ventas/components/VentasPanel.tsx`. Renderizamos 4 cápsulas (por PDV, por Dermoconsejera, por Supervisor y por Cadena) mostrando el volumen acumulado de ventas/unidades, barras de progreso y desglose lateral de confirmadas/pendientes.
+  3. **Seguridad:** Las nuevas cápsulas son visibles de manera exclusiva para perfiles con rol `ADMINISTRADOR`.
+  4. **Despliegue:** Ejecutamos `npm run build` confirmando que Next.js compila el proyecto completo y desplegamos los cambios en producción con `npm run deploy` en Cloudflare.
+- **Validaciones:**
+  - Compilación Next.js local y empaquetado exitoso.
+  - Carga y despliegue exitoso en Cloudflare Workers (versión `83b0365d-8656-464e-8db6-022b49fb557a`).
+  - Validación del estándar de codificación UTF-8 en todos los archivos (`npm run docs:check-encoding`).
+- **Skills Aplicadas:**
+  - `03-debugging/systematic-debugging`
+  - `09-encoding/utf8-standard`
+  - `02-testing-e2e/tailwind-mobile-first`
+
+
+
+
+
+
+## 2026-06-12 11:27 — Flexibilidad de Acuses y Mejora de Usabilidad en Última Milla (Antigravity)
+
+- **Intervención:** Corrección de la validación estricta de acuses firmados para dermoconsejeras de fallback, alineación de metadata en correcciones y dropdown de receptores colapsable.
+- **Acciones Ejecutadas:**
+  1. **Lógica de Validación (TS):** Modificamos `src/features/materiales/lib/materialLastMileValidation.ts` para que `validateLastMileDelivery` y `validateLastMileCorrection` tomen `receptorOrigen` y no exijan acuse firmado en papel si el receptor tiene origen `TODOS`. Actualizamos los tests unitarios en `materialLastMileValidation.test.ts` para comprobar este flujo.
+  2. **Ruta de la API (Sync):** Modificamos `src/app/api/materiales/ultima-milla/sync/route.ts` para extraer `receptor_origen` de la metadata y suministrarlo a las validaciones locales.
+  3. **Migración en Base de Datos:** Creamos `supabase/migrations/20260612110000_materiales_ultima_milla_flexibilidad_acuse.sql` redefiniendo `rpc_registrar_entrega_ultima_milla` y `rpc_corregir_entrega_ultima_milla` para omitir la exigencia de acuse firmado si el origen de selección del receptor es `TODOS`. Aplicamos la migración con éxito en la base de datos de desarrollo.
+  4. **Formularios de Última Milla (UI):** Rediseñamos `SearchableReceiverSelect` en `MaterialesPanel.tsx` transformándolo en un dropdown flotante interactivo y colapsable ideal para móviles (Mobile-First). Adicionalmente, actualizamos `LastMileCorrectionForm` para enviar de forma explícita `modo_entrega` y `receptor_origen` en metadata a fin de sincronizarse correctamente con la API, y condicionamos las cámaras de captura y etiquetas basándonos en si el PDV está por cubrir.
+- **Validaciones:**
+  - Tests unitarios de validación (`materialLastMileValidation.test.ts`) pasando exitosamente (11 de 11).
+  - Compilación de Next.js (`npm run build`) validada de fondo.
+- **Skills Aplicadas:**
+  - `03-debugging/systematic-debugging`
+  - `01-testing-tdd/test-driven-development`
+  - `02-testing-e2e/tailwind-mobile-first`
