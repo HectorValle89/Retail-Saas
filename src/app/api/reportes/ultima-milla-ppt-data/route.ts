@@ -101,11 +101,11 @@ export async function GET(request: NextRequest) {
         capturado_en,
         pdv_snapshot,
         cadena_snapshot,
-        dermoconsejero_snapshot
+        dermoconsejero_snapshot,
+        material_distribucion_mensual!inner(mes_operacion)
       `
       )
-      .gte('capturado_en', range.startDateTime)
-      .lt('capturado_en', range.endDateTimeExclusive)
+      .eq('material_distribucion_mensual.mes_operacion', `${range.period}-01`)
       .neq('estado', 'CANCELADA')
       .order('capturado_en', { ascending: false })
       .limit(MAX_PPT_DELIVERIES);
