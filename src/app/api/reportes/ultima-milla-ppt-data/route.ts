@@ -127,8 +127,12 @@ export async function GET(request: NextRequest) {
 
     if (range.period === '2026-05') {
       const specificIds = [
-        '2e155b14-0411-434a-8af8-bc94a8ed6f20',
-        'd92bbe5d-70b6-41fd-b499-1a09f3e2583d'
+        '2e155b14-0411-434a-8af8-bc94a8ed6f20', // Polanco - Olga Elizabeth (June 3rd)
+        'd92bbe5d-70b6-41fd-b499-1a09f3e2583d', // Santa Fe - María del Rocío (June 3rd)
+        'c888c138-09f2-45e9-92ad-a6b43f2087b4', // Polanco - Isabel Lucero (June 1st)
+        '3d39f460-9391-4801-bc22-883540b81c8d', // Polanco - Isabel Lucero (June 8th)
+        'fb09636c-77fd-47cc-a5c4-71132c7c52cd', // Santa Fe - Fernanda Estefania (June 1st)
+        '7db735e0-b058-4bae-a6c6-bea67a5dd954'  // Santa Fe - Fernanda Estefania (June 3rd)
       ];
       const { data: extraData, error: extraError } = await service
         .from('material_entrega_ultima_milla')

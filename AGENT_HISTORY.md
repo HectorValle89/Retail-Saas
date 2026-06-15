@@ -8997,3 +8997,20 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - Se añadió explícitamente `.limit(50000)` a las consultas de detalles y evidencias para anular el límite por defecto de PostgREST (comportamiento idéntico al código de producción del backend).
   - Al re-ejecutar la conciliación, se cargaron exitosamente **4,764 detalles** en total (un incremento de 1,764 líneas de productos que se estaban perdiendo anteriormente).
   - Se restauró la hoja limpia original y se re-ejecutó el script, logrando que los registros de Olga Elizabeth (Fila 37) y María del Rocío (Fila 39) en la pestaña "Total Mayo" se marquen correctamente como `ENTREGADO BIEN (OK)`, así como varios otros puntos de venta antes marcados falsamente como vacíos.
+
+## [2026-06-15] Conciliación y Mapeo Completo de Doble Plantilla en Palacio de Hierro
+
+### 1. Diagnóstico de Doble Plantilla
+- **Solicitud del usuario**: Verificar los 4 registros de la imagen (Polanco con Isabel Lucero y Olga Elizabeth; Santa Fe con Fernanda Estefania y María del Rocío). Saber si quien recibió fue una o dos personas, si los registros son independientes y asegurar que aparezcan en el PowerPoint sin exclusión.
+- **Investigación**:
+  - Se confirmó en la base de datos que existen **6 entregas independientes en total** para estas tiendas: 3 en Polanco (dos para Isabel Lucero, una para Olga Elizabeth) y 3 en Santa Fe (dos para Fernanda Estefania, una para María del Rocío).
+  - Cada entrega cuenta con su propio ID, supervisor de origen, fecha de captura y un conjunto independiente de 2 evidencias (acuse firmado y foto de la dermoconsejera receptora).
+  - Quienes recibieron fueron **dos personas diferentes por tienda** (Isabel/Olga en Polanco y Fernanda/María en Santa Fe), validando que las operaciones e identidades son independientes.
+
+### 2. Cambios y Re-conciliación de Datos
+- **Ajustes en el Script de Excel (`scratch/analyze_and_modify_new_excel_v3.cjs`)**:
+  - Se añadieron los 4 identificadores de entrega restantes a la lista de inyección manual de Mayo.
+  - Al correr la conciliación sobre el Excel limpio, las filas correspondientes a Isabel Lucero (Fila 36) y Fernanda Estefania (Fila 38) pasaron de estar marcadas incorrectamente como Cobertura a **ENTREGADO BIEN (OK)** utilizando sus propias entregas físicas e independientes.
+- **Ajustes en la API de PowerPoint (`src/app/api/reportes/ultima-milla-ppt-data/route.ts`)**:
+  - Se inyectaron los mismos 6 identificadores de Palacio en `specificIds` para que el PowerPoint de Mayo exporte todas las evidencias y diapositivas de estas entregas rezagadas de Junio.
+  - Se descargaron las 12 fotos de evidencia al directorio de artefactos y se consolidó el informe de evidencias en [reporte_evidencias_palacio.md](file:///C:/Users/Thunderobot%20Zero/.gemini/antigravity/brain/143a85ce-e02f-47e2-a5d0-8f2db1755764/reporte_evidencias_palacio.md).
