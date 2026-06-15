@@ -1,5 +1,22 @@
 # 📜 AGENT_HISTORY.md - Registro Maestro de la Fábrica
 
+## [2026-06-13 10:05] - Feature: Actualización Integral del Catálogo de Productos ISDIN y Corrección en Portal de Captura (Antigravity)
+
+- **Contexto**: El usuario reportó que el equipo de campo no encontraba algunos productos en el portal público de dermoconsejo, ni por nombre ni por código, debido a discrepancias ortográficas, SKUs obsoletos/corruptos y nombres excesivamente abreviados en la base de datos (e.g. `nombre_corto` vs `nombre`). Solicitó alinear el catálogo al 100% de acuerdo con el documento de referencia `CATALOGO POR CATEGORÍA.docx`.
+- **Causa Raíz / Retos Técnicos**: 
+  - La base de datos contenía abreviaturas operativas en el campo `nombre_corto` que el portal público priorizaba sobre el nombre completo (e.g., `ERY AK-NMSC CRM 50ML` en lugar de `ERYFOTONA AK-NMSC CREMA 50ML`).
+  - La base de datos tenía 4 SKUs obsoletos/duplicados o mal formados que ya no existen en el catálogo final (incluyendo `842942017532723232323`).
+- **Acciones Ejecutadas**:
+  - **Extracción de DOCX**: Descomprimimos y parseamos el archivo `CATALOGO POR CATEGORÍA.docx` extrayendo la estructura del catálogo (195 productos y 9 categorías limpias).
+  - **Sincronización de Base de Datos**: Desarrollamos y ejecutamos `update_database_products.cjs` para:
+    1. Actualizar `nombre` y `nombre_corto` a la descripción 100% completa del catálogo de Word en los 195 productos existentes.
+    2. Homologar las categorías de los productos a la jerarquía limpia del catálogo de Word.
+    3. Desactivar (`activo = false`) los 4 productos obsoletos ausentes del catálogo final.
+  - **Ajuste en Portal Público**: Modificamos `capturaPublicaService.ts`, `capturaPublicaActions.ts` y `mecanicasService.ts` para que siempre muestren el campo `nombre` completo del producto en los selectores y respuestas de captura del portal simplificado, en lugar de recurrir a abreviaciones de `nombre_corto`.
+  - **Pruebas y Despliegue**:
+    * Verificación exitosa de compilación Next.js (`npm run build`).
+    * Despliegue exitoso a producción en Cloudflare Workers (`npm run deploy`).
+
 ## [2026-06-09 09:35] - Feature: Exclusión de Incentivos D.I (Dosis Individual) del Listado de Canjes (Antigravity)
 
 - **Contexto**: El usuario solicitó quitar de la lista de canjes del formulario de captura pública los materiales tipo "D.I" (Dosis Individual) sin stock: `D.I ISDIN COVERAGE 1 PERL SPF50`, `D.I ISDIN COVERAGE 2 BEIGE SPF50`, y `D.I ISDIN COVERAGE 3 SAND SPF50`.
@@ -8861,3 +8878,103 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `03-debugging/systematic-debugging`
   - `01-testing-tdd/test-driven-development`
   - `02-testing-e2e/tailwind-mobile-first`
+
+## 2026-06-12 12:00 — Flujo de Dispersiones en Resguardo por Vacante y Liberación de Materiales (Antigravity)
+ 
+ - **Intervención:** Inicio de la estructuración y planificación del flujo de dispersiones en resguardo para tiendas vacantes y posterior entrega a dermoconsejeras.
+ - **Acciones Ejecutadas:**
+   1. **Inicio de Sesión:** Lectura del historial y reconciliación de la base.
+   2. **Planificación:** Elaboración del plan de diseño de datos (nuevas columnas `modo_entrega` y `estado_resguardo` en la tabla `material_entrega_ultima_milla`), el flujo operativo del supervisor para liberar resguardos y el desglose de KPIs en el panel administrador.
+ - **Skills Aplicadas:**
+   - `09-encoding/utf8-standard`
+
+## 2026-06-12 12:35 — Habilitación del mes de Mayo para registro de Última Milla (Antigravity)
+
+- **Intervención:** Permitir que las supervisoras regresen al mes de mayo de 2026 en el panel de control de materiales a fin de registrar entregas de última milla y subir las evidencias de foto/acuse correspondientes.
+- **Acciones Ejecutadas:**
+  1. **Lógica de Consulta (Backend):** Modificamos la función `obtenerPanelMaterialesSupervisorFast` en [materialService.ts](file:///d:/IA/Retail/src/features/materiales/services/materialService.ts) para derivar de forma dinámica el mes previo (`prevMonthValue`) en relación a la fecha actual (`currentMonth`).
+  2. **Inclusión en Query de Base de Datos:** Actualizamos la query de `material_distribucion_mensual` para incluir el mes anterior en el filtro `.in('mes_operacion', [prevMonthValue, currentMonth, nextMonthValue])`.
+  3. **Visualización y Filtrado de Última Milla:** Modificamos la construcción del listado de entregas `supervisorLastMileDistributionBase` para que incluya las dispersiones de dicho mes previo. Esto expone el mes de mayo en el Picker/Select de meses del panel de la supervisora y le permite operar las tiendas pendientes de mayo.
+  4. **Suite de Pruebas Unitarias:** Creamos una prueba unitaria específica en [materialService.preview.test.ts](file:///d:/IA/Retail/src/features/materiales/services/materialService.preview.test.ts) que valida que el panel de materiales del supervisor cargue y exponga adecuadamente el mes anterior.
+- **Validaciones:**
+  - Compilación y verificación de tipos (`npx tsc --noEmit`) aprobada, libre de errores en los archivos modificados.
+  - Ejecución de pruebas unitarias con Vitest finalizada exitosamente (10/10 pruebas pasadas).
+  - Preservación de la codificación de archivos UTF-8 sin BOM.
+- **Skills Aplicadas:**
+  - `01-testing-tdd/test-driven-development`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-12 13:35 — Despliegue de Habilitación de Mayo a Producción en Cloudflare (Antigravity)
+
+- **Intervención:** Compilación y despliegue a producción de los cambios realizados para habilitar la consulta y registro de entregas de última milla del mes de mayo.
+- **Acciones Ejecutadas:**
+  1. **Compilación de Producción:** Ejecutamos `npm run build` con éxito, verificando compatibilidad.
+  2. **Compilación de Cloudflare Workers:** Ejecutamos `npm run cf:build` con éxito utilizando OpenNext.
+  3. **Despliegue a la Nube:** Realizamos el deploy en vivo usando `npm run deploy`.
+- **Validaciones:**
+  - Compilación local y remota libre de errores.
+  - El despliegue finalizó exitosamente con Version ID: `d119ecc4-6ea0-456e-a8cd-47270c82c741` en los dominios productivos, incluyendo `dermoconsejo.beteele-one.com`.
+- **Skills Aplicadas:**
+  - `09-encoding/utf8-standard`
+
+## 2026-06-12 16:00 — Corrección de imágenes rotas de última milla y PPT (Antigravity)
+
+- **Intervención:** Resolver el problema de imágenes de evidencia de última milla rotas en el panel (debido a expiración de firmas y reubicación a `_orphans`) y corregir las pruebas unitarias que fallaban tras cambiar al uso de un proxy de imágenes local.
+- **Acciones Ejecutadas:**
+  1. **Permisos de API (`route.ts`):** Agregamos `'SUPERVISOR'` a los puestos permitidos en `/api/reportes/imagen-proxy` para que las supervisoras también puedan resolver las imágenes de evidencia mediante el proxy seguro de la aplicación.
+  2. **Resolución de URL de Evidencias (`materialService.ts`):** Refactorizamos `resolveEvidenceStorageUrl` y `signEvidenceStorageRoute` para retornar la URL del proxy local de imágenes en lugar de generar URL firmadas de Supabase, evitando la expiración en la caché. Además, agregamos la lógica de búsqueda recursiva de huérfanos (`buildOrphanRouteCandidates`) y actualizamos las llamadas al servicio para pasar `row.capturada_en`.
+  3. **Pruebas de Servicio (`materialService.preview.test.ts`):** Actualizamos las aserciones de la prueba de firma para esperar el formato del proxy de imágenes `/api/reportes/imagen-proxy?...`.
+  4. **Pruebas del Reporte PPT (`route.test.ts`):** Corregimos las aserciones de los 4 tests unitarios que fallaban esperando URLs firmadas de Supabase ficticias, alineándolas con el formato real del proxy de imágenes que devuelve la API.
+- **Validaciones:**
+  - Pruebas unitarias de `materialService` pasando exitosamente (10/10).
+  - Pruebas unitarias de `ultima-milla-ppt-data` pasando exitosamente (4/4).
+  - Compilación total de Next.js (`npm run build`) validada y libre de errores.
+  - Empaquetado para Cloudflare Workers (`npm run cf:build`) compilado sin problemas.
+  - Despliegue a producción ejecutado exitosamente con `Version ID: 04cc46a4-e364-492e-9a7d-0f0c36e5ee81`.
+- **Skills Aplicadas:**
+  - `03-debugging/systematic-debugging`
+  - `01-testing-tdd/test-driven-development`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-12 16:30 — Eliminación de distribuciones de mayo vacantes para Zenaida (Antigravity)
+
+- **Intervención:** Eliminar del perfil de la supervisora Maria Zenaida Monroy Gonzalez las dos cápsulas/registros de distribución pendientes para el mes de mayo de 2026 en las tiendas F Ahorro Luis Barragán y F Ahorro Polanco, debido a que en ese periodo las tiendas estaban vacantes y no tuvieron dispersión.
+- **Acciones Ejecutadas:**
+  1. **Inspección de Datos:** Identificamos mediante un script de consulta (`inspect_zenaida_data.cjs`) que existían dos distribuciones para el periodo `2026-05-01` en estado `PENDIENTE_RECEPCION` vinculadas a Zenaida: ID `3a5c622a-aca9-415c-907e-41fe164ae605` (Polanco) y `092cd71f-9ee2-4b04-a45a-80e5720b9e90` (Luis Barragán).
+  2. **Eliminación Transaccional:** Ejecutamos un script de limpieza (`delete_distribuciones.cjs`) que eliminó de forma segura los 42 registros hijos asociados en `material_distribucion_detalle` y luego removió las 2 filas principales en `material_distribucion_mensual`.
+- **Validaciones:**
+  - Re-consulta del estado en base de datos constatando que las distribuciones de mayo para esos PDVs y supervisor ya no existen, quedando activas únicamente sus distribuciones de junio debidamente sincronizadas.
+
+
+## 2026-06-15 15:43 - Análisis Tolerante por Sucursal Física y Corrección de IDs de Última Milla de Mayo 2026 (Antigravity)
+
+- **Intervención:** Ajustar el script de cruce de datos de última milla para incluir las 7 sucursales con ID vacío en el Excel de planificación (`Total Mayo`), resolverlas por coincidencia de nombre de tienda física, y excluir desvíos duplicados o correspondientes a tiendas ya cubiertas de la pestaña de diferencias (`NO COINCIDEN`).
+- **Acciones Ejecutadas:**
+  1. **Corrección de Columnas:** Corregimos la detección de columnas en el script `analyze_and_modify_new_excel_v3.cjs` para evitar el desplazamiento a la derecha en ejecuciones sucesivas, reutilizando directamente las columnas 7 y 8 si ya existen en la primera fila.
+  2. **Inclusión de ID Vacíos:** Modificamos la lectura de filas de Excel para no omitir registros planificados sin ID (como Palacio Mitikah, Palacio Perisur, Palacio Acoxpa, Palacio Cancún, F Ahorro Interlomas, F Ahorro Palmas, Sanapiel Nueva Galicia).
+  3. **Algoritmo de Coincidencia por Nombre:** Implementamos un fallback basado en `cleanStoreName()` para emparejar tiendas físicas sin ID (o con ID cruzado) que presentaran entregas válidas en la base de datos de la App.
+  4. **Deduplicación de Diferencias:** Filtramos la pestaña `"NO COINCIDEN"` para omitir segundas entregas o desvíos menores a tiendas físicas que ya estuvieran debidamente planificadas y cubiertas en la pestaña `"Total Mayo"`.
+  5. **Ejecución y Generación:** Restauramos el archivo Excel limpio original y ejecutamos el nuevo script de procesamiento, logrando un cruce de 268 registros planificados contra la base de datos.
+- **Validaciones:**
+  - De las 268 tiendas planificadas en `"Total Mayo"`, 257 fueron marcadas como entregadas (coincidencia de tienda) y solo 11 se identificaron como realmente pendientes (`NO ENTREGADO`).
+  - La pestaña `"NO COINCIDEN"` se redujo a únicamente 5 desviaciones reales (tiendas no contempladas de ninguna manera en Mayo).
+  - Verificamos la escritura exacta del archivo local `Dispersión Mayo 2026.xlsx` en las columnas 7 y 8.
+- **Skills Aplicadas:**
+  - `03-debugging/systematic-debugging`
+  - `09-encoding/utf8-standard`
+
+## 2026-06-15 16:02 - Incremento de Límite de PowerPoint de Última Milla e Investigación de Benavides M644 (Antigravity)
+
+- **Intervención:** Resolver la truncación a 250 diapositivas en la exportación de PowerPoint de última milla e investigar la ausencia de entregas para Benavides Av 13 (M644) en Mayo.
+- **Acciones Ejecutadas:**
+  1. **Investigación de Fechas de M644:** Consultamos el catálogo de puntos de venta y el historial de entregas completo de la base de datos para la sucursal `Benavides Av 13` (`M644`). Encontramos que el supervisor registró sus entregas en **Junio de 2026** (específicamente el 4 de junio y el 12 de junio). Dado que el análisis de dispersión y la auditoría se acotaron estrictamente al periodo del 1 al 31 de mayo de 2026, estas entregas quedaron justificadamente fuera de rango.
+  2. **Ajuste de Límite en API (`route.ts`):** Editamos `src/app/api/reportes/ultima-milla-ppt-data/route.ts` para cambiar la constante `MAX_PPT_DELIVERIES` de `250` a `1000`, lo que permite exportar todas las fotos del mes sin cortes de paginación.
+  3. **Pruebas y Compilación:**
+     - Corrimos la suite de pruebas de la API (`route.test.ts`) con éxito (4/4 pruebas pasadas).
+     - Ejecutamos `npm run build` de Next.js y `npm run cf:build` para Cloudflare Workers (OpenNext) con éxito, validando la estabilidad estructural de la compilación.
+- **Validaciones:**
+  - Se confirmó que no hay registros de última milla para la clave `M644` entre el 1 y el 31 de mayo de 2026.
+  - La compilación del empaquetado para Cloudflare se generó sin errores en `.open-next/worker.js`.
+- **Skills Aplicadas:**
+  - `03-debugging/systematic-debugging`
+  - `09-encoding/utf8-standard`
