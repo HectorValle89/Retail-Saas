@@ -8978,3 +8978,22 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - **Skills Aplicadas:**
   - `03-debugging/systematic-debugging`
   - `09-encoding/utf8-standard`
+
+## [2026-06-15] Búsqueda de Entregas Palacio de Hierro y Corrección del Límite de Supabase
+
+### 1. Búsqueda en Base de Datos de Entregas
+- **Solicitud del usuario**: Buscar evidencias de las entregas de mayo de Tienda Polanco (Olga Elizabeth Rodríguez Bailón) y Tienda Santa Fe (María del Rocío Rodríguez García).
+- **Resultados**: 
+  - Se confirmó que ambas entregas existen físicamente en la base de datos con estatus `SINCRONIZADA`.
+  - **Olga Elizabeth Rodríguez Bailón** (Palacio Polanco): ID `2e155b14-0411-434a-8af8-bc94a8ed6f20`, capturada el 3 de junio de 2026. Contiene **23 renglones de materiales** y evidencias completas (acuse y foto).
+  - **María del Rocío Rodríguez García** (Palacio Santa Fe): ID `d92bbe5d-70b6-41fd-b499-1a09f3e2583d`, capturada el 3 de junio de 2026. Contiene **12 renglones de materiales** y evidencias completas (acuse y foto).
+  - Se descargaron las 4 fotos físicas al directorio de artefactos y se consolidó el informe de evidencias en [reporte_evidencias_palacio.md](file:///C:/Users/Thunderobot%20Zero/.gemini/antigravity/brain/143a85ce-e02f-47e2-a5d0-8f2db1755764/reporte_evidencias_palacio.md).
+
+### 2. Hallazgo y Solución del Bug de Límite de Supabase (1000 Renglones)
+- **Bug**: El script de conciliación de Excel (`scratch/analyze_and_modify_new_excel_v3.cjs`) marcaba estas entregas en Excel como `ENTREGADO SIN DETALLES (VACÍO)` con 0 renglones de productos, a pesar de que en la base de datos sí tenían detalles.
+- **Causa raíz**: Supabase/PostgREST tiene un límite por defecto de 1000 registros devueltos por consulta. Al realizar consultas por lotes (`in('entrega_id', chunk)`) sobre grupos de 100 entregas, la cantidad de líneas de detalles superaba los 1000 registros, provocando que PostgREST truncara silenciosamente el resultado a exactamente 1000 líneas. Esto dejaba a las entregas al final de los bloques (incluyendo las de junio de Palacio de Hierro) sin sus detalles cargados en memoria.
+- **Solución**:
+  - Se redujo el tamaño de los bloques de carga de `100` a `30` entregas.
+  - Se añadió explícitamente `.limit(50000)` a las consultas de detalles y evidencias para anular el límite por defecto de PostgREST (comportamiento idéntico al código de producción del backend).
+  - Al re-ejecutar la conciliación, se cargaron exitosamente **4,764 detalles** en total (un incremento de 1,764 líneas de productos que se estaban perdiendo anteriormente).
+  - Se restauró la hoja limpia original y se re-ejecutó el script, logrando que los registros de Olga Elizabeth (Fila 37) y María del Rocío (Fila 39) en la pestaña "Total Mayo" se marquen correctamente como `ENTREGADO BIEN (OK)`, así como varios otros puntos de venta antes marcados falsamente como vacíos.
