@@ -1,5 +1,8 @@
--- Create vista_venta_diaria_agrupada migration
-CREATE OR REPLACE VIEW vista_venta_diaria_agrupada AS
+-- Drop view first to allow column list changes
+DROP VIEW IF EXISTS vista_venta_diaria_agrupada CASCADE;
+
+-- Create vista_venta_diaria_agrupada migration with periodo_mes
+CREATE VIEW vista_venta_diaria_agrupada AS
 SELECT
   v.cuenta_cliente_id,
   v.empleado_id,
@@ -12,6 +15,7 @@ SELECT
   p.zona AS pdv_zona,
   c.nombre AS cadena_nombre,
   (v.fecha_utc AT TIME ZONE 'America/Mexico_City')::date AS fecha_operacion,
+  TO_CHAR(v.fecha_utc AT TIME ZONE 'America/Mexico_City', 'YYYY-MM') AS periodo_mes,
   v.confirmada,
   SUM(v.total_unidades)::integer AS total_unidades,
   SUM(v.total_monto)::numeric AS total_monto,
@@ -33,4 +37,5 @@ GROUP BY
   p.zona,
   c.nombre,
   (v.fecha_utc AT TIME ZONE 'America/Mexico_City')::date,
+  TO_CHAR(v.fecha_utc AT TIME ZONE 'America/Mexico_City', 'YYYY-MM'),
   v.confirmada;

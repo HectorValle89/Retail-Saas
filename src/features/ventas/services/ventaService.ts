@@ -373,6 +373,38 @@ async function obtenerPanelVentasUncached(
       query = query.eq('supervisor_id', actorEmpleadoId);
     }
 
+    // Query active employees to ensure we list all dermoconsejeras of the team
+    let employeesQuery = supabase
+      .from('empleado')
+      .select('id, nombre_completo, puesto, supervisor_empleado_id, usuario:usuario!usuario_empleado_id_fkey!inner(cuenta_cliente_id)')
+      .eq('estatus_laboral', 'ACTIVO');
+
+    if (accountId) {
+      employeesQuery = employeesQuery.eq('usuario.cuenta_cliente_id', accountId);
+    }
+
+    const { data: empData, error: empError } = await employeesQuery;
+    if (empError) {
+      console.error('[ventaService] Error querying active employees:', empError.message);
+    }
+
+    const supervisorMap = new Map<string, string>();
+    const activeDermos: any[] = [];
+
+    (empData ?? []).forEach((emp: any) => {
+      if (emp.puesto === 'SUPERVISOR') {
+        supervisorMap.set(emp.id, emp.nombre_completo);
+      } else if (emp.puesto === 'DERMOCONSEJERO') {
+        if (actorPuesto === 'SUPERVISOR' && actorEmpleadoId) {
+          if (emp.supervisor_empleado_id === actorEmpleadoId) {
+            activeDermos.push(emp);
+          }
+        } else {
+          activeDermos.push(emp);
+        }
+      }
+    });
+
     const { data: viewData, error: viewError } = await query;
     if (viewError) {
       console.error('[ventaService] Error querying vista_venta_diaria_agrupada:', viewError.message);
@@ -399,6 +431,32 @@ async function obtenerPanelVentasUncached(
         confirmada: row.confirmada,
         total: row.total_transacciones,
       };
+    });
+
+    // Merge active dermoconsejeras that have 0 sales in the current month
+    const dermosWithSales = new Set(dataset.map((row) => row.empleadoId));
+    activeDermos.forEach((emp) => {
+      if (!dermosWithSales.has(emp.id)) {
+        dataset.push({
+          fechaOperacion: '',
+          weekBucket: '',
+          pdvId: '',
+          pdvLabel: 'Sin tienda',
+          pdvClaveBtl: '',
+          pdvIdCadena: '',
+          pdvNombre: 'Sin tienda',
+          empleadoId: emp.id,
+          empleadoLabel: emp.nombre_completo,
+          supervisorId: emp.supervisor_empleado_id,
+          supervisorLabel: supervisorMap.get(emp.supervisor_empleado_id) || 'Sin supervisor',
+          zona: 'Sin zona',
+          cadena: 'Sin cadena',
+          totalUnidades: 0,
+          totalMonto: 0,
+          confirmada: true,
+          total: 0,
+        });
+      }
     });
 
     const uniquePdvs = new Map<string, string>();

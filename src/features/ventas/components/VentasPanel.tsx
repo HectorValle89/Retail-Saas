@@ -888,7 +888,7 @@ export function VentasPanel({
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+          <div className={`grid gap-4 sm:grid-cols-2 md:grid-cols-3 ${esVisualizadorReporte ? 'lg:grid-cols-4' : 'lg:grid-cols-6'}`}>
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mes</label>
               <input
@@ -908,7 +908,7 @@ export function VentasPanel({
               />
             </div>
 
-            {actor.puesto !== 'SUPERVISOR' && (
+            {actor.puesto !== 'SUPERVISOR' && !esVisualizadorReporte && (
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Supervisor</label>
                 <select
@@ -958,21 +958,23 @@ export function VentasPanel({
               </select>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Zona</label>
-              <select
-                value={selectedZona}
-                onChange={(e) => setSelectedZona(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
-              >
-                <option value="">Todas</option>
-                {uniqueZonas.map((z) => (
-                  <option key={z} value={z}>
-                    {z}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {!esVisualizadorReporte && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Zona</label>
+                <select
+                  value={selectedZona}
+                  onChange={(e) => setSelectedZona(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+                >
+                  <option value="">Todas</option>
+                  {uniqueZonas.map((z) => (
+                    <option key={z} value={z}>
+                      {z}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Punto de Venta</label>
@@ -1017,15 +1019,17 @@ export function VentasPanel({
                   Limpiar filtros
                 </Button>
               )}
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleExport}
-                isLoading={isExporting}
-                className="bg-[#FF7FA5] hover:bg-[#ff6694] text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition"
-              >
-                <span>📥</span> Exportar Reporte (Excel)
-              </Button>
+              {!esVisualizadorReporte && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleExport}
+                  isLoading={isExporting}
+                  className="bg-[#FF7FA5] hover:bg-[#ff6694] text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition"
+                >
+                  <span>📥</span> Exportar Reporte (Excel)
+                </Button>
+              )}
             </div>
           </div>
         </Card>
