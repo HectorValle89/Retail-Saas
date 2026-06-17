@@ -1,5 +1,61 @@
 # 📜 AGENT_HISTORY.md - Registro Maestro de la Fábrica
 
+## [2026-06-16 19:20] - Feature: Sustitución de Mecánicas por Levantamiento de Uniformes de Supervisores con Soporte de Ciudad y Destinatario (Antigravity)
+
+- **Contexto**: El usuario solicitó dar de baja por completo la funcionalidad de "Mecánicas de Canje" de la plataforma y, en su lugar, implementar el "Levantamiento de Uniformes de Supervisores" para un grupo cerrado de 19 supervisores oficiales. El objetivo es recopilar sus necesidades de uniformes (Filipinas y Pantalones, género Dama/Caballero, y tallas CH a 3XL) en una única respuesta por supervisor, asociando obligatoriamente la Ciudad de Envío y el nombre de quien recibe para resolver la distribución logística del fabricante, y desplegar paneles administrativos de control de participación, consolidación agregada y desglose individual.
+- **Causa Raíz / Retos Técnicos**:
+  - Para evitar la distribución de nuevos enlaces públicos, se requirió conservar la ruta física del formulario en `/mecanicas/[slug]` pero reescribir su contenido visual por completo.
+  - La base de datos requería un esquema seguro, indexado y protegido con RLS que reemplace la vieja tabla `propuesta_mecanica_canje`.
+  - El sistema de reportes requería consolidar en tiempo real las cantidades desglosadas por prenda, género y talla, además de rastrear y listar dinámicamente a los supervisores pendientes de responder cruzando el censo de 19 nombres oficiales.
+  - La logística requería conocer de forma inequívoca el destino físico de entrega y la persona responsable de recibir cada paquete.
+- **Acciones Ejecutadas**:
+  - **Base de Datos**: Creamos la migración `20260617000000_levantamiento_uniforme.sql` para definir la tabla `levantamiento_uniforme` con RLS, agregando las columnas `ciudad_envio` (TEXT NOT NULL) y `recibe_nombre` (TEXT NOT NULL) con restricciones `UNIQUE` en `supervisor_nombre` e índices correspondientes.
+  - **Formulario de Captura**: Rediseñamos completamente `MecanicasPropuestaForm.tsx` con un diseño mobile-first intuitivo para celulares, integrando un selector de Ciudad de Envío y un campo editable "Nombre de quien recibe" precompletado automáticamente, además de los botones interactivos de cantidad (+/-) y listado a supervisores.
+  - **Server Action y Servicios**: Reescribimos `mecanicasActions.ts` y `mecanicasService.ts` para aplicar validaciones del servidor contra las constantes de prendas, géneros y tallas permitidas, verificando la lista de los 19 supervisores, consultando las ciudades activas de la base de datos (`public.ciudad`) y bloqueando inserciones duplicadas.
+  - **Panel de Reportes**: Reescribimos `MecanicasReportSection.tsx` y adaptamos `ReportesPanel.tsx` para mostrar KPIs principales, el Control de Participación con la lista ordenada de supervisores pendientes, el Pedido Consolidado ordenado jerárquicamente para el fabricante y el Desglose Detallado indicando Ciudad de Envío, Destinatario y con buscador local mejorado y exportador CSV con todos los campos.
+  - **Calidad y Verificación**: Escribimos y aprobamos pruebas unitarias robustas en `mecanicasActions.test.ts` (`4 passed`), y corrimos con éxito el build de producción Next.js y el bundle de Cloudflare Workers OpenNext (`cf:build`).
+
+## [2026-06-16 18:57] - Feature: Reporte Semanal de Ventas Interactivo y Scoping por Supervisor en la UI (Antigravity)
+
+- **Contexto**: El usuario solicitó ver el reporte de ventas semanales por dermoconsejera directamente en la plataforma web de sus supervisores para que puedan auditar los registros de su equipo (sus "niñas") y corregir lo que esté mal. Pidió que la tabla principal muestre exactamente los campos: `SUCURSAL`, `NOMBRE DC`, `SEM 1`, `SEM 2`, `SEM 3`, `SEM 4` y `VENTA POR SUCURSAL`, con colores gris/peach idénticos al Excel, y que calcule la suma total por sucursal y por dermo de manera consolidada.
+- **Causa Raíz / Retos Técnicos**: 
+  - La pantalla de ventas de supervisor (`VentasPanel.tsx`) no mostraba las herramientas comerciales, filtros de búsqueda, ni KPIs mensuales, ya que estaban protegidos bajo el rol de `ADMINISTRADOR`.
+  - La interfaz de captura de ventas (PWA offline) no es relevante para el supervisor, mientras que la analítica y el detalle semanal sí lo son.
+  - Para evitar fugas de información, las opciones de filtrado y el dataset debían restringirse automáticamente al equipo y tiendas del supervisor activo.
+- **Acciones Ejecutadas**:
+  - **Ampliación de Permisos de Visualización**: Creamos un helper `esVisualizador` para habilitar el panel comercial, filtros y métricas a los supervisores, coordinadores y administradores, ocultando a la vez el formulario de captura móvil que solo usan las dermoconsejeras.
+  - **Asegurar Scoping por Supervisor**: Si el rol del usuario es `SUPERVISOR`, inyectamos automáticamente su `empleadoId` para filtrar el dataset del cliente. Restringimos los dropdowns de "Dermoconsejera" y "Punto de Venta" para desplegar únicamente al personal y tiendas que registren ventas bajo su cargo.
+  - **Matriz Semanal Interactiva**: Implementamos un componente Card con sistema de pestañas (Tabs):
+    1. *Detalle Dermo + Sucursal*: Con las columnas idénticas al croquis (`SUCURSAL`, `NOMBRE DC`, `SEM 1` a `SEM 4`, y `VENTA POR SUCURSAL`) pintadas con colores de fondo de celda a juego con el Excel (`#AEAAAA` para nombres/sucursales, `#FCE4D6` para semanas y `#F8CBAD` para el total de la fila).
+    2. *Consolidado por Dermo*: Sumando todas las piezas vendidas de cada dermoconsejera.
+    3. *Consolidado por Sucursal*: Sumando todas las piezas vendidas por tienda.
+  - **Fila de Totales y Buscador Reactivo**: Agregamos filas de totalización general reactiva en la parte inferior de cada pestaña (los totales consolidados cuadran matemáticamente al 100%). Añadimos un buscador de texto local en la cabecera para filtrar instantáneamente por coincidencia de caracteres.
+  - **Calidad y Despliegue**: Verificamos que la compilación de OpenNext no tenga fallos y realizamos el deploy exitoso a Cloudflare Workers (`npm run deploy`) en la versión `c35915f0-29d8-4ebc-8260-fc0149fe30f1`.
+
+## [2026-06-16 15:06] - Feature: Reestructuración de Reporte de Ventas Excel y Aumento de Límite a 100k (Antigravity)
+
+- **Contexto**: El usuario solicitó aumentar el límite de visualización de ventas mensuales en el portal de supervisores de 15,000 a 100,000 registros para ver el volumen real reportado. También pidió reestructurar el reporte Excel de ventas mensuales de modo que agrupe las unidades vendidas por semana (Semana 1 a 4) y por Sucursal + Dermoconsejera, siguiendo un diseño visual en gris y peach con fórmulas de suma.
+- **Causa Raíz / Retos Técnicos**: 
+  - La consulta mensual en `ventaService.ts` tenía una barrera de seguridad de `15000` registros.
+  - Los datos agregados exportados anteriormente no estaban distribuidos por semanas (Días 1-7, 8-14, 15-21, 22-31) ni tenían el diseño específico solicitado.
+- **Acciones Ejecutadas**:
+  - **Ampliación de Límite en Backend**: Modificamos `ventaService.ts` para elevar el límite de corte a `100000` registros e incluir `id_cadena` del PDV en la selección y mapeo de datos de ventas.
+  - **Pasar Dataset Filtrado**: Actualizamos `VentasPanel.tsx` para pasar el `filteredDataset` del estado React del cliente a la utilidad de exportación.
+  - **Generación de Reporte Semanal**: Rediseñamos `ventaExport.ts` agregando la nueva pestaña principal **"Resumen de Ventas"** agrupada por Sucursal y Dermoconsejera, distribuyendo las unidades por semanas y formateando las celdas con estilos específicos (gris `#AEAAAA` para cabeceras base, peach `#FCE4D6` para semanas y peach oscuro `#F8CBAD` para totales). Agregamos fórmulas de Excel `SUM` en la fila final de totales.
+
+## [2026-06-15 19:00] - Feature: Reconstrucción y Alineación de PowerPoint de Dispersión de Mayo 2026 (Antigravity)
+
+- **Contexto**: El usuario solicitó alinear la presentación de PowerPoint de dispersión de mayo de 2026 (`Recepciones_Ultima_Milla_2026-05 (13).pptx`) con la hoja de cálculo de Excel (`Dispersión Mayo 2026.xlsx`) para que contenga exactamente las 269 entregas válidas en el orden estricto del Excel, resuelva duplicados, elimine diapositivas de prueba y asigne los receptores oficiales.
+- **Causa Raíz / Retos Técnicos**: 
+  - La presentación de referencia incluía diapositivas de prueba (`HECT TES 1`), duplicados e imágenes de campañas independientes (como la del 1 de Junio de Palacio Santa Fe).
+  - Entregas mensuales clave correspondientes a mayo (como María del Rocío en Santa Fe el 2 de junio y Olga Elizabeth en Polanco el 3 de junio) se realizaron en fechas tempranas de junio, por lo que debieron ser identificadas de forma cruzada.
+  - La tienda `S Pablo Cafetales` (Renglón 226 de Excel) no tenía diapositiva ni evidencias en la base de datos, requiriendo su creación desde cero con marcador de "Sin evidencia disponible".
+- **Acciones Ejecutadas**:
+  - **Mapeo de Datos en 3 Pasos (1-a-1 Único)**: Diseñamos e implementamos un algoritmo en `scratch/rebuild_may_ppt.cjs` que vincula de manera unívoca cada una de las 269 entregas en orden con su diapositiva original.
+  - **Extracción de Evidencias**: Analizamos las relaciones XML de cada diapositiva en `scratch/extracted_ppt/` para ubicar sus archivos de imagen y clasificarlos por coordenadas `x` (izquierda = Acuse, derecha = Entrega).
+  - **Normalización de Formatos**: Leímos los magic bytes de los archivos `.imagen-proxy` para detectar su tipo real (`.jpg` o `.png`), copiándolos a una carpeta temporal con su extensión adecuada antes de generarlos.
+  - **Construcción y Exportación**: Generamos el PowerPoint final en formato **16:9** utilizando `pptxgenjs` con la estética de la aplicación, guardando `Recepciones_Ultima_Milla_Mayo_2026_Corregido.pptx` (59.4 MB) en el directorio raíz y en la carpeta de artefactos de la sesión.
+
 ## [2026-06-13 10:05] - Feature: Actualización Integral del Catálogo de Productos ISDIN y Corrección en Portal de Captura (Antigravity)
 
 - **Contexto**: El usuario reportó que el equipo de campo no encontraba algunos productos en el portal público de dermoconsejo, ni por nombre ni por código, debido a discrepancias ortográficas, SKUs obsoletos/corruptos y nombres excesivamente abreviados en la base de datos (e.g. `nombre_corto` vs `nombre`). Solicitó alinear el catálogo al 100% de acuerdo con el documento de referencia `CATALOGO POR CATEGORÍA.docx`.
@@ -9014,3 +9070,17 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - **Ajustes en la API de PowerPoint (`src/app/api/reportes/ultima-milla-ppt-data/route.ts`)**:
   - Se inyectaron los mismos 6 identificadores de Palacio en `specificIds` para que el PowerPoint de Mayo exporte todas las evidencias y diapositivas de estas entregas rezagadas de Junio.
   - Se descargaron las 12 fotos de evidencia al directorio de artefactos y se consolidó el informe de evidencias en [reporte_evidencias_palacio.md](file:///C:/Users/Thunderobot%20Zero/.gemini/antigravity/brain/143a85ce-e02f-47e2-a5d0-8f2db1755764/reporte_evidencias_palacio.md).
+
+## 2026-06-15 17:43 - Filtro y Descarga de Dispersiones por Tipo de Dispersión (Antigravity)
+
+- **Intervención:** Separar los reportes de última milla (PowerPoint y Excel) y la visualización de la bitácora según el tipo de dispersión (`MENSUAL`, `ADICIONAL`, `EXCLUSIVA_CANJES`, etc.) para evitar mezclar campañas de canjes adicionales con el flujo del mes.
+- **Acciones Ejecutadas:**
+  1. **Utilería de Conciliación de Excel:** Modificamos el script `scratch/analyze_and_modify_new_excel_v3.cjs` para remover del arreglo `specificIds` (May mensual) los 2 IDs correspondientes a la campaña del 1 de junio (`c888c138-09f2-45e9-92ad-a6b43f2087b4` y `fb09636c-77fd-47cc-a5c4-71132c7c52cd`). Al re-ejecutar el script sobre el Excel limpio original, el cruce mensual de Mayo se actualizó correctamente (266 entregadas, 5 no entregadas y 6 no planificadas).
+  2. **API de PowerPoint (`src/app/api/reportes/ultima-milla-ppt-data/route.ts`):** Agregamos lectura del parámetro `tipoDispersion` (por defecto `'MENSUAL'`), join con `material_distribucion_mensual` filtrando por el tipo correspondiente, y condicionalización de los `specificIds` inyectados en Mayo para inyectar solo los que coinciden con el tipo de dispersión.
+  3. **API de Excel (`src/app/api/reportes/ultima-milla-xlsx/route.ts`):** Agregamos lectura del parámetro `tipoDispersion` e implementamos el mismo join y filtro por mes de operación y tipo, permitiendo que entregas rezagadas del mes anterior aparezcan de manera consistente con el PowerPoint.
+  4. **Servicio y Controlador del Panel (`reporteService.ts`, `route.ts`):** Agregamos el filtro `tipoDispersion` a la firma y filtros del panel de reportes, incluyendo soporte en la clave de caché y la inyección previa a la paginación.
+  5. **Componente de Interfaz (`ReportesPanel.tsx`):** Añadimos un select de "Tipo de dispersión" en el formulario de filtros a nivel de página (junto a Periodo y Filas por reporte) y un selector local en la tarjeta "Evidencias de Última Milla". Los enlaces de Excel y botones de PPT se propagan usando el tipo de dispersión activo.
+- **Validaciones:**
+  - Compilación de producción Next.js y empaquetado final para Cloudflare Workers (`npm run deploy`) ejecutados y validados con éxito.
+  - Ejecución de pruebas unitarias exitosa (4/4 tests pasados en vitest).
+

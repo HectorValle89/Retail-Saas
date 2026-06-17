@@ -1,0 +1,29 @@
+// Lista oficial de supervisores autorizados
+export const SUPERVISORES_OFICIALES = [
+  'MIGUEL ANGEL MONTAGNER OLIVARES',
+  'JONATAN RAYMUNDO CHAVEZ RAMOS',
+  'MARIA ZENAIDA MONROY GONZALEZ',
+  'JAVIER FLORES SALDAÑA',
+  'JACQUELINE LOPEZ RUIZ',
+  'XOCHITL CARRILLO XOCHIHUA',
+  'ANA CRISTINA ANIMAS SAUCEDO',
+  'ATZIN SUSANA AGUIRRE CAMACHO',
+  'LILIANA REYES AYBAR',
+  'MIRIAM ROCIO ESTRADA NAVA',
+  'MIGUEL ANGEL FERNANDEZ SANCHEZ',
+  'SILVIA BERENICE LOPEZ ESTRADA',
+  'REYNA BAUTISTA CORONA',
+  'MARUJA BETTY GUTIERREZ ROMERO',
+  'PALACIOS ZAPATA VANESA ALEJANDRA',
+  'LUZ EVELIA LOPEZ GUTIERREZ',
+  'GLORIA MARIBEL AVILA BELTRAN',
+  'MARIA TERESA CARREÑO MONREAL',
+  'JORGE DE JESÚS GODÍNEZ GARCÍA',
+] as const;
+
+export const PRENDAS_PERMITIDAS = ['Filipina', 'Pantalón'] as const;
+export const GENEROS_PERMITIDOS = ['Dama', 'Caballero'] as const;
+export const TALLAS_PERMITIDAS = ['CH', 'M', 'G', 'XL', '2XL', '3XL'] as const;
+
+// Mantener por compatibilidad con firmas de tipos si se requiere en algún otro archivo importador
+export const CATALOGO_CANJES_PROPUESTA: string[] = [];
