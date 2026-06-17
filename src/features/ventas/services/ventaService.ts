@@ -373,6 +373,39 @@ async function obtenerPanelVentasUncached(
       query = query.eq('supervisor_id', actorEmpleadoId);
     }
 
+    const [yearStr, monthStr] = currentMonth.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+    const lastDay = new Date(year, month, 0).getDate();
+    const monthStartIso = `${currentMonth}-01`;
+    const monthEndIso = `${currentMonth}-${lastDay}`;
+
+    // Query active assignments for the supervisor/client in the current month
+    let assignmentsQuery = supabase
+      .from('asignacion')
+      .select(`
+        empleado_id,
+        empleado:empleado_id(nombre_completo),
+        pdv_id,
+        pdv:pdv_id(id, clave_btl, nombre, zona, cadena_id),
+        supervisor_empleado_id
+      `)
+      .eq('estado_publicacion', 'PUBLICADA')
+      .lte('fecha_inicio', monthEndIso)
+      .or(`fecha_fin.is.null,fecha_fin.gte.${monthStartIso}`);
+
+    if (accountId) {
+      assignmentsQuery = assignmentsQuery.eq('cuenta_cliente_id', accountId);
+    }
+    if (actorPuesto === 'SUPERVISOR' && actorEmpleadoId) {
+      assignmentsQuery = assignmentsQuery.eq('supervisor_empleado_id', actorEmpleadoId);
+    }
+
+    const { data: asgData, error: asgError } = await assignmentsQuery;
+    if (asgError) {
+      console.error('[ventaService] Error querying active assignments:', asgError.message);
+    }
+
     // Query active employees to ensure we list all dermoconsejeras of the team
     let employeesQuery = supabase
       .from('empleado')
@@ -387,6 +420,12 @@ async function obtenerPanelVentasUncached(
     if (empError) {
       console.error('[ventaService] Error querying active employees:', empError.message);
     }
+
+    // Query cadenas for mapping
+    const { data: cadenasData } = await supabase
+      .from('cadena')
+      .select('id, nombre');
+    const cadenaMap = new Map((cadenasData ?? []).map((c: any) => [c.id, c.nombre]));
 
     const supervisorMap = new Map<string, string>();
     const activeDermos: any[] = [];
@@ -433,10 +472,39 @@ async function obtenerPanelVentasUncached(
       };
     });
 
-    // Merge active dermoconsejeras that have 0 sales in the current month
-    const dermosWithSales = new Set(dataset.map((row) => row.empleadoId));
+    const salesCombinations = new Set(dataset.map((row) => `${row.empleadoId}||${row.pdvId}`));
+
+    // 1. Merge active assignments that have 0 sales in the current month
+    (asgData ?? []).forEach((asg: any) => {
+      const key = `${asg.empleado_id}||${asg.pdv_id}`;
+      if (!salesCombinations.has(key)) {
+        dataset.push({
+          fechaOperacion: '',
+          weekBucket: '',
+          pdvId: asg.pdv_id,
+          pdvLabel: asg.pdv ? `${asg.pdv.clave_btl ?? 'SIN BTL'} - ${asg.pdv.nombre}` : 'PDV sin nombre',
+          pdvClaveBtl: asg.pdv?.clave_btl ?? 'SIN BTL',
+          pdvIdCadena: '',
+          pdvNombre: asg.pdv?.nombre ?? 'PDV sin nombre',
+          empleadoId: asg.empleado_id,
+          empleadoLabel: asg.empleado?.nombre_completo ?? 'Sin dermoconsejera',
+          supervisorId: asg.supervisor_empleado_id,
+          supervisorLabel: supervisorMap.get(asg.supervisor_empleado_id) || 'Sin supervisor',
+          zona: asg.pdv?.zona ?? 'Sin zona',
+          cadena: asg.pdv?.cadena_id ? (cadenaMap.get(asg.pdv.cadena_id) ?? 'Sin cadena') : 'Sin cadena',
+          totalUnidades: 0,
+          totalMonto: 0,
+          confirmada: true,
+          total: 0,
+        });
+        salesCombinations.add(key);
+      }
+    });
+
+    // 2. Merge any active employee who has no assignments at all
+    const dermosInDataset = new Set(dataset.map((row) => row.empleadoId));
     activeDermos.forEach((emp) => {
-      if (!dermosWithSales.has(emp.id)) {
+      if (!dermosInDataset.has(emp.id)) {
         dataset.push({
           fechaOperacion: '',
           weekBucket: '',
