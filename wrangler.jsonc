@@ -14,6 +14,22 @@
       "pattern": "www.beteele-one.com",
       "custom_domain": true,
     },
+    {
+      "pattern": "dermoconsejo.beteele-one.com",
+      "custom_domain": true,
+    },
+    {
+      "pattern": "mecanicas.beteele-one.com",
+      "custom_domain": true,
+    },
+    {
+      "pattern": "formularios.beteele-one.com",
+      "custom_domain": true,
+    },
+    {
+      "pattern": "reportes.beteele-one.com",
+      "custom_domain": true,
+    },
   ],
 
   "r2_buckets": [
@@ -33,7 +49,6 @@
     "TRANSACTIONAL_EMAIL_OVERRIDE_TO": "",
     "CLOUDFLARE_ACCOUNT_ID": "183b83e136c90324b838d8bfa0c6c7d6",
     "CLOUDFLARE_R2_BUCKET_NAME": "beteele-media-prod",
-    "RESEND_API_KEY": ""
   },
   "assets": {
     "directory": ".open-next/assets",
@@ -67,7 +82,6 @@
         "TRANSACTIONAL_EMAIL_OVERRIDE_TO": "hector@artolagroup.com",
         "CLOUDFLARE_ACCOUNT_ID": "183b83e136c90324b838d8bfa0c6c7d6",
         "CLOUDFLARE_R2_BUCKET_NAME": "beteele-media-prod",
-        "RESEND_API_KEY": ""
       },
       "services": [
         {

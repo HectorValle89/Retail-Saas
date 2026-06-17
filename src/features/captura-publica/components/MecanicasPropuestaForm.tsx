@@ -149,7 +149,7 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
       <header className="mb-8 text-center sm:text-left relative">
         <div className="absolute -top-6 -left-6 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         <p className="text-xs font-bold uppercase tracking-[0.24em] text-indigo-600 sm:text-left font-sans">
-          Operación Beteele
+          Formularios
         </p>
         <h1 className="mt-3 text-3xl sm:text-4xl font-black leading-tight text-slate-900 tracking-tight font-sans">
           Levantamiento de Uniformes
