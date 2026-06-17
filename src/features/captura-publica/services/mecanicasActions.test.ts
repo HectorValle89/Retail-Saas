@@ -164,28 +164,20 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     expect(resultNoAddress.message).toContain('La dirección completa de envío es obligatoria para ciudades foráneas');
   });
 
-  it('falla si el supervisor ya cuenta con un registro en el sistema para la misma ciudad', async () => {
+  it('permite registrar múltiples levantamientos de uniforme para la misma ciudad por el mismo supervisor', async () => {
+    const inserts: Array<any> = [];
+
     const serviceMock = {
       from(table: string) {
         if (table === 'levantamiento_uniforme') {
           return {
-            select() {
+            insert(row: any) {
+              inserts.push(row);
               return {
-                eq(col: string, val: string) {
-                  expect(col).toBe('supervisor_nombre');
-                  expect(val).toBe('MIGUEL ANGEL MONTAGNER OLIVARES');
+                select() {
                   return {
-                    eq(col2: string, val2: string) {
-                      expect(col2).toBe('ciudad_envio');
-                      expect(val2).toBe('GUADALAJARA');
-                      return {
-                        maybeSingle() {
-                          return Promise.resolve({
-                            data: { id: 'registro-previo', supervisor_nombre: 'MIGUEL ANGEL MONTAGNER OLIVARES', ciudad_envio: 'Guadalajara' },
-                            error: null,
-                          });
-                        },
-                      };
+                    maybeSingle() {
+                      return Promise.resolve({ data: { id: 'new-id' }, error: null });
                     },
                   };
                 },
@@ -213,8 +205,11 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
 
     const result = await registrarPropuestaMecanica('isdin-mexico', { ok: false, message: '' }, formData);
 
-    expect(result.ok).toBe(false);
-    expect(result.message).toContain('ya registró su uniforme para la ciudad');
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain('¡Registro de uniforme enviado con éxito!');
+    expect(inserts.length).toBe(1);
+    expect(inserts[0].supervisor_nombre).toBe('MIGUEL ANGEL MONTAGNER OLIVARES');
+    expect(inserts[0].ciudad_envio).toBe('GUADALAJARA'); // Normalizado a mayúsculas
   });
 
   it('registra exitosamente si el supervisor ya tiene registro en otra ciudad distinta', async () => {

@@ -127,23 +127,7 @@ export async function registrarPropuestaMecanica(
       }
     }
 
-    // Validar duplicidad para la combinación Supervisor + Ciudad de Envío
-    const { data: existeRegistro, error: checkError } = await service
-      .from('levantamiento_uniforme')
-      .select('id, supervisor_nombre, ciudad_envio')
-      .eq('supervisor_nombre', supervisorOficial)
-      .eq('ciudad_envio', ciudadEnvio)
-      .maybeSingle();
 
-    if (checkError) {
-      throw new Error(`Error de validación de duplicados: ${checkError.message}`);
-    }
-
-    if (existeRegistro) {
-      throw new Error(
-        `El supervisor "${supervisorOficial}" ya registró su uniforme para la ciudad de "${ciudadEnvio}" previamente. Para cualquier cambio, contacta a tu coordinador.`
-      );
-    }
 
     const requestMetadata = await buildRequestMetadata();
 

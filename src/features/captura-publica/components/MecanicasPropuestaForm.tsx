@@ -101,15 +101,7 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
     ];
   }, [data.ciudades]);
 
-  // Verificar si la combinación Supervisor + Ciudad seleccionada ya fue registrada
-  const isCiudadYaRegistrada = useMemo(() => {
-    if (!selectedSupervisor || !selectedCiudad) return false;
-    return data.supervisoresYaRegistrados.some(
-      (r) =>
-        r.supervisor.toUpperCase() === selectedSupervisor.toUpperCase() &&
-        r.ciudad.toUpperCase() === selectedCiudad.toUpperCase()
-    );
-  }, [selectedSupervisor, selectedCiudad, data.supervisoresYaRegistrados]);
+
 
   const addRow = () => {
     setRows((prev) => [
@@ -143,7 +135,6 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
   const isFormIncomplete = useMemo(() => {
     if (!selectedSupervisor) return true;
     if (!selectedCiudad) return true;
-    if (isCiudadYaRegistrada) return true;
     if (!recibeNombre.trim()) return true;
 
     // Validación de dirección de envío obligatoria
@@ -155,7 +146,7 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
 
     if (rows.length === 0) return true;
     return rows.some((r) => !r.prenda || !r.genero || !r.talla || r.cantidad <= 0);
-  }, [selectedSupervisor, selectedCiudad, isCiudadYaRegistrada, recibeNombre, direccionEnvio, reciboEnPersona, rows]);
+  }, [selectedSupervisor, selectedCiudad, recibeNombre, direccionEnvio, reciboEnPersona, rows]);
 
   const totalPiezas = useMemo(() => {
     return rows.reduce((acc, curr) => acc + curr.cantidad, 0);
@@ -324,11 +315,6 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
                   </div>
                 )}
 
-                {isCiudadYaRegistrada && (
-                  <p className="text-xs font-bold text-rose-600 font-sans bg-rose-50 border border-rose-100 px-3 py-1.5 rounded-xl">
-                    ⚠️ Ya has completado tu levantamiento para la ciudad de **{selectedCiudad}** anteriormente. No se admiten registros duplicados para la misma ciudad.
-                  </p>
-                )}
               </div>
             </div>
 
