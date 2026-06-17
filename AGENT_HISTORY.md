@@ -1,5 +1,29 @@
 # 📜 AGENT_HISTORY.md - Registro Maestro de la Fábrica
 
+## [2026-06-17 14:15] - Feature: Optimización de Base de Datos y Simplificación Integral del Panel de Ventas (Antigravity)
+
+- **Contexto**: El usuario reportó que al presionar F5 seguía viendo la pantalla completa con toda la información administrativa (métricas, transacciones, etc.) y que la carga era sumamente lenta. Esto ocurría porque su rol es de Administrador (y también afectaba a Coordinadores) y el sistema cargaba secuencialmente más de 23,000 registros para procesarlos en memoria del cliente.
+- **Causa Raíz / Retos Técnicos**: 
+  - La lógica de visibilidad en `VentasPanel.tsx` solo ocultaba componentes para el rol específico de `SUPERVISOR`, dejando la pantalla completa expuesta a Administradores y Coordinadores.
+  - La consulta mensual recorría recursivamente la tabla `venta` haciendo múltiples requests consecutivos de 1,000 registros para construir el dataset completo, provocando tiempos de carga de varios segundos.
+- **Acciones Ejecutadas**:
+  - **Base de Datos**: Creamos la vista agrupada `vista_venta_diaria_agrupada` que consolida las cantidades vendidas por día, empleado, tienda y estado de confirmación, pre-resolviendo los nombres de supervisores, cadenas y zonas.
+  - **Optimización en Backend**: Modificamos `ventaService.ts` para que, si el usuario es `ADMINISTRADOR`, `COORDINADOR` o `SUPERVISOR`, cargue únicamente el dataset agrupado de la vista en un solo request rápido. Omitimos queries secundarias de catálogo, cuotas e historial.
+  - **Simplificación en Interfaz (UI/UX)**: Definimos `esVisualizadorReporte` en `VentasPanel.tsx` para ocultar métricas de cabecera, transacciones recientes, colas de extemporáneos y tarjetas adicionales para administradores, coordinadores y supervisores. Ocultamos el encabezado `page-hero` en `page.tsx`.
+  - **Despliegue**: Compilamos y desplegamos la versión final de Wrangler exitosamente a producción.
+
+## [2026-06-17 11:05] - Feature: Botón de Reporte de Ventas y Simplificación del Panel para Supervisores (Antigravity)
+
+- **Contexto**: El usuario solicitó agregar un nuevo botón de **Reporte de ventas** en las **Acciones rápidas** del tablero principal de supervisores. Posteriormente, reportó que el botón redirigía a una pantalla general con demasiados reportes, métricas y listados detallados, requiriendo simplificar el panel para que el supervisor visualice exclusivamente el reporte de ventas semanal con desglose de semanas.
+- **Causa Raíz / Retos Técnicos**: 
+  - La página `/ventas` servía la misma vista densa a todos los visualizadores, incluyendo tarjetas de métricas del mes, desgloses acumulados (agregados Top 8), tabla histórica transaccional y cola de registros extemporáneos.
+  - Para el supervisor, toda esa información extra resultaba redundante y ruidosa, necesitando un foco exclusivo en la matriz semanal de su equipo.
+- **Acciones Ejecutadas**:
+  - **Botón en Dashboard (UI/UX)**: Modificamos [DashboardPanel.tsx](file:///d:/IA/Retail/src/features/dashboard/components/DashboardPanel.tsx) para insertar un botón tipo `Link` a `/ventas` con el icono `sales` y tonalidad verde suave (`border-emerald-200 bg-emerald-50 text-emerald-700`).
+  - **Filtro de Interfaz (UI/UX)**: Modificamos [VentasPanel.tsx](file:///d:/IA/Retail/src/features/ventas/components/VentasPanel.tsx) para condicionar las secciones del panel. Si el usuario es un `SUPERVISOR`, se ocultan por completo las métricas del mes, las 4 tarjetas de agregados de alcance, la cola de ventas tardías y la lista de transacciones recientes junto con su paginador.
+  - **Conservación de Funciones de Control**: Se mantuvo visible la barra de filtros del mes para permitir cambiar de periodo y descargar el reporte acumulado en Excel, y se desplegó únicamente la tarjeta interactiva de **"Reporte de Ventas Semanal"**.
+  - **Calidad y Despliegue**: Verificamos compilación Next.js, typecheck y realizamos el deploy a producción de forma exitosa en Cloudflare Workers con la versión `e7dfbead-eb7e-4f42-8dfa-a279393419cb`.
+
 ## [2026-06-16 19:20] - Feature: Sustitución de Mecánicas por Levantamiento de Uniformes de Supervisores con Soporte de Ciudad y Destinatario (Antigravity)
 
 - **Contexto**: El usuario solicitó dar de baja por completo la funcionalidad de "Mecánicas de Canje" de la plataforma y, en su lugar, implementar el "Levantamiento de Uniformes de Supervisores" para un grupo cerrado de 19 supervisores oficiales. El objetivo es recopilar sus necesidades de uniformes (Filipinas y Pantalones, género Dama/Caballero, y tallas CH a 3XL) en una única respuesta por supervisor, asociando obligatoriamente la Ciudad de Envío y el nombre de quien recibe para resolver la distribución logística del fabricante, y desplegar paneles administrativos de control de participación, consolidación agregada y desglose individual.
@@ -14,6 +38,10 @@
   - **Server Action y Servicios**: Reescribimos `mecanicasActions.ts` y `mecanicasService.ts` para aplicar validaciones del servidor contra las constantes de prendas, géneros y tallas permitidas, verificando la lista de los 19 supervisores, consultando las ciudades activas de la base de datos (`public.ciudad`) y bloqueando inserciones duplicadas.
   - **Panel de Reportes**: Reescribimos `MecanicasReportSection.tsx` y adaptamos `ReportesPanel.tsx` para mostrar KPIs principales, el Control de Participación con la lista ordenada de supervisores pendientes, el Pedido Consolidado ordenado jerárquicamente para el fabricante y el Desglose Detallado indicando Ciudad de Envío, Destinatario y con buscador local mejorado y exportador CSV con todos los campos.
   - **Calidad y Verificación**: Escribimos y aprobamos pruebas unitarias robustas en `mecanicasActions.test.ts` (`4 passed`), y corrimos con éxito el build de producción Next.js y el bundle de Cloudflare Workers OpenNext (`cf:build`).
+  - **Despliegue a Producción**: Ejecutamos la checklist de pre-producción (verificación RLS, encoding UTF-8, etc.) y realizamos el despliegue final exitoso en Cloudflare Workers (`npm run deploy`) bajo el Version ID `737abab5-a70f-4ace-98d2-650d7ec7edf7`, publicando los cambios en los dominios `mecanicas.beteele-one.com` y asociados.
+  - **Resolución de Error de Esquema Cache**: Creamos y ejecutamos el script transaccional `scripts/apply-levantamiento-uniforme.cjs` para aplicar la migración SQL directamente en la base de datos de producción de Supabase y forzar el refresco de caché de PostgREST (`NOTIFY pgrst, 'reload schema'`), resolviendo el error de tabla faltante en caliente de forma inmediata.
+
+
 
 ## [2026-06-16 18:57] - Feature: Reporte Semanal de Ventas Interactivo y Scoping por Supervisor en la UI (Antigravity)
 
