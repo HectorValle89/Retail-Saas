@@ -21,7 +21,7 @@ export const SUPERVISORES_OFICIALES = [
   'JORGE DE JESÚS GODÍNEZ GARCÍA',
 ] as const;
 
-export const PRENDAS_PERMITIDAS = ['Filipina', 'Pantalón'] as const;
+export const PRENDAS_PERMITIDAS = ['Filipina blanca', 'Filipina negra', 'Pantalón'] as const;
 export const GENEROS_PERMITIDOS = ['Dama', 'Caballero'] as const;
 export const TALLAS_PERMITIDAS = ['CH', 'M', 'G', 'XL', '2XL', '3XL'] as const;
 

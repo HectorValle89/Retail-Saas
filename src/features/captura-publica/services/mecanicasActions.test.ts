@@ -87,7 +87,7 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     formData.set(
       'prendas_json',
       JSON.stringify([
-        { prenda: 'Filipina', genero: 'Caballero', talla: 'CH', cantidad: 2 },
+        { prenda: 'Filipina blanca', genero: 'Caballero', talla: 'CH', cantidad: 2 },
         { prenda: 'Pantalón', genero: 'Caballero', talla: 'M', cantidad: 1 },
       ])
     );
@@ -135,7 +135,7 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     formDataNoCity.set('supervisor_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
     formDataNoCity.set('recibe_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
     formDataNoCity.set('direccion_envio', 'Av. Vallarta 1234');
-    formDataNoCity.set('prendas_json', JSON.stringify([{ prenda: 'Filipina', genero: 'Caballero', talla: 'CH', cantidad: 1 }]));
+    formDataNoCity.set('prendas_json', JSON.stringify([{ prenda: 'Filipina blanca', genero: 'Caballero', talla: 'CH', cantidad: 1 }]));
 
     const resultNoCity = await registrarPropuestaMecanica('isdin-mexico', { ok: false, message: '' }, formDataNoCity);
     expect(resultNoCity.ok).toBe(false);
@@ -146,7 +146,7 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     formDataNoReceiver.set('supervisor_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
     formDataNoReceiver.set('ciudad_envio', 'Guadalajara');
     formDataNoReceiver.set('direccion_envio', 'Av. Vallarta 1234');
-    formDataNoReceiver.set('prendas_json', JSON.stringify([{ prenda: 'Filipina', genero: 'Caballero', talla: 'CH', cantidad: 1 }]));
+    formDataNoReceiver.set('prendas_json', JSON.stringify([{ prenda: 'Filipina blanca', genero: 'Caballero', talla: 'CH', cantidad: 1 }]));
 
     const resultNoReceiver = await registrarPropuestaMecanica('isdin-mexico', { ok: false, message: '' }, formDataNoReceiver);
     expect(resultNoReceiver.ok).toBe(false);
@@ -157,7 +157,7 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     formDataNoAddress.set('supervisor_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
     formDataNoAddress.set('ciudad_envio', 'Guadalajara');
     formDataNoAddress.set('recibe_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
-    formDataNoAddress.set('prendas_json', JSON.stringify([{ prenda: 'Filipina', genero: 'Caballero', talla: 'CH', cantidad: 1 }]));
+    formDataNoAddress.set('prendas_json', JSON.stringify([{ prenda: 'Filipina blanca', genero: 'Caballero', talla: 'CH', cantidad: 1 }]));
 
     const resultNoAddress = await registrarPropuestaMecanica('isdin-mexico', { ok: false, message: '' }, formDataNoAddress);
     expect(resultNoAddress.ok).toBe(false);
@@ -207,7 +207,7 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     formData.set(
       'prendas_json',
       JSON.stringify([
-        { prenda: 'Filipina', genero: 'Caballero', talla: 'CH', cantidad: 2 },
+        { prenda: 'Filipina blanca', genero: 'Caballero', talla: 'CH', cantidad: 2 },
       ])
     );
 
@@ -329,7 +329,7 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     formData.set(
       'prendas_json',
       JSON.stringify([
-        { prenda: 'Filipina', genero: 'Caballero', talla: 'CH', cantidad: 1 },
+        { prenda: 'Filipina blanca', genero: 'Caballero', talla: 'CH', cantidad: 1 },
       ])
     );
 

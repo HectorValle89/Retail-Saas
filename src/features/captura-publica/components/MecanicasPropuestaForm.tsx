@@ -52,7 +52,7 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
   }, [selectedCiudad]);
 
   const [rows, setRows] = useState<PrendaRow[]>([
-    { id: 'initial-row', prenda: 'Filipina', genero: 'Dama', talla: 'M', cantidad: 1 },
+    { id: 'initial-row', prenda: 'Filipina blanca', genero: 'Dama', talla: 'M', cantidad: 1 },
   ]);
 
   // Sincronizar el nombre del supervisor con el destinatario por defecto
@@ -116,7 +116,7 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
       ...prev,
       {
         id: `row-${Date.now()}-${Math.random()}`,
-        prenda: 'Filipina',
+        prenda: 'Filipina blanca',
         genero: 'Dama',
         talla: 'M',
         cantidad: 1,
@@ -354,98 +354,109 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
                 {rows.map((row, index) => (
                   <div
                     key={row.id}
-                    className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm relative group transition-all duration-200 hover:border-slate-200"
+                    className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm relative group transition-all duration-200 hover:border-slate-200 flex flex-col gap-3"
                   >
-                    {/* Prenda */}
-                    <div className="flex-1 min-w-[120px]">
-                      <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Prenda
-                      </span>
-                      <select
-                        value={row.prenda}
-                        onChange={(e) => updateRowField(row.id, 'prenda', e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-slate-100"
-                      >
-                        {data.prendasPermitidas.map((p) => (
-                          <option key={p} value={p}>
-                            {p}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Género */}
-                    <div className="flex-1 min-w-[100px]">
-                      <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Género
-                      </span>
-                      <select
-                        value={row.genero}
-                        onChange={(e) => updateRowField(row.id, 'genero', e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-slate-100"
-                      >
-                        {data.generosPermitidos.map((g) => (
-                          <option key={g} value={g}>
-                            {g}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Talla */}
-                    <div className="flex-1 min-w-[90px]">
-                      <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Talla
-                      </span>
-                      <select
-                        value={row.talla}
-                        onChange={(e) => updateRowField(row.id, 'talla', e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-slate-100"
-                      >
-                        {data.tallasPermitidas.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Cantidad con botones interactivos */}
-                    <div className="w-full sm:w-[110px] flex-shrink-0">
-                      <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Cantidad
-                      </span>
-                      <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden h-9">
-                        <button
-                          type="button"
-                          onClick={() => updateRowField(row.id, 'cantidad', Math.max(1, row.cantidad - 1))}
-                          className="w-9 h-full flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold active:bg-slate-200 border-r border-slate-200 transition-colors"
-                        >
-                          -
-                        </button>
-                        <span className="flex-1 text-center text-xs font-bold text-slate-800">
-                          {row.cantidad}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+                      {/* Prenda */}
+                      <div className="flex-1 min-w-[120px]">
+                        <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Prenda
                         </span>
+                        <select
+                          value={row.prenda}
+                          onChange={(e) => updateRowField(row.id, 'prenda', e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        >
+                          {data.prendasPermitidas.map((p) => (
+                            <option key={p} value={p}>
+                              {p}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Género */}
+                      <div className="flex-1 min-w-[100px]">
+                        <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Género
+                        </span>
+                        <select
+                          value={row.genero}
+                          onChange={(e) => updateRowField(row.id, 'genero', e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        >
+                          {data.generosPermitidos.map((g) => (
+                            <option key={g} value={g}>
+                              {g}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Talla */}
+                      <div className="flex-1 min-w-[90px]">
+                        <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Talla
+                        </span>
+                        <select
+                          value={row.talla}
+                          onChange={(e) => updateRowField(row.id, 'talla', e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        >
+                          {data.tallasPermitidas.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Cantidad con botones interactivos */}
+                      <div className="w-full sm:w-[110px] flex-shrink-0">
+                        <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Cantidad
+                        </span>
+                        <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden h-9">
+                          <button
+                            type="button"
+                            onClick={() => updateRowField(row.id, 'cantidad', Math.max(1, row.cantidad - 1))}
+                            className="w-9 h-full flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold active:bg-slate-200 border-r border-slate-200 transition-colors"
+                          >
+                            -
+                          </button>
+                          <span className="flex-1 text-center text-xs font-bold text-slate-800">
+                            {row.cantidad}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => updateRowField(row.id, 'cantidad', Math.min(10, row.cantidad + 1))}
+                            className="w-9 h-full flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold active:bg-slate-200 border-l border-slate-200 transition-colors"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Botón Eliminar */}
+                      {rows.length > 1 && (
                         <button
                           type="button"
-                          onClick={() => updateRowField(row.id, 'cantidad', Math.min(10, row.cantidad + 1))}
-                          className="w-9 h-full flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold active:bg-slate-200 border-l border-slate-200 transition-colors"
+                          onClick={() => removeRow(row.id)}
+                          className="h-9 w-9 flex items-center justify-center rounded-xl text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-all border border-transparent hover:border-rose-100 active:scale-[0.97]"
+                          title="Eliminar esta prenda"
                         >
-                          +
+                          🗑️
                         </button>
-                      </div>
+                      )}
                     </div>
 
-                    {/* Botón Eliminar */}
-                    {rows.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeRow(row.id)}
-                        className="h-9 w-9 flex items-center justify-center rounded-xl text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-all border border-transparent hover:border-rose-100 active:scale-[0.97]"
-                        title="Eliminar esta prenda"
-                      >
-                        🗑️
-                      </button>
+                    {row.prenda === 'Filipina negra' && (
+                      <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl text-[11px] text-amber-900 font-sans flex items-start gap-2 shadow-sm">
+                        <span className="text-sm leading-none">⚠️</span>
+                        <div>
+                          <span className="font-bold">Exclusivo Palacio de Hierro:</span> La Filipina negra es únicamente para personal de Palacio de Hierro y requiere autorización previa de coordinación para mandar el paquete del uniforme.
+                        </div>
+                      </div>
                     )}
                   </div>
                 ))}
