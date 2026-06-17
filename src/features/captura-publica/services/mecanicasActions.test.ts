@@ -83,6 +83,7 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     formData.set('supervisor_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
     formData.set('ciudad_envio', 'Guadalajara');
     formData.set('recibe_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
+    formData.set('direccion_envio', 'Av. Vallarta 1234, Col. Americana, CP 44160');
     formData.set(
       'prendas_json',
       JSON.stringify([
@@ -97,8 +98,9 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     expect(result.message).toContain('¡Registro de uniforme enviado con éxito!');
     expect(inserts.length).toBe(1);
     expect(inserts[0].supervisor_nombre).toBe('MIGUEL ANGEL MONTAGNER OLIVARES');
-    expect(inserts[0].ciudad_envio).toBe('Guadalajara');
+    expect(inserts[0].ciudad_envio).toBe('GUADALAJARA');
     expect(inserts[0].recibe_nombre).toBe('MIGUEL ANGEL MONTAGNER OLIVARES');
+    expect(inserts[0].direccion_envio).toBe('Av. Vallarta 1234, Col. Americana, CP 44160');
     expect(inserts[0].prendas).toHaveLength(2);
     expect(inserts[0].cuenta_cliente_id).toBe('cuenta-isdin');
   });
@@ -132,6 +134,7 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     const formDataNoCity = new FormData();
     formDataNoCity.set('supervisor_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
     formDataNoCity.set('recibe_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
+    formDataNoCity.set('direccion_envio', 'Av. Vallarta 1234');
     formDataNoCity.set('prendas_json', JSON.stringify([{ prenda: 'Filipina', genero: 'Caballero', talla: 'CH', cantidad: 1 }]));
 
     const resultNoCity = await registrarPropuestaMecanica('isdin-mexico', { ok: false, message: '' }, formDataNoCity);
@@ -142,11 +145,23 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     const formDataNoReceiver = new FormData();
     formDataNoReceiver.set('supervisor_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
     formDataNoReceiver.set('ciudad_envio', 'Guadalajara');
+    formDataNoReceiver.set('direccion_envio', 'Av. Vallarta 1234');
     formDataNoReceiver.set('prendas_json', JSON.stringify([{ prenda: 'Filipina', genero: 'Caballero', talla: 'CH', cantidad: 1 }]));
 
     const resultNoReceiver = await registrarPropuestaMecanica('isdin-mexico', { ok: false, message: '' }, formDataNoReceiver);
     expect(resultNoReceiver.ok).toBe(false);
     expect(resultNoReceiver.message).toContain('El nombre de quien recibe es obligatorio');
+
+    // Caso: Ciudad foránea sin dirección de envío
+    const formDataNoAddress = new FormData();
+    formDataNoAddress.set('supervisor_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
+    formDataNoAddress.set('ciudad_envio', 'Guadalajara');
+    formDataNoAddress.set('recibe_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
+    formDataNoAddress.set('prendas_json', JSON.stringify([{ prenda: 'Filipina', genero: 'Caballero', talla: 'CH', cantidad: 1 }]));
+
+    const resultNoAddress = await registrarPropuestaMecanica('isdin-mexico', { ok: false, message: '' }, formDataNoAddress);
+    expect(resultNoAddress.ok).toBe(false);
+    expect(resultNoAddress.message).toContain('La dirección completa de envío es obligatoria para ciudades foráneas');
   });
 
   it('falla si el supervisor ya cuenta con un registro en el sistema para la misma ciudad', async () => {
@@ -162,7 +177,7 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
                   return {
                     eq(col2: string, val2: string) {
                       expect(col2).toBe('ciudad_envio');
-                      expect(val2).toBe('Guadalajara');
+                      expect(val2).toBe('GUADALAJARA');
                       return {
                         maybeSingle() {
                           return Promise.resolve({
@@ -188,6 +203,7 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     formData.set('supervisor_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
     formData.set('ciudad_envio', 'Guadalajara');
     formData.set('recibe_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
+    formData.set('direccion_envio', 'Av. Vallarta 1234');
     formData.set(
       'prendas_json',
       JSON.stringify([
@@ -248,6 +264,7 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
     formData.set('supervisor_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
     formData.set('ciudad_envio', 'Monterrey'); // Ciudad distinta a Guadalajara
     formData.set('recibe_nombre', 'LILIANA REYES AYBAR');
+    formData.set('direccion_envio', 'Av. Constitucion 456');
     formData.set(
       'prendas_json',
       JSON.stringify([
@@ -259,6 +276,68 @@ describe('registrarPropuestaMecanica (Levantamiento de Uniformes)', () => {
 
     expect(result.ok).toBe(true);
     expect(inserts.length).toBe(1);
-    expect(inserts[0].ciudad_envio).toBe('Monterrey');
+    expect(inserts[0].ciudad_envio).toBe('MONTERREY');
+  });
+
+  it('registra exitosamente en CDMX con dirección vacía y asigna default presencial', async () => {
+    const inserts: Array<any> = [];
+    const serviceMock = {
+      from(table: string) {
+        if (table === 'levantamiento_uniforme') {
+          return {
+            select() {
+              return {
+                eq() {
+                  return {
+                    eq() {
+                      return {
+                        maybeSingle() {
+                          return Promise.resolve({ data: null, error: null });
+                        },
+                      };
+                    },
+                  };
+                },
+              };
+            },
+            insert(payload: any) {
+              inserts.push(payload);
+              return {
+                select() {
+                  return {
+                    maybeSingle() {
+                      return Promise.resolve({ data: { id: 'registro-cdmx-123' }, error: null });
+                    },
+                  };
+                },
+              };
+            },
+          };
+        }
+        throw new Error(`Unexpected table ${table}`);
+      },
+    };
+
+    createServiceClientMock.mockReturnValue(serviceMock);
+
+    const formData = new FormData();
+    formData.set('supervisor_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
+    formData.set('ciudad_envio', 'Ciudad de México');
+    formData.set('recibe_nombre', 'MIGUEL ANGEL MONTAGNER OLIVARES');
+    // Dejar direccion_envio vacía para simular que no se rellenó (entrega presencial)
+    formData.set('direccion_envio', '');
+    formData.set(
+      'prendas_json',
+      JSON.stringify([
+        { prenda: 'Filipina', genero: 'Caballero', talla: 'CH', cantidad: 1 },
+      ])
+    );
+
+    const result = await registrarPropuestaMecanica('isdin-mexico', { ok: false, message: '' }, formData);
+
+    expect(result.ok).toBe(true);
+    expect(inserts.length).toBe(1);
+    expect(inserts[0].ciudad_envio).toBe('CIUDAD DE MÉXICO');
+    expect(inserts[0].direccion_envio).toBe('ENTREGA PRESENCIAL (RECIBO EN PERSONA)');
   });
 });

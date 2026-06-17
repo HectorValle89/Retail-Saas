@@ -12,6 +12,7 @@ export interface LevantamientoUniformeRow {
   supervisor_nombre: string;
   ciudad_envio: string;
   recibe_nombre: string;
+  direccion_envio: string;
   prendas: UniformePrendaItem[];
   fecha_creacion: string;
 }
@@ -24,7 +25,7 @@ export async function obtenerPropuestasMecanicas(
   const service = createServiceClient();
   const { data, error } = await service
     .from('levantamiento_uniforme')
-    .select('id, supervisor_nombre, ciudad_envio, recibe_nombre, prendas, fecha_creacion')
+    .select('id, supervisor_nombre, ciudad_envio, recibe_nombre, direccion_envio, prendas, fecha_creacion')
     .eq('cuenta_cliente_id', cuentaClienteId)
     .order('supervisor_nombre', { ascending: true });
 

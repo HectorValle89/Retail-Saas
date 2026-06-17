@@ -9,6 +9,7 @@ import {
   GENEROS_PERMITIDOS,
   TALLAS_PERMITIDAS,
 } from './mecanicasConstants';
+import { normalizarCiudad } from './mecanicasService';
 
 export interface MecanicasActionState {
   ok: boolean;
@@ -46,16 +47,30 @@ export async function registrarPropuestaMecanica(
     const link = await obtenerCapturaPublicaLinkParaRegistro(service, slug);
 
     const supervisorNombre = normalizeText(formData.get('supervisor_nombre'));
-    const ciudadEnvio = normalizeText(formData.get('ciudad_envio'));
+    const ciudadEnvioRaw = normalizeText(formData.get('ciudad_envio'));
     const recibeNombre = normalizeText(formData.get('recibe_nombre'));
+    const direccionEnvioRaw = normalizeText(formData.get('direccion_envio'));
     const prendasJsonRaw = normalizeText(formData.get('prendas_json'));
 
     if (!supervisorNombre) {
       throw new Error('El nombre del supervisor es obligatorio.');
     }
 
-    if (!ciudadEnvio) {
+    if (!ciudadEnvioRaw) {
       throw new Error('La ciudad de envío es obligatoria para la logística de entrega.');
+    }
+
+    const ciudadEnvio = normalizarCiudad(ciudadEnvioRaw);
+
+    let direccionEnvio = direccionEnvioRaw;
+    if (ciudadEnvio === 'CIUDAD DE MÉXICO') {
+      if (!direccionEnvio || direccionEnvio.trim() === '') {
+        direccionEnvio = 'ENTREGA PRESENCIAL (RECIBO EN PERSONA)';
+      }
+    } else {
+      if (!direccionEnvio || direccionEnvio.trim() === '') {
+        throw new Error('La dirección completa de envío es obligatoria para ciudades foráneas.');
+      }
     }
 
     if (!recibeNombre) {
@@ -140,6 +155,7 @@ export async function registrarPropuestaMecanica(
         supervisor_nombre: supervisorOficial,
         ciudad_envio: ciudadEnvio,
         recibe_nombre: recibeNombre,
+        direccion_envio: direccionEnvio,
         prendas: prendas.map(({ prenda, genero, talla, cantidad }) => ({
           prenda,
           genero,

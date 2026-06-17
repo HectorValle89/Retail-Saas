@@ -38,9 +38,18 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
   const [selectedSupervisor, setSelectedSupervisor] = useState('');
   const [selectedCiudad, setSelectedCiudad] = useState('');
   const [recibeNombre, setRecibeNombre] = useState('');
+  const [direccionEnvio, setDireccionEnvio] = useState('');
+  const [reciboEnPersona, setReciboEnPersona] = useState(false);
   
   // Rastrear si el usuario modificó manualmente el campo "Quién recibe"
   const [isRecibeEditedManually, setIsRecibeEditedManually] = useState(false);
+
+  // Resetear recibo en persona si cambia la ciudad y no es CDMX
+  useEffect(() => {
+    if (selectedCiudad !== 'CIUDAD DE MÉXICO') {
+      setReciboEnPersona(false);
+    }
+  }, [selectedCiudad]);
 
   const [rows, setRows] = useState<PrendaRow[]>([
     { id: 'initial-row', prenda: 'Filipina', genero: 'Dama', talla: 'M', cantidad: 1 },
@@ -136,9 +145,17 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
     if (!selectedCiudad) return true;
     if (isCiudadYaRegistrada) return true;
     if (!recibeNombre.trim()) return true;
+
+    // Validación de dirección de envío obligatoria
+    if (selectedCiudad !== 'CIUDAD DE MÉXICO') {
+      if (!direccionEnvio.trim()) return true;
+    } else if (!reciboEnPersona) {
+      if (!direccionEnvio.trim()) return true;
+    }
+
     if (rows.length === 0) return true;
     return rows.some((r) => !r.prenda || !r.genero || !r.talla || r.cantidad <= 0);
-  }, [selectedSupervisor, selectedCiudad, isCiudadYaRegistrada, recibeNombre, rows]);
+  }, [selectedSupervisor, selectedCiudad, isCiudadYaRegistrada, recibeNombre, direccionEnvio, reciboEnPersona, rows]);
 
   const totalPiezas = useMemo(() => {
     return rows.reduce((acc, curr) => acc + curr.cantidad, 0);
@@ -183,6 +200,9 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
               </p>
               <p className="text-xs text-slate-600 font-sans">
                 📦 Recibe: {recibeNombre}
+              </p>
+              <p className="text-xs text-slate-600 font-sans">
+                🏠 Dirección: {reciboEnPersona ? 'Entrega Presencial' : direccionEnvio}
               </p>
               <div className="border-t border-slate-100 my-2 pt-2 space-y-1">
                 {rows.map((r, i) => (
@@ -247,6 +267,62 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
                     />
                   </div>
                 </div>
+
+                {/* 1.2. Dirección de Envío */}
+                {selectedCiudad && (
+                  <div className="border-t border-slate-100 pt-4 space-y-3">
+                    {selectedCiudad === 'CIUDAD DE MÉXICO' && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="recibo_en_persona"
+                          checked={reciboEnPersona}
+                          onChange={(e) => {
+                            setReciboEnPersona(e.target.checked);
+                            if (e.target.checked) {
+                              setDireccionEnvio('');
+                            }
+                          }}
+                          className="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500 focus:ring-offset-0 transition-colors"
+                        />
+                        <label
+                          htmlFor="recibo_en_persona"
+                          className="text-xs font-bold text-slate-700 select-none cursor-pointer font-sans"
+                        >
+                          📍 Recibo en persona / Entrega presencial en CDMX
+                        </label>
+                      </div>
+                    )}
+
+                    {!reciboEnPersona ? (
+                      <div>
+                        <label
+                          htmlFor="direccion_envio"
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-foreground-tertiary"
+                        >
+                          Dirección Completa de Envío <span className="text-rose-500 font-sans font-bold">*</span>
+                        </label>
+                        <textarea
+                          id="direccion_envio"
+                          name="direccion_envio"
+                          rows={2}
+                          className="flex min-h-[70px] w-full rounded-xl border border-slate-200 bg-background px-3.5 py-2 text-xs font-medium text-foreground-primary shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100 resize-y"
+                          placeholder="Calle, número, colonia, delegación/municipio, código postal, estado y referencias del lugar..."
+                          value={direccionEnvio}
+                          onChange={(e) => setDireccionEnvio(e.target.value)}
+                          required={selectedCiudad !== 'CIUDAD DE MÉXICO' || !reciboEnPersona}
+                        />
+                      </div>
+                    ) : (
+                      <div className="p-4 bg-indigo-50/50 border border-indigo-100/50 rounded-2xl text-indigo-950 font-sans shadow-sm">
+                        <p className="text-xs font-semibold leading-relaxed">
+                          ✨ **Entrega presencial seleccionada:** Recibirás tus uniformes personalmente. No es necesario ingresar una dirección física.
+                        </p>
+                        <input type="hidden" name="direccion_envio" value="ENTREGA PRESENCIAL (RECIBO EN PERSONA)" />
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {isCiudadYaRegistrada && (
                   <p className="text-xs font-bold text-rose-600 font-sans bg-rose-50 border border-rose-100 px-3 py-1.5 rounded-xl">

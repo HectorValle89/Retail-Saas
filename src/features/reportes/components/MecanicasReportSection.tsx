@@ -121,6 +121,7 @@ export function MecanicasReportSection() {
       'Supervisor',
       'Ciudad de Envío',
       'Quién Recibe',
+      'Dirección de Envío',
       'Prenda',
       'Género',
       'Talla',
@@ -136,6 +137,7 @@ export function MecanicasReportSection() {
           reg.supervisor_nombre,
           reg.ciudad_envio,
           reg.recibe_nombre,
+          reg.direccion_envio || '',
           item.prenda,
           item.genero,
           item.talla,
@@ -373,6 +375,9 @@ export function MecanicasReportSection() {
                     </p>
                     <p className="text-[10px] text-slate-600 font-bold">
                       👤 Recibe: <span className="text-slate-800 font-extrabold">{reg.recibe_nombre}</span>
+                    </p>
+                    <p className="text-[10px] text-slate-600 font-bold">
+                      🏠 Dirección: <span className="text-slate-800 font-extrabold line-clamp-2" title={reg.direccion_envio}>{reg.direccion_envio || 'N/A'}</span>
                     </p>
                   </div>
                   <p className="text-[9px] text-slate-450 mt-2">
