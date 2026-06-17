@@ -454,7 +454,7 @@ export function MecanicasPropuestaForm({ slug, data }: MecanicasPropuestaFormPro
                       <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl text-[11px] text-amber-900 font-sans flex items-start gap-2 shadow-sm">
                         <span className="text-sm leading-none">⚠️</span>
                         <div>
-                          <span className="font-bold">Exclusivo Palacio de Hierro:</span> La Filipina negra es únicamente para personal de Palacio de Hierro y requiere autorización previa de coordinación para mandar el paquete del uniforme.
+                          <span className="font-bold">Exclusivo Palacio de Hierro y Sephora:</span> La Filipina negra es únicamente para personal de Palacio de Hierro y Sephora, y requiere autorización previa de coordinación para mandar el paquete del uniforme.
                         </div>
                       </div>
                     )}
