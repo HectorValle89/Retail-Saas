@@ -1,30 +1,43 @@
-'use client'
+'use client';
 
-import { startTransition, useActionState, useCallback, useEffect, useMemo, useState, useTransition, type ReactNode } from 'react'
-import { useFormStatus } from 'react-dom'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
-import { MexicoMap, type MexicoMapPoint } from '@/components/maps/MexicoMap'
-import { ModalPanel } from '@/components/ui/modal-panel'
-import { PremiumLineIcon } from '@/components/ui/premium-icons'
-import { Select } from '@/components/ui/select'
-import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog'
+import {
+  startTransition,
+  useActionState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+  type ReactNode,
+} from 'react';
+import { useFormStatus } from 'react-dom';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
+import { MexicoMap, type MexicoMapPoint } from '@/components/maps/MexicoMap';
+import { ModalPanel } from '@/components/ui/modal-panel';
+import { PremiumLineIcon } from '@/components/ui/premium-icons';
+import { Select } from '@/components/ui/select';
+import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog';
 import {
   calcularHashArchivo,
   captureAttendancePosition,
   stampAttendanceSelfie,
   type AttendanceGpsState,
   type CapturedPosition,
-} from '@/features/asistencias/lib/attendanceCapture'
-import type { ActorActual } from '@/lib/auth/session'
-import { injectDirectR2Upload } from '@/lib/storage/directR2Client'
-import { useScopedWidgetData } from '@/lib/ui-change/client'
-import { getUiChangeScopeKeysForActor, type UiChangeVersionRow } from '@/lib/ui-change/types'
+} from '@/features/asistencias/lib/attendanceCapture';
+import type { ActorActual } from '@/lib/auth/session';
+import { injectDirectR2Upload } from '@/lib/storage/directR2Client';
+import { VisitasOperativasDemandCard } from '@/features/reportes/components/VisitasOperativasDemandCard';
+import { VisitasSupervisoresDemandCard } from '@/features/reportes/components/VisitasSupervisoresDemandCard';
+import { useScopedWidgetData } from '@/lib/ui-change/client';
+import { getUiChangeScopeKeysForActor, type UiChangeVersionRow } from '@/lib/ui-change/types';
 import {
   actualizarControlRutaSemanal,
+  aprobarRutasMesCompleto,
   guardarPlaneacionRutaSemanalCanvas,
+  guardarPlaneacionRutaMensualCanvas,
   registrarEvidenciaEventoAgendaRutaSemanal,
   registrarEventoAgendaRutaSemanal,
   registrarInicioVisitaRutaSemanal,
@@ -32,23 +45,30 @@ import {
   resolverEventoAgendaRutaSemanal,
   resolverSolicitudCambioRutaSemanal,
   solicitarCambioRutaSemanal,
-} from '../actions'
-import { SupervisorTodayRouteSheet } from './SupervisorTodayRouteSheet'
+} from '../actions';
+import { SupervisorTodayRouteSheet } from './SupervisorTodayRouteSheet';
 import {
   getWeekStartIso,
   getWeekDayLabel,
   getWeekEndIso,
   normalizeWeekStart,
   WEEK_DAY_OPTIONS,
-} from '../lib/weeklyRoute'
+} from '../lib/weeklyRoute';
+import {
+  getPlanningMonthIso,
+  getPlanningMonthWeeks,
+  getPlanningMonthOptions,
+  formatPlanningMonthLabel,
+  cloneWeeklyPlanToMonthVisits,
+} from '../lib/monthPlanning';
 import {
   getCoordinatorInitialWeekStart,
   getCurrentOrFutureRoutes,
   getPlanningRouteForWeek,
   isApprovedOperationalRoute,
-} from '../lib/routeWorkspace'
-import type { RutaApprovalState } from '../lib/routeWorkflow'
-import { ESTADO_RUTA_INICIAL } from '../state'
+} from '../lib/routeWorkspace';
+import type { RutaApprovalState } from '../lib/routeWorkflow';
+import { ESTADO_RUTA_INICIAL } from '../state';
 import type {
   RutaAgendaEventoItem,
   RutaAgendaOperativaDia,
@@ -59,43 +79,43 @@ import type {
   RutaSemanalPanelData,
   RutaSemanalVisitItem,
   RutaSupervisorWarRoomItem,
-} from '../services/rutaSemanalService'
+} from '../services/rutaSemanalService';
 
-type WarRoomTab = 'quotas' | 'routes' | 'coverage' | 'reach'
-type SupervisorRouteTab = 'agenda' | 'planning' | 'corrections' | 'history'
-type CoordinatorKanbanColumnKey = 'ENVIADAS' | 'AJUSTES' | 'PUBLICADAS' | 'CERRADAS'
+type WarRoomTab = 'quotas' | 'routes' | 'coverage' | 'reach' | 'ranking' | 'evidencias';
+type SupervisorRouteTab = 'agenda' | 'planning' | 'corrections' | 'history';
+type CoordinatorKanbanColumnKey = 'FALTANTES' | 'ENVIADAS' | 'AJUSTES' | 'PUBLICADAS' | 'CERRADAS';
 
-type UnifiedDayEditorMode = 'CHANGE' | 'EVENT'
+type UnifiedDayEditorMode = 'CHANGE' | 'EVENT';
 
 function scheduleEffectStateUpdate(update: () => void) {
-  let cancelled = false
+  let cancelled = false;
   const run = () => {
     if (!cancelled) {
-      startTransition(update)
+      startTransition(update);
     }
-  }
+  };
 
   if (typeof queueMicrotask === 'function') {
-    queueMicrotask(run)
+    queueMicrotask(run);
     return () => {
-      cancelled = true
-    }
+      cancelled = true;
+    };
   }
 
-  const timeoutId = window.setTimeout(run, 0)
+  const timeoutId = window.setTimeout(run, 0);
   return () => {
-    cancelled = true
-    window.clearTimeout(timeoutId)
-  }
+    cancelled = true;
+    window.clearTimeout(timeoutId);
+  };
 }
 
 interface AgendaEventEvidenceDraft {
-  file: File
-  previewUrl: string
-  hash: string
-  capturedAt: string
-  position: CapturedPosition
-  gpsState: AttendanceGpsState
+  file: File;
+  previewUrl: string;
+  hash: string;
+  capturedAt: string;
+  position: CapturedPosition;
+  gpsState: AttendanceGpsState;
 }
 
 function formatDate(value: string) {
@@ -103,19 +123,19 @@ function formatDate(value: string) {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
-  }).format(new Date(`${value}T12:00:00`))
+  }).format(new Date(`${value}T12:00:00`));
 }
 
 function formatMonthLabel(value: string) {
   return new Intl.DateTimeFormat('es-MX', {
     year: 'numeric',
     month: 'long',
-  }).format(new Date(`${value}T12:00:00`))
+  }).format(new Date(`${value}T12:00:00`));
 }
 
 function formatDateTime(value: string | null) {
   if (!value) {
-    return 'Pendiente'
+    return 'Pendiente';
   }
 
   return new Intl.DateTimeFormat('es-MX', {
@@ -124,44 +144,44 @@ function formatDateTime(value: string | null) {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(value))
+  }).format(new Date(value));
 }
 
 function addDaysToWeek(weekStart: string, diaSemana: number) {
-  const date = new Date(`${weekStart}T12:00:00`)
-  date.setUTCDate(date.getUTCDate() + (diaSemana - 1))
-  return date.toISOString().slice(0, 10)
+  const date = new Date(`${weekStart}T12:00:00`);
+  date.setUTCDate(date.getUTCDate() + (diaSemana - 1));
+  return date.toISOString().slice(0, 10);
 }
 
 function shiftWeekStart(weekStart: string, weeks: number) {
-  const date = new Date(`${weekStart}T12:00:00`)
-  date.setUTCDate(date.getUTCDate() + weeks * 7)
-  return normalizeWeekStart(date.toISOString().slice(0, 10))
+  const date = new Date(`${weekStart}T12:00:00`);
+  date.setUTCDate(date.getUTCDate() + weeks * 7);
+  return normalizeWeekStart(date.toISOString().slice(0, 10));
 }
 
 function getRouteTone(estatus: RutaSemanalItem['estatus']) {
-  if (estatus === 'CERRADA') return 'bg-emerald-100 text-emerald-700'
-  if (estatus === 'EN_PROGRESO') return 'bg-sky-100 text-sky-700'
-  if (estatus === 'PUBLICADA') return 'bg-violet-100 text-violet-700'
-  return 'bg-slate-100 text-slate-700'
+  if (estatus === 'CERRADA') return 'bg-emerald-100 text-emerald-700';
+  if (estatus === 'EN_PROGRESO') return 'bg-sky-100 text-sky-700';
+  if (estatus === 'PUBLICADA') return 'bg-violet-100 text-violet-700';
+  return 'bg-slate-100 text-slate-700';
 }
 
 function getVisitTone(estatus: RutaSemanalVisitItem['estatus']) {
-  if (estatus === 'COMPLETADA') return 'bg-emerald-100 text-emerald-700'
-  if (estatus === 'CANCELADA') return 'bg-rose-100 text-rose-700'
-  return 'bg-amber-100 text-amber-700'
+  if (estatus === 'COMPLETADA') return 'bg-emerald-100 text-emerald-700';
+  if (estatus === 'CANCELADA') return 'bg-rose-100 text-rose-700';
+  return 'bg-amber-100 text-amber-700';
 }
 
 function getSemaforoTone(semaforo: RutaSupervisorWarRoomItem['semaforo']) {
-  if (semaforo === 'OK') return 'bg-emerald-100 text-emerald-700'
-  if (semaforo === 'RIESGO') return 'bg-amber-100 text-amber-800'
-  return 'bg-rose-100 text-rose-700'
+  if (semaforo === 'OK') return 'bg-emerald-100 text-emerald-700';
+  if (semaforo === 'RIESGO') return 'bg-amber-100 text-amber-800';
+  return 'bg-rose-100 text-rose-700';
 }
 
 function getExceptionTone(tone: RutaExceptionItem['tone']) {
-  if (tone === 'rose') return 'border-rose-200 bg-rose-50 text-rose-900'
-  if (tone === 'sky') return 'border-sky-200 bg-sky-50 text-sky-900'
-  return 'border-amber-200 bg-amber-50 text-amber-900'
+  if (tone === 'rose') return 'border-rose-200 bg-rose-50 text-rose-900';
+  if (tone === 'sky') return 'border-sky-200 bg-sky-50 text-sky-900';
+  return 'border-amber-200 bg-amber-50 text-amber-900';
 }
 
 function normalizeFilterText(value: string | null | undefined) {
@@ -169,103 +189,120 @@ function normalizeFilterText(value: string | null | undefined) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .trim()
+    .trim();
 }
 
-let routeDraftIdSequence = 0
+let routeDraftIdSequence = 0;
 
 function createRouteDraftClientId(prefix: string) {
-  const randomUuid = globalThis.crypto?.randomUUID?.()
+  const randomUuid = globalThis.crypto?.randomUUID?.();
 
   if (randomUuid) {
-    return `${prefix}-${randomUuid}`
+    return `${prefix}-${randomUuid}`;
   }
 
-  routeDraftIdSequence += 1
-  return `${prefix}-${Date.now()}-${routeDraftIdSequence}-${Math.random().toString(36).slice(2, 10)}`
+  routeDraftIdSequence += 1;
+  return `${prefix}-${Date.now()}-${routeDraftIdSequence}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function getWorkloadLabel(route: RutaSemanalItem) {
-  const pending = route.totalVisitas - route.visitasCompletadas
-  const spread = new Set(route.visitas.map((visit) => visit.diaSemana)).size
-  if (route.totalVisitas >= 10 && spread <= 3) return 'Riesgo logistico'
-  if (route.totalVisitas <= 2) return 'Tiempos muertos'
-  if (pending > 0 && route.estatus === 'PUBLICADA') return 'Lista para salir'
-  return 'Balanceada'
+  const pending = route.totalVisitas - route.visitasCompletadas;
+  const spread = new Set(route.visitas.map((visit) => visit.diaSemana)).size;
+  if (route.totalVisitas >= 10 && spread <= 3) return 'Riesgo logistico';
+  if (route.totalVisitas <= 2) return 'Tiempos muertos';
+  if (pending > 0 && route.estatus === 'PUBLICADA') return 'Lista para salir';
+  return 'Balanceada';
 }
 
 function getRouteChangeTypeLabel(type: RutaSemanalItem['changeRequestType']) {
-  if (type === 'CANCELACION_DIA') return 'Cancelacion del dia'
-  if (type === 'CAMBIO_TIENDA') return 'Cambio de tienda en ruta'
-  return 'Cambio de tiendas del dia'
+  if (type === 'CANCELACION_DIA') return 'Cancelacion del dia';
+  if (type === 'CAMBIO_TIENDA') return 'Cambio de tienda en ruta';
+  return 'Cambio de tiendas del dia';
 }
 
 function getAgendaApprovalTone(state: RutaAgendaEventoItem['estatusAprobacion']) {
-  if (state === 'APROBADO' || state === 'NO_REQUIERE') return 'bg-emerald-100 text-emerald-700'
-  if (state === 'RECHAZADO') return 'bg-rose-100 text-rose-700'
-  return 'bg-amber-100 text-amber-800'
+  if (state === 'APROBADO' || state === 'NO_REQUIERE') return 'bg-emerald-100 text-emerald-700';
+  if (state === 'RECHAZADO') return 'bg-rose-100 text-rose-700';
+  return 'bg-amber-100 text-amber-800';
 }
 
 function getAgendaExecutionTone(state: RutaAgendaEventoItem['estatusEjecucion']) {
-  if (state === 'COMPLETADO') return 'bg-emerald-100 text-emerald-700'
-  if (state === 'EN_CURSO') return 'bg-sky-100 text-sky-700'
-  if (state === 'CANCELADO') return 'bg-rose-100 text-rose-700'
-  return 'bg-slate-100 text-slate-700'
+  if (state === 'COMPLETADO') return 'bg-emerald-100 text-emerald-700';
+  if (state === 'EN_CURSO') return 'bg-sky-100 text-sky-700';
+  if (state === 'CANCELADO') return 'bg-rose-100 text-rose-700';
+  return 'bg-slate-100 text-slate-700';
 }
 
 function getCoordinatorKanbanColumn(route: RutaSemanalItem): CoordinatorKanbanColumnKey {
   if (route.estatus === 'CERRADA') {
-    return 'CERRADAS'
+    return 'CERRADAS';
   }
 
   if (route.approvalState === 'APROBADA' && route.estatus !== 'BORRADOR') {
-    return 'PUBLICADAS'
+    return 'PUBLICADAS';
   }
 
   if (route.approvalState === 'CAMBIOS_SOLICITADOS') {
-    return 'AJUSTES'
+    return 'AJUSTES';
   }
 
-  return 'ENVIADAS'
+  return 'ENVIADAS';
 }
 
 function getCoordinatorKanbanColumnLabel(column: CoordinatorKanbanColumnKey) {
-  if (column === 'ENVIADAS') return 'Enviadas'
-  if (column === 'AJUSTES') return 'Rechazadas / cambios'
-  if (column === 'PUBLICADAS') return 'Aprobadas'
-  return 'Cerradas'
+  if (column === 'FALTANTES') return 'Faltantes';
+  if (column === 'ENVIADAS') return 'Enviadas';
+  if (column === 'AJUSTES') return 'Rechazadas / cambios';
+  if (column === 'PUBLICADAS') return 'Aprobadas';
+  return 'Cerradas';
 }
 
 function getCoordinatorApprovalStateForColumn(
   column: CoordinatorKanbanColumnKey
 ): RutaApprovalState | null {
-  if (column === 'ENVIADAS') return 'PENDIENTE_COORDINACION'
-  if (column === 'AJUSTES') return 'CAMBIOS_SOLICITADOS'
-  if (column === 'PUBLICADAS') return 'APROBADA'
-  return null
+  if (column === 'ENVIADAS') return 'PENDIENTE_COORDINACION';
+  if (column === 'AJUSTES') return 'CAMBIOS_SOLICITADOS';
+  if (column === 'PUBLICADAS') return 'APROBADA';
+  return null;
 }
 
 function getProgressBarWidth(value: number) {
-  const normalized = Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0
-  return `${Math.max(normalized > 0 ? 8 : 0, normalized)}%`
+  const normalized = Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0;
+  return `${Math.max(normalized > 0 ? 8 : 0, normalized)}%`;
 }
 
 function metricValueClass(value: string) {
-  return value.length >= 12 ? 'text-lg sm:text-xl' : 'text-2xl'
+  return value.length >= 12 ? 'text-lg sm:text-xl' : 'text-2xl';
+}
+
+function resolveCurrentMonth() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+  }).format(new Date());
 }
 
 function normalizeWarRoomTab(value: WarRoomTab | SupervisorRouteTab | undefined): WarRoomTab {
-  return value === 'routes' || value === 'coverage' || value === 'quotas' || value === 'reach'
+  return value === 'routes' ||
+    value === 'coverage' ||
+    value === 'quotas' ||
+    value === 'reach' ||
+    value === 'ranking' ||
+    value === 'evidencias'
     ? value
-    : 'quotas'
+    : 'quotas';
 }
 
 function normalizeSupervisorRouteTab(
   value: WarRoomTab | SupervisorRouteTab | undefined
 ): SupervisorRouteTab {
-  return value === 'agenda' || value === 'planning' || value === 'corrections' || value === 'history'
+  return value === 'agenda' ||
+    value === 'planning' ||
+    value === 'corrections' ||
+    value === 'history'
     ? value
-    : 'agenda'
+    : 'agenda';
 }
 
 export function RutaSemanalPanel({
@@ -275,29 +312,29 @@ export function RutaSemanalPanel({
   initialTab = 'quotas',
   hideSupervisorTabs = false,
 }: {
-  actor: ActorActual
-  data: RutaSemanalPanelData
-  actorPuesto: string
-  initialTab?: WarRoomTab | SupervisorRouteTab
-  hideSupervisorTabs?: boolean
+  actor: ActorActual;
+  data: RutaSemanalPanelData;
+  actorPuesto: string;
+  initialTab?: WarRoomTab | SupervisorRouteTab;
+  hideSupervisorTabs?: boolean;
 }) {
-  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
   const fetcher = useCallback(async (signal: AbortSignal, _change: UiChangeVersionRow) => {
-    void _change
+    void _change;
 
     const response = await fetch('/api/ruta-semanal/panel', {
       cache: 'no-store',
       credentials: 'same-origin',
       signal,
-    })
-    const payload = (await response.json()) as { data?: RutaSemanalPanelData; message?: string }
+    });
+    const payload = (await response.json()) as { data?: RutaSemanalPanelData; message?: string };
 
     if (!response.ok || !payload.data) {
-      throw new Error(payload.message ?? 'No fue posible refrescar la ruta semanal.')
+      throw new Error(payload.message ?? 'No fue posible refrescar la ruta semanal.');
     }
 
-    return payload.data
-  }, [])
+    return payload.data;
+  }, []);
 
   const { data } = useScopedWidgetData({
     initialData,
@@ -308,7 +345,7 @@ export function RutaSemanalPanel({
     fetcher,
     debounceMs: 5000,
     refreshOnMount: false,
-  })
+  });
 
   if (actorPuesto === 'COORDINADOR' || actorPuesto === 'ADMINISTRADOR') {
     return (
@@ -317,7 +354,7 @@ export function RutaSemanalPanel({
         actorPuesto={actorPuesto}
         initialTab={normalizeWarRoomTab(initialTab)}
       />
-    )
+    );
   }
 
   return (
@@ -327,7 +364,7 @@ export function RutaSemanalPanel({
       initialTab={normalizeSupervisorRouteTab(initialTab)}
       hideTabs={hideSupervisorTabs}
     />
-  )
+  );
 }
 
 function CoordinatorWarRoom({
@@ -335,179 +372,260 @@ function CoordinatorWarRoom({
   actorPuesto,
   initialTab,
 }: {
-  data: RutaSemanalPanelData
-  actorPuesto: string
-  initialTab: WarRoomTab
+  data: RutaSemanalPanelData;
+  actorPuesto: string;
+  initialTab: WarRoomTab;
 }) {
-  const minimumVisibleWeekStart = normalizeWeekStart(data.semanaActualInicio)
+  const minimumVisibleWeekStart = normalizeWeekStart(data.semanaActualInicio);
   const visibleCoordinatorRoutes = useMemo(
     () => getCurrentOrFutureRoutes(data.rutas, minimumVisibleWeekStart),
     [data.rutas, minimumVisibleWeekStart]
-  )
+  );
   const coordinatorDefaultWeekStart = useMemo(
     () => getCoordinatorInitialWeekStart(visibleCoordinatorRoutes, minimumVisibleWeekStart),
     [visibleCoordinatorRoutes, minimumVisibleWeekStart]
-  )
-  const [activeTab, setActiveTab] = useState<WarRoomTab>(initialTab)
+  );
+  const [activeTab, setActiveTab] = useState<WarRoomTab>(initialTab);
   const [quotaFilters, setQuotaFilters] = useState({
     supervisorEmpleadoId: data.warRoom.supervisors[0]?.supervisorEmpleadoId ?? '',
     cadena: 'TODAS',
     storeType: 'TODOS',
-  })
+  });
   const [appliedQuotaFilters, setAppliedQuotaFilters] = useState({
     supervisorEmpleadoId: '',
     cadena: 'TODAS',
     storeType: 'TODOS',
     applied: false,
-  })
-  const [selectedWeekStart, setSelectedWeekStart] = useState<string>(coordinatorDefaultWeekStart)
-  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
+  });
+  const [selectedWeekStart, setSelectedWeekStart] = useState<string>(coordinatorDefaultWeekStart);
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [selectedCoverageSupervisorId, setSelectedCoverageSupervisorId] = useState<string>(
     data.warRoom.supervisors[0]?.supervisorEmpleadoId ?? ''
-  )
-  const [expandedCoverageRouteId, setExpandedCoverageRouteId] = useState<string | null>(null)
-  const [selectedCoverageDayNumber, setSelectedCoverageDayNumber] = useState<number | null>(null)
-  const [selectedCoverageVisitId, setSelectedCoverageVisitId] = useState<string | null>(null)
-  const [selectedReachSupervisorId, setSelectedReachSupervisorId] = useState<string>('')
+  );
+  const [expandedCoverageRouteId, setExpandedCoverageRouteId] = useState<string | null>(null);
+  const [selectedCoverageDayNumber, setSelectedCoverageDayNumber] = useState<number | null>(null);
+  const [selectedCoverageVisitId, setSelectedCoverageVisitId] = useState<string | null>(null);
+  const [selectedReachSupervisorId, setSelectedReachSupervisorId] = useState<string>('');
   const [quotaOverridesBySupervisor, setQuotaOverridesBySupervisor] = useState<
     Record<string, Record<string, number>>
-  >({})
+  >({});
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [isExportingExcelMes, setIsExportingExcelMes] = useState(false);
+  const [isApprovingMes, setIsApprovingMes] = useState(false);
 
-  const supervisors = data.warRoom.supervisors
+  const handleExportarExcel = useCallback(async () => {
+    try {
+      setIsExportingExcel(true);
+      const params = new URLSearchParams();
+      if (selectedWeekStart) {
+        params.set('semanaInicio', selectedWeekStart);
+      }
+      const response = await fetch(`/api/rutas/export?${params.toString()}`);
+      if (!response.ok) {
+        const errorJson = await response.json().catch(() => ({}));
+        throw new Error(errorJson.error || 'No fue posible descargar el archivo de Excel.');
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Reporte_Rutas_Semanales_${selectedWeekStart || 'general'}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Error al exportar rutas a Excel.');
+    } finally {
+      setIsExportingExcel(false);
+    }
+  }, [selectedWeekStart]);
+
+  const handleExportarExcelMes = useCallback(async () => {
+    try {
+      setIsExportingExcelMes(true);
+      const params = new URLSearchParams();
+      if (selectedWeekStart) {
+        const mesIso = selectedWeekStart.substring(0, 7); // Extrae YYYY-MM
+        params.set('semanaInicio', mesIso);
+      }
+      const response = await fetch(`/api/rutas/export?${params.toString()}`);
+      if (!response.ok) {
+        const errorJson = await response.json().catch(() => ({}));
+        throw new Error(errorJson.error || 'No fue posible descargar el archivo de Excel del mes.');
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const mesIso = selectedWeekStart ? selectedWeekStart.substring(0, 7) : 'general';
+      a.download = `Reporte_Mensual_Rutas_${mesIso}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Error al exportar el mes a Excel.');
+    } finally {
+      setIsExportingExcelMes(false);
+    }
+  }, [selectedWeekStart]);
+
+  const handleAprobarMes = useCallback(async () => {
+    if (!selectedWeekStart) return;
+    const mesIso = selectedWeekStart.substring(0, 7);
+    const label = `¿Estás seguro que deseas aprobar TODAS las rutas enviadas para el mes de ${mesIso}? Esta acción no se puede deshacer.`;
+    if (!window.confirm(label)) return;
+
+    try {
+      setIsApprovingMes(true);
+      const result = await aprobarRutasMesCompleto(mesIso);
+      if (result.ok) {
+        alert(result.message);
+        // Podríamos recargar la página o emitir un evento para refrescar los datos
+        window.location.reload();
+      } else {
+        alert(result.message);
+      }
+    } catch (error) {
+      alert('Error inesperado al aprobar el mes.');
+    } finally {
+      setIsApprovingMes(false);
+    }
+  }, [selectedWeekStart]);
+
+  const supervisors = data.warRoom.supervisors;
   const quotaSupervisor =
-    supervisors.find((item) => item.supervisorEmpleadoId === appliedQuotaFilters.supervisorEmpleadoId) ?? null
+    supervisors.find(
+      (item) => item.supervisorEmpleadoId === appliedQuotaFilters.supervisorEmpleadoId
+    ) ?? null;
   const quotaChainOptions = useMemo(() => {
     const source =
-      supervisors.find((item) => item.supervisorEmpleadoId === quotaFilters.supervisorEmpleadoId)?.quotaProgress ??
-      supervisors.flatMap((item) => item.quotaProgress)
+      supervisors.find((item) => item.supervisorEmpleadoId === quotaFilters.supervisorEmpleadoId)
+        ?.quotaProgress ?? supervisors.flatMap((item) => item.quotaProgress);
 
-    return Array.from(new Set(source.map((item) => item.cadena).filter((item): item is string => Boolean(item)))).sort(
-      (left, right) => left.localeCompare(right, 'es')
-    )
-  }, [supervisors, quotaFilters.supervisorEmpleadoId])
+    return Array.from(
+      new Set(source.map((item) => item.cadena).filter((item): item is string => Boolean(item)))
+    ).sort((left, right) => left.localeCompare(right, 'es'));
+  }, [supervisors, quotaFilters.supervisorEmpleadoId]);
   const filteredQuotaItems = useMemo(() => {
     if (!appliedQuotaFilters.applied || !quotaSupervisor) {
-      return [] as RutaQuotaProgressItem[]
+      return [] as RutaQuotaProgressItem[];
     }
 
     return quotaSupervisor.quotaProgress.filter((item) => {
       const matchesChain =
-        appliedQuotaFilters.cadena === 'TODAS' || (item.cadena ?? 'Sin cadena') === appliedQuotaFilters.cadena
+        appliedQuotaFilters.cadena === 'TODAS' ||
+        (item.cadena ?? 'Sin cadena') === appliedQuotaFilters.cadena;
       const matchesStoreType =
         appliedQuotaFilters.storeType === 'TODOS' ||
         (appliedQuotaFilters.storeType === 'FIJO' && item.clasificacionMaestra === 'FIJO') ||
-        (appliedQuotaFilters.storeType === 'ROTATIVO' && item.clasificacionMaestra === 'ROTATIVO')
+        (appliedQuotaFilters.storeType === 'ROTATIVO' && item.clasificacionMaestra === 'ROTATIVO');
 
-      return matchesChain && matchesStoreType
-    })
-  }, [appliedQuotaFilters, quotaSupervisor])
+      return matchesChain && matchesStoreType;
+    });
+  }, [appliedQuotaFilters, quotaSupervisor]);
   const effectiveFilteredQuotaItems = useMemo(() => {
     if (!quotaSupervisor) {
-      return filteredQuotaItems
+      return filteredQuotaItems;
     }
 
-    const quotaOverrides = quotaOverridesBySupervisor[quotaSupervisor.supervisorEmpleadoId]
+    const quotaOverrides = quotaOverridesBySupervisor[quotaSupervisor.supervisorEmpleadoId];
     if (!quotaOverrides) {
-      return filteredQuotaItems
+      return filteredQuotaItems;
     }
 
     return filteredQuotaItems.map((item) => ({
       ...item,
       quotaMensual: quotaOverrides[item.pdvId] ?? item.quotaMensual,
-    }))
-  }, [filteredQuotaItems, quotaOverridesBySupervisor, quotaSupervisor])
+    }));
+  }, [filteredQuotaItems, quotaOverridesBySupervisor, quotaSupervisor]);
   const coverageSupervisor =
     supervisors.find((item) => item.supervisorEmpleadoId === selectedCoverageSupervisorId) ??
     supervisors[0] ??
-    null
+    null;
 
   const filteredRoutes = useMemo(
     () => visibleCoordinatorRoutes.filter((route) => route.semanaInicio === selectedWeekStart),
     [visibleCoordinatorRoutes, selectedWeekStart]
-  )
-  const routeBoardRoutes = useMemo(
-    () => filteredRoutes.filter((route) => route.totalVisitas > 0),
-    [filteredRoutes]
-  )
+  );
+  const routeBoardRoutes = filteredRoutes;
   const coverageRoutes = useMemo(
     () =>
-      filteredRoutes.filter((route) =>
-        isApprovedOperationalRoute(route) &&
-        (coverageSupervisor ? route.supervisorEmpleadoId === coverageSupervisor.supervisorEmpleadoId : true)
+      filteredRoutes.filter(
+        (route) =>
+          isApprovedOperationalRoute(route) &&
+          (coverageSupervisor
+            ? route.supervisorEmpleadoId === coverageSupervisor.supervisorEmpleadoId
+            : true)
       ),
     [filteredRoutes, coverageSupervisor]
-  )
+  );
   const reachVisibleSupervisors = useMemo(
     () =>
       supervisors.filter((item) =>
         selectedReachSupervisorId ? item.supervisorEmpleadoId === selectedReachSupervisorId : true
       ),
     [selectedReachSupervisorId, supervisors]
-  )
+  );
 
   const selectedRoute =
-    routeBoardRoutes.find((route) => route.id === selectedRouteId) ?? routeBoardRoutes[0] ?? null
+    routeBoardRoutes.find((route) => route.id === selectedRouteId) ?? routeBoardRoutes[0] ?? null;
   const expandedCoverageRoute =
-    coverageRoutes.find((route) => route.id === expandedCoverageRouteId) ?? coverageRoutes[0] ?? null
+    coverageRoutes.find((route) => route.id === expandedCoverageRouteId) ??
+    coverageRoutes[0] ??
+    null;
 
   useEffect(() => {
     if (!routeBoardRoutes.some((route) => route.id === selectedRouteId)) {
       return scheduleEffectStateUpdate(() => {
-        setSelectedRouteId(routeBoardRoutes[0]?.id ?? null)
-      })
+        setSelectedRouteId(routeBoardRoutes[0]?.id ?? null);
+      });
     }
-  }, [routeBoardRoutes, selectedRouteId])
+  }, [routeBoardRoutes, selectedRouteId]);
 
   useEffect(() => {
     if (selectedWeekStart < minimumVisibleWeekStart) {
       return scheduleEffectStateUpdate(() => {
-        setSelectedWeekStart(minimumVisibleWeekStart)
-      })
+        setSelectedWeekStart(minimumVisibleWeekStart);
+      });
     }
-
-    const selectedWeekHasVisibleRoutes = visibleCoordinatorRoutes.some(
-      (route) => route.semanaInicio === selectedWeekStart && route.totalVisitas > 0
-    )
-
-    if (!selectedWeekHasVisibleRoutes && selectedWeekStart !== coordinatorDefaultWeekStart) {
-      return scheduleEffectStateUpdate(() => {
-        setSelectedWeekStart(coordinatorDefaultWeekStart)
-      })
-    }
-  }, [coordinatorDefaultWeekStart, minimumVisibleWeekStart, selectedWeekStart, visibleCoordinatorRoutes])
+  }, [minimumVisibleWeekStart, selectedWeekStart]);
 
   useEffect(() => {
     if (!coverageRoutes.some((route) => route.id === expandedCoverageRouteId)) {
       return scheduleEffectStateUpdate(() => {
-        setExpandedCoverageRouteId(coverageRoutes[0]?.id ?? null)
-        setSelectedCoverageDayNumber(null)
-        setSelectedCoverageVisitId(null)
-      })
+        setExpandedCoverageRouteId(coverageRoutes[0]?.id ?? null);
+        setSelectedCoverageDayNumber(null);
+        setSelectedCoverageVisitId(null);
+      });
     }
-  }, [coverageRoutes, expandedCoverageRouteId])
+  }, [coverageRoutes, expandedCoverageRouteId]);
 
   useEffect(() => {
     const visibleDays = expandedCoverageRoute
-      ? Array.from(new Set(expandedCoverageRoute.visitas.map((visit) => visit.diaSemana))).sort((left, right) => left - right)
-      : []
+      ? Array.from(new Set(expandedCoverageRoute.visitas.map((visit) => visit.diaSemana))).sort(
+          (left, right) => left - right
+        )
+      : [];
 
     if (visibleDays.length === 0) {
       if (selectedCoverageDayNumber !== null || selectedCoverageVisitId !== null) {
         return scheduleEffectStateUpdate(() => {
-          setSelectedCoverageDayNumber(null)
-          setSelectedCoverageVisitId(null)
-        })
+          setSelectedCoverageDayNumber(null);
+          setSelectedCoverageVisitId(null);
+        });
       }
-      return
+      return;
     }
 
     if (selectedCoverageDayNumber === null || !visibleDays.includes(selectedCoverageDayNumber)) {
       return scheduleEffectStateUpdate(() => {
-        setSelectedCoverageDayNumber(visibleDays[0] ?? null)
-        setSelectedCoverageVisitId(null)
-      })
+        setSelectedCoverageDayNumber(visibleDays[0] ?? null);
+        setSelectedCoverageVisitId(null);
+      });
     }
-  }, [expandedCoverageRoute, selectedCoverageDayNumber, selectedCoverageVisitId])
+  }, [expandedCoverageRoute, selectedCoverageDayNumber, selectedCoverageVisitId]);
 
   return (
     <div className="space-y-6">
@@ -522,8 +640,9 @@ function CoordinatorWarRoom({
         <Card className="border-sky-200 bg-sky-50 text-sky-900">
           <p className="font-medium">War Room en modo compatible</p>
           <p className="mt-2 text-sm">
-            La lectura ya funciona aunque la base local aun no tenga `ruta_semanal.metadata`. La aprobacion
-            de quotas y cambios de ruta quedara habilitada al aplicar la migracion de workflow.
+            La lectura ya funciona aunque la base local aun no tenga `ruta_semanal.metadata`. La
+            aprobacion de quotas y cambios de ruta quedara habilitada al aplicar la migracion de
+            workflow.
           </p>
         </Card>
       )}
@@ -538,19 +657,73 @@ function CoordinatorWarRoom({
       <Card className="border-slate-200 bg-white">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--module-text)]">Planeacion operativa</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--module-text)]">
+              Planeacion operativa
+            </p>
             <h2 className="mt-2 text-2xl font-semibold text-slate-950">
               Ruta semanal para {actorPuesto.toLowerCase()}
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Organiza cuotas mensuales, tablero semanal de rutas y cobertura de visitas sin saturar la pantalla.
+              Organiza cuotas mensuales, tablero semanal de rutas y cobertura de visitas sin saturar
+              la pantalla.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <WarRoomTabButton active={activeTab === 'quotas'} icon="reports" label="Cuotas" onClick={() => setActiveTab('quotas')} />
-            <WarRoomTabButton active={activeTab === 'routes'} icon="calendar" label="Tablero de rutas" onClick={() => setActiveTab('routes')} />
-            <WarRoomTabButton active={activeTab === 'coverage'} icon="route" label="Cobertura y tiendas sin visita" onClick={() => setActiveTab('coverage')} />
-            <WarRoomTabButton active={activeTab === 'reach'} icon="reports" label="Alcance mensual" onClick={() => setActiveTab('reach')} />
+            <Button
+              type="button"
+              variant="outline"
+              className="border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 hover:text-emerald-950 font-semibold text-xs shadow-sm"
+              onClick={handleExportarExcel}
+              disabled={isExportingExcel}
+            >
+              {isExportingExcel ? (
+                <>
+                  <span className="mr-2 h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-700 border-t-transparent inline-block" />
+                  Exportando...
+                </>
+              ) : (
+                <>
+                  <PremiumLineIcon name="reports" className="mr-1.5 h-4 w-4 text-emerald-700 inline" />
+                  Exportar Rutas a Excel
+                </>
+              )}
+            </Button>
+            <WarRoomTabButton
+              active={activeTab === 'quotas'}
+              icon="reports"
+              label="Cuotas"
+              onClick={() => setActiveTab('quotas')}
+            />
+            <WarRoomTabButton
+              active={activeTab === 'routes'}
+              icon="calendar"
+              label="Tablero de rutas"
+              onClick={() => setActiveTab('routes')}
+            />
+            <WarRoomTabButton
+              active={activeTab === 'coverage'}
+              icon="route"
+              label="Cobertura y tiendas sin visita"
+              onClick={() => setActiveTab('coverage')}
+            />
+            <WarRoomTabButton
+              active={activeTab === 'reach'}
+              icon="reports"
+              label="Alcance mensual"
+              onClick={() => setActiveTab('reach')}
+            />
+            <WarRoomTabButton
+              active={activeTab === 'ranking'}
+              icon="reports"
+              label="Ranking de Visitas"
+              onClick={() => setActiveTab('ranking')}
+            />
+            <WarRoomTabButton
+              active={activeTab === 'evidencias'}
+              icon="route"
+              label="Visitas y Evidencias"
+              onClick={() => setActiveTab('evidencias')}
+            />
           </div>
         </div>
       </Card>
@@ -562,7 +735,8 @@ function CoordinatorWarRoom({
               <div>
                 <h3 className="text-lg font-semibold text-slate-950">Filtros de cuotas</h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Selecciona supervisor, cadena y tipo de tienda. Las tiendas solo aparecen cuando aplicas filtros.
+                  Selecciona supervisor, cadena y tipo de tienda. Las tiendas solo aparecen cuando
+                  aplicas filtros.
                 </p>
               </div>
             </div>
@@ -636,9 +810,9 @@ function CoordinatorWarRoom({
                     supervisorEmpleadoId: '',
                     cadena: 'TODAS',
                     storeType: 'TODOS',
-                  }
-                  setQuotaFilters(next)
-                  setAppliedQuotaFilters({ ...next, applied: false })
+                  };
+                  setQuotaFilters(next);
+                  setAppliedQuotaFilters({ ...next, applied: false });
                 }}
               >
                 Limpiar
@@ -653,11 +827,14 @@ function CoordinatorWarRoom({
                   {quotaSupervisor?.supervisor ?? 'Cuotas por supervisor'}
                 </h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Configura las visitas mensuales por tienda y revisa el mapa de calor solo sobre el subconjunto filtrado.
+                  Configura las visitas mensuales por tienda y revisa el mapa de calor solo sobre el
+                  subconjunto filtrado.
                 </p>
               </div>
               {appliedQuotaFilters.applied && quotaSupervisor && (
-                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getSemaforoTone(quotaSupervisor.semaforo)}`}>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${getSemaforoTone(quotaSupervisor.semaforo)}`}
+                >
                   {quotaSupervisor.semaforo}
                 </span>
               )}
@@ -688,40 +865,61 @@ function CoordinatorWarRoom({
         <section className="space-y-6">
           <CoordinatorRouteKanban
             routes={routeBoardRoutes}
+            supervisors={data.warRoom.supervisors}
             selectedRouteId={selectedRouteId}
             onSelectRoute={setSelectedRouteId}
             selectedWeekStart={selectedWeekStart}
             onPreviousWeek={() =>
               setSelectedWeekStart((current) =>
-                current <= minimumVisibleWeekStart ? minimumVisibleWeekStart : shiftWeekStart(current, -1)
+                current <= minimumVisibleWeekStart
+                  ? minimumVisibleWeekStart
+                  : shiftWeekStart(current, -1)
               )
             }
             onNextWeek={() => setSelectedWeekStart((current) => shiftWeekStart(current, 1))}
             canGoToPreviousWeek={selectedWeekStart > minimumVisibleWeekStart}
+            onExportExcel={handleExportarExcel}
+            isExportingExcel={isExportingExcel}
+            onExportExcelMes={handleExportarExcelMes}
+            isExportingExcelMes={isExportingExcelMes}
+            onAprobarMes={handleAprobarMes}
+            isApprovingMes={isApprovingMes}
           />
 
           <Card className="space-y-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-slate-950">{selectedRoute?.supervisor ?? 'Selecciona una ruta'}</h3>
+                <h3 className="text-lg font-semibold text-slate-950">
+                  {selectedRoute?.supervisor ?? 'Selecciona una ruta'}
+                </h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Aqui solo aparecen las rutas semanales que el supervisor ya programo y envio para revision.
+                  Aqui solo aparecen las rutas semanales que el supervisor ya programo y envio para
+                  revision.
                 </p>
               </div>
               {selectedRoute && (
-                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getRouteTone(selectedRoute.estatus)}`}>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${getRouteTone(selectedRoute.estatus)}`}
+                >
                   {selectedRoute.estatus}
                 </span>
               )}
             </div>
             {selectedRoute ? (
               <>
-                <RouteWorkflowCard route={selectedRoute} canReview={data.warRoom.metadataColumnAvailable || !data.puedeEditar} />
+                <RouteWorkflowCard
+                  route={selectedRoute}
+                  canReview={data.warRoom.metadataColumnAvailable || !data.puedeEditar}
+                />
                 <RouteMapByDay route={selectedRoute} />
                 <AgendaApprovalsCard
                   route={selectedRoute}
-                  events={data.agendaEventosPendientesAprobacion.filter((item) => item.routeId === selectedRoute.id)}
-                  pendingRepositions={data.agendaPendientesReposicion.filter((item) => item.routeId === selectedRoute.id)}
+                  events={data.agendaEventosPendientesAprobacion.filter(
+                    (item) => item.routeId === selectedRoute.id
+                  )}
+                  pendingRepositions={data.agendaPendientesReposicion.filter(
+                    (item) => item.routeId === selectedRoute.id
+                  )}
                   agendaInfrastructureAvailable={data.agendaInfrastructureAvailable}
                   agendaInfrastructureMessage={data.agendaInfrastructureMessage}
                 />
@@ -738,7 +936,8 @@ function CoordinatorWarRoom({
               <div>
                 <h3 className="text-lg font-semibold text-slate-950">Alcance mensual</h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Lectura ejecutiva y visual del avance de visitas por supervisor contra la cuota mensual vigente.
+                  Lectura ejecutiva y visual del avance de visitas por supervisor contra la cuota
+                  mensual vigente.
                 </p>
                 <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
                   Mes visible {formatMonthLabel(selectedWeekStart)}
@@ -763,17 +962,21 @@ function CoordinatorWarRoom({
 
           <CoordinatorReachWorkspace supervisors={reachVisibleSupervisors} />
         </section>
-      ) : (
+      ) : activeTab === 'coverage' ? (
         <section className="space-y-6">
           <Card className="space-y-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-slate-950">Cobertura y tiendas sin visita</h3>
+                <h3 className="text-lg font-semibold text-slate-950">
+                  Cobertura y tiendas sin visita
+                </h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Filtra supervisor y semana para revisar solo la ruta activa aprobada, su cumplimiento semanal y el detalle diario de visitas.
+                  Filtra supervisor y semana para revisar solo la ruta activa aprobada, su
+                  cumplimiento semanal y el detalle diario de visitas.
                 </p>
                 <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                  Semana visible {formatDate(selectedWeekStart)} - {formatDate(getWeekEndIso(selectedWeekStart))}
+                  Semana visible {formatDate(selectedWeekStart)} -{' '}
+                  {formatDate(getWeekEndIso(selectedWeekStart))}
                 </p>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
@@ -796,14 +999,20 @@ function CoordinatorWarRoom({
                     variant="secondary"
                     onClick={() =>
                       setSelectedWeekStart((current) =>
-                        current <= minimumVisibleWeekStart ? minimumVisibleWeekStart : shiftWeekStart(current, -1)
+                        current <= minimumVisibleWeekStart
+                          ? minimumVisibleWeekStart
+                          : shiftWeekStart(current, -1)
                       )
                     }
                     disabled={selectedWeekStart <= minimumVisibleWeekStart}
                   >
                     Semana anterior
                   </Button>
-                  <Button type="button" variant="secondary" onClick={() => setSelectedWeekStart((current) => shiftWeekStart(current, 1))}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setSelectedWeekStart((current) => shiftWeekStart(current, 1))}
+                  >
                     Semana siguiente
                   </Button>
                 </div>
@@ -817,22 +1026,33 @@ function CoordinatorWarRoom({
             selectedWeekStart={selectedWeekStart}
             expandedRouteId={expandedCoverageRouteId}
             onExpandRoute={(routeId) => {
-              setExpandedCoverageRouteId(routeId)
-              setSelectedCoverageDayNumber(null)
-              setSelectedCoverageVisitId(null)
+              setExpandedCoverageRouteId(routeId);
+              setSelectedCoverageDayNumber(null);
+              setSelectedCoverageVisitId(null);
             }}
             selectedDayNumber={selectedCoverageDayNumber}
             onSelectDay={(dayNumber) => {
-              setSelectedCoverageDayNumber(dayNumber)
-              setSelectedCoverageVisitId(null)
+              setSelectedCoverageDayNumber(dayNumber);
+              setSelectedCoverageVisitId(null);
             }}
             selectedVisitId={selectedCoverageVisitId}
             onSelectVisit={setSelectedCoverageVisitId}
           />
         </section>
-      )}
+      ) : activeTab === 'ranking' ? (
+        <div className="space-y-6">
+          <VisitasOperativasDemandCard periodoInicial={data.semanaActualInicio?.slice(0, 7) || resolveCurrentMonth()} />
+        </div>
+      ) : activeTab === 'evidencias' ? (
+        <div className="space-y-6">
+          <VisitasSupervisoresDemandCard
+            periodoInicial={data.semanaActualInicio?.slice(0, 7) || resolveCurrentMonth()}
+            supervisoresDisponibles={supervisors}
+          />
+        </div>
+      ) : null}
     </div>
-  )
+  );
 }
 
 function SupervisorRouteOperations({
@@ -841,58 +1061,61 @@ function SupervisorRouteOperations({
   initialTab,
   hideTabs,
 }: {
-  data: RutaSemanalPanelData
-  actorPuesto: string
-  initialTab: SupervisorRouteTab
-  hideTabs: boolean
+  data: RutaSemanalPanelData;
+  actorPuesto: string;
+  initialTab: SupervisorRouteTab;
+  hideTabs: boolean;
 }) {
-  const [activeTab, setActiveTab] = useState<SupervisorRouteTab>(initialTab)
+  const [activeTab, setActiveTab] = useState<SupervisorRouteTab>(initialTab);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(
     data.rutaSemanaActual?.id ?? data.rutas[0]?.id ?? null
-  )
+  );
   const [selectedCorrectionRouteId, setSelectedCorrectionRouteId] = useState<string | null>(
     data.rutasCorrecciones[0]?.id ?? null
-  )
+  );
   const [selectedHistoryRouteId, setSelectedHistoryRouteId] = useState<string | null>(
     data.rutasHistoricasMesActual[0]?.id ?? null
-  )
-  const [activeModal, setActiveModal] = useState<SupervisorRouteTab | 'today' | null>(null)
-  const [operationNotice, setOperationNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
+  );
+  const [activeModal, setActiveModal] = useState<SupervisorRouteTab | 'today' | null>(null);
+  const [operationNotice, setOperationNotice] = useState<{
+    tone: 'success' | 'error';
+    message: string;
+  } | null>(null);
   const selectedRoute =
     data.rutas.find((item) => item.id === selectedRouteId) ??
     data.rutaSemanaActual ??
     data.rutas[0] ??
-    null
+    null;
   const selectedCorrectionRoute =
     data.rutasCorrecciones.find((item) => item.id === selectedCorrectionRouteId) ??
     data.rutasCorrecciones[0] ??
-    null
+    null;
   const selectedHistoryRoute =
     data.rutasHistoricasMesActual.find((item) => item.id === selectedHistoryRouteId) ??
     data.rutasHistoricasMesActual[0] ??
-    null
+    null;
 
   useEffect(() => {
-    setActiveTab(initialTab)
-  }, [initialTab])
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     if (!data.rutas.some((item) => item.id === selectedRouteId)) {
-      setSelectedRouteId(data.rutaSemanaActual?.id ?? data.rutas[0]?.id ?? null)
+      setSelectedRouteId(data.rutaSemanaActual?.id ?? data.rutas[0]?.id ?? null);
     }
-  }, [data.rutaSemanaActual?.id, data.rutas, selectedRouteId])
+  }, [data.rutaSemanaActual?.id, data.rutas, selectedRouteId]);
 
   useEffect(() => {
     if (!data.rutasCorrecciones.some((item) => item.id === selectedCorrectionRouteId)) {
-      setSelectedCorrectionRouteId(data.rutasCorrecciones[0]?.id ?? null)
+      setSelectedCorrectionRouteId(data.rutasCorrecciones[0]?.id ?? null);
     }
-  }, [data.rutasCorrecciones, selectedCorrectionRouteId])
+  }, [data.rutasCorrecciones, selectedCorrectionRouteId]);
 
   useEffect(() => {
     if (!data.rutasHistoricasMesActual.some((item) => item.id === selectedHistoryRouteId)) {
-      setSelectedHistoryRouteId(data.rutasHistoricasMesActual[0]?.id ?? null)
+      setSelectedHistoryRouteId(data.rutasHistoricasMesActual[0]?.id ?? null);
     }
-  }, [data.rutasHistoricasMesActual, selectedHistoryRouteId])
+  }, [data.rutasHistoricasMesActual, selectedHistoryRouteId]);
 
   return (
     <div className="space-y-6">
@@ -942,8 +1165,8 @@ function SupervisorRouteOperations({
             data={data}
             actorPuesto={actorPuesto}
             onOpen={(target) => {
-              setOperationNotice(null)
-              setActiveModal(target)
+              setOperationNotice(null);
+              setActiveModal(target);
             }}
           />
 
@@ -953,32 +1176,32 @@ function SupervisorRouteOperations({
             title="Mi Ruta Hoy"
             subtitle="Ruta aprobada del dia, llegada, checklist opcional y cierre de visitas."
           >
-          <SupervisorTodayRouteSheet
-            data={{
-              semanaActualInicio: data.semanaActualInicio,
-              semanaActualFin: data.semanaActualFin,
-              visitasHoy: data.visitasHoy,
-              eventosHoy: data.agendaHoy?.eventos ?? [],
-              agendaInfrastructureAvailable: data.agendaInfrastructureAvailable,
-              agendaInfrastructureMessage: data.agendaInfrastructureMessage,
-              infraestructuraLista: data.infraestructuraLista,
-              mensajeInfraestructura: data.mensajeInfraestructura,
-            }}
-            onSuccess={(message) => setOperationNotice({ tone: 'success', message })}
-            onError={(message) => setOperationNotice({ tone: 'error', message })}
-            dayEventActionSlot={
-              data.agendaHoy ? (
-                <AgendaOperativaOverviewCard
-                  routeId={selectedRoute?.id ?? data.rutaSemanaActual?.id ?? null}
-                  agendaHoy={data.agendaHoy}
-                  pdvsDisponibles={data.pdvsDisponibles}
-                  agendaInfrastructureAvailable={data.agendaInfrastructureAvailable}
-                  agendaInfrastructureMessage={data.agendaInfrastructureMessage}
-                />
-              ) : null
-            }
-          />
-        </SupervisorWorkspaceModal>
+            <SupervisorTodayRouteSheet
+              data={{
+                semanaActualInicio: data.semanaActualInicio,
+                semanaActualFin: data.semanaActualFin,
+                visitasHoy: data.visitasHoy,
+                eventosHoy: data.agendaHoy?.eventos ?? [],
+                agendaInfrastructureAvailable: data.agendaInfrastructureAvailable,
+                agendaInfrastructureMessage: data.agendaInfrastructureMessage,
+                infraestructuraLista: data.infraestructuraLista,
+                mensajeInfraestructura: data.mensajeInfraestructura,
+              }}
+              onSuccess={(message) => setOperationNotice({ tone: 'success', message })}
+              onError={(message) => setOperationNotice({ tone: 'error', message })}
+              dayEventActionSlot={
+                data.agendaHoy ? (
+                  <AgendaOperativaOverviewCard
+                    routeId={selectedRoute?.id ?? data.rutaSemanaActual?.id ?? null}
+                    agendaHoy={data.agendaHoy}
+                    pdvsDisponibles={data.pdvsDisponibles}
+                    agendaInfrastructureAvailable={data.agendaInfrastructureAvailable}
+                    agendaInfrastructureMessage={data.agendaInfrastructureMessage}
+                  />
+                ) : null
+              }
+            />
+          </SupervisorWorkspaceModal>
 
           <SupervisorWorkspaceModal
             open={activeModal === 'planning'}
@@ -1041,12 +1264,12 @@ function SupervisorRouteOperations({
           <PlanificarRutaCard
             data={data}
             onOpenCorrections={(routeId) => {
-              setSelectedCorrectionRouteId(routeId)
-              setActiveTab('corrections')
+              setSelectedCorrectionRouteId(routeId);
+              setActiveTab('corrections');
             }}
             onOpenHistory={(routeId) => {
-              setSelectedHistoryRouteId(routeId)
-              setActiveTab('history')
+              setSelectedHistoryRouteId(routeId);
+              setActiveTab('history');
             }}
           />
         ) : (
@@ -1068,7 +1291,7 @@ function SupervisorRouteOperations({
         />
       )}
     </div>
-  )
+  );
 }
 
 function SupervisorWorkspaceModal({
@@ -1078,11 +1301,11 @@ function SupervisorWorkspaceModal({
   subtitle,
   children,
 }: {
-  open: boolean
-  onClose: () => void
-  title: string
-  subtitle: string
-  children: ReactNode
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  subtitle: string;
+  children: ReactNode;
 }) {
   return (
     <ModalPanel
@@ -1094,7 +1317,7 @@ function SupervisorWorkspaceModal({
     >
       <div className="min-h-[68vh]">{children}</div>
     </ModalPanel>
-  )
+  );
 }
 
 function SupervisorOperationsHub({
@@ -1102,13 +1325,16 @@ function SupervisorOperationsHub({
   actorPuesto,
   onOpen,
 }: {
-  data: RutaSemanalPanelData
-  actorPuesto: string
-  onOpen: (target: SupervisorRouteTab | 'today') => void
+  data: RutaSemanalPanelData;
+  actorPuesto: string;
+  onOpen: (target: SupervisorRouteTab | 'today') => void;
 }) {
-  const todayCompleted = data.visitasHoy.filter((visit) => visit.estatus === 'COMPLETADA').length
-  const currentMonthVisits = data.rutasHistoricasMesActual.reduce((count, route) => count + route.totalVisitas, 0)
-  const activeEvents = data.agendaHoy?.eventos.length ?? 0
+  const todayCompleted = data.visitasHoy.filter((visit) => visit.estatus === 'COMPLETADA').length;
+  const currentMonthVisits = data.rutasHistoricasMesActual.reduce(
+    (count, route) => count + route.totalVisitas,
+    0
+  );
+  const activeEvents = data.agendaHoy?.eventos.length ?? 0;
 
   return (
     <Card className="border-slate-200 bg-white">
@@ -1119,8 +1345,9 @@ function SupervisorOperationsHub({
           </p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-950">Supervisor en campo</h2>
           <p className="mt-2 text-sm text-slate-500">
-            Abre cada flujo en su propia ventana para revisar la ruta aprobada, atender fuerza mayor, corregir
-            semanas vigentes y consultar historicos sin saturar la pantalla principal.
+            Abre cada flujo en su propia ventana para revisar la ruta aprobada, atender fuerza
+            mayor, corregir semanas vigentes y consultar historicos sin saturar la pantalla
+            principal.
           </p>
         </div>
         <div className="grid w-full gap-3 sm:grid-cols-3 lg:max-w-xl">
@@ -1130,14 +1357,14 @@ function SupervisorOperationsHub({
         </div>
       </div>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <SupervisorHubButton
-            title="Mi Ruta Hoy"
-            description="Ver ruta aprobada, abrir tiendas y cerrar visitas."
-            icon="route"
-            metric={`${data.visitasHoy.length} visita(s)`}
-            onClick={() => onOpen('today')}
-          />
+      <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <SupervisorHubButton
+          title="Mi Ruta Hoy"
+          description="Ver ruta aprobada, abrir tiendas y cerrar visitas."
+          icon="route"
+          metric={`${data.visitasHoy.length} visita(s)`}
+          onClick={() => onOpen('today')}
+        />
         <SupervisorHubButton
           title="Modificar Ruta"
           description="Registrar fuerza mayor sin aprobacion previa."
@@ -1161,7 +1388,7 @@ function SupervisorOperationsHub({
         />
       </div>
     </Card>
-  )
+  );
 }
 
 function SupervisorHubButton({
@@ -1171,11 +1398,11 @@ function SupervisorHubButton({
   metric,
   onClick,
 }: {
-  title: string
-  description: string
-  icon: 'reports' | 'calendar' | 'route'
-  metric: string
-  onClick: () => void
+  title: string;
+  description: string;
+  icon: 'reports' | 'calendar' | 'route';
+  metric: string;
+  onClick: () => void;
 }) {
   return (
     <button
@@ -1194,19 +1421,21 @@ function SupervisorHubButton({
         {metric}
       </span>
     </button>
-  )
+  );
 }
 
 function SupervisorAgendaWorkspace({
   data,
   selectedRoute,
 }: {
-  data: RutaSemanalPanelData
-  selectedRoute: RutaSemanalItem | null
+  data: RutaSemanalPanelData;
+  selectedRoute: RutaSemanalItem | null;
 }) {
   const selectedAgendaEvents = selectedRoute
-    ? data.agendaSemanaActual.flatMap((day) => day.eventos).filter((item) => item.routeId === selectedRoute.id)
-    : []
+    ? data.agendaSemanaActual
+        .flatMap((day) => day.eventos)
+        .filter((item) => item.routeId === selectedRoute.id)
+    : [];
 
   return (
     <div className="space-y-6">
@@ -1234,7 +1463,7 @@ function SupervisorAgendaWorkspace({
         <EmptyState copy="Cuando exista una ruta visible para la semana actual, aqui veras su ejecucion operativa." />
       )}
     </div>
-  )
+  );
 }
 
 function SupervisorCorrectionsWorkspace({
@@ -1243,10 +1472,10 @@ function SupervisorCorrectionsWorkspace({
   onSelectRoute,
   selectedRoute,
 }: {
-  data: RutaSemanalPanelData
-  selectedRouteId: string | null
-  onSelectRoute: (routeId: string) => void
-  selectedRoute: RutaSemanalItem | null
+  data: RutaSemanalPanelData;
+  selectedRouteId: string | null;
+  onSelectRoute: (routeId: string) => void;
+  selectedRoute: RutaSemanalItem | null;
 }) {
   return (
     <div className="space-y-6">
@@ -1256,9 +1485,12 @@ function SupervisorCorrectionsWorkspace({
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
               Correcciones
             </p>
-            <h2 className="mt-2 text-xl font-semibold text-slate-950">Rutas publicadas con ajustes vigentes</h2>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">
+              Rutas publicadas con ajustes vigentes
+            </h2>
             <p className="mt-2 text-sm text-slate-500">
-              Solo ves semanas aprobadas que todavia tienen dias operativos de hoy en adelante para modificar.
+              Solo ves semanas aprobadas que todavia tienen dias operativos de hoy en adelante para
+              modificar.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1273,7 +1505,9 @@ function SupervisorCorrectionsWorkspace({
         <Card className="border-slate-200 bg-white">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Correcciones</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Correcciones
+              </p>
               <h3 className="mt-2 text-lg font-semibold text-slate-950">Semanas publicadas</h3>
             </div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -1297,26 +1531,36 @@ function SupervisorCorrectionsWorkspace({
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold">{ruta.supervisor ?? 'Supervisor sin nombre'}</p>
-                      <p className={`mt-1 text-xs ${selectedRouteId === ruta.id ? 'text-slate-300' : 'text-slate-400'}`}>
+                      <p className="text-sm font-semibold">
+                        {ruta.supervisor ?? 'Supervisor sin nombre'}
+                      </p>
+                      <p
+                        className={`mt-1 text-xs ${selectedRouteId === ruta.id ? 'text-slate-300' : 'text-slate-400'}`}
+                      >
                         {formatDate(ruta.semanaInicio)} - {formatDate(ruta.semanaFin)}
                       </p>
                     </div>
                     <span
                       className={`rounded-full px-3 py-1 text-xs font-medium ${
-                        selectedRouteId === ruta.id ? 'bg-white/10 text-white' : getRouteTone(ruta.estatus)
+                        selectedRouteId === ruta.id
+                          ? 'bg-white/10 text-white'
+                          : getRouteTone(ruta.estatus)
                       }`}
                     >
                       {ruta.estatus}
                     </span>
                   </div>
-                  <div className={`mt-3 text-sm ${selectedRouteId === ruta.id ? 'text-slate-200' : 'text-slate-600'}`}>
+                  <div
+                    className={`mt-3 text-sm ${selectedRouteId === ruta.id ? 'text-slate-200' : 'text-slate-600'}`}
+                  >
                     {ruta.visitasCompletadas}/{ruta.totalVisitas} visitas completadas
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <span
                       className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        selectedRouteId === ruta.id ? 'bg-white/10 text-white' : 'bg-emerald-100 text-emerald-700'
+                        selectedRouteId === ruta.id
+                          ? 'bg-white/10 text-white'
+                          : 'bg-emerald-100 text-emerald-700'
                       }`}
                     >
                       {ruta.editableDayNumbers.length} dia(s) editable(s)
@@ -1352,7 +1596,7 @@ function SupervisorCorrectionsWorkspace({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function SupervisorHistoryWorkspace({
@@ -1361,10 +1605,10 @@ function SupervisorHistoryWorkspace({
   onSelectRoute,
   selectedRoute,
 }: {
-  data: RutaSemanalPanelData
-  selectedRouteId: string | null
-  onSelectRoute: (routeId: string) => void
-  selectedRoute: RutaSemanalItem | null
+  data: RutaSemanalPanelData;
+  selectedRouteId: string | null;
+  onSelectRoute: (routeId: string) => void;
+  selectedRoute: RutaSemanalItem | null;
 }) {
   return (
     <div className="space-y-6">
@@ -1376,7 +1620,8 @@ function SupervisorHistoryWorkspace({
             </p>
             <h2 className="mt-2 text-xl font-semibold text-slate-950">Rutas del mes actual</h2>
             <p className="mt-2 text-sm text-slate-500">
-              Aqui solo ves el corte del mes vigente en modo lectura, sin reposiciones ni formularios de cambio.
+              Aqui solo ves el corte del mes vigente en modo lectura, sin reposiciones ni
+              formularios de cambio.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1391,7 +1636,9 @@ function SupervisorHistoryWorkspace({
         <Card className="border-slate-200 bg-white">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Corte mensual</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Corte mensual
+              </p>
               <h3 className="mt-2 text-lg font-semibold text-slate-950">Semanas visibles</h3>
             </div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -1415,24 +1662,34 @@ function SupervisorHistoryWorkspace({
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold">{ruta.supervisor ?? 'Supervisor sin nombre'}</p>
-                      <p className={`mt-1 text-xs ${selectedRouteId === ruta.id ? 'text-slate-300' : 'text-slate-400'}`}>
+                      <p className="text-sm font-semibold">
+                        {ruta.supervisor ?? 'Supervisor sin nombre'}
+                      </p>
+                      <p
+                        className={`mt-1 text-xs ${selectedRouteId === ruta.id ? 'text-slate-300' : 'text-slate-400'}`}
+                      >
                         {formatDate(ruta.semanaInicio)} - {formatDate(ruta.semanaFin)}
                       </p>
                     </div>
                     <span
                       className={`rounded-full px-3 py-1 text-xs font-medium ${
-                        selectedRouteId === ruta.id ? 'bg-white/10 text-white' : getRouteTone(ruta.estatus)
+                        selectedRouteId === ruta.id
+                          ? 'bg-white/10 text-white'
+                          : getRouteTone(ruta.estatus)
                       }`}
                     >
                       {ruta.estatus}
                     </span>
                   </div>
-                  <div className={`mt-3 text-sm ${selectedRouteId === ruta.id ? 'text-slate-200' : 'text-slate-600'}`}>
+                  <div
+                    className={`mt-3 text-sm ${selectedRouteId === ruta.id ? 'text-slate-200' : 'text-slate-600'}`}
+                  >
                     {ruta.visitasCompletadas}/{ruta.totalVisitas} visitas completadas
                   </div>
                   {ruta.notas ? (
-                    <p className={`mt-2 text-xs ${selectedRouteId === ruta.id ? 'text-slate-300' : 'text-slate-500'}`}>
+                    <p
+                      className={`mt-2 text-xs ${selectedRouteId === ruta.id ? 'text-slate-300' : 'text-slate-500'}`}
+                    >
                       {ruta.notas}
                     </p>
                   ) : null}
@@ -1454,7 +1711,7 @@ function SupervisorHistoryWorkspace({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function WarRoomTabButton({
@@ -1463,10 +1720,10 @@ function WarRoomTabButton({
   label,
   onClick,
 }: {
-  active: boolean
-  icon: 'reports' | 'calendar' | 'route'
-  label: string
-  onClick: () => void
+  active: boolean;
+  icon: 'reports' | 'calendar' | 'route';
+  label: string;
+  onClick: () => void;
 }) {
   return (
     <button
@@ -1481,23 +1738,23 @@ function WarRoomTabButton({
       <PremiumLineIcon name={icon} className="h-4 w-4" strokeWidth={2} />
       {label}
     </button>
-  )
+  );
 }
 
 function AgendaDigestCard({
   agendaHoy,
   pendientes,
 }: {
-  agendaHoy: RutaAgendaOperativaDia | null
-  pendientes: RutaPendienteReposicionItem[]
+  agendaHoy: RutaAgendaOperativaDia | null;
+  pendientes: RutaPendienteReposicionItem[];
 }) {
   return (
     <Card className="border-slate-200 bg-white">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
-              Eventos del dia
-            </p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
+            Eventos del dia
+          </p>
           <h2 className="mt-2 text-xl font-semibold text-slate-950">
             {agendaHoy ? `${agendaHoy.dayLabel} en ejecucion` : 'Sin agenda del dia'}
           </h2>
@@ -1528,7 +1785,7 @@ function AgendaDigestCard({
         </div>
       )}
     </Card>
-  )
+  );
 }
 
 function AgendaTimelineCard({ events }: { events: RutaAgendaEventoItem[] }) {
@@ -1536,8 +1793,12 @@ function AgendaTimelineCard({ events }: { events: RutaAgendaEventoItem[] }) {
     <div className="rounded-[24px] border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Eventos en seguimiento</p>
-          <h3 className="mt-2 text-lg font-semibold text-slate-950">Eventos y reposiciones de la semana</h3>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            Eventos en seguimiento
+          </p>
+          <h3 className="mt-2 text-lg font-semibold text-slate-950">
+            Eventos y reposiciones de la semana
+          </h3>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
           {events.length}
@@ -1549,7 +1810,10 @@ function AgendaTimelineCard({ events }: { events: RutaAgendaEventoItem[] }) {
           <EmptyState copy="No hay eventos operativos registrados para esta ruta." />
         ) : (
           events.map((event) => (
-            <div key={event.id} className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4">
+            <div
+              key={event.id}
+              className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4"
+            >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-slate-950">{event.titulo}</p>
@@ -1558,10 +1822,14 @@ function AgendaTimelineCard({ events }: { events: RutaAgendaEventoItem[] }) {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getAgendaApprovalTone(event.estatusAprobacion)}`}>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${getAgendaApprovalTone(event.estatusAprobacion)}`}
+                  >
                     {event.estatusAprobacion}
                   </span>
-                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getAgendaExecutionTone(event.estatusEjecucion)}`}>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${getAgendaExecutionTone(event.estatusEjecucion)}`}
+                  >
                     {event.estatusEjecucion}
                   </span>
                 </div>
@@ -1574,70 +1842,75 @@ function AgendaTimelineCard({ events }: { events: RutaAgendaEventoItem[] }) {
         )}
       </div>
     </div>
-  )
+  );
 }
 
 function RouteMapByDay({ route }: { route: RutaSemanalItem }) {
-  const dayOptions = useMemo(
-    () => {
-      const counts = new Map<number, number>()
-      for (const visit of route.visitas) {
-        counts.set(visit.diaSemana, (counts.get(visit.diaSemana) ?? 0) + 1)
-      }
-
-      return WEEK_DAY_OPTIONS.filter((option) => counts.has(option.value)).map((option) => ({
-        value: option.value,
-        label: `${option.label} · ${counts.get(option.value) ?? 0} visita(s)`,
-        shortLabel: option.shortLabel,
-      }))
-    },
-    [route.visitas]
-  )
-  const [selectedDayNumber, setSelectedDayNumber] = useState<number | null>(route.visitas[0]?.diaSemana ?? null)
-
-  const resolvedSelectedDayNumber = useMemo(() => {
-    if (selectedDayNumber !== null && dayOptions.some((option) => option.value === selectedDayNumber)) {
-      return selectedDayNumber
+  const dayOptions = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const visit of route.visitas) {
+      counts.set(visit.diaSemana, (counts.get(visit.diaSemana) ?? 0) + 1);
     }
 
-    return dayOptions[0]?.value ?? null
-  }, [dayOptions, selectedDayNumber])
+    return WEEK_DAY_OPTIONS.filter((option) => counts.has(option.value)).map((option) => ({
+      value: option.value,
+      label: `${option.label} · ${counts.get(option.value) ?? 0} visita(s)`,
+      shortLabel: option.shortLabel,
+    }));
+  }, [route.visitas]);
+  const [selectedDayNumber, setSelectedDayNumber] = useState<number | null>(
+    route.visitas[0]?.diaSemana ?? null
+  );
+
+  const resolvedSelectedDayNumber = useMemo(() => {
+    if (
+      selectedDayNumber !== null &&
+      dayOptions.some((option) => option.value === selectedDayNumber)
+    ) {
+      return selectedDayNumber;
+    }
+
+    return dayOptions[0]?.value ?? null;
+  }, [dayOptions, selectedDayNumber]);
 
   const selectedDayIndex = useMemo(
     () => dayOptions.findIndex((option) => option.value === resolvedSelectedDayNumber),
     [dayOptions, resolvedSelectedDayNumber]
-  )
+  );
 
-  const selectedDayOption = dayOptions[selectedDayIndex] ?? dayOptions[0] ?? null
+  const selectedDayOption = dayOptions[selectedDayIndex] ?? dayOptions[0] ?? null;
 
   const goToPreviousDay = () => {
     if (selectedDayIndex <= 0) {
-      return
+      return;
     }
 
-    setSelectedDayNumber(dayOptions[selectedDayIndex - 1]?.value ?? resolvedSelectedDayNumber)
-  }
+    setSelectedDayNumber(dayOptions[selectedDayIndex - 1]?.value ?? resolvedSelectedDayNumber);
+  };
 
   const goToNextDay = () => {
     if (selectedDayIndex < 0 || selectedDayIndex >= dayOptions.length - 1) {
-      return
+      return;
     }
 
-    setSelectedDayNumber(dayOptions[selectedDayIndex + 1]?.value ?? resolvedSelectedDayNumber)
-  }
+    setSelectedDayNumber(dayOptions[selectedDayIndex + 1]?.value ?? resolvedSelectedDayNumber);
+  };
 
   const dayVisits = route.visitas
     .filter((visit) => visit.diaSemana === resolvedSelectedDayNumber)
-    .sort((left, right) => left.orden - right.orden)
+    .sort((left, right) => left.orden - right.orden);
 
   return (
     <div className="rounded-[24px] border border-slate-200 bg-white p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mapa del dia</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            Mapa del dia
+          </p>
           <h3 className="mt-2 text-lg font-semibold text-slate-950">Ruta programada por dia</h3>
           <p className="mt-2 text-sm text-slate-500">
-            Usa anterior y siguiente para recorrer solo la secuencia programada de cada dia con visitas.
+            Usa anterior y siguiente para recorrer solo la secuencia programada de cada dia con
+            visitas.
           </p>
         </div>
         <div className="w-full max-w-md">
@@ -1654,7 +1927,9 @@ function RouteMapByDay({ route }: { route: RutaSemanalItem }) {
               Anterior
             </Button>
             <div className="flex min-w-0 flex-col items-center justify-center rounded-[16px] border border-dashed border-slate-200 bg-white px-3 py-2 text-center">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">DIA</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                DIA
+              </p>
               <p className="mt-1 truncate text-sm font-semibold text-slate-950" aria-live="polite">
                 {selectedDayOption?.label ?? 'Sin visitas'}
               </p>
@@ -1664,7 +1939,11 @@ function RouteMapByDay({ route }: { route: RutaSemanalItem }) {
               variant="outline"
               size="sm"
               onClick={goToNextDay}
-              disabled={dayOptions.length === 0 || selectedDayIndex < 0 || selectedDayIndex >= dayOptions.length - 1}
+              disabled={
+                dayOptions.length === 0 ||
+                selectedDayIndex < 0 ||
+                selectedDayIndex >= dayOptions.length - 1
+              }
               className="w-full justify-center rounded-[16px] border-slate-200 bg-white"
               rightIcon={<span aria-hidden="true">{'>'}</span>}
             >
@@ -1682,18 +1961,29 @@ function RouteMapByDay({ route }: { route: RutaSemanalItem }) {
 
       {dayVisits.length > 0 && (
         <div className="mt-6 space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Secuencia de tiendas</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            Secuencia de tiendas
+          </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
             {dayVisits.map((visit, idx) => (
-              <div key={visit.id} className="flex items-center gap-4 rounded-[20px] border border-slate-100 bg-slate-50/50 p-4 transition hover:bg-white hover:shadow-sm">
+              <div
+                key={visit.id}
+                className="flex items-center gap-4 rounded-[20px] border border-slate-100 bg-slate-50/50 p-4 transition hover:bg-white hover:shadow-sm"
+              >
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-base font-bold text-white">
                   {idx + 1}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-bold text-slate-900">{visit.pdv ?? 'Tienda sin nombre'}</p>
-                  <p className="mt-0.5 truncate text-[11px] text-slate-500">{visit.direccion ?? 'Sin dirección registrada'}</p>
+                  <p className="truncate text-sm font-bold text-slate-900">
+                    {visit.pdv ?? 'Tienda sin nombre'}
+                  </p>
+                  <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                    {visit.direccion ?? 'Sin dirección registrada'}
+                  </p>
                 </div>
-                <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${getVisitTone(visit.estatus)}`}>
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${getVisitTone(visit.estatus)}`}
+                >
                   {visit.estatus}
                 </span>
               </div>
@@ -1702,47 +1992,142 @@ function RouteMapByDay({ route }: { route: RutaSemanalItem }) {
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function CoordinatorRouteKanban({
   routes,
+  supervisors,
   selectedRouteId,
   onSelectRoute,
   selectedWeekStart,
   onPreviousWeek,
   onNextWeek,
   canGoToPreviousWeek,
+  onExportExcel,
+  isExportingExcel,
+  onExportExcelMes,
+  isExportingExcelMes,
+  onAprobarMes,
+  isApprovingMes,
 }: {
-  routes: RutaSemanalItem[]
-  selectedRouteId: string | null
-  onSelectRoute: (routeId: string) => void
-  selectedWeekStart: string
-  onPreviousWeek: () => void
-  onNextWeek: () => void
-  canGoToPreviousWeek: boolean
+  routes: RutaSemanalItem[];
+  supervisors: RutaSupervisorWarRoomItem[];
+  selectedRouteId: string | null;
+  onSelectRoute: (routeId: string) => void;
+  selectedWeekStart: string;
+  onPreviousWeek: () => void;
+  onNextWeek: () => void;
+  canGoToPreviousWeek: boolean;
+  onExportExcel?: () => void;
+  isExportingExcel?: boolean;
+  onExportExcelMes?: () => void;
+  isExportingExcelMes?: boolean;
+  onAprobarMes?: () => void;
+  isApprovingMes?: boolean;
 }) {
-  const [activeColumn, setActiveColumn] = useState<CoordinatorKanbanColumnKey | null>(null)
+  const [activeColumn, setActiveColumn] = useState<CoordinatorKanbanColumnKey | null>(null);
 
   const grouped = useMemo(() => {
-    const initial: Record<CoordinatorKanbanColumnKey, RutaSemanalItem[]> = {
+    const initial: Record<CoordinatorKanbanColumnKey, Array<RutaSemanalItem | RutaSupervisorWarRoomItem>> = {
+      FALTANTES: [],
       ENVIADAS: [],
       AJUSTES: [],
       PUBLICADAS: [],
       CERRADAS: [],
-    }
+    };
+
+    const supervisorsWithRoutes = new Set<string>();
 
     for (const route of routes) {
-      initial[getCoordinatorKanbanColumn(route)].push(route)
+      initial[getCoordinatorKanbanColumn(route)].push(route);
+      supervisorsWithRoutes.add(route.supervisorEmpleadoId);
     }
 
-    return initial
-  }, [routes])
+    if (supervisors) {
+      for (const sup of supervisors) {
+        const supNameLower = sup.supervisor.toLowerCase();
+        const sId = sup.supervisorEmpleadoId || '';
+        if (
+          !supervisorsWithRoutes.has(sId) &&
+          !sId.startsWith('fe4e5c1d') &&
+          !sId.startsWith('8fb2e080') &&
+          !supNameLower.includes('fe4e5c1d') &&
+          !supNameLower.includes('8fb2e080') &&
+          !supNameLower.includes('test') &&
+          !supNameLower.includes('mario ortega') &&
+          !supNameLower.includes('patricia salgado')
+        ) {
+          initial.FALTANTES.push(sup);
+        }
+      }
+    }
 
-  const columns: CoordinatorKanbanColumnKey[] = ['ENVIADAS', 'AJUSTES', 'PUBLICADAS', 'CERRADAS']
+    return initial;
+  }, [routes, supervisors]);
+
+  const columns: CoordinatorKanbanColumnKey[] = ['FALTANTES', 'ENVIADAS', 'AJUSTES', 'PUBLICADAS', 'CERRADAS'];
+
+  const mesIso = selectedWeekStart ? selectedWeekStart.substring(0, 7) : '';
 
   return (
     <>
+      <Card className="border-indigo-200 bg-indigo-50 mb-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between p-5">
+          <div>
+            <h3 className="text-lg font-bold text-indigo-950 flex items-center gap-2">
+              <PremiumLineIcon name="calendar" className="h-5 w-5 text-indigo-700" />
+              Acciones del Mes ({mesIso})
+            </h3>
+            <p className="text-sm text-indigo-800 mt-1">
+              Ahorra tiempo gestionando todas las rutas correspondientes a este mes en un solo click.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {onAprobarMes && (
+              <Button
+                type="button"
+                className="bg-indigo-600 text-white hover:bg-indigo-700 font-semibold shadow-sm"
+                onClick={onAprobarMes}
+                disabled={isApprovingMes}
+              >
+                {isApprovingMes ? (
+                  <>
+                    <span className="mr-1.5 h-4 w-4 animate-spin rounded-full border-2 border-indigo-200 border-t-white inline-block" />
+                    Aprobando Mes...
+                  </>
+                ) : (
+                  <>
+                    Aprobar Rutas del Mes
+                  </>
+                )}
+              </Button>
+            )}
+            {onExportExcelMes && (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-indigo-300 bg-white text-indigo-900 hover:bg-indigo-100 font-semibold shadow-sm"
+                onClick={onExportExcelMes}
+                disabled={isExportingExcelMes}
+              >
+                {isExportingExcelMes ? (
+                  <>
+                    <span className="mr-1.5 h-4 w-4 animate-spin rounded-full border-2 border-indigo-700 border-t-transparent inline-block" />
+                    Exportando...
+                  </>
+                ) : (
+                  <>
+                    <PremiumLineIcon name="reports" className="mr-1.5 h-4 w-4 text-indigo-700 inline" />
+                    Exportar Excel del Mes
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        </div>
+      </Card>
+
       <Card className="border-slate-200 bg-white">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -1755,6 +2140,27 @@ function CoordinatorRouteKanban({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {onExportExcel && (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 hover:text-emerald-950 font-semibold text-xs shadow-sm mr-2"
+                onClick={onExportExcel}
+                disabled={isExportingExcel}
+              >
+                {isExportingExcel ? (
+                  <>
+                    <span className="mr-1.5 h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-700 border-t-transparent inline-block" />
+                    Exportando...
+                  </>
+                ) : (
+                  <>
+                    <PremiumLineIcon name="reports" className="mr-1.5 h-4 w-4 text-emerald-700 inline" />
+                    Exportar Excel
+                  </>
+                )}
+              </Button>
+            )}
             <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2 py-1 shadow-sm">
               <button
                 type="button"
@@ -1780,95 +2186,137 @@ function CoordinatorRouteKanban({
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {columns.map((column) => {
-          const count = grouped[column].length
-          const isActive = activeColumn === column
-          const colorClass = 
-            column === 'PUBLICADAS' ? 'bg-emerald-50 border-emerald-200 text-emerald-900' :
-            column === 'AJUSTES' ? 'bg-amber-50 border-amber-200 text-amber-900' :
-            column === 'ENVIADAS' ? 'bg-sky-50 border-sky-200 text-sky-900' :
-            'bg-slate-50 border-slate-200 text-slate-900'
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {columns.map((column) => {
+            const count = grouped[column].length;
+            const isActive = activeColumn === column;
+            const colorClass =
+              column === 'PUBLICADAS'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : column === 'AJUSTES'
+                  ? 'bg-amber-50 border-amber-200 text-amber-900'
+                  : column === 'ENVIADAS'
+                    ? 'bg-sky-50 border-sky-200 text-sky-900'
+                    : column === 'FALTANTES'
+                      ? 'bg-rose-50 border-rose-200 text-rose-900'
+                      : 'bg-slate-50 border-slate-200 text-slate-900';
 
-          return (
-            <button
-              key={column}
-              type="button"
-              onClick={() => setActiveColumn(column)}
-              className={`flex flex-col items-start gap-1 rounded-[24px] border p-5 text-left transition hover:shadow-md ${colorClass} ${isActive ? 'ring-2 ring-slate-950 ring-offset-2' : ''}`}
-            >
-              <span className="text-[11px] font-bold uppercase tracking-wider opacity-60">
-                {getCoordinatorKanbanColumnLabel(column)}
-              </span>
-              <div className="flex w-full items-center justify-between">
-                <span className="text-3xl font-bold">{count}</span>
-                <span className="text-xl opacity-30">
-                  {column === 'ENVIADAS' ? '📨' : column === 'AJUSTES' ? '✏️' : column === 'PUBLICADAS' ? '✅' : '📁'}
-                </span>
-              </div>
-              <p className="mt-2 text-xs opacity-70">
-                {count === 1 ? '1 ruta disponible' : `${count} rutas disponibles`}
-              </p>
-            </button>
-          )
-        })}
-      </div>
-
-      <ModalPanel
-        open={Boolean(activeColumn)}
-        onClose={() => setActiveColumn(null)}
-        title={`Rutas: ${getCoordinatorKanbanColumnLabel(activeColumn ?? 'ENVIADAS')}`}
-        subtitle={`Total de ${grouped[activeColumn ?? 'ENVIADAS'].length} rutas en este estado.`}
-      >
-        <div className="mt-4 space-y-3">
-          {grouped[activeColumn ?? 'ENVIADAS'].length === 0 ? (
-            <div className="py-12 text-center">
-              <p className="text-sm font-medium text-slate-500">No hay rutas en esta categoría.</p>
-            </div>
-          ) : (
-            grouped[activeColumn ?? 'ENVIADAS'].map((route) => (
+            return (
               <button
-                key={route.id}
+                key={column}
                 type="button"
-                onClick={() => {
-                  onSelectRoute(route.id)
-                  setActiveColumn(null)
-                }}
-                className={`w-full rounded-[24px] border p-5 text-left transition ${
-                  selectedRouteId === route.id
-                    ? 'border-slate-950 bg-slate-950 text-white shadow-lg'
-                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                }`}
+                onClick={() => setActiveColumn(column)}
+                className={`flex flex-col items-start gap-1 rounded-[24px] border p-5 text-left transition hover:shadow-md ${colorClass} ${isActive ? 'ring-2 ring-slate-950 ring-offset-2' : ''}`}
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-base font-bold">{route.supervisor ?? 'Supervisor sin nombre'}</p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <p className={`text-xs ${selectedRouteId === route.id ? 'text-slate-300' : 'text-slate-500'}`}>
-                        {formatDate(route.semanaInicio)} - {formatDate(route.semanaFin)}
-                      </p>
-                      <span className="h-1 w-1 rounded-full bg-slate-400 opacity-30" />
-                      <p className={`text-xs font-medium ${selectedRouteId === route.id ? 'text-slate-200' : 'text-slate-600'}`}>
-                        {route.totalVisitas} visitas
-                      </p>
-                    </div>
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-bold ${
-                      selectedRouteId === route.id ? 'bg-white/10 text-white' : getRouteTone(route.estatus)
-                    }`}
-                  >
-                    {route.estatus}
+                <span className="text-[11px] font-bold uppercase tracking-wider opacity-60">
+                  {getCoordinatorKanbanColumnLabel(column)}
+                </span>
+                <div className="flex w-full items-center justify-between">
+                  <span className="text-3xl font-bold">{count}</span>
+                  <span className="text-xl opacity-30">
+                    {column === 'FALTANTES'
+                      ? '⚠️'
+                      : column === 'ENVIADAS'
+                        ? '📨'
+                        : column === 'AJUSTES'
+                          ? '✏️'
+                          : column === 'PUBLICADAS'
+                            ? '✅'
+                            : '📁'}
                   </span>
                 </div>
+                <p className="mt-2 text-xs opacity-70">
+                  {count === 1 ? '1 ruta disponible' : `${count} rutas disponibles`}
+                </p>
               </button>
-            ))
-          )}
+            );
+          })}
         </div>
-      </ModalPanel>
-    </Card>
+
+        <ModalPanel
+          open={Boolean(activeColumn)}
+          onClose={() => setActiveColumn(null)}
+          title={`Rutas: ${getCoordinatorKanbanColumnLabel(activeColumn ?? 'ENVIADAS')}`}
+          subtitle={`Total de ${grouped[activeColumn ?? 'ENVIADAS'].length} rutas en este estado.`}
+        >
+          <div className="mt-4 space-y-3">
+            {grouped[activeColumn ?? 'ENVIADAS'].length === 0 ? (
+              <div className="py-12 text-center">
+                <p className="text-sm font-medium text-slate-500">
+                  No hay rutas en esta categoría.
+                </p>
+              </div>
+            ) : (
+              grouped[activeColumn ?? 'ENVIADAS'].map((item) => {
+                const isMissing = 'supervisorEmpleadoId' in item && !('id' in item);
+                const routeId = isMissing ? (item as RutaSupervisorWarRoomItem).supervisorEmpleadoId : (item as RutaSemanalItem).id;
+                const supervisorName = isMissing ? (item as RutaSupervisorWarRoomItem).supervisor : (item as RutaSemanalItem).supervisor;
+
+                return (
+                  <button
+                    key={routeId}
+                    type="button"
+                    onClick={() => {
+                      if (!isMissing) {
+                        onSelectRoute(routeId);
+                        setActiveColumn(null);
+                      }
+                    }}
+                    className={`w-full rounded-[24px] border p-5 text-left transition ${
+                      !isMissing && selectedRouteId === routeId
+                        ? 'border-slate-950 bg-slate-950 text-white shadow-lg'
+                        : isMissing
+                          ? 'border-rose-200 bg-rose-50 cursor-default'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <p className={`truncate text-base font-bold ${isMissing ? 'text-rose-900' : ''}`}>
+                          {supervisorName ?? 'Supervisor sin nombre'}
+                        </p>
+                        {!isMissing && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <p
+                              className={`text-xs ${selectedRouteId === routeId ? 'text-slate-300' : 'text-slate-500'}`}
+                            >
+                              {formatDate((item as RutaSemanalItem).semanaInicio)} - {formatDate((item as RutaSemanalItem).semanaFin)}
+                            </p>
+                            <span className="h-1 w-1 rounded-full bg-slate-400 opacity-30" />
+                            <p
+                              className={`text-xs font-medium ${selectedRouteId === routeId ? 'text-slate-200' : 'text-slate-600'}`}
+                            >
+                              {(item as RutaSemanalItem).totalVisitas} visitas
+                            </p>
+                          </div>
+                        )}
+                        {isMissing && (
+                          <p className="mt-2 text-xs text-rose-700">
+                            Sin ruta enviada para esta semana
+                          </p>
+                        )}
+                      </div>
+                      {!isMissing && (
+                        <span
+                          className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-bold ${
+                            selectedRouteId === routeId
+                              ? 'bg-white/10 text-white'
+                              : getRouteTone((item as RutaSemanalItem).estatus)
+                          }`}
+                        >
+                          {(item as RutaSemanalItem).estatus}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </ModalPanel>
+      </Card>
     </>
-  )
+  );
 }
 
 function UnifiedDayEditorCard({
@@ -1881,28 +2329,34 @@ function UnifiedDayEditorCard({
   metadataEnabled,
   pdvsDisponibles,
 }: {
-  route: RutaSemanalItem
-  agendaHoy: RutaAgendaOperativaDia | null
-  agendaEvents: RutaAgendaEventoItem[]
-  pendingRepositions: RutaPendienteReposicionItem[]
-  agendaInfrastructureAvailable: boolean
-  agendaInfrastructureMessage?: string
-  metadataEnabled: boolean
-  pdvsDisponibles: RutaSemanalPanelData['pdvsDisponibles']
+  route: RutaSemanalItem;
+  agendaHoy: RutaAgendaOperativaDia | null;
+  agendaEvents: RutaAgendaEventoItem[];
+  pendingRepositions: RutaPendienteReposicionItem[];
+  agendaInfrastructureAvailable: boolean;
+  agendaInfrastructureMessage?: string;
+  metadataEnabled: boolean;
+  pdvsDisponibles: RutaSemanalPanelData['pdvsDisponibles'];
 }) {
-  const [mode, setMode] = useState<UnifiedDayEditorMode>('CHANGE')
-  const [changeState, changeAction] = useActionState(solicitarCambioRutaSemanal, ESTADO_RUTA_INICIAL)
-  const [eventState, eventAction] = useActionState(registrarEventoAgendaRutaSemanal, ESTADO_RUTA_INICIAL)
+  const [mode, setMode] = useState<UnifiedDayEditorMode>('CHANGE');
+  const [changeState, changeAction] = useActionState(
+    solicitarCambioRutaSemanal,
+    ESTADO_RUTA_INICIAL
+  );
+  const [eventState, eventAction] = useActionState(
+    registrarEventoAgendaRutaSemanal,
+    ESTADO_RUTA_INICIAL
+  );
   const visitsByDay = useMemo(
     () =>
       route.visitas.reduce<Map<number, RutaSemanalVisitItem[]>>((acc, visit) => {
-        const current = acc.get(visit.diaSemana) ?? []
-        current.push(visit)
-        acc.set(visit.diaSemana, current)
-        return acc
+        const current = acc.get(visit.diaSemana) ?? [];
+        current.push(visit);
+        acc.set(visit.diaSemana, current);
+        return acc;
       }, new Map<number, RutaSemanalVisitItem[]>()),
     [route.visitas]
-  )
+  );
   const dayOptions = Array.from(
     new Map(
       route.visitas.map((visit) => [
@@ -1913,89 +2367,103 @@ function UnifiedDayEditorCard({
         },
       ])
     ).values()
-  )
+  );
   const [selectedDayNumber, setSelectedDayNumber] = useState<number>(
     route.changeRequestTargetDayNumber ?? route.visitas[0]?.diaSemana ?? 1
-  )
+  );
   const [changeType, setChangeType] = useState<RutaSemanalItem['changeRequestType']>(
     route.changeRequestState === 'PENDIENTE' ? route.changeRequestType : 'CAMBIO_DIA'
-  )
+  );
   const [selectedVisitId, setSelectedVisitId] = useState<string>(
-    route.changeRequestState === 'PENDIENTE' ? route.changeRequestTargetVisitId ?? '' : ''
-  )
-  const [storeSearch, setStoreSearch] = useState('')
-  const [isStorePickerOpen, setIsStorePickerOpen] = useState(false)
-  const [eventType, setEventType] = useState<RutaAgendaEventoItem['tipoEvento']>('VISITA_ADICIONAL')
-  const [impactMode, setImpactMode] = useState<RutaAgendaEventoItem['modoImpacto']>('SUMA')
-  const [selectedDisplacedVisitIds, setSelectedDisplacedVisitIds] = useState<string[]>([])
+    route.changeRequestState === 'PENDIENTE' ? (route.changeRequestTargetVisitId ?? '') : ''
+  );
+  const [storeSearch, setStoreSearch] = useState('');
+  const [isStorePickerOpen, setIsStorePickerOpen] = useState(false);
+  const [eventType, setEventType] =
+    useState<RutaAgendaEventoItem['tipoEvento']>('VISITA_ADICIONAL');
+  const [impactMode, setImpactMode] = useState<RutaAgendaEventoItem['modoImpacto']>('SUMA');
+  const [selectedDisplacedVisitIds, setSelectedDisplacedVisitIds] = useState<string[]>([]);
 
-  const buildDraftForDay = useCallback((dayNumber: number, sourceRoute = route) => {
-    if (
-      sourceRoute.changeRequestState === 'PENDIENTE' &&
-      sourceRoute.changeRequestTargetDayNumber === dayNumber &&
-      sourceRoute.changeRequestProposedVisits.length > 0
-    ) {
-      return sourceRoute.changeRequestProposedVisits.map((proposal) => ({
-        clientId: `proposal-${proposal.order}-${proposal.pdvId}`,
-        pdvId: proposal.pdvId,
-        label: proposal.pdv ?? 'PDV sin nombre',
-        subtitle: proposal.zona ?? 'Sin zona',
-      }))
-    }
+  const buildDraftForDay = useCallback(
+    (dayNumber: number, sourceRoute = route) => {
+      if (
+        sourceRoute.changeRequestState === 'PENDIENTE' &&
+        sourceRoute.changeRequestTargetDayNumber === dayNumber &&
+        sourceRoute.changeRequestProposedVisits.length > 0
+      ) {
+        return sourceRoute.changeRequestProposedVisits.map((proposal) => ({
+          clientId: `proposal-${proposal.order}-${proposal.pdvId}`,
+          pdvId: proposal.pdvId,
+          label: proposal.pdv ?? 'PDV sin nombre',
+          subtitle: proposal.zona ?? 'Sin zona',
+        }));
+      }
 
-    return (visitsByDay.get(dayNumber) ?? []).map((visit, index) => ({
-      clientId: visit.id ?? `${dayNumber}-${visit.pdvId}-${index}`,
-      pdvId: visit.pdvId,
-      label: visit.pdv ?? 'PDV sin nombre',
-      subtitle: visit.zona ?? 'Sin zona',
-    }))
-  }, [route, visitsByDay])
+      return (visitsByDay.get(dayNumber) ?? []).map((visit, index) => ({
+        clientId: visit.id ?? `${dayNumber}-${visit.pdvId}-${index}`,
+        pdvId: visit.pdvId,
+        label: visit.pdv ?? 'PDV sin nombre',
+        subtitle: visit.zona ?? 'Sin zona',
+      }));
+    },
+    [route, visitsByDay]
+  );
 
-  const [draftRoute, setDraftRoute] = useState(() => buildDraftForDay(selectedDayNumber))
+  const [draftRoute, setDraftRoute] = useState(() => buildDraftForDay(selectedDayNumber));
 
   useEffect(() => {
-    const nextDay = route.changeRequestTargetDayNumber ?? route.visitas[0]?.diaSemana ?? 1
+    const nextDay = route.changeRequestTargetDayNumber ?? route.visitas[0]?.diaSemana ?? 1;
     return scheduleEffectStateUpdate(() => {
-      setSelectedDayNumber(nextDay)
-      setSelectedVisitId(route.changeRequestState === 'PENDIENTE' ? route.changeRequestTargetVisitId ?? '' : '')
-      setChangeType(route.changeRequestState === 'PENDIENTE' ? route.changeRequestType : 'CAMBIO_DIA')
-      setDraftRoute(buildDraftForDay(nextDay, route))
-    })
-  }, [buildDraftForDay, route])
+      setSelectedDayNumber(nextDay);
+      setSelectedVisitId(
+        route.changeRequestState === 'PENDIENTE' ? (route.changeRequestTargetVisitId ?? '') : ''
+      );
+      setChangeType(
+        route.changeRequestState === 'PENDIENTE' ? route.changeRequestType : 'CAMBIO_DIA'
+      );
+      setDraftRoute(buildDraftForDay(nextDay, route));
+    });
+  }, [buildDraftForDay, route]);
 
-  const operationDate = addDaysToWeek(route.semanaInicio, selectedDayNumber)
-  const currentDayVisits = (visitsByDay.get(selectedDayNumber) ?? []).sort((left, right) => left.orden - right.orden)
-  const currentDayEvents = agendaEvents.filter((item) => item.fechaOperacion === operationDate)
-  const currentDayPendings = pendingRepositions.filter((item) => item.fechaOrigen === operationDate)
+  const operationDate = addDaysToWeek(route.semanaInicio, selectedDayNumber);
+  const currentDayVisits = (visitsByDay.get(selectedDayNumber) ?? []).sort(
+    (left, right) => left.orden - right.orden
+  );
+  const currentDayEvents = agendaEvents.filter((item) => item.fechaOperacion === operationDate);
+  const currentDayPendings = pendingRepositions.filter(
+    (item) => item.fechaOrigen === operationDate
+  );
   const targetVisitOptions = currentDayVisits.map((visit) => ({
     value: visit.id,
     label: visit.pdv ?? 'PDV sin nombre',
-  }))
+  }));
   const filteredPdvs = pdvsDisponibles.filter((pdv) =>
-    normalizeFilterText(`${pdv.nombre} ${pdv.zona ?? ''}`).includes(normalizeFilterText(storeSearch))
-  )
+    normalizeFilterText(`${pdv.nombre} ${pdv.zona ?? ''}`).includes(
+      normalizeFilterText(storeSearch)
+    )
+  );
   const serializedProposal = JSON.stringify(
     draftRoute.map((item, index) => ({
       pdvId: item.pdvId,
       order: index + 1,
     }))
-  )
+  );
 
   const resetDraftForDay = (dayNumber: number, nextType: RutaSemanalItem['changeRequestType']) => {
-    setSelectedDayNumber(dayNumber)
-    setSelectedVisitId((visitsByDay.get(dayNumber) ?? [])[0]?.id ?? '')
-    setDraftRoute(nextType === 'CANCELACION_DIA' ? [] : buildDraftForDay(dayNumber))
-    setSelectedDisplacedVisitIds([])
-  }
+    setSelectedDayNumber(dayNumber);
+    setSelectedVisitId((visitsByDay.get(dayNumber) ?? [])[0]?.id ?? '');
+    setDraftRoute(nextType === 'CANCELACION_DIA' ? [] : buildDraftForDay(dayNumber));
+    setSelectedDisplacedVisitIds([]);
+  };
 
   const addStoreToDraft = (pdvId: string) => {
     if (!pdvId || draftRoute.some((item) => item.pdvId === pdvId)) {
-      return
+      return;
     }
 
-    const pdv = pdvsDisponibles.find((item) => item.id === pdvId)
+    const pdv = pdvsDisponibles.find((item) => item.id === pdvId);
     if (!pdv) {
-      return
+      return;
     }
 
     setDraftRoute((current) => [
@@ -2006,42 +2474,47 @@ function UnifiedDayEditorCard({
         label: pdv.nombre,
         subtitle: pdv.zona ?? pdv.formato ?? 'Sin zona',
       },
-    ])
-  }
+    ]);
+  };
 
   const removeStoreFromDraft = (clientId: string) => {
-    setDraftRoute((current) => current.filter((item) => item.clientId !== clientId))
-  }
+    setDraftRoute((current) => current.filter((item) => item.clientId !== clientId));
+  };
 
   const moveStoreWithinDraft = (clientId: string, direction: 'up' | 'down') => {
     setDraftRoute((current) => {
-      const currentIndex = current.findIndex((item) => item.clientId === clientId)
+      const currentIndex = current.findIndex((item) => item.clientId === clientId);
       if (currentIndex === -1) {
-        return current
+        return current;
       }
 
-      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
       if (nextIndex < 0 || nextIndex >= current.length) {
-        return current
+        return current;
       }
 
-      const next = [...current]
-      const [moved] = next.splice(currentIndex, 1)
-      next.splice(nextIndex, 0, moved)
-      return next
-    })
-  }
+      const next = [...current];
+      const [moved] = next.splice(currentIndex, 1);
+      next.splice(nextIndex, 0, moved);
+      return next;
+    });
+  };
 
-  const activeState = mode === 'CHANGE' ? changeState : eventState
+  const activeState = mode === 'CHANGE' ? changeState : eventState;
 
   return (
     <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Edicion del dia</p>
-          <h3 className="mt-2 text-lg font-semibold text-slate-950">Modificar ruta o agregar evento</h3>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            Edicion del dia
+          </p>
+          <h3 className="mt-2 text-lg font-semibold text-slate-950">
+            Modificar ruta o agregar evento
+          </h3>
           <p className="mt-2 text-sm text-slate-500">
-            Un solo flujo para cambiar tiendas del dia o registrar un evento operativo extraordinario.
+            Un solo flujo para cambiar tiendas del dia o registrar un evento operativo
+            extraordinario.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -2075,7 +2548,11 @@ function UnifiedDayEditorCard({
         <input type="hidden" name="target_day_number" value={String(selectedDayNumber)} />
         <input type="hidden" name="fecha_operacion" value={operationDate} />
         <input type="hidden" name="change_request_route_json" value={serializedProposal} />
-        <input type="hidden" name="displaced_visit_ids_json" value={JSON.stringify(selectedDisplacedVisitIds)} />
+        <input
+          type="hidden"
+          name="displaced_visit_ids_json"
+          value={JSON.stringify(selectedDisplacedVisitIds)}
+        />
 
         <div className="grid gap-4 lg:grid-cols-[0.6fr_1.4fr]">
           <div className="rounded-[20px] border border-slate-200 bg-white p-4">
@@ -2103,7 +2580,8 @@ function UnifiedDayEditorCard({
               <div className="space-y-4">
                 {!metadataEnabled ? (
                   <div className="rounded-[16px] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-                    La solicitud formal de cambio sigue en modo compatible mientras la base local no tenga `metadata`.
+                    La solicitud formal de cambio sigue en modo compatible mientras la base local no
+                    tenga `metadata`.
                   </div>
                 ) : null}
                 <Select
@@ -2111,12 +2589,12 @@ function UnifiedDayEditorCard({
                   name="change_request_type"
                   value={changeType}
                   onChange={(event) => {
-                    const nextType = event.target.value as RutaSemanalItem['changeRequestType']
-                    setChangeType(nextType)
+                    const nextType = event.target.value as RutaSemanalItem['changeRequestType'];
+                    setChangeType(nextType);
                     if (nextType === 'CANCELACION_DIA') {
-                      setDraftRoute([])
+                      setDraftRoute([]);
                     } else if (draftRoute.length === 0) {
-                      setDraftRoute(buildDraftForDay(selectedDayNumber))
+                      setDraftRoute(buildDraftForDay(selectedDayNumber));
                     }
                   }}
                   options={[
@@ -2131,7 +2609,10 @@ function UnifiedDayEditorCard({
                     name="target_visit_id"
                     value={selectedVisitId}
                     onChange={(event) => setSelectedVisitId(event.target.value)}
-                    options={[{ value: '', label: 'Selecciona una tienda...' }, ...targetVisitOptions]}
+                    options={[
+                      { value: '', label: 'Selecciona una tienda...' },
+                      ...targetVisitOptions,
+                    ]}
                   />
                 ) : (
                   <input type="hidden" name="target_visit_id" value="" />
@@ -2144,7 +2625,11 @@ function UnifiedDayEditorCard({
                         Si la dejas vacia, el sistema entiende cancelacion total del dia.
                       </p>
                     </div>
-                    <Button type="button" variant="secondary" onClick={() => setIsStorePickerOpen(true)}>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setIsStorePickerOpen(true)}
+                    >
                       Definir tiendas del dia
                     </Button>
                   </div>
@@ -2155,11 +2640,18 @@ function UnifiedDayEditorCard({
                       </div>
                     ) : (
                       draftRoute.map((item, index) => (
-                        <div key={item.clientId} className="rounded-[16px] border border-slate-200 bg-white px-4 py-3">
+                        <div
+                          key={item.clientId}
+                          className="rounded-[16px] border border-slate-200 bg-white px-4 py-3"
+                        >
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-slate-950">{item.label}</p>
-                              <p className="mt-1 truncate text-xs text-slate-500">{item.subtitle}</p>
+                              <p className="truncate text-sm font-semibold text-slate-950">
+                                {item.label}
+                              </p>
+                              <p className="mt-1 truncate text-xs text-slate-500">
+                                {item.subtitle}
+                              </p>
                             </div>
                             <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">
                               #{index + 1}
@@ -2167,14 +2659,31 @@ function UnifiedDayEditorCard({
                           </div>
                           <div className="mt-3 flex items-center justify-between gap-2">
                             <div className="flex gap-2">
-                              <Button type="button" variant="ghost" size="sm" disabled={index === 0} onClick={() => moveStoreWithinDraft(item.clientId, 'up')}>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={index === 0}
+                                onClick={() => moveStoreWithinDraft(item.clientId, 'up')}
+                              >
                                 Subir
                               </Button>
-                              <Button type="button" variant="ghost" size="sm" disabled={index === draftRoute.length - 1} onClick={() => moveStoreWithinDraft(item.clientId, 'down')}>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={index === draftRoute.length - 1}
+                                onClick={() => moveStoreWithinDraft(item.clientId, 'down')}
+                              >
                                 Bajar
                               </Button>
                             </div>
-                            <Button type="button" variant="ghost" size="sm" onClick={() => removeStoreFromDraft(item.clientId)}>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeStoreFromDraft(item.clientId)}
+                            >
                               Quitar
                             </Button>
                           </div>
@@ -2186,7 +2695,9 @@ function UnifiedDayEditorCard({
                 <Input
                   label="Justificacion obligatoria"
                   name="change_request_note"
-                  defaultValue={route.changeRequestState === 'PENDIENTE' ? route.changeRequestNote ?? '' : ''}
+                  defaultValue={
+                    route.changeRequestState === 'PENDIENTE' ? (route.changeRequestNote ?? '') : ''
+                  }
                   placeholder="Ej. tienda cerrada, incidencia vial o cambio de prioridad"
                 />
               </div>
@@ -2201,7 +2712,9 @@ function UnifiedDayEditorCard({
                   label="Tipo de evento"
                   name="tipo_evento"
                   value={eventType}
-                  onChange={(event) => setEventType(event.target.value as RutaAgendaEventoItem['tipoEvento'])}
+                  onChange={(event) =>
+                    setEventType(event.target.value as RutaAgendaEventoItem['tipoEvento'])
+                  }
                   disabled={!agendaInfrastructureAvailable}
                   options={[
                     { value: 'VISITA_ADICIONAL', label: 'Visita adicional / cambio de tienda' },
@@ -2219,12 +2732,12 @@ function UnifiedDayEditorCard({
                   name="modo_impacto"
                   value={impactMode}
                   onChange={(event) => {
-                    const nextMode = event.target.value as RutaAgendaEventoItem['modoImpacto']
-                    setImpactMode(nextMode)
+                    const nextMode = event.target.value as RutaAgendaEventoItem['modoImpacto'];
+                    setImpactMode(nextMode);
                     if (nextMode === 'REEMPLAZA_TOTAL') {
-                      setSelectedDisplacedVisitIds(currentDayVisits.map((visit) => visit.id))
+                      setSelectedDisplacedVisitIds(currentDayVisits.map((visit) => visit.id));
                     } else if (nextMode === 'SUMA') {
-                      setSelectedDisplacedVisitIds([])
+                      setSelectedDisplacedVisitIds([]);
                     }
                   }}
                   disabled={!agendaInfrastructureAvailable}
@@ -2234,27 +2747,52 @@ function UnifiedDayEditorCard({
                     { value: 'REEMPLAZA_TOTAL', label: 'Reemplaza toda la ruta del dia' },
                   ]}
                 />
-                <Input label="Titulo" name="titulo" placeholder="Ej. firma de contratos en oficina" disabled={!agendaInfrastructureAvailable} />
-                <Input label="Descripcion" name="descripcion" placeholder="Contexto operativo del evento" disabled={!agendaInfrastructureAvailable} />
-                <Input label="Sede u observacion" name="sede" placeholder="Oficina central, centro de formacion, etc." disabled={!agendaInfrastructureAvailable} />
+                <Input
+                  label="Titulo"
+                  name="titulo"
+                  placeholder="Ej. firma de contratos en oficina"
+                  disabled={!agendaInfrastructureAvailable}
+                />
+                <Input
+                  label="Descripcion"
+                  name="descripcion"
+                  placeholder="Contexto operativo del evento"
+                  disabled={!agendaInfrastructureAvailable}
+                />
+                <Input
+                  label="Sede u observacion"
+                  name="sede"
+                  placeholder="Oficina central, centro de formacion, etc."
+                  disabled={!agendaInfrastructureAvailable}
+                />
                 {eventType === 'VISITA_ADICIONAL' ? (
                   <Select
                     label="PDV del evento"
                     name="pdv_id"
                     disabled={!agendaInfrastructureAvailable}
-                    options={[{ value: '', label: 'Selecciona un PDV...' }, ...pdvsDisponibles.map((item) => ({ value: item.id, label: item.nombre }))]}
+                    options={[
+                      { value: '', label: 'Selecciona un PDV...' },
+                      ...pdvsDisponibles.map((item) => ({ value: item.id, label: item.nombre })),
+                    ]}
                   />
                 ) : (
                   <input type="hidden" name="pdv_id" value="" />
                 )}
                 {impactMode !== 'SUMA' && currentDayVisits.length > 0 ? (
                   <div className="space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Visitas desplazadas</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Visitas desplazadas
+                    </p>
                     <div className="space-y-2 rounded-[16px] border border-slate-200 bg-slate-50 p-3">
                       {currentDayVisits.map((visit) => {
-                        const checked = impactMode === 'REEMPLAZA_TOTAL' || selectedDisplacedVisitIds.includes(visit.id)
+                        const checked =
+                          impactMode === 'REEMPLAZA_TOTAL' ||
+                          selectedDisplacedVisitIds.includes(visit.id);
                         return (
-                          <label key={visit.id} className="flex items-start gap-3 text-sm text-slate-700">
+                          <label
+                            key={visit.id}
+                            className="flex items-start gap-3 text-sm text-slate-700"
+                          >
                             <input
                               type="checkbox"
                               checked={checked}
@@ -2264,24 +2802,36 @@ function UnifiedDayEditorCard({
                                   event.target.checked
                                     ? [...current, visit.id]
                                     : current.filter((item) => item !== visit.id)
-                                )
+                                );
                               }}
                             />
                             <span>
-                              <span className="font-medium text-slate-950">{visit.pdv ?? 'PDV sin nombre'}</span>
+                              <span className="font-medium text-slate-950">
+                                {visit.pdv ?? 'PDV sin nombre'}
+                              </span>
                               <span className="mt-1 block text-xs text-slate-500">
                                 {visit.zona ?? 'Sin zona'} · Orden {visit.orden}
                               </span>
                             </span>
                           </label>
-                        )
+                        );
                       })}
                     </div>
                   </div>
                 ) : null}
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Input label="Hora inicio" name="hora_inicio" type="time" disabled={!agendaInfrastructureAvailable} />
-                  <Input label="Hora fin" name="hora_fin" type="time" disabled={!agendaInfrastructureAvailable} />
+                  <Input
+                    label="Hora inicio"
+                    name="hora_inicio"
+                    type="time"
+                    disabled={!agendaInfrastructureAvailable}
+                  />
+                  <Input
+                    label="Hora fin"
+                    name="hora_fin"
+                    type="time"
+                    disabled={!agendaInfrastructureAvailable}
+                  />
                 </div>
               </div>
             )}
@@ -2290,16 +2840,25 @@ function UnifiedDayEditorCard({
 
         <div className="grid gap-4 lg:grid-cols-[1fr_0.8fr]">
           <div className="rounded-[20px] border border-slate-200 bg-white p-4">
-            <p className="text-sm font-semibold text-slate-950">Lo que ya esta programado ese dia</p>
+            <p className="text-sm font-semibold text-slate-950">
+              Lo que ya esta programado ese dia
+            </p>
             {currentDayVisits.length === 0 ? (
               <p className="mt-3 text-sm text-slate-500">No hay visitas planeadas para ese dia.</p>
             ) : (
               <div className="mt-4 space-y-3">
                 {currentDayVisits.map((visit) => (
-                  <div key={visit.id} className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div
+                    key={visit.id}
+                    className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-3"
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-950">{visit.pdv ?? 'PDV sin nombre'}</p>
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getVisitTone(visit.estatus)}`}>
+                      <p className="text-sm font-semibold text-slate-950">
+                        {visit.pdv ?? 'PDV sin nombre'}
+                      </p>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${getVisitTone(visit.estatus)}`}
+                      >
                         {visit.estatus}
                       </span>
                     </div>
@@ -2316,11 +2875,15 @@ function UnifiedDayEditorCard({
             <p className="text-sm font-semibold text-slate-950">Contexto del dia</p>
             <div className="mt-4 space-y-3">
               <div className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Eventos</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Eventos
+                </p>
                 <p className="mt-2 text-sm text-slate-950">{currentDayEvents.length}</p>
               </div>
               <div className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Tiendas sin visita</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Tiendas sin visita
+                </p>
                 <p className="mt-2 text-sm text-slate-950">{currentDayPendings.length}</p>
               </div>
               {agendaHoy && agendaHoy.fecha === operationDate ? (
@@ -2338,7 +2901,12 @@ function UnifiedDayEditorCard({
               Solicitar cambio
             </Button>
           ) : (
-            <Button type="submit" size="lg" formAction={eventAction} disabled={!agendaInfrastructureAvailable}>
+            <Button
+              type="submit"
+              size="lg"
+              formAction={eventAction}
+              disabled={!agendaInfrastructureAvailable}
+            >
               Registrar evento
             </Button>
           )}
@@ -2365,7 +2933,7 @@ function UnifiedDayEditorCard({
           />
           <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
             {filteredPdvs.map((pdv) => {
-              const currentDraft = draftRoute.find((item) => item.pdvId === pdv.id)
+              const currentDraft = draftRoute.find((item) => item.pdvId === pdv.id);
               return (
                 <div
                   key={pdv.id}
@@ -2373,59 +2941,65 @@ function UnifiedDayEditorCard({
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-950">{pdv.nombre}</p>
-                    <p className="mt-1 text-xs text-slate-500">{pdv.zona ?? pdv.formato ?? 'Sin zona'}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {pdv.zona ?? pdv.formato ?? 'Sin zona'}
+                    </p>
                   </div>
                   <Button
                     type="button"
                     variant={currentDraft ? 'ghost' : 'secondary'}
                     onClick={() => {
                       if (currentDraft) {
-                        removeStoreFromDraft(currentDraft.clientId)
-                        return
+                        removeStoreFromDraft(currentDraft.clientId);
+                        return;
                       }
-                      addStoreToDraft(pdv.id)
+                      addStoreToDraft(pdv.id);
                     }}
                   >
                     {currentDraft ? 'Quitar' : 'Agregar'}
                   </Button>
                 </div>
-              )
+              );
             })}
           </div>
         </div>
       </ModalPanel>
     </div>
-  )
+  );
 }
 
 function getStoreTypeLabel(value: RutaQuotaProgressItem['clasificacionMaestra']) {
-  if (value === 'FIJO') return 'Fija'
-  if (value === 'ROTATIVO') return 'Rotativa'
-  return 'Sin clasificar'
+  if (value === 'FIJO') return 'Fija';
+  if (value === 'ROTATIVO') return 'Rotativa';
+  return 'Sin clasificar';
 }
 
 function getStoreTypeTone(value: RutaQuotaProgressItem['clasificacionMaestra']) {
-  if (value === 'FIJO') return 'bg-emerald-100 text-emerald-700'
-  if (value === 'ROTATIVO') return 'bg-sky-100 text-sky-700'
-  return 'bg-slate-100 text-slate-600'
+  if (value === 'FIJO') return 'bg-emerald-100 text-emerald-700';
+  if (value === 'ROTATIVO') return 'bg-sky-100 text-sky-700';
+  return 'bg-slate-100 text-slate-600';
 }
 
 function QuotaSummary({
   supervisor,
   items,
 }: {
-  supervisor: RutaSupervisorWarRoomItem
-  items: RutaQuotaProgressItem[]
+  supervisor: RutaSupervisorWarRoomItem;
+  items: RutaQuotaProgressItem[];
 }) {
-  const fixedStores = items.filter((item) => item.clasificacionMaestra === 'FIJO').length
-  const rotationalStores = items.filter((item) => item.clasificacionMaestra === 'ROTATIVO').length
-  const monthlyMinimumVisits = items.reduce((acc, item) => acc + item.quotaMensual, 0)
+  const fixedStores = items.filter((item) => item.clasificacionMaestra === 'FIJO').length;
+  const rotationalStores = items.filter((item) => item.clasificacionMaestra === 'ROTATIVO').length;
+  const monthlyMinimumVisits = items.reduce((acc, item) => acc + item.quotaMensual, 0);
 
   return (
     <div className="space-y-4">
       <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Cuotas minimas mensuales</p>
-        <h4 className="mt-1 text-lg font-semibold text-slate-950">{monthlyMinimumVisits} visitas</h4>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+          Cuotas minimas mensuales
+        </p>
+        <h4 className="mt-1 text-lg font-semibold text-slate-950">
+          {monthlyMinimumVisits} visitas
+        </h4>
         <p className="mt-1 text-sm text-slate-500">
           {supervisor.supervisor} · {supervisor.zona ?? 'Sin zona'}
         </p>
@@ -2437,7 +3011,7 @@ function QuotaSummary({
         <MiniStat label="Minimas del mes" value={String(monthlyMinimumVisits)} />
       </div>
     </div>
-  )
+  );
 }
 
 function QuotaProgressList({
@@ -2446,65 +3020,65 @@ function QuotaProgressList({
   metadataEnabled,
   onPersistedQuotasChange,
 }: {
-  supervisor: RutaSupervisorWarRoomItem
-  items: RutaQuotaProgressItem[]
-  metadataEnabled: boolean
-  onPersistedQuotasChange?: (quotas: Record<string, number>) => void
+  supervisor: RutaSupervisorWarRoomItem;
+  items: RutaQuotaProgressItem[];
+  metadataEnabled: boolean;
+  onPersistedQuotasChange?: (quotas: Record<string, number>) => void;
 }) {
-  const [state, formAction] = useActionState(actualizarControlRutaSemanal, ESTADO_RUTA_INICIAL)
-  const [draftQuotas, setDraftQuotas] = useState<Record<string, number>>({})
-  const [resolvedRouteId, setResolvedRouteId] = useState(supervisor.rutaId ?? '')
+  const [state, formAction] = useActionState(actualizarControlRutaSemanal, ESTADO_RUTA_INICIAL);
+  const [draftQuotas, setDraftQuotas] = useState<Record<string, number>>({});
+  const [resolvedRouteId, setResolvedRouteId] = useState(supervisor.rutaId ?? '');
   const sortedItems = useMemo(
     () =>
       [...items].sort((left, right) => {
-        const leftStoreRank = left.clasificacionMaestra === 'ROTATIVO' ? 1 : 0
-        const rightStoreRank = right.clasificacionMaestra === 'ROTATIVO' ? 1 : 0
+        const leftStoreRank = left.clasificacionMaestra === 'ROTATIVO' ? 1 : 0;
+        const rightStoreRank = right.clasificacionMaestra === 'ROTATIVO' ? 1 : 0;
 
         if (leftStoreRank !== rightStoreRank) {
-          return leftStoreRank - rightStoreRank
+          return leftStoreRank - rightStoreRank;
         }
 
         if ((left.cadena ?? '') !== (right.cadena ?? '')) {
-          return (left.cadena ?? '').localeCompare(right.cadena ?? '', 'es')
+          return (left.cadena ?? '').localeCompare(right.cadena ?? '', 'es');
         }
 
         if ((left.grupoRotacionCodigo ?? '') !== (right.grupoRotacionCodigo ?? '')) {
-          const leftGroup = left.grupoRotacionCodigo ?? `FIJO-${left.nombre}`
-          const rightGroup = right.grupoRotacionCodigo ?? `FIJO-${right.nombre}`
-          return leftGroup.localeCompare(rightGroup, 'es')
+          const leftGroup = left.grupoRotacionCodigo ?? `FIJO-${left.nombre}`;
+          const rightGroup = right.grupoRotacionCodigo ?? `FIJO-${right.nombre}`;
+          return leftGroup.localeCompare(rightGroup, 'es');
         }
 
-        return left.nombre.localeCompare(right.nombre, 'es')
+        return left.nombre.localeCompare(right.nombre, 'es');
       }),
     [items]
-  )
+  );
   const fixedItems = useMemo(
     () => sortedItems.filter((item) => item.clasificacionMaestra !== 'ROTATIVO'),
     [sortedItems]
-  )
+  );
   const rotationalGroups = useMemo(() => {
-    const grouped = new Map<string, RutaQuotaProgressItem[]>()
+    const grouped = new Map<string, RutaQuotaProgressItem[]>();
 
     for (const item of sortedItems) {
       if (item.clasificacionMaestra !== 'ROTATIVO') {
-        continue
+        continue;
       }
 
-      const groupKey = item.grupoRotacionCodigo ?? `ROTATIVO-${item.pdvId}`
-      const current = grouped.get(groupKey) ?? []
-      current.push(item)
-      grouped.set(groupKey, current)
+      const groupKey = item.grupoRotacionCodigo ?? `ROTATIVO-${item.pdvId}`;
+      const current = grouped.get(groupKey) ?? [];
+      current.push(item);
+      grouped.set(groupKey, current);
     }
 
     return Array.from(grouped.entries()).map(([groupCode, groupItems]) => ({
       groupCode,
       items: groupItems,
-    }))
-  }, [sortedItems])
-  const canSave = metadataEnabled
+    }));
+  }, [sortedItems]);
+  const canSave = metadataEnabled;
 
   useEffect(() => {
-    const nextFromItems = Object.fromEntries(items.map((item) => [item.pdvId, item.quotaMensual]))
+    const nextFromItems = Object.fromEntries(items.map((item) => [item.pdvId, item.quotaMensual]));
 
     return scheduleEffectStateUpdate(() => {
       setDraftQuotas(() => {
@@ -2512,76 +3086,89 @@ function QuotaProgressList({
           return {
             ...nextFromItems,
             ...state.savedPdvMonthlyQuotas,
-          }
+          };
         }
 
-        return nextFromItems
-      })
-    })
-  }, [items, state.ok, state.savedPdvMonthlyQuotas])
+        return nextFromItems;
+      });
+    });
+  }, [items, state.ok, state.savedPdvMonthlyQuotas]);
 
   useEffect(() => {
     return scheduleEffectStateUpdate(() => {
-      setResolvedRouteId(supervisor.rutaId ?? '')
-    })
-  }, [supervisor.rutaId, supervisor.supervisorEmpleadoId, supervisor.weekStart])
+      setResolvedRouteId(supervisor.rutaId ?? '');
+    });
+  }, [supervisor.rutaId, supervisor.supervisorEmpleadoId, supervisor.weekStart]);
 
   useEffect(() => {
     if (!state.ok || !state.savedPdvMonthlyQuotas) {
-      return
+      return;
     }
 
-    const savedPdvMonthlyQuotas = state.savedPdvMonthlyQuotas
-    const savedRouteId = state.savedRouteId
+    const savedPdvMonthlyQuotas = state.savedPdvMonthlyQuotas;
+    const savedRouteId = state.savedRouteId;
 
     return scheduleEffectStateUpdate(() => {
       setDraftQuotas((current) => ({
         ...current,
         ...savedPdvMonthlyQuotas,
-      }))
-      onPersistedQuotasChange?.(savedPdvMonthlyQuotas)
+      }));
+      onPersistedQuotasChange?.(savedPdvMonthlyQuotas);
 
       if (savedRouteId) {
-        setResolvedRouteId(savedRouteId)
+        setResolvedRouteId(savedRouteId);
       }
-    })
-  }, [onPersistedQuotasChange, state.ok, state.savedPdvMonthlyQuotas, state.savedRouteId])
-
-
-
+    });
+  }, [onPersistedQuotasChange, state.ok, state.savedPdvMonthlyQuotas, state.savedRouteId]);
 
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Tiendas filtradas</h4>
-        <p className="text-sm text-slate-600">Aqui solo asignamos visitas minimas mensuales por PDV.</p>
+        <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+          Tiendas filtradas
+        </h4>
+        <p className="text-sm text-slate-600">
+          Aqui solo asignamos visitas minimas mensuales por PDV.
+        </p>
       </div>
       {items.length === 0 ? (
         <EmptyState copy="No hay tiendas visibles con el filtro aplicado." />
       ) : (
         <form action={formAction} className="space-y-4">
           <input type="hidden" name="ruta_id" value={resolvedRouteId} />
-          <input type="hidden" name="supervisor_empleado_id" value={supervisor.supervisorEmpleadoId} />
+          <input
+            type="hidden"
+            name="supervisor_empleado_id"
+            value={supervisor.supervisorEmpleadoId}
+          />
           <input type="hidden" name="semana_inicio" value={supervisor.weekStart} />
 
           <div className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(239,246,255,0.92))] px-5 py-4 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.28)]">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
               <div>
-                <p className="text-lg font-semibold text-slate-950">Asignacion mensual de visitas</p>
+                <p className="text-lg font-semibold text-slate-950">
+                  Asignacion mensual de visitas
+                </p>
                 <p className="mt-1 text-sm text-slate-600">
-                Ajusta la cuota minima de visitas del mes para cada tienda visible y guarda el bloque solo cuando termine tu filtro.
+                  Ajusta la cuota minima de visitas del mes para cada tienda visible y guarda el
+                  bloque solo cuando termine tu filtro.
                 </p>
                 {!metadataEnabled ? (
                   <p className="mt-3 text-xs text-amber-700">
-                    La lectura del War Room ya funciona, pero para guardar cuotas primero hay que aplicar la migracion del workflow de ruta semanal.
+                    La lectura del War Room ya funciona, pero para guardar cuotas primero hay que
+                    aplicar la migracion del workflow de ruta semanal.
                   </p>
                 ) : !supervisor.rutaId ? (
                   <p className="mt-3 text-xs text-amber-700">
-                    Este supervisor aun no tiene una ruta base visible para la semana seleccionada. Al guardar las cuotas, el sistema creara la base operativa para que despues el supervisor arme sus rutas semanales contra ese objetivo mensual.
+                    Este supervisor aun no tiene una ruta base visible para la semana seleccionada.
+                    Al guardar las cuotas, el sistema creara la base operativa para que despues el
+                    supervisor arme sus rutas semanales contra ese objetivo mensual.
                   </p>
                 ) : null}
                 {state.message ? (
-                  <p className={`mt-3 text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>
+                  <p className={`mt-3 text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {state.message}
+                  </p>
                 ) : null}
               </div>
               <div className="flex justify-start lg:justify-end">
@@ -2674,7 +3261,7 @@ function QuotaProgressList({
         </form>
       )}
     </div>
-  )
+  );
 }
 
 function QuotaPdvCard({
@@ -2684,11 +3271,11 @@ function QuotaPdvCard({
   onQuotaChange,
   compactGroup = false,
 }: {
-  item: RutaQuotaProgressItem
-  quotaValue: number
-  canSave: boolean
-  onQuotaChange: (nextValue: number) => void
-  compactGroup?: boolean
+  item: RutaQuotaProgressItem;
+  quotaValue: number;
+  canSave: boolean;
+  onQuotaChange: (nextValue: number) => void;
+  compactGroup?: boolean;
 }) {
   return (
     <div
@@ -2698,13 +3285,19 @@ function QuotaPdvCard({
     >
       <div className="min-w-0 space-y-2.5">
         <div className="flex flex-wrap items-start gap-2">
-          <p className="min-w-0 flex-1 text-[15px] font-semibold leading-5 text-slate-950">{item.nombre}</p>
-          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${getStoreTypeTone(item.clasificacionMaestra)}`}>
+          <p className="min-w-0 flex-1 text-[15px] font-semibold leading-5 text-slate-950">
+            {item.nombre}
+          </p>
+          <span
+            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${getStoreTypeTone(item.clasificacionMaestra)}`}
+          >
             {getStoreTypeLabel(item.clasificacionMaestra)}
           </span>
         </div>
         <div className="space-y-1 text-sm text-slate-600">
-          <p className="truncate">{item.cadena ?? 'Sin cadena'} · {item.zona ?? item.formato ?? 'Sin zona'}</p>
+          <p className="truncate">
+            {item.cadena ?? 'Sin cadena'} · {item.zona ?? item.formato ?? 'Sin zona'}
+          </p>
           {item.grupoRotacionCodigo ? (
             <p className="truncate text-xs font-medium uppercase tracking-[0.12em] text-slate-500">
               {item.grupoRotacionCodigo}
@@ -2719,7 +3312,9 @@ function QuotaPdvCard({
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
             Minimas asignadas
           </p>
-          <p className="mt-3 text-[2rem] font-semibold leading-none text-slate-950">{String(quotaValue)}</p>
+          <p className="mt-3 text-[2rem] font-semibold leading-none text-slate-950">
+            {String(quotaValue)}
+          </p>
         </div>
         <label className="grid gap-2 rounded-[18px] border border-slate-200 bg-slate-50/80 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
           Visitas del mes
@@ -2737,42 +3332,45 @@ function QuotaPdvCard({
         </label>
       </div>
     </div>
-  )
+  );
 }
 
-function CoordinatorReachWorkspace({
-  supervisors,
-}: {
-  supervisors: RutaSupervisorWarRoomItem[]
-}) {
+function CoordinatorReachWorkspace({ supervisors }: { supervisors: RutaSupervisorWarRoomItem[] }) {
   const supervisorRows = useMemo(
     () =>
       supervisors
         .map((supervisor) => {
-          const monthlyPending = Math.max(supervisor.expectedMonthlyVisits - supervisor.monthlyVisitsCompleted, 0)
+          const monthlyPending = Math.max(
+            supervisor.expectedMonthlyVisits - supervisor.monthlyVisitsCompleted,
+            0
+          );
           const storesWithoutVisitMonth = supervisor.quotaProgress.filter(
             (item) => item.quotaMensual > 0 && item.visitasRealizadas === 0
-          ).length
+          ).length;
 
           return {
             ...supervisor,
             monthlyPending,
             storesWithoutVisitMonth,
-          }
+          };
         })
-        .sort((left, right) => right.cumplimientoPorcentaje - left.cumplimientoPorcentaje || left.supervisor.localeCompare(right.supervisor, 'es')),
+        .sort(
+          (left, right) =>
+            right.cumplimientoPorcentaje - left.cumplimientoPorcentaje ||
+            left.supervisor.localeCompare(right.supervisor, 'es')
+        ),
     [supervisors]
-  )
+  );
 
   const totals = supervisorRows.reduce(
     (acc, item) => {
-      acc.supervisors += 1
-      acc.monthlyTarget += item.expectedMonthlyVisits
-      acc.monthlyCompleted += item.monthlyVisitsCompleted
-      acc.monthlyPending += item.monthlyPending
-      acc.storesWithoutVisitMonth += item.storesWithoutVisitMonth
-      acc.critical += item.semaforo === 'CRITICO' ? 1 : 0
-      return acc
+      acc.supervisors += 1;
+      acc.monthlyTarget += item.expectedMonthlyVisits;
+      acc.monthlyCompleted += item.monthlyVisitsCompleted;
+      acc.monthlyPending += item.monthlyPending;
+      acc.storesWithoutVisitMonth += item.storesWithoutVisitMonth;
+      acc.critical += item.semaforo === 'CRITICO' ? 1 : 0;
+      return acc;
     },
     {
       supervisors: 0,
@@ -2782,12 +3380,15 @@ function CoordinatorReachWorkspace({
       storesWithoutVisitMonth: 0,
       critical: 0,
     }
-  )
+  );
 
   const monthlyCompletionPct =
     totals.monthlyTarget > 0
-      ? Math.max(0, Math.min(100, Math.round((totals.monthlyCompleted / totals.monthlyTarget) * 100)))
-      : 0
+      ? Math.max(
+          0,
+          Math.min(100, Math.round((totals.monthlyCompleted / totals.monthlyTarget) * 100))
+        )
+      : 0;
 
   return (
     <div className="space-y-6">
@@ -2797,16 +3398,23 @@ function CoordinatorReachWorkspace({
         <MetricCard label="Realizadas mes" value={String(totals.monthlyCompleted)} />
         <MetricCard label="Pendientes mes" value={String(totals.monthlyPending)} tone="amber" />
         <MetricCard label="Cumplimiento mes" value={`${monthlyCompletionPct}%`} />
-        <MetricCard label="Sin visita mes" value={String(totals.storesWithoutVisitMonth)} tone="amber" />
+        <MetricCard
+          label="Sin visita mes"
+          value={String(totals.storesWithoutVisitMonth)}
+          tone="amber"
+        />
         <MetricCard label="Supervisores en riesgo" value={String(totals.critical)} tone="amber" />
       </div>
 
       <Card className="space-y-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-slate-950">Lectura visual del alcance mensual</h3>
+            <h3 className="text-lg font-semibold text-slate-950">
+              Lectura visual del alcance mensual
+            </h3>
             <p className="mt-1 text-sm text-slate-500">
-              Arriba dejamos los KPIs; abajo vemos solo el avance mensual por supervisor contra su cuota vigente.
+              Arriba dejamos los KPIs; abajo vemos solo el avance mensual por supervisor contra su
+              cuota vigente.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs font-semibold">
@@ -2821,12 +3429,17 @@ function CoordinatorReachWorkspace({
         ) : (
           <div className="space-y-4">
             {supervisorRows.map((item) => (
-              <div key={item.supervisorEmpleadoId} className="rounded-[22px] border border-slate-200 bg-slate-50 px-5 py-5">
+              <div
+                key={item.supervisorEmpleadoId}
+                className="rounded-[22px] border border-slate-200 bg-slate-50 px-5 py-5"
+              >
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <h4 className="text-base font-semibold text-slate-950">{item.supervisor}</h4>
-                      <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${getSemaforoTone(item.semaforo)}`}>
+                      <span
+                        className={`rounded-full px-3 py-1 text-[11px] font-semibold ${getSemaforoTone(item.semaforo)}`}
+                      >
                         {item.semaforo}
                       </span>
                     </div>
@@ -2845,7 +3458,9 @@ function CoordinatorReachWorkspace({
                 <div className="mt-5 rounded-[18px] border border-slate-200 bg-white px-4 py-4">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-semibold text-slate-950">Cumplimiento mensual</p>
-                    <span className="text-sm font-semibold text-slate-700">{item.cumplimientoPorcentaje}%</span>
+                    <span className="text-sm font-semibold text-slate-700">
+                      {item.cumplimientoPorcentaje}%
+                    </span>
                   </div>
                   <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-200">
                     <div
@@ -2865,7 +3480,7 @@ function CoordinatorReachWorkspace({
         )}
       </Card>
     </div>
-  )
+  );
 }
 
 function CoordinatorCoverageWorkspace({
@@ -2879,42 +3494,48 @@ function CoordinatorCoverageWorkspace({
   selectedVisitId,
   onSelectVisit,
 }: {
-  supervisor: RutaSupervisorWarRoomItem | null
-  routes: RutaSemanalItem[]
-  selectedWeekStart: string
-  expandedRouteId: string | null
-  onExpandRoute: (routeId: string) => void
-  selectedDayNumber: number | null
-  onSelectDay: (dayNumber: number) => void
-  selectedVisitId: string | null
-  onSelectVisit: (visitId: string | null) => void
+  supervisor: RutaSupervisorWarRoomItem | null;
+  routes: RutaSemanalItem[];
+  selectedWeekStart: string;
+  expandedRouteId: string | null;
+  onExpandRoute: (routeId: string) => void;
+  selectedDayNumber: number | null;
+  onSelectDay: (dayNumber: number) => void;
+  selectedVisitId: string | null;
+  onSelectVisit: (visitId: string | null) => void;
 }) {
-  const coverageItems = supervisor?.quotaProgress ?? []
-  const expandedRoute = routes.find((route) => route.id === expandedRouteId) ?? routes[0] ?? null
-  const weeklyAssigned = routes.reduce((acc, route) => acc + route.totalVisitas, 0)
-  const weeklyCompleted = routes.reduce((acc, route) => acc + route.visitasCompletadas, 0)
-  const weeklyPending = Math.max(weeklyAssigned - weeklyCompleted, 0)
+  const coverageItems = supervisor?.quotaProgress ?? [];
+  const expandedRoute = routes.find((route) => route.id === expandedRouteId) ?? routes[0] ?? null;
+  const weeklyAssigned = routes.reduce((acc, route) => acc + route.totalVisitas, 0);
+  const weeklyCompleted = routes.reduce((acc, route) => acc + route.visitasCompletadas, 0);
+  const weeklyPending = Math.max(weeklyAssigned - weeklyCompleted, 0);
   const weeklyCompletion =
-    weeklyAssigned > 0 ? Math.max(0, Math.min(100, Math.round((weeklyCompleted / weeklyAssigned) * 100))) : 0
+    weeklyAssigned > 0
+      ? Math.max(0, Math.min(100, Math.round((weeklyCompleted / weeklyAssigned) * 100)))
+      : 0;
   const completedVisitIdsThisWeek = new Set(
-    routes.flatMap((route) => route.visitas.filter((visit) => visit.estatus === 'COMPLETADA').map((visit) => visit.pdvId))
-  )
+    routes.flatMap((route) =>
+      route.visitas.filter((visit) => visit.estatus === 'COMPLETADA').map((visit) => visit.pdvId)
+    )
+  );
   const storesWithoutVisitsWeek = coverageItems.filter(
     (item) => item.quotaMensual > 0 && !completedVisitIdsThisWeek.has(item.pdvId)
-  )
+  );
   const availableDays = expandedRoute
-    ? Array.from(new Set(expandedRoute.visitas.map((visit) => visit.diaSemana))).sort((left, right) => left - right)
-    : []
+    ? Array.from(new Set(expandedRoute.visitas.map((visit) => visit.diaSemana))).sort(
+        (left, right) => left - right
+      )
+    : [];
   const effectiveDayNumber =
     selectedDayNumber !== null && availableDays.includes(selectedDayNumber)
       ? selectedDayNumber
-      : availableDays[0] ?? null
+      : (availableDays[0] ?? null);
   const selectedDayVisits =
     effectiveDayNumber === null || !expandedRoute
       ? []
-      : expandedRoute.visitas.filter((visit) => visit.diaSemana === effectiveDayNumber)
+      : expandedRoute.visitas.filter((visit) => visit.diaSemana === effectiveDayNumber);
   const selectedVisit =
-    selectedDayVisits.find((visit) => visit.id === selectedVisitId) ?? selectedDayVisits[0] ?? null
+    selectedDayVisits.find((visit) => visit.id === selectedVisitId) ?? selectedDayVisits[0] ?? null;
 
   return (
     <div className="space-y-6">
@@ -2924,7 +3545,11 @@ function CoordinatorCoverageWorkspace({
         <MetricCard label="Realizadas semana" value={String(weeklyCompleted)} />
         <MetricCard label="Pendientes semana" value={String(weeklyPending)} tone="amber" />
         <MetricCard label="Cumplimiento semana" value={`${weeklyCompletion}%`} />
-        <MetricCard label="Sin visita semana" value={String(storesWithoutVisitsWeek.length)} tone="amber" />
+        <MetricCard
+          label="Sin visita semana"
+          value={String(storesWithoutVisitsWeek.length)}
+          tone="amber"
+        />
       </div>
 
       <Card className="space-y-5">
@@ -2934,14 +3559,18 @@ function CoordinatorCoverageWorkspace({
               {supervisor?.supervisor ?? 'Detalle semanal de rutas activas'}
             </h3>
             <p className="mt-1 text-sm text-slate-500">
-              Primero elige una ruta aprobada, luego selecciona el dia y solo despues abre el detalle de las visitas enviadas.
+              Primero elige una ruta aprobada, luego selecciona el dia y solo despues abre el
+              detalle de las visitas enviadas.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-              Semana visible {formatDate(selectedWeekStart)} - {formatDate(getWeekEndIso(selectedWeekStart))}
+              Semana visible {formatDate(selectedWeekStart)} -{' '}
+              {formatDate(getWeekEndIso(selectedWeekStart))}
             </span>
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getSemaforoTone(supervisor?.semaforo ?? 'CRITICO')}`}>
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-semibold ${getSemaforoTone(supervisor?.semaforo ?? 'CRITICO')}`}
+            >
               {supervisor?.semaforo ?? 'SIN DATOS'}
             </span>
           </div>
@@ -2960,10 +3589,15 @@ function CoordinatorCoverageWorkspace({
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {storesWithoutVisitsWeek.map((item) => (
-              <div key={item.pdvId} className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4">
+              <div
+                key={item.pdvId}
+                className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4"
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm font-semibold text-slate-950">{item.nombre}</p>
-                  <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${getStoreTypeTone(item.clasificacionMaestra)}`}>
+                  <span
+                    className={`rounded-full px-3 py-1 text-[11px] font-semibold ${getStoreTypeTone(item.clasificacionMaestra)}`}
+                  >
                     {getStoreTypeLabel(item.clasificacionMaestra)}
                   </span>
                 </div>
@@ -2995,7 +3629,7 @@ function CoordinatorCoverageWorkspace({
           <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
             <div className="space-y-3">
               {routes.map((route) => {
-                const isExpanded = route.id === (expandedRoute?.id ?? null)
+                const isExpanded = route.id === (expandedRoute?.id ?? null);
                 return (
                   <button
                     key={route.id}
@@ -3016,12 +3650,14 @@ function CoordinatorCoverageWorkspace({
                           {route.totalVisitas} visitas · {route.visitasCompletadas} completadas
                         </p>
                       </div>
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getRouteTone(route.estatus)}`}>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${getRouteTone(route.estatus)}`}
+                      >
                         {route.estatus}
                       </span>
                     </div>
                   </button>
-                )
+                );
               })}
             </div>
 
@@ -3032,7 +3668,8 @@ function CoordinatorCoverageWorkspace({
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-slate-950">
-                          Ruta activa {formatDate(expandedRoute.semanaInicio)} - {formatDate(expandedRoute.semanaFin)}
+                          Ruta activa {formatDate(expandedRoute.semanaInicio)} -{' '}
+                          {formatDate(expandedRoute.semanaFin)}
                         </p>
                         <p className="mt-1 text-xs text-slate-500">
                           Selecciona un dia para ver solo las visitas programadas ahi.
@@ -3045,8 +3682,10 @@ function CoordinatorCoverageWorkspace({
 
                     <div className="mt-4 flex flex-wrap gap-2">
                       {availableDays.map((dayNumber) => {
-                        const visitsForDay = expandedRoute.visitas.filter((visit) => visit.diaSemana === dayNumber)
-                        const active = dayNumber === effectiveDayNumber
+                        const visitsForDay = expandedRoute.visitas.filter(
+                          (visit) => visit.diaSemana === dayNumber
+                        );
+                        const active = dayNumber === effectiveDayNumber;
                         return (
                           <button
                             key={dayNumber}
@@ -3068,13 +3707,13 @@ function CoordinatorCoverageWorkspace({
                               {visitsForDay.length} visita(s)
                             </span>
                           </button>
-                        )
+                        );
                       })}
                     </div>
 
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       {selectedDayVisits.map((visit) => {
-                        const active = visit.id === selectedVisitId
+                        const active = visit.id === selectedVisitId;
                         return (
                           <button
                             key={visit.id}
@@ -3088,17 +3727,21 @@ function CoordinatorCoverageWorkspace({
                           >
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div>
-                                <p className="text-sm font-semibold text-slate-950">{visit.pdv ?? 'PDV sin nombre'}</p>
+                                <p className="text-sm font-semibold text-slate-950">
+                                  {visit.pdv ?? 'PDV sin nombre'}
+                                </p>
                                 <p className="mt-1 text-xs text-slate-500">
                                   {visit.diaLabel} · Orden {visit.orden}
                                 </p>
                               </div>
-                              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getVisitTone(visit.estatus)}`}>
+                              <span
+                                className={`rounded-full px-3 py-1 text-xs font-semibold ${getVisitTone(visit.estatus)}`}
+                              >
                                 {visit.estatus}
                               </span>
                             </div>
                           </button>
-                        )
+                        );
                       })}
                     </div>
                   </div>
@@ -3119,7 +3762,7 @@ function CoordinatorCoverageWorkspace({
         )}
       </Card>
     </div>
-  )
+  );
 }
 
 function BlockedDaysCard({ items }: { items: RutaSupervisorWarRoomItem['blockedDays'] }) {
@@ -3143,10 +3786,14 @@ function BlockedDaysCard({ items }: { items: RutaSupervisorWarRoomItem['blockedD
         </div>
       )}
     </div>
-  )
+  );
 }
 
-function ReassignmentAlertsCard({ items }: { items: RutaSupervisorWarRoomItem['reassignmentAlerts'] }) {
+function ReassignmentAlertsCard({
+  items,
+}: {
+  items: RutaSupervisorWarRoomItem['reassignmentAlerts'];
+}) {
   return (
     <div className="rounded-[20px] border border-amber-200 bg-amber-50 p-4">
       <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-800">
@@ -3157,7 +3804,10 @@ function ReassignmentAlertsCard({ items }: { items: RutaSupervisorWarRoomItem['r
       ) : (
         <div className="mt-3 space-y-2">
           {items.map((item) => (
-            <div key={item.visitId} className="rounded-[18px] border border-amber-200 bg-white px-3 py-2.5">
+            <div
+              key={item.visitId}
+              className="rounded-[18px] border border-amber-200 bg-white px-3 py-2.5"
+            >
               <p className="text-sm font-semibold text-slate-950">
                 {item.diaLabel} · {item.pdv ?? 'PDV sin nombre'}
               </p>
@@ -3167,7 +3817,7 @@ function ReassignmentAlertsCard({ items }: { items: RutaSupervisorWarRoomItem['r
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function HeatMapCard({
@@ -3176,12 +3826,12 @@ function HeatMapCard({
   title = 'Mapa de calor',
   helper = 'Dispersion geografica de PDVs con visitas pendientes.',
 }: {
-  items: RutaQuotaProgressItem[]
-  showCatalog?: boolean
-  title?: string
-  helper?: string
+  items: RutaQuotaProgressItem[];
+  showCatalog?: boolean;
+  title?: string;
+  helper?: string;
 }) {
-  const points = items.filter((item) => item.latitud !== null && item.longitud !== null)
+  const points = items.filter((item) => item.latitud !== null && item.longitud !== null);
   const mapPoints: MexicoMapPoint[] = points.map((item) => ({
     id: item.pdvId,
     lat: item.latitud as number,
@@ -3189,13 +3839,8 @@ function HeatMapCard({
     title: item.nombre,
     subtitle: item.zona ?? 'Sin zona',
     detail: `Pendientes ${item.visitasPendientes} · Realizadas ${item.visitasRealizadas} · Quota ${item.quotaMensual}`,
-    tone:
-      item.prioridad === 'ALTA'
-        ? 'rose'
-        : item.prioridad === 'MEDIA'
-          ? 'amber'
-          : 'emerald',
-  }))
+    tone: item.prioridad === 'ALTA' ? 'rose' : item.prioridad === 'MEDIA' ? 'amber' : 'emerald',
+  }));
 
   return (
     <div className="rounded-[24px] border border-slate-200 bg-white p-5">
@@ -3212,7 +3857,9 @@ function HeatMapCard({
       </div>
 
       {points.length === 0 ? (
-        <p className="mt-4 text-sm text-slate-500">Faltan coordenadas para mostrar este mapa de calor.</p>
+        <p className="mt-4 text-sm text-slate-500">
+          Faltan coordenadas para mostrar este mapa de calor.
+        </p>
       ) : (
         <div className="mt-4 space-y-4">
           <MexicoMap points={mapPoints} heightClassName="h-[320px]" minZoom={4} maxZoom={12} />
@@ -3235,7 +3882,7 @@ function HeatMapCard({
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function EmptyState({ copy }: { copy: string }) {
@@ -3243,7 +3890,7 @@ function EmptyState({ copy }: { copy: string }) {
     <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
       {copy}
     </div>
-  )
+  );
 }
 
 function MetricCard({
@@ -3251,9 +3898,9 @@ function MetricCard({
   value,
   tone = 'slate',
 }: {
-  label: string
-  value: string
-  tone?: 'slate' | 'amber'
+  label: string;
+  value: string;
+  tone?: 'slate' | 'amber';
 }) {
   return (
     <SharedMetricCard
@@ -3264,26 +3911,28 @@ function MetricCard({
       className="px-4 py-4"
       labelClassName="text-xs"
     />
-  )
+  );
 }
 
 function SubmitButton({ label, disabled = false }: { label: string; disabled?: boolean }) {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   return (
     <Button type="submit" className="min-h-11 min-w-36" disabled={pending || disabled}>
       {pending ? 'Guardando...' : label}
     </Button>
-  )
+  );
 }
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-[16px] border border-slate-200 bg-white px-3 py-2.5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+        {label}
+      </p>
       <p className={`mt-1.5 font-semibold text-slate-950 ${metricValueClass(value)}`}>{value}</p>
     </div>
-  )
+  );
 }
 
 function SubmitActionButton({
@@ -3291,17 +3940,17 @@ function SubmitActionButton({
   pendingLabel,
   disabled = false,
 }: {
-  label: string
-  pendingLabel: string
-  disabled?: boolean
+  label: string;
+  pendingLabel: string;
+  disabled?: boolean;
 }) {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   return (
     <Button type="submit" size="lg" disabled={disabled || pending}>
       {pending ? pendingLabel : label}
     </Button>
-  )
+  );
 }
 
 function TodayRouteStrip({ visits }: { visits: RutaSemanalVisitItem[] }) {
@@ -3313,7 +3962,9 @@ function TodayRouteStrip({ visits }: { visits: RutaSemanalVisitItem[] }) {
             Mi ruta de hoy
           </p>
           <h2 className="mt-2 text-xl font-semibold text-slate-950">
-            {visits.length === 0 ? 'Sin visitas para hoy' : `${visits.length} visita(s) programadas`}
+            {visits.length === 0
+              ? 'Sin visitas para hoy'
+              : `${visits.length} visita(s) programadas`}
           </h2>
           <p className="mt-2 text-sm text-slate-500">Ruta del dia, en una vista rapida.</p>
         </div>
@@ -3332,23 +3983,31 @@ function TodayRouteStrip({ visits }: { visits: RutaSemanalVisitItem[] }) {
             <div key={visit.id} className="rounded-[20px] border border-slate-200 bg-slate-50 p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-950">{visit.pdv ?? 'PDV sin nombre'}</p>
+                  <p className="text-sm font-semibold text-slate-950">
+                    {visit.pdv ?? 'PDV sin nombre'}
+                  </p>
                   <p className="mt-1 text-xs text-slate-500">{visit.zona ?? 'Sin zona'}</p>
                 </div>
-                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getVisitTone(visit.estatus)}`}>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${getVisitTone(visit.estatus)}`}
+                >
                   {visit.estatus}
                 </span>
               </div>
               <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
-                <span className="rounded-full bg-white px-3 py-1">Entrada {formatDateTime(visit.checkInAt)}</span>
-                <span className="rounded-full bg-white px-3 py-1">Salida {formatDateTime(visit.checkOutAt)}</span>
+                <span className="rounded-full bg-white px-3 py-1">
+                  Entrada {formatDateTime(visit.checkInAt)}
+                </span>
+                <span className="rounded-full bg-white px-3 py-1">
+                  Salida {formatDateTime(visit.checkOutAt)}
+                </span>
               </div>
             </div>
           ))}
         </div>
       )}
     </Card>
-  )
+  );
 }
 
 function AgendaOperativaOverviewCard({
@@ -3358,163 +4017,171 @@ function AgendaOperativaOverviewCard({
   agendaInfrastructureAvailable,
   agendaInfrastructureMessage,
 }: {
-  routeId: string | null
-  agendaHoy: RutaAgendaOperativaDia | null
-  pdvsDisponibles: RutaSemanalPanelData['pdvsDisponibles']
-  agendaInfrastructureAvailable: boolean
-  agendaInfrastructureMessage?: string
+  routeId: string | null;
+  agendaHoy: RutaAgendaOperativaDia | null;
+  pdvsDisponibles: RutaSemanalPanelData['pdvsDisponibles'];
+  agendaInfrastructureAvailable: boolean;
+  agendaInfrastructureMessage?: string;
 }) {
-  const [state, formAction] = useActionState(registrarEventoAgendaRutaSemanal, ESTADO_RUTA_INICIAL)
-  const [selectedDate, setSelectedDate] = useState(agendaHoy?.fecha ?? '')
-  const [impactMode, setImpactMode] = useState<RutaAgendaEventoItem['modoImpacto']>('SUMA')
-  const [eventType, setEventType] = useState<RutaAgendaEventoItem['tipoEvento']>('VISITA_ADICIONAL')
-  const [selectedDisplacedVisitIds, setSelectedDisplacedVisitIds] = useState<string[]>([])
+  const [state, formAction] = useActionState(registrarEventoAgendaRutaSemanal, ESTADO_RUTA_INICIAL);
+  const [selectedDate, setSelectedDate] = useState(agendaHoy?.fecha ?? '');
+  const [impactMode, setImpactMode] = useState<RutaAgendaEventoItem['modoImpacto']>('SUMA');
+  const [eventType, setEventType] =
+    useState<RutaAgendaEventoItem['tipoEvento']>('VISITA_ADICIONAL');
+  const [selectedDisplacedVisitIds, setSelectedDisplacedVisitIds] = useState<string[]>([]);
 
   useEffect(() => {
     return scheduleEffectStateUpdate(() => {
-      setSelectedDate(agendaHoy?.fecha ?? '')
-      setSelectedDisplacedVisitIds([])
-    })
-  }, [agendaHoy?.fecha])
+      setSelectedDate(agendaHoy?.fecha ?? '');
+      setSelectedDisplacedVisitIds([]);
+    });
+  }, [agendaHoy?.fecha]);
 
-  const currentDayVisits = agendaHoy?.visitasPlaneadas ?? []
+  const currentDayVisits = agendaHoy?.visitasPlaneadas ?? [];
 
   return (
     <Card className="border-slate-200 bg-white shadow-none">
-      <form action={formAction} className="space-y-3 rounded-[20px] border border-slate-200 bg-white p-3">
-          <input type="hidden" name="ruta_id" value={routeId ?? ''} />
-          <input
-            type="hidden"
-            name="displaced_visit_ids_json"
-            value={JSON.stringify(selectedDisplacedVisitIds)}
-          />
-          {!agendaInfrastructureAvailable && agendaInfrastructureMessage ? (
-            <div className="rounded-[16px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              {agendaInfrastructureMessage}
-            </div>
-          ) : null}
-          <Input
-            label="Fecha"
-            type="date"
-            name="fecha_operacion"
-            value={selectedDate}
-            onChange={(event) => setSelectedDate(event.target.value)}
-            disabled={!agendaInfrastructureAvailable}
-          />
+      <form
+        action={formAction}
+        className="space-y-3 rounded-[20px] border border-slate-200 bg-white p-3"
+      >
+        <input type="hidden" name="ruta_id" value={routeId ?? ''} />
+        <input
+          type="hidden"
+          name="displaced_visit_ids_json"
+          value={JSON.stringify(selectedDisplacedVisitIds)}
+        />
+        {!agendaInfrastructureAvailable && agendaInfrastructureMessage ? (
+          <div className="rounded-[16px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {agendaInfrastructureMessage}
+          </div>
+        ) : null}
+        <Input
+          label="Fecha"
+          type="date"
+          name="fecha_operacion"
+          value={selectedDate}
+          onChange={(event) => setSelectedDate(event.target.value)}
+          disabled={!agendaInfrastructureAvailable}
+        />
+        <Select
+          label="Tipo"
+          name="tipo_evento"
+          value={eventType}
+          onChange={(event) =>
+            setEventType(event.target.value as RutaAgendaEventoItem['tipoEvento'])
+          }
+          disabled={!agendaInfrastructureAvailable}
+          options={[
+            { value: 'VISITA_ADICIONAL', label: 'Visita adicional / cambio de tienda' },
+            { value: 'OFICINA', label: 'Junta / oficina' },
+            { value: 'FIRMA_CONTRATO', label: 'Firma de contrato' },
+            { value: 'FORMACION', label: 'Formacion' },
+            { value: 'ENTREGA_NUEVA_DC', label: 'Entrega de nueva DC' },
+            { value: 'PRESENTACION_GERENTE', label: 'Presentacion con gerente' },
+            { value: 'VISITA_EMERGENCIA', label: 'Visita de emergencia' },
+            { value: 'OTRO', label: 'Otro' },
+          ]}
+        />
+        <Select
+          label="Impacto"
+          name="modo_impacto"
+          value={impactMode}
+          onChange={(event) => {
+            const nextMode = event.target.value as RutaAgendaEventoItem['modoImpacto'];
+            setImpactMode(nextMode);
+            if (nextMode === 'REEMPLAZA_TOTAL') {
+              setSelectedDisplacedVisitIds(currentDayVisits.map((visit) => visit.id));
+            } else if (nextMode === 'SUMA') {
+              setSelectedDisplacedVisitIds([]);
+            }
+          }}
+          disabled={!agendaInfrastructureAvailable}
+          options={[
+            { value: 'SUMA', label: 'Se suma a la ruta del dia' },
+            { value: 'SOBREPONE_PARCIAL', label: 'Sobrepone parte de la ruta' },
+            { value: 'REEMPLAZA_TOTAL', label: 'Reemplaza toda la ruta del dia' },
+          ]}
+        />
+        <Input
+          label="Titulo"
+          name="titulo"
+          placeholder="Ej. Visita adicional"
+          disabled={!agendaInfrastructureAvailable}
+        />
+        <Input
+          label="Descripcion"
+          name="descripcion"
+          placeholder="Motivo o nota breve"
+          disabled={!agendaInfrastructureAvailable}
+        />
+        {eventType === 'VISITA_ADICIONAL' ? (
           <Select
-            label="Tipo"
-            name="tipo_evento"
-            value={eventType}
-            onChange={(event) => setEventType(event.target.value as RutaAgendaEventoItem['tipoEvento'])}
+            label="PDV"
+            name="pdv_id"
             disabled={!agendaInfrastructureAvailable}
             options={[
-              { value: 'VISITA_ADICIONAL', label: 'Visita adicional / cambio de tienda' },
-              { value: 'OFICINA', label: 'Junta / oficina' },
-              { value: 'FIRMA_CONTRATO', label: 'Firma de contrato' },
-              { value: 'FORMACION', label: 'Formacion' },
-              { value: 'ENTREGA_NUEVA_DC', label: 'Entrega de nueva DC' },
-              { value: 'PRESENTACION_GERENTE', label: 'Presentacion con gerente' },
-              { value: 'VISITA_EMERGENCIA', label: 'Visita de emergencia' },
-              { value: 'OTRO', label: 'Otro' },
+              { value: '', label: 'Selecciona un PDV...' },
+              ...pdvsDisponibles.map((item) => ({ value: item.id, label: item.nombre })),
             ]}
           />
-          <Select
-            label="Impacto"
-            name="modo_impacto"
-            value={impactMode}
-            onChange={(event) => {
-              const nextMode = event.target.value as RutaAgendaEventoItem['modoImpacto']
-              setImpactMode(nextMode)
-              if (nextMode === 'REEMPLAZA_TOTAL') {
-                setSelectedDisplacedVisitIds(currentDayVisits.map((visit) => visit.id))
-              } else if (nextMode === 'SUMA') {
-                setSelectedDisplacedVisitIds([])
-              }
-            }}
-            disabled={!agendaInfrastructureAvailable}
-            options={[
-              { value: 'SUMA', label: 'Se suma a la ruta del dia' },
-              { value: 'SOBREPONE_PARCIAL', label: 'Sobrepone parte de la ruta' },
-              { value: 'REEMPLAZA_TOTAL', label: 'Reemplaza toda la ruta del dia' },
-            ]}
-          />
-          <Input
-            label="Titulo"
-            name="titulo"
-            placeholder="Ej. Visita adicional"
-            disabled={!agendaInfrastructureAvailable}
-          />
-          <Input
-            label="Descripcion"
-            name="descripcion"
-            placeholder="Motivo o nota breve"
-            disabled={!agendaInfrastructureAvailable}
-          />
-          {eventType === 'VISITA_ADICIONAL' ? (
-            <Select
-              label="PDV"
-              name="pdv_id"
-              disabled={!agendaInfrastructureAvailable}
-              options={[
-                { value: '', label: 'Selecciona un PDV...' },
-                ...pdvsDisponibles.map((item) => ({ value: item.id, label: item.nombre })),
-              ]}
-            />
-          ) : (
-            <input type="hidden" name="pdv_id" value="" />
-          )}
+        ) : (
+          <input type="hidden" name="pdv_id" value="" />
+        )}
 
-          {impactMode !== 'SUMA' && currentDayVisits.length > 0 ? (
-            <div className="space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Visitas desplazadas
-              </p>
-              <div className="space-y-2 rounded-[16px] border border-slate-200 bg-slate-50 p-2.5">
-                {currentDayVisits.map((visit) => {
-                  const checked =
-                    impactMode === 'REEMPLAZA_TOTAL' || selectedDisplacedVisitIds.includes(visit.id)
-                  return (
-                    <label key={visit.id} className="flex items-start gap-3 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={impactMode === 'REEMPLAZA_TOTAL'}
-                        onChange={(event) => {
-                          setSelectedDisplacedVisitIds((current) =>
-                            event.target.checked
-                              ? [...current, visit.id]
-                              : current.filter((item) => item !== visit.id)
-                          )
-                        }}
-                      />
-                      <span>
-                        <span className="font-medium text-slate-950">{visit.pdv ?? 'PDV sin nombre'}</span>
-                        <span className="mt-0.5 block text-[11px] text-slate-500">{visit.zona ?? 'Sin zona'} · #{visit.orden}</span>
+        {impactMode !== 'SUMA' && currentDayVisits.length > 0 ? (
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Visitas desplazadas
+            </p>
+            <div className="space-y-2 rounded-[16px] border border-slate-200 bg-slate-50 p-2.5">
+              {currentDayVisits.map((visit) => {
+                const checked =
+                  impactMode === 'REEMPLAZA_TOTAL' || selectedDisplacedVisitIds.includes(visit.id);
+                return (
+                  <label key={visit.id} className="flex items-start gap-3 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={impactMode === 'REEMPLAZA_TOTAL'}
+                      onChange={(event) => {
+                        setSelectedDisplacedVisitIds((current) =>
+                          event.target.checked
+                            ? [...current, visit.id]
+                            : current.filter((item) => item !== visit.id)
+                        );
+                      }}
+                    />
+                    <span>
+                      <span className="font-medium text-slate-950">
+                        {visit.pdv ?? 'PDV sin nombre'}
                       </span>
-                    </label>
-                  )
-                })}
-              </div>
+                      <span className="mt-0.5 block text-[11px] text-slate-500">
+                        {visit.zona ?? 'Sin zona'} · #{visit.orden}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
             </div>
-          ) : null}
-          <SubmitActionButton
-            label="Registrar evento"
-            pendingLabel="Guardando..."
-            disabled={!agendaHoy || !agendaInfrastructureAvailable}
-          />
-          {state.message && (
-            <p className={`text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>
-          )}
+          </div>
+        ) : null}
+        <SubmitActionButton
+          label="Registrar evento"
+          pendingLabel="Guardando..."
+          disabled={!agendaHoy || !agendaInfrastructureAvailable}
+        />
+        {state.message && (
+          <p className={`text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+            {state.message}
+          </p>
+        )}
       </form>
     </Card>
-  )
+  );
 }
 
-export function SupervisorDayEventFormCard({
-  data,
-}: {
-  data: RutaSemanalPanelData
-}) {
+export function SupervisorDayEventFormCard({ data }: { data: RutaSemanalPanelData }) {
   return (
     <AgendaOperativaOverviewCard
       routeId={data.rutaSemanaActual?.id ?? null}
@@ -3523,27 +4190,32 @@ export function SupervisorDayEventFormCard({
       agendaInfrastructureAvailable={data.agendaInfrastructureAvailable}
       agendaInfrastructureMessage={data.agendaInfrastructureMessage}
     />
-  )
+  );
 }
 
 function AgendaEventEvidenceCenter({ events }: { events: RutaAgendaEventoItem[] }) {
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(() => events[0]?.id ?? null)
-  const [draft, setDraft] = useState<AgendaEventEvidenceDraft | null>(null)
-  const [comments, setComments] = useState(() => events[0]?.descripcion ?? '')
-  const [isCameraOpen, setIsCameraOpen] = useState(false)
-  const [isPending, startTransition] = useTransition()
-  const [state, setState] = useState<{ ok: boolean; message: string } | null>(null)
-  const selectedEvent = events.find((event) => event.id === selectedEventId) ?? events[0] ?? null
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(
+    () => events[0]?.id ?? null
+  );
+  const [draft, setDraft] = useState<AgendaEventEvidenceDraft | null>(null);
+  const [comments, setComments] = useState(() => events[0]?.descripcion ?? '');
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [state, setState] = useState<{ ok: boolean; message: string } | null>(null);
+  const selectedEvent = events.find((event) => event.id === selectedEventId) ?? events[0] ?? null;
 
   useEffect(() => {
     return () => {
       if (draft?.previewUrl) {
-        URL.revokeObjectURL(draft.previewUrl)
+        URL.revokeObjectURL(draft.previewUrl);
       }
-    }
-  }, [draft])
+    };
+  }, [draft]);
 
-  const buildSilentGpsFallback = (): { position: CapturedPosition; estadoGps: AttendanceGpsState } => ({
+  const buildSilentGpsFallback = (): {
+    position: CapturedPosition;
+    estadoGps: AttendanceGpsState;
+  } => ({
     position: {
       latitud: null,
       longitud: null,
@@ -3553,26 +4225,26 @@ function AgendaEventEvidenceCenter({ events }: { events: RutaAgendaEventoItem[] 
       capturadaEn: new Date().toISOString(),
     },
     estadoGps: 'SIN_GPS',
-  })
+  });
 
   const handleCapture = async (file: File) => {
     const gpsCapture = await captureAttendancePosition({
       geocercaLatitud: null,
       geocercaLongitud: null,
       geocercaRadioMetros: null,
-    }).catch(() => buildSilentGpsFallback())
-    const capturedAt = new Date().toISOString()
+    }).catch(() => buildSilentGpsFallback());
+    const capturedAt = new Date().toISOString();
     const stamped = await stampAttendanceSelfie(file, {
       capturedAt,
       latitude: gpsCapture.position.latitud,
       longitude: gpsCapture.position.longitud,
       flowLabel: 'Evidencia',
       hideGpsCoordinates: true,
-    })
-    const hash = await calcularHashArchivo(stamped.file)
+    });
+    const hash = await calcularHashArchivo(stamped.file);
     setDraft((current) => {
       if (current?.previewUrl) {
-        URL.revokeObjectURL(current.previewUrl)
+        URL.revokeObjectURL(current.previewUrl);
       }
       return {
         file: stamped.file,
@@ -3581,30 +4253,30 @@ function AgendaEventEvidenceCenter({ events }: { events: RutaAgendaEventoItem[] 
         capturedAt,
         position: gpsCapture.position,
         gpsState: gpsCapture.estadoGps,
-      }
-    })
-  }
+      };
+    });
+  };
 
   const submitEvidence = () => {
     if (!selectedEvent || !draft) {
-      setState({ ok: false, message: 'Primero selecciona un evento y toma la selfie.' })
-      return
+      setState({ ok: false, message: 'Primero selecciona un evento y toma la selfie.' });
+      return;
     }
 
     if (!comments.trim()) {
-      setState({ ok: false, message: 'Agrega el motivo de la visita o evento.' })
-      return
+      setState({ ok: false, message: 'Agrega el motivo de la visita o evento.' });
+      return;
     }
 
     startTransition(async () => {
-      const formData = new FormData()
-      formData.set('agenda_evento_id', selectedEvent.id)
-      formData.set('selfie_file', draft.file)
-      formData.set('latitud', String(draft.position.latitud ?? ''))
-      formData.set('longitud', String(draft.position.longitud ?? ''))
-      formData.set('distancia_metros', String(draft.position.distanciaMetros ?? ''))
-      formData.set('estado_gps', draft.gpsState)
-      formData.set('comments', comments)
+      const formData = new FormData();
+      formData.set('agenda_evento_id', selectedEvent.id);
+      formData.set('selfie_file', draft.file);
+      formData.set('latitud', String(draft.position.latitud ?? ''));
+      formData.set('longitud', String(draft.position.longitud ?? ''));
+      formData.set('distancia_metros', String(draft.position.distanciaMetros ?? ''));
+      formData.set('estado_gps', draft.gpsState);
+      formData.set('comments', comments);
 
       try {
         await injectDirectR2Upload(formData, draft.file, {
@@ -3624,21 +4296,23 @@ function AgendaEventEvidenceCenter({ events }: { events: RutaAgendaEventoItem[] 
             contentType: 'selfie_thumbnail_r2_type',
             size: 'selfie_thumbnail_r2_size',
           },
-        })
+        });
       } catch (error) {
-        console.error('No fue posible subir la selfie del evento a R2.', error)
+        console.error('No fue posible subir la selfie del evento a R2.', error);
       }
 
-      const result = await registrarEvidenciaEventoAgendaRutaSemanal(ESTADO_RUTA_INICIAL, formData)
+      const result = await registrarEvidenciaEventoAgendaRutaSemanal(ESTADO_RUTA_INICIAL, formData);
       setState({
         ok: result.ok,
-        message: result.message ?? (result.ok ? 'Evidencia registrada.' : 'No fue posible registrar la evidencia.'),
-      })
-    })
-  }
+        message:
+          result.message ??
+          (result.ok ? 'Evidencia registrada.' : 'No fue posible registrar la evidencia.'),
+      });
+    });
+  };
 
   if (events.length === 0) {
-    return null
+    return null;
   }
 
   return (
@@ -3647,7 +4321,8 @@ function AgendaEventEvidenceCenter({ events }: { events: RutaAgendaEventoItem[] 
         <div>
           <p className="text-sm font-semibold text-slate-950">Evidencia de eventos no comunes</p>
           <p className="mt-1 text-xs text-slate-500">
-            Captura unica: selfie, motivo, fecha/hora y GPS en segundo plano para el historico operativo.
+            Captura unica: selfie, motivo, fecha/hora y GPS en segundo plano para el historico
+            operativo.
           </p>
         </div>
         <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
@@ -3662,15 +4337,15 @@ function AgendaEventEvidenceCenter({ events }: { events: RutaAgendaEventoItem[] 
               key={event.id}
               type="button"
               onClick={() => {
-                setSelectedEventId(event.id)
+                setSelectedEventId(event.id);
                 setDraft((current) => {
                   if (current?.previewUrl) {
-                    URL.revokeObjectURL(current.previewUrl)
+                    URL.revokeObjectURL(current.previewUrl);
                   }
-                  return null
-                })
-                setComments(event.descripcion ?? '')
-                setState(null)
+                  return null;
+                });
+                setComments(event.descripcion ?? '');
+                setState(null);
               }}
               className={`w-full rounded-[18px] border px-4 py-3 text-left transition ${
                 selectedEvent?.id === event.id
@@ -3685,7 +4360,9 @@ function AgendaEventEvidenceCenter({ events }: { events: RutaAgendaEventoItem[] 
                     {event.tipoLabel} · {event.pdv ?? event.sede ?? 'Lugar por confirmar'}
                   </p>
                 </div>
-                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getAgendaExecutionTone(event.estatusEjecucion)}`}>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${getAgendaExecutionTone(event.estatusEjecucion)}`}
+                >
                   {event.estatusEjecucion}
                 </span>
               </div>
@@ -3727,13 +4404,20 @@ function AgendaEventEvidenceCenter({ events }: { events: RutaAgendaEventoItem[] 
                 <Button type="button" onClick={() => setIsCameraOpen(true)}>
                   Abrir selfie
                 </Button>
-                <Button type="button" variant="secondary" onClick={submitEvidence} disabled={!draft || isPending}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={submitEvidence}
+                  disabled={!draft || isPending}
+                >
                   {isPending ? 'Guardando...' : 'Registrar evidencia'}
                 </Button>
               </div>
 
               {state?.message ? (
-                <p className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>
+                <p className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  {state.message}
+                </p>
               ) : null}
             </div>
           ) : (
@@ -3751,7 +4435,7 @@ function AgendaEventEvidenceCenter({ events }: { events: RutaAgendaEventoItem[] 
         onCapture={handleCapture}
       />
     </div>
-  )
+  );
 }
 
 function AgendaApprovalsCard({
@@ -3761,22 +4445,25 @@ function AgendaApprovalsCard({
   agendaInfrastructureAvailable,
   agendaInfrastructureMessage,
 }: {
-  route: RutaSemanalItem
-  events: RutaAgendaEventoItem[]
-  pendingRepositions: RutaPendienteReposicionItem[]
-  agendaInfrastructureAvailable: boolean
-  agendaInfrastructureMessage?: string
+  route: RutaSemanalItem;
+  events: RutaAgendaEventoItem[];
+  pendingRepositions: RutaPendienteReposicionItem[];
+  agendaInfrastructureAvailable: boolean;
+  agendaInfrastructureMessage?: string;
 }) {
-  const [state, formAction] = useActionState(resolverEventoAgendaRutaSemanal, ESTADO_RUTA_INICIAL)
+  const [state, formAction] = useActionState(resolverEventoAgendaRutaSemanal, ESTADO_RUTA_INICIAL);
 
   return (
     <div className="rounded-[24px] border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Agenda dinamica</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            Agenda dinamica
+          </p>
           <h3 className="mt-2 text-lg font-semibold text-slate-950">Eventos y reposiciones</h3>
           <p className="mt-2 text-sm text-slate-500">
-            La ruta aprobada sigue como base; aqui se revisan sobreposiciones del dia y visitas por reponer.
+            La ruta aprobada sigue como base; aqui se revisan sobreposiciones del dia y visitas por
+            reponer.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -3796,11 +4483,17 @@ function AgendaApprovalsCard({
             <p className="mt-3 text-sm text-amber-800">{agendaInfrastructureMessage}</p>
           ) : null}
           {events.length === 0 || !agendaInfrastructureAvailable ? (
-            <p className="mt-3 text-sm text-slate-500">No hay eventos extraordinarios pendientes para esta ruta.</p>
+            <p className="mt-3 text-sm text-slate-500">
+              No hay eventos extraordinarios pendientes para esta ruta.
+            </p>
           ) : (
             <div className="mt-4 space-y-3">
               {events.map((event) => (
-                <form key={event.id} action={formAction} className="rounded-[18px] border border-slate-200 bg-white px-4 py-4">
+                <form
+                  key={event.id}
+                  action={formAction}
+                  className="rounded-[18px] border border-slate-200 bg-white px-4 py-4"
+                >
                   <input type="hidden" name="agenda_evento_id" value={event.id} />
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -3809,11 +4502,15 @@ function AgendaApprovalsCard({
                         {event.dayLabel} · {event.tipoLabel} · {event.impactoLabel}
                       </p>
                     </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getAgendaApprovalTone(event.estatusAprobacion)}`}>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${getAgendaApprovalTone(event.estatusAprobacion)}`}
+                    >
                       {event.estatusAprobacion}
                     </span>
                   </div>
-                  {event.descripcion ? <p className="mt-3 text-sm text-slate-600">{event.descripcion}</p> : null}
+                  {event.descripcion ? (
+                    <p className="mt-3 text-sm text-slate-600">{event.descripcion}</p>
+                  ) : null}
                   {event.displacedVisitIds.length > 0 ? (
                     <p className="mt-2 text-xs text-slate-500">
                       Desplaza {event.displacedVisitIds.length} visita(s) de la ruta base.
@@ -3848,20 +4545,29 @@ function AgendaApprovalsCard({
             </div>
           )}
           {state.message ? (
-            <p className={`mt-3 text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>
+            <p className={`mt-3 text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+              {state.message}
+            </p>
           ) : null}
         </div>
 
         <div className="rounded-[22px] border border-slate-200 bg-slate-50 p-4">
           <p className="text-sm font-semibold text-slate-950">Bandeja de visitas por reponer</p>
           {pendingRepositions.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">Todavia no hay visitas pendientes por reponer en esta ruta.</p>
+            <p className="mt-3 text-sm text-slate-500">
+              Todavia no hay visitas pendientes por reponer en esta ruta.
+            </p>
           ) : (
             <div className="mt-4 space-y-3">
               {pendingRepositions.map((item) => (
-                <div key={item.id} className="rounded-[18px] border border-slate-200 bg-white px-4 py-3">
+                <div
+                  key={item.id}
+                  className="rounded-[18px] border border-slate-200 bg-white px-4 py-3"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-950">{item.pdv ?? 'PDV sin nombre'}</p>
+                    <p className="text-sm font-semibold text-slate-950">
+                      {item.pdv ?? 'PDV sin nombre'}
+                    </p>
                     <span
                       className={`rounded-full px-3 py-1 text-xs font-semibold ${
                         item.clasificacion === 'JUSTIFICADA'
@@ -3883,7 +4589,7 @@ function AgendaApprovalsCard({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function PlanificarRutaCard({
@@ -3891,25 +4597,39 @@ function PlanificarRutaCard({
   onOpenCorrections,
   onOpenHistory,
 }: {
-  data: RutaSemanalPanelData
-  onOpenCorrections: (routeId: string) => void
-  onOpenHistory: (routeId: string) => void
+  data: RutaSemanalPanelData;
+  onOpenCorrections: (routeId: string) => void;
+  onOpenHistory: (routeId: string) => void;
 }) {
-  const minimumWeekStart = getWeekStartIso(data.semanaActualInicio)
-  const [selectedWeekStart, setSelectedWeekStart] = useState(() => minimumWeekStart)
+  const minimumWeekStart = getWeekStartIso(data.semanaActualInicio);
+  const [selectedPlanningMonth, setSelectedPlanningMonth] = useState(() =>
+    getPlanningMonthIso(data.semanaActualInicio)
+  );
+  const monthOptions = useMemo(
+    () => getPlanningMonthOptions(data.semanaActualInicio),
+    [data.semanaActualInicio]
+  );
+  const monthWeeks = useMemo(
+    () => getPlanningMonthWeeks(selectedPlanningMonth),
+    [selectedPlanningMonth]
+  );
+  const [selectedWeekStart, setSelectedWeekStart] = useState(
+    () => monthWeeks[0]?.weekStart ?? minimumWeekStart
+  );
+
   const planningRoute = useMemo(
     () => getPlanningRouteForWeek(data.rutas, selectedWeekStart),
     [data.rutas, selectedWeekStart]
-  )
+  );
   const approvedRoute = useMemo(
     () => (planningRoute && isApprovedOperationalRoute(planningRoute) ? planningRoute : null),
     [planningRoute]
-  )
+  );
   const editableRoute = useMemo(
     () => (planningRoute && !isApprovedOperationalRoute(planningRoute) ? planningRoute : null),
     [planningRoute]
-  )
-  const weekEnd = getWeekEndIso(selectedWeekStart)
+  );
+  const weekEnd = getWeekEndIso(selectedWeekStart);
   const pdvMap = useMemo(
     () =>
       new Map(
@@ -3922,7 +4642,7 @@ function PlanificarRutaCard({
         ])
       ),
     [data.pdvsDisponibles]
-  )
+  );
   const initialDrafts = useMemo<WeeklyCanvasDraftVisit[]>(
     () =>
       [...(editableRoute?.visitas ?? [])]
@@ -3939,48 +4659,74 @@ function PlanificarRutaCard({
           locked: visit.estatus !== 'PLANIFICADA',
         })),
     [editableRoute]
-  )
+  );
 
-  const hasApprovedWeek = Boolean(approvedRoute)
+  const hasApprovedWeek = Boolean(approvedRoute);
 
   useEffect(() => {
     if (selectedWeekStart < minimumWeekStart) {
       return scheduleEffectStateUpdate(() => {
-        setSelectedWeekStart(minimumWeekStart)
-      })
+        setSelectedWeekStart(minimumWeekStart);
+      });
     }
-  }, [minimumWeekStart, selectedWeekStart])
+  }, [minimumWeekStart, selectedWeekStart]);
 
   return (
     <Card className="border-slate-200 bg-white">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
-            Definir ruta semanal
+            Mes de Planificacion
           </p>
-          <h2 className="mt-2 text-xl font-semibold text-slate-950">Carga operativa de visitas</h2>
+          <h2 className="mt-2 text-xl font-semibold text-slate-950">
+            Planificación de Rutas: {formatPlanningMonthLabel(selectedPlanningMonth)}
+          </h2>
           <p className="mt-2 max-w-3xl text-sm text-slate-500">
-            Cada semana se envia una ruta distinta y queda pendiente de aprobacion de coordinacion.
+            Define la programación de todas las semanas del mes con anticipación. Puedes armar una semana patrón y replicarla a todo el mes en 1 clic.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={selectedPlanningMonth}
+            onChange={(e) => {
+              const nextMonth = e.target.value;
+              setSelectedPlanningMonth(nextMonth);
+              const weeks = getPlanningMonthWeeks(nextMonth);
+              if (weeks[0]?.weekStart) {
+                setSelectedWeekStart(weeks[0].weekStart);
+              }
+            }}
+            options={monthOptions.map((opt) => ({
+              value: opt.value,
+              label: opt.label,
+            }))}
+            className="w-48 text-xs font-semibold"
+          />
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
             {data.pdvsDisponibles.length} PDVs disponibles
           </span>
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-              editableRoute
-                ? editableRoute.approvalState === 'APROBADA'
-                  ? 'bg-emerald-100 text-emerald-700'
-                  : editableRoute.approvalState === 'CAMBIOS_SOLICITADOS'
-                    ? 'bg-amber-100 text-amber-800'
-                    : 'bg-sky-100 text-sky-700'
-                : 'bg-slate-100 text-slate-600'
-            }`}
-          >
-            {editableRoute ? editableRoute.approvalState : hasApprovedWeek ? 'Ruta aprobada' : 'Sin ruta enviada'}
-          </span>
         </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-b border-slate-100 pb-3">
+        <span className="text-xs font-medium text-slate-500 mr-1">Semanas del mes:</span>
+        {monthWeeks.map((week) => {
+          const isSelected = selectedWeekStart === week.weekStart;
+          return (
+            <button
+              key={week.weekStart}
+              type="button"
+              onClick={() => setSelectedWeekStart(week.weekStart)}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                isSelected
+                  ? 'bg-sky-700 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              {week.label}
+            </button>
+          );
+        })}
       </div>
       <div className="mt-5">
         {hasApprovedWeek && approvedRoute ? (
@@ -4005,7 +4751,7 @@ function PlanificarRutaCard({
         )}
       </div>
     </Card>
-  )
+  );
 }
 
 function ApprovedRouteNotice({
@@ -4014,25 +4760,29 @@ function ApprovedRouteNotice({
   onOpenHistory,
   onStartPlanning,
 }: {
-  route: RutaSemanalItem
-  onOpenCorrections: () => void
-  onOpenHistory: () => void
-  onStartPlanning: () => void
+  route: RutaSemanalItem;
+  onOpenCorrections: () => void;
+  onOpenHistory: () => void;
+  onStartPlanning: () => void;
 }) {
-  const reviewLabel = route.hasEditableFutureDays ? 'Ir a correcciones' : 'Ver en historicos'
-  const reviewHandler = route.hasEditableFutureDays ? onOpenCorrections : onOpenHistory
+  const reviewLabel = route.hasEditableFutureDays ? 'Ir a correcciones' : 'Ver en historicos';
+  const reviewHandler = route.hasEditableFutureDays ? onOpenCorrections : onOpenHistory;
 
   return (
     <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-3xl">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Ruta aprobada</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+            Ruta aprobada
+          </p>
           <h3 className="mt-2 text-lg font-semibold text-emerald-950">
             {formatDate(route.semanaInicio)} - {formatDate(route.semanaFin)}
           </h3>
           <p className="mt-2 text-sm text-emerald-900/80">
-            Esta semana ya fue enviada y aprobada. Para evitar duplicados, ya no se muestra en la carga
-            operativa. Revisa la ruta en {route.hasEditableFutureDays ? 'Correcciones' : 'Historicos'} para seguir el flujo correcto.
+            Esta semana ya fue enviada y aprobada. Para evitar duplicados, ya no se muestra en la
+            carga operativa. Revisa la ruta en{' '}
+            {route.hasEditableFutureDays ? 'Correcciones' : 'Historicos'} para seguir el flujo
+            correcto.
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -4045,22 +4795,22 @@ function ApprovedRouteNotice({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 type WeeklyCanvasDraftVisit = {
-  clientId: string
-  visitId: string | null
-  pdvId: string
-  day: number
-  label: string
-  subtitle: string
-  notes: string
-  status: RutaSemanalVisitItem['estatus']
-  locked: boolean
-}
+  clientId: string;
+  visitId: string | null;
+  pdvId: string;
+  day: number;
+  label: string;
+  subtitle: string;
+  notes: string;
+  status: RutaSemanalVisitItem['estatus'];
+  locked: boolean;
+};
 
-type WeeklyPlannerView = 'days' | 'draft'
+type WeeklyPlannerView = 'days' | 'draft';
 
 function buildWeeklyDrafts(
   drafts: WeeklyCanvasDraftVisit[],
@@ -4068,26 +4818,26 @@ function buildWeeklyDrafts(
   targetDay: number,
   targetIndex: number
 ) {
-  const dragged = drafts.find((item) => item.clientId === draggedId)
+  const dragged = drafts.find((item) => item.clientId === draggedId);
 
   if (!dragged || dragged.locked) {
-    return drafts
+    return drafts;
   }
 
-  const grouped = new Map<number, WeeklyCanvasDraftVisit[]>()
+  const grouped = new Map<number, WeeklyCanvasDraftVisit[]>();
   for (const day of WEEK_DAY_OPTIONS) {
     grouped.set(
       day.value,
       drafts.filter((item) => item.day === day.value && item.clientId !== draggedId)
-    )
+    );
   }
 
-  const destination = [...(grouped.get(targetDay) ?? [])]
-  const normalizedIndex = Math.max(0, Math.min(targetIndex, destination.length))
-  destination.splice(normalizedIndex, 0, { ...dragged, day: targetDay })
-  grouped.set(targetDay, destination)
+  const destination = [...(grouped.get(targetDay) ?? [])];
+  const normalizedIndex = Math.max(0, Math.min(targetIndex, destination.length));
+  destination.splice(normalizedIndex, 0, { ...dragged, day: targetDay });
+  grouped.set(targetDay, destination);
 
-  return WEEK_DAY_OPTIONS.flatMap((day) => grouped.get(day.value) ?? [])
+  return WEEK_DAY_OPTIONS.flatMap((day) => grouped.get(day.value) ?? []);
 }
 
 function WeeklyRouteCanvasPlanner({
@@ -4100,86 +4850,91 @@ function WeeklyRouteCanvasPlanner({
   route,
   onWeekStartChange,
 }: {
-  weekStart: string
-  weekEnd: string
-  minimumWeekStart: string
-  pdvsDisponibles: RutaSemanalPanelData['pdvsDisponibles']
-  pdvMap: Map<string, { label: string; subtitle: string }>
-  initialDrafts: WeeklyCanvasDraftVisit[]
-  route: RutaSemanalItem | null
-  onWeekStartChange: (nextWeekStart: string) => void
+  weekStart: string;
+  weekEnd: string;
+  minimumWeekStart: string;
+  pdvsDisponibles: RutaSemanalPanelData['pdvsDisponibles'];
+  pdvMap: Map<string, { label: string; subtitle: string }>;
+  initialDrafts: WeeklyCanvasDraftVisit[];
+  route: RutaSemanalItem | null;
+  onWeekStartChange: (nextWeekStart: string) => void;
 }) {
-  const [state, formAction] = useActionState(guardarPlaneacionRutaSemanalCanvas, ESTADO_RUTA_INICIAL)
-  const [drafts, setDrafts] = useState<WeeklyCanvasDraftVisit[]>(initialDrafts)
-  const [selectedDay, setSelectedDay] = useState<number>(WEEK_DAY_OPTIONS[0]?.value ?? 1)
-  const [plannerView, setPlannerView] = useState<WeeklyPlannerView>('days')
-  const [isDayPickerOpen, setIsDayPickerOpen] = useState(false)
-  const [storeSearch, setStoreSearch] = useState('')
-  const [dayPickerDrafts, setDayPickerDrafts] = useState<WeeklyCanvasDraftVisit[]>([])
+  const [state, formAction] = useActionState(
+    guardarPlaneacionRutaSemanalCanvas,
+    ESTADO_RUTA_INICIAL
+  );
+  const [drafts, setDrafts] = useState<WeeklyCanvasDraftVisit[]>(initialDrafts);
+  const [selectedDay, setSelectedDay] = useState<number>(WEEK_DAY_OPTIONS[0]?.value ?? 1);
+  const [plannerView, setPlannerView] = useState<WeeklyPlannerView>('days');
+  const [isDayPickerOpen, setIsDayPickerOpen] = useState(false);
+  const [storeSearch, setStoreSearch] = useState('');
+  const [dayPickerDrafts, setDayPickerDrafts] = useState<WeeklyCanvasDraftVisit[]>([]);
 
   useEffect(() => {
-    setDrafts(initialDrafts)
-  }, [initialDrafts])
+    setDrafts(initialDrafts);
+  }, [initialDrafts]);
 
   const openDayPicker = (day: number) => {
-    setSelectedDay(day)
-    setStoreSearch('')
-    setDayPickerDrafts(drafts.filter((item) => item.day === day))
-    setIsDayPickerOpen(true)
-  }
+    setSelectedDay(day);
+    setStoreSearch('');
+    setDayPickerDrafts(drafts.filter((item) => item.day === day));
+    setIsDayPickerOpen(true);
+  };
 
   const saveDayDraft = () => {
     setDrafts((current) => [
       ...current.filter((item) => item.day !== selectedDay),
       ...dayPickerDrafts.map((item) => ({ ...item, day: selectedDay })),
-    ])
-    setIsDayPickerOpen(false)
-  }
+    ]);
+    setIsDayPickerOpen(false);
+  };
 
   const clearSelectedDayDrafts = () => {
-    setDayPickerDrafts((current) => current.filter((item) => item.locked))
-  }
+    setDayPickerDrafts((current) => current.filter((item) => item.locked));
+  };
 
   const clearDayDrafts = (day: number) => {
-    setDrafts((current) => current.filter((item) => item.day !== day || item.locked))
+    setDrafts((current) => current.filter((item) => item.day !== day || item.locked));
 
     if (selectedDay === day) {
-      setDayPickerDrafts((current) => current.filter((item) => item.locked))
+      setDayPickerDrafts((current) => current.filter((item) => item.locked));
     }
-  }
+  };
 
   const clearWeeklyDrafts = () => {
-    setDrafts((current) => current.filter((item) => item.locked))
-    setDayPickerDrafts((current) => current.filter((item) => item.locked))
-  }
+    setDrafts((current) => current.filter((item) => item.locked));
+    setDayPickerDrafts((current) => current.filter((item) => item.locked));
+  };
 
   const removeDraft = (clientId: string) => {
-    setDayPickerDrafts((current) => current.filter((item) => item.clientId !== clientId || item.locked))
-  }
+    setDayPickerDrafts((current) =>
+      current.filter((item) => item.clientId !== clientId || item.locked)
+    );
+  };
 
   const moveDraftWithinDay = (clientId: string, direction: 'up' | 'down') => {
     setDayPickerDrafts((current) => {
-      const target = current.find((item) => item.clientId === clientId)
+      const target = current.find((item) => item.clientId === clientId);
       if (!target || target.locked) {
-        return current
+        return current;
       }
 
-      const currentIndex = current.findIndex((item) => item.clientId === clientId)
+      const currentIndex = current.findIndex((item) => item.clientId === clientId);
       if (currentIndex === -1) {
-        return current
+        return current;
       }
 
-      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
       if (nextIndex < 0 || nextIndex >= current.length) {
-        return current
+        return current;
       }
 
-      const next = [...current]
-      const [moved] = next.splice(currentIndex, 1)
-      next.splice(nextIndex, 0, moved)
-      return next
-    })
-  }
+      const next = [...current];
+      const [moved] = next.splice(currentIndex, 1);
+      next.splice(nextIndex, 0, moved);
+      return next;
+    });
+  };
 
   const serializedPlan = JSON.stringify(
     drafts
@@ -4190,17 +4945,19 @@ function WeeklyRouteCanvasPlanner({
         day: item.day,
         notes: null,
       }))
-  )
+  );
   const filteredPdvs = pdvsDisponibles.filter((pdv) =>
-    normalizeFilterText(`${pdv.nombre} ${pdv.zona ?? ''}`).includes(normalizeFilterText(storeSearch))
-  )
-  const isWeekEditable = weekStart >= minimumWeekStart
-  const hasEditableWeeklyDrafts = drafts.some((item) => !item.locked)
-  const hasEditableSelectedDayDrafts = dayPickerDrafts.some((item) => !item.locked)
+    normalizeFilterText(`${pdv.nombre} ${pdv.zona ?? ''}`).includes(
+      normalizeFilterText(storeSearch)
+    )
+  );
+  const isWeekEditable = weekStart >= minimumWeekStart;
+  const hasEditableWeeklyDrafts = drafts.some((item) => !item.locked);
+  const hasEditableSelectedDayDrafts = dayPickerDrafts.some((item) => !item.locked);
   const weeklyDraftGroups = WEEK_DAY_OPTIONS.map((day) => ({
     day,
     items: drafts.filter((item) => item.day === day.value),
-  }))
+  }));
   const buildDaySignature = (items: WeeklyCanvasDraftVisit[]) =>
     JSON.stringify(
       items.map((item, index) => ({
@@ -4210,7 +4967,7 @@ function WeeklyRouteCanvasPlanner({
         locked: item.locked,
         status: item.status,
       }))
-    )
+    );
 
   return (
     <form action={formAction} className="space-y-4">
@@ -4222,7 +4979,8 @@ function WeeklyRouteCanvasPlanner({
           <div>
             <p className="text-sm font-semibold text-slate-950">Planeacion semanal</p>
             <p className="mt-1 text-xs text-slate-500">
-              Elige primero el lunes de la semana, luego el dia y despues las tiendas. La ruta se activa solo cuando coordinacion la aprueba.
+              Elige primero el lunes de la semana, luego el dia y despues las tiendas. La ruta se
+              activa solo cuando coordinacion la aprueba.
             </p>
           </div>
           <SubmitActionButton
@@ -4232,37 +4990,69 @@ function WeeklyRouteCanvasPlanner({
           />
         </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)]">
-            <Input
-              label="Lunes de inicio"
-              type="date"
-              min={minimumWeekStart}
-              value={weekStart}
-              onChange={(event) => {
-                const nextWeekStart = normalizeWeekStart(event.target.value)
-                onWeekStartChange(nextWeekStart < minimumWeekStart ? minimumWeekStart : nextWeekStart)
-              }}
-              hint="Puedes elegir la semana actual o una futura para definir la ruta."
-            />
-          </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)]">
+          <Input
+            label="Lunes de inicio"
+            type="date"
+            min={minimumWeekStart}
+            value={weekStart}
+            onChange={(event) => {
+              const nextWeekStart = normalizeWeekStart(event.target.value);
+              onWeekStartChange(
+                nextWeekStart < minimumWeekStart ? minimumWeekStart : nextWeekStart
+              );
+            }}
+            hint="Puedes elegir la semana actual o una futura para definir la ruta."
+          />
+        </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
-            Semana {formatDate(weekStart)} - {formatDate(weekEnd)}
-          </span>
-          <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
-            {drafts.length} visita(s)
-          </span>
-          {route && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
-              {route.approvalState}
+              Semana {formatDate(weekStart)} - {formatDate(weekEnd)}
             </span>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+              {drafts.length} visita(s)
+            </span>
+            {route && (
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+                {route.approvalState}
+              </span>
+            )}
+          </div>
+          {drafts.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              className="border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100 text-xs font-semibold shadow-sm"
+              onClick={() => {
+                const monthIso = getPlanningMonthIso(weekStart);
+                const monthWeeks = getPlanningMonthWeeks(monthIso);
+                const targetWeeks = monthWeeks.map((w) => w.weekStart);
+                const clonedMap = cloneWeeklyPlanToMonthVisits(
+                  drafts.map((d) => ({ visitId: d.visitId, pdvId: d.pdvId, day: d.day })),
+                  targetWeeks
+                );
+                const serializedMonthPlan = JSON.stringify(clonedMap);
+                const inputEl = document.getElementById('month_plans_json_input') as HTMLInputElement;
+                if (inputEl) {
+                  inputEl.value = serializedMonthPlan;
+                }
+                alert(`¡Éxito! Se ha replicado la estructura de esta semana (${drafts.length} visitas) a todas las semanas de ${formatPlanningMonthLabel(monthIso)}.`);
+              }}
+            >
+              <PremiumLineIcon name="reports" className="mr-1.5 h-3.5 w-3.5 text-sky-700 inline" />
+              Replicar semana a todo el mes
+            </Button>
           )}
         </div>
+        <input type="hidden" id="month_plans_json_input" name="month_plans_json" value="" />
       </div>
 
       {state.message ? (
-        <p className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>
+        <p className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+          {state.message}
+        </p>
       ) : null}
 
       <div className="rounded-[22px] border border-slate-200 bg-white px-4 py-4">
@@ -4308,11 +5098,12 @@ function WeeklyRouteCanvasPlanner({
         {plannerView === 'days' ? (
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {WEEK_DAY_OPTIONS.map((day) => {
-              const dayDrafts = drafts.filter((item) => item.day === day.value)
-              const initialDayDrafts = initialDrafts.filter((item) => item.day === day.value)
-              const hasDraftChanges = buildDaySignature(dayDrafts) !== buildDaySignature(initialDayDrafts)
-              const hasVisits = dayDrafts.length > 0
-              const dayStateLabel = hasVisits ? 'Con visitas' : 'Sin visitas'
+              const dayDrafts = drafts.filter((item) => item.day === day.value);
+              const initialDayDrafts = initialDrafts.filter((item) => item.day === day.value);
+              const hasDraftChanges =
+                buildDaySignature(dayDrafts) !== buildDaySignature(initialDayDrafts);
+              const hasVisits = dayDrafts.length > 0;
+              const dayStateLabel = hasVisits ? 'Con visitas' : 'Sin visitas';
 
               return (
                 <div
@@ -4321,16 +5112,16 @@ function WeeklyRouteCanvasPlanner({
                   tabIndex={0}
                   onClick={() => {
                     if (isWeekEditable) {
-                      openDayPicker(day.value)
+                      openDayPicker(day.value);
                     }
                   }}
                   onKeyDown={(event) => {
                     if (!isWeekEditable) {
-                      return
+                      return;
                     }
                     if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      openDayPicker(day.value)
+                      event.preventDefault();
+                      openDayPicker(day.value);
                     }
                   }}
                   className={`min-w-0 rounded-[22px] border px-4 py-4 text-left transition ${
@@ -4348,7 +5139,9 @@ function WeeklyRouteCanvasPlanner({
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
                         {day.label}
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">{formatDate(addDaysToWeek(weekStart, day.value))}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {formatDate(addDaysToWeek(weekStart, day.value))}
+                      </p>
                     </div>
                     <div className="flex min-w-0 flex-wrap gap-2">
                       <span
@@ -4379,8 +5172,8 @@ function WeeklyRouteCanvasPlanner({
                       variant="secondary"
                       className="w-full min-w-0 justify-center sm:w-full"
                       onClick={(event) => {
-                        event.stopPropagation()
-                        openDayPicker(day.value)
+                        event.stopPropagation();
+                        openDayPicker(day.value);
                       }}
                       disabled={!isWeekEditable}
                     >
@@ -4388,7 +5181,7 @@ function WeeklyRouteCanvasPlanner({
                     </Button>
                   </div>
                 </div>
-              )
+              );
             })}
           </div>
         ) : (
@@ -4399,7 +5192,10 @@ function WeeklyRouteCanvasPlanner({
               </div>
             ) : (
               weeklyDraftGroups.map(({ day, items }) => (
-                <div key={day.value} className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
+                <div
+                  key={day.value}
+                  className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
@@ -4412,14 +5208,18 @@ function WeeklyRouteCanvasPlanner({
                     <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
                       <span
                         className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
-                          items.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-700'
+                          items.length > 0
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-white text-slate-700'
                         }`}
                       >
                         {items.length} visita(s)
                       </span>
                       <span
                         className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
-                          items.length > 0 ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
+                          items.length > 0
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-slate-200 text-slate-700'
                         }`}
                       >
                         {items.length > 0 ? 'Con visitas' : 'Sin visitas'}
@@ -4453,15 +5253,24 @@ function WeeklyRouteCanvasPlanner({
                       </div>
                     ) : (
                       items.map((item, index) => (
-                        <div key={item.clientId} className="rounded-[16px] border border-slate-200 bg-white px-4 py-3">
+                        <div
+                          key={item.clientId}
+                          className="rounded-[16px] border border-slate-200 bg-white px-4 py-3"
+                        >
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-slate-950">{item.label}</p>
-                              <p className="mt-1 truncate text-xs text-slate-500">{item.subtitle}</p>
+                              <p className="truncate text-sm font-semibold text-slate-950">
+                                {item.label}
+                              </p>
+                              <p className="mt-1 truncate text-xs text-slate-500">
+                                {item.subtitle}
+                              </p>
                             </div>
                             <span
                               className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                                item.locked ? 'bg-slate-200 text-slate-600' : 'bg-sky-100 text-sky-700'
+                                item.locked
+                                  ? 'bg-slate-200 text-slate-600'
+                                  : 'bg-sky-100 text-sky-700'
                               }`}
                             >
                               {item.locked ? item.status : `#${index + 1}`}
@@ -4495,9 +5304,12 @@ function WeeklyRouteCanvasPlanner({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-slate-950">
-                  Borrador del dia para {WEEK_DAY_OPTIONS.find((day) => day.value === selectedDay)?.label ?? 'el dia'}
+                  Borrador del dia para{' '}
+                  {WEEK_DAY_OPTIONS.find((day) => day.value === selectedDay)?.label ?? 'el dia'}
                 </p>
-                <p className="mt-1 text-xs text-slate-500">Ordena las visitas dentro de este menu.</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Ordena las visitas dentro de este menu.
+                </p>
               </div>
               <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
                 {dayPickerDrafts.length} visita(s)
@@ -4510,10 +5322,15 @@ function WeeklyRouteCanvasPlanner({
                 </div>
               ) : (
                 dayPickerDrafts.map((item, index) => (
-                  <div key={item.clientId} className="rounded-[16px] border border-slate-200 bg-white px-4 py-3">
+                  <div
+                    key={item.clientId}
+                    className="rounded-[16px] border border-slate-200 bg-white px-4 py-3"
+                  >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-950">{item.label}</p>
+                        <p className="truncate text-sm font-semibold text-slate-950">
+                          {item.label}
+                        </p>
                         <p className="mt-1 truncate text-xs text-slate-500">{item.subtitle}</p>
                       </div>
                       <span
@@ -4577,8 +5394,8 @@ function WeeklyRouteCanvasPlanner({
               </div>
             ) : (
               filteredPdvs.map((pdv) => {
-                const currentDraft = dayPickerDrafts.find((item) => item.pdvId === pdv.id)
-                const isSelected = Boolean(currentDraft)
+                const currentDraft = dayPickerDrafts.find((item) => item.pdvId === pdv.id);
+                const isSelected = Boolean(currentDraft);
                 return (
                   <div
                     key={pdv.id}
@@ -4586,20 +5403,22 @@ function WeeklyRouteCanvasPlanner({
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-950">{pdv.nombre}</p>
-                      <p className="mt-1 text-xs text-slate-500">{pdv.zona ?? pdv.formato ?? 'Sin zona'}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {pdv.zona ?? pdv.formato ?? 'Sin zona'}
+                      </p>
                     </div>
                     <Button
                       type="button"
                       variant={isSelected ? 'ghost' : 'secondary'}
                       onClick={() => {
                         if (currentDraft && !currentDraft.locked) {
-                          removeDraft(currentDraft.clientId)
-                          return
+                          removeDraft(currentDraft.clientId);
+                          return;
                         }
                         if (!isSelected) {
-                          const nextPdv = pdvMap.get(pdv.id)
+                          const nextPdv = pdvMap.get(pdv.id);
                           if (!nextPdv) {
-                            return
+                            return;
                           }
                           setDayPickerDrafts((current) => [
                             ...current,
@@ -4614,14 +5433,14 @@ function WeeklyRouteCanvasPlanner({
                               status: 'PLANIFICADA',
                               locked: false,
                             },
-                          ])
+                          ]);
                         }
                       }}
                     >
                       {isSelected ? (currentDraft?.locked ? 'Bloqueada' : 'Quitar') : 'Agregar'}
                     </Button>
                   </div>
-                )
+                );
               })
             )}
           </div>
@@ -4655,7 +5474,7 @@ function WeeklyRouteCanvasPlanner({
         </div>
       </ModalPanel>
     </form>
-  )
+  );
 }
 
 function DropZone({ onDrop, active }: { onDrop: () => void; active: boolean }) {
@@ -4664,35 +5483,38 @@ function DropZone({ onDrop, active }: { onDrop: () => void; active: boolean }) {
       className={`h-3 rounded-full transition ${active ? 'bg-[var(--module-soft-bg)]' : 'bg-transparent'}`}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
-        event.preventDefault()
-        onDrop()
+        event.preventDefault();
+        onDrop();
       }}
     />
-  )
+  );
 }
 
-function RouteWorkflowCard({
-  route,
-  canReview,
-}: {
-  route: RutaSemanalItem
-  canReview: boolean
-}) {
-  const [state, formAction] = useActionState(actualizarControlRutaSemanal, ESTADO_RUTA_INICIAL)
-  const [resolveState, resolveAction] = useActionState(resolverSolicitudCambioRutaSemanal, ESTADO_RUTA_INICIAL)
+function RouteWorkflowCard({ route, canReview }: { route: RutaSemanalItem; canReview: boolean }) {
+  const [state, formAction] = useActionState(actualizarControlRutaSemanal, ESTADO_RUTA_INICIAL);
+  const [resolveState, resolveAction] = useActionState(
+    resolverSolicitudCambioRutaSemanal,
+    ESTADO_RUTA_INICIAL
+  );
 
   return (
     <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Revision de ruta</p>
-          <h3 className="mt-2 text-lg font-semibold text-slate-950">{route.supervisor ?? 'Supervisor sin nombre'}</h3>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            Revision de ruta
+          </p>
+          <h3 className="mt-2 text-lg font-semibold text-slate-950">
+            {route.supervisor ?? 'Supervisor sin nombre'}
+          </h3>
           <p className="mt-2 text-sm text-slate-500">
             Semana {formatDate(route.semanaInicio)} - {formatDate(route.semanaFin)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getRouteTone(route.estatus)}`}>
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${getRouteTone(route.estatus)}`}
+          >
             {route.estatus}
           </span>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -4701,11 +5523,18 @@ function RouteWorkflowCard({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <MiniStat label="Esperadas" value={String(route.expectedMonthlyVisits ?? 0)} />
-        <MiniStat label="Hechas" value={String(route.monthlyVisitsCompleted)} />
-        <MiniStat label="Pendientes" value={String(Math.max((route.expectedMonthlyVisits ?? 0) - route.monthlyVisitsCompleted, 0))} />
-      </div>
+      {(() => {
+        const esperadasVisitas = route.totalVisitas > 0 ? route.totalVisitas : (route.expectedMonthlyVisits ?? 0);
+        const hechasVisitas = route.visitasCompletadas;
+        const pendientesVisitas = Math.max(esperadasVisitas - hechasVisitas, 0);
+        return (
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <MiniStat label="Esperadas" value={String(esperadasVisitas)} />
+            <MiniStat label="Hechas" value={String(hechasVisitas)} />
+            <MiniStat label="Pendientes" value={String(pendientesVisitas)} />
+          </div>
+        );
+      })()}
 
       {canReview ? (
         <div className="mt-5 space-y-4">
@@ -4728,24 +5557,37 @@ function RouteWorkflowCard({
             </div>
 
             <div className="space-y-2 lg:col-span-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Nota</label>
-              <Input name="approval_note" defaultValue={route.approvalNote ?? ''} placeholder="Comentario de revision" />
+              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Nota
+              </label>
+              <Input
+                name="approval_note"
+                defaultValue={route.approvalNote ?? ''}
+                placeholder="Comentario de revision"
+              />
             </div>
 
             <div className="lg:col-span-2 flex flex-wrap items-center gap-3">
               <SubmitActionButton label="Guardar revision" pendingLabel="Guardando..." />
               {state.message && (
-                <span className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</span>
+                <span className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  {state.message}
+                </span>
               )}
             </div>
           </form>
 
           {route.changeRequestState === 'PENDIENTE' && (
-            <form action={resolveAction} className="rounded-[20px] border border-sky-200 bg-sky-50 p-4">
+            <form
+              action={resolveAction}
+              className="rounded-[20px] border border-sky-200 bg-sky-50 p-4"
+            >
               <input type="hidden" name="ruta_id" value={route.id} />
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-950">Decision sobre cambio de ruta</p>
+                  <p className="text-sm font-semibold text-slate-950">
+                    Decision sobre cambio de ruta
+                  </p>
                   <p className="mt-1 text-sm text-slate-600">
                     {getRouteChangeTypeLabel(route.changeRequestType)} ·{' '}
                     {route.changeRequestTargetDayLabel ?? 'Dia seleccionado'}
@@ -4783,7 +5625,9 @@ function RouteWorkflowCard({
                   Rechazar cambio
                 </button>
                 {resolveState.message && (
-                  <span className={`text-sm ${resolveState.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  <span
+                    className={`text-sm ${resolveState.ok ? 'text-emerald-700' : 'text-rose-700'}`}
+                  >
                     {resolveState.message}
                   </span>
                 )}
@@ -4797,7 +5641,7 @@ function RouteWorkflowCard({
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function RouteChangeRequestCard({
@@ -4805,118 +5649,127 @@ function RouteChangeRequestCard({
   enabled,
   pdvsDisponibles,
 }: {
-  route: RutaSemanalItem
-  enabled: boolean
-  pdvsDisponibles: RutaSemanalPanelData['pdvsDisponibles']
+  route: RutaSemanalItem;
+  enabled: boolean;
+  pdvsDisponibles: RutaSemanalPanelData['pdvsDisponibles'];
 }) {
-  const [state, formAction] = useActionState(solicitarCambioRutaSemanal, ESTADO_RUTA_INICIAL)
-  const editableDayNumbers = route.editableDayNumbers
+  const [state, formAction] = useActionState(solicitarCambioRutaSemanal, ESTADO_RUTA_INICIAL);
+  const editableDayNumbers = route.editableDayNumbers;
   const dayOptions = Array.from(
     new Map(
       editableDayNumbers.map((dayNumber) => {
-        const visitsForDay = route.visitas.filter((item) => item.diaSemana === dayNumber)
+        const visitsForDay = route.visitas.filter((item) => item.diaSemana === dayNumber);
         return [
           dayNumber,
           {
             value: String(dayNumber),
             label: `${getWeekDayLabel(dayNumber)} · ${visitsForDay.length} visita(s)`,
           },
-        ]
+        ];
       })
     ).values()
-  )
+  );
   const visitsByDay = useMemo(
     () =>
       route.visitas.reduce<Map<number, RutaSemanalVisitItem[]>>((acc, visit) => {
-        const current = acc.get(visit.diaSemana) ?? []
-        current.push(visit)
-        acc.set(visit.diaSemana, current)
-        return acc
+        const current = acc.get(visit.diaSemana) ?? [];
+        current.push(visit);
+        acc.set(visit.diaSemana, current);
+        return acc;
       }, new Map<number, RutaSemanalVisitItem[]>()),
     [route.visitas]
-  )
+  );
   const [selectedDayNumber, setSelectedDayNumber] = useState<number>(
     route.changeRequestTargetDayNumber &&
       editableDayNumbers.includes(route.changeRequestTargetDayNumber)
       ? route.changeRequestTargetDayNumber
-      : editableDayNumbers[0] ?? 1
-  )
+      : (editableDayNumbers[0] ?? 1)
+  );
   const [changeType, setChangeType] = useState<RutaSemanalItem['changeRequestType']>(
     route.changeRequestState === 'PENDIENTE' ? route.changeRequestType : 'CAMBIO_DIA'
-  )
+  );
   const [selectedVisitId, setSelectedVisitId] = useState<string>(
-    route.changeRequestState === 'PENDIENTE' ? route.changeRequestTargetVisitId ?? '' : ''
-  )
-  const [isStorePickerOpen, setIsStorePickerOpen] = useState(false)
-  const [storeSearch, setStoreSearch] = useState('')
+    route.changeRequestState === 'PENDIENTE' ? (route.changeRequestTargetVisitId ?? '') : ''
+  );
+  const [isStorePickerOpen, setIsStorePickerOpen] = useState(false);
+  const [storeSearch, setStoreSearch] = useState('');
 
-  const buildDraftForDay = useCallback((dayNumber: number, sourceRoute = route) => {
-    if (
-      sourceRoute.changeRequestState === 'PENDIENTE' &&
-      sourceRoute.changeRequestTargetDayNumber === dayNumber &&
-      sourceRoute.changeRequestProposedVisits.length > 0
-    ) {
-      return sourceRoute.changeRequestProposedVisits.map((proposal) => ({
-        clientId: `proposal-${proposal.order}-${proposal.pdvId}`,
-        pdvId: proposal.pdvId,
-        label: proposal.pdv ?? 'PDV sin nombre',
-        subtitle: proposal.zona ?? 'Sin zona',
-      }))
-    }
+  const buildDraftForDay = useCallback(
+    (dayNumber: number, sourceRoute = route) => {
+      if (
+        sourceRoute.changeRequestState === 'PENDIENTE' &&
+        sourceRoute.changeRequestTargetDayNumber === dayNumber &&
+        sourceRoute.changeRequestProposedVisits.length > 0
+      ) {
+        return sourceRoute.changeRequestProposedVisits.map((proposal) => ({
+          clientId: `proposal-${proposal.order}-${proposal.pdvId}`,
+          pdvId: proposal.pdvId,
+          label: proposal.pdv ?? 'PDV sin nombre',
+          subtitle: proposal.zona ?? 'Sin zona',
+        }));
+      }
 
-    return (visitsByDay.get(dayNumber) ?? []).map((visit, index) => ({
-      clientId: visit.id ?? `${dayNumber}-${visit.pdvId}-${index}`,
-      pdvId: visit.pdvId,
-      label: visit.pdv ?? 'PDV sin nombre',
-      subtitle: visit.zona ?? 'Sin zona',
-    }))
-  }, [route, visitsByDay])
+      return (visitsByDay.get(dayNumber) ?? []).map((visit, index) => ({
+        clientId: visit.id ?? `${dayNumber}-${visit.pdvId}-${index}`,
+        pdvId: visit.pdvId,
+        label: visit.pdv ?? 'PDV sin nombre',
+        subtitle: visit.zona ?? 'Sin zona',
+      }));
+    },
+    [route, visitsByDay]
+  );
 
-  const [draftRoute, setDraftRoute] = useState(() => buildDraftForDay(selectedDayNumber))
+  const [draftRoute, setDraftRoute] = useState(() => buildDraftForDay(selectedDayNumber));
 
   useEffect(() => {
     const nextDay =
       route.changeRequestTargetDayNumber &&
       route.editableDayNumbers.includes(route.changeRequestTargetDayNumber)
         ? route.changeRequestTargetDayNumber
-        : route.editableDayNumbers[0] ?? 1
+        : (route.editableDayNumbers[0] ?? 1);
     return scheduleEffectStateUpdate(() => {
-      setSelectedDayNumber(nextDay)
-      setChangeType(route.changeRequestState === 'PENDIENTE' ? route.changeRequestType : 'CAMBIO_DIA')
-      setSelectedVisitId(route.changeRequestState === 'PENDIENTE' ? route.changeRequestTargetVisitId ?? '' : '')
-      setDraftRoute(buildDraftForDay(nextDay, route))
-    })
-  }, [buildDraftForDay, route])
+      setSelectedDayNumber(nextDay);
+      setChangeType(
+        route.changeRequestState === 'PENDIENTE' ? route.changeRequestType : 'CAMBIO_DIA'
+      );
+      setSelectedVisitId(
+        route.changeRequestState === 'PENDIENTE' ? (route.changeRequestTargetVisitId ?? '') : ''
+      );
+      setDraftRoute(buildDraftForDay(nextDay, route));
+    });
+  }, [buildDraftForDay, route]);
 
-  const currentDayVisits = visitsByDay.get(selectedDayNumber) ?? []
+  const currentDayVisits = visitsByDay.get(selectedDayNumber) ?? [];
   const targetVisitOptions = currentDayVisits.map((visit) => ({
     value: visit.id,
     label: visit.pdv ?? 'PDV sin nombre',
-  }))
+  }));
   const filteredPdvs = pdvsDisponibles.filter((pdv) =>
-    normalizeFilterText(`${pdv.nombre} ${pdv.zona ?? ''}`).includes(normalizeFilterText(storeSearch))
-  )
+    normalizeFilterText(`${pdv.nombre} ${pdv.zona ?? ''}`).includes(
+      normalizeFilterText(storeSearch)
+    )
+  );
   const serializedProposal = JSON.stringify(
     draftRoute.map((item, index) => ({
       pdvId: item.pdvId,
       order: index + 1,
     }))
-  )
+  );
 
   const resetDraftForDay = (dayNumber: number, nextType: RutaSemanalItem['changeRequestType']) => {
-    setSelectedDayNumber(dayNumber)
-    setSelectedVisitId((visitsByDay.get(dayNumber) ?? [])[0]?.id ?? '')
-    setDraftRoute(nextType === 'CANCELACION_DIA' ? [] : buildDraftForDay(dayNumber))
-  }
+    setSelectedDayNumber(dayNumber);
+    setSelectedVisitId((visitsByDay.get(dayNumber) ?? [])[0]?.id ?? '');
+    setDraftRoute(nextType === 'CANCELACION_DIA' ? [] : buildDraftForDay(dayNumber));
+  };
 
   const addStoreToDraft = (pdvId: string) => {
     if (!pdvId || draftRoute.some((item) => item.pdvId === pdvId)) {
-      return
+      return;
     }
 
-    const pdv = pdvsDisponibles.find((item) => item.id === pdvId)
+    const pdv = pdvsDisponibles.find((item) => item.id === pdvId);
     if (!pdv) {
-      return
+      return;
     }
 
     setDraftRoute((current) => [
@@ -4927,37 +5780,39 @@ function RouteChangeRequestCard({
         label: pdv.nombre,
         subtitle: pdv.zona ?? pdv.formato ?? 'Sin zona',
       },
-    ])
-  }
+    ]);
+  };
 
   const removeStoreFromDraft = (clientId: string) => {
-    setDraftRoute((current) => current.filter((item) => item.clientId !== clientId))
-  }
+    setDraftRoute((current) => current.filter((item) => item.clientId !== clientId));
+  };
 
   const moveStoreWithinDraft = (clientId: string, direction: 'up' | 'down') => {
     setDraftRoute((current) => {
-      const currentIndex = current.findIndex((item) => item.clientId === clientId)
+      const currentIndex = current.findIndex((item) => item.clientId === clientId);
       if (currentIndex === -1) {
-        return current
+        return current;
       }
 
-      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
       if (nextIndex < 0 || nextIndex >= current.length) {
-        return current
+        return current;
       }
 
-      const next = [...current]
-      const [moved] = next.splice(currentIndex, 1)
-      next.splice(nextIndex, 0, moved)
-      return next
-    })
-  }
+      const next = [...current];
+      const [moved] = next.splice(currentIndex, 1);
+      next.splice(nextIndex, 0, moved);
+      return next;
+    });
+  };
 
   return (
     <div className="rounded-[24px] border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Ruta activa</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            Ruta activa
+          </p>
           <h3 className="mt-2 text-lg font-semibold text-slate-950">Solicitud de modificacion</h3>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -4969,32 +5824,41 @@ function RouteChangeRequestCard({
         <div className="mt-3 rounded-[18px] bg-slate-50 px-4 py-3 text-sm text-slate-600">
           {route.changeRequestTargetDayLabel && (
             <p className="font-medium text-slate-900">
-              {getRouteChangeTypeLabel(route.changeRequestType)} · {route.changeRequestTargetDayLabel}
+              {getRouteChangeTypeLabel(route.changeRequestType)} ·{' '}
+              {route.changeRequestTargetDayLabel}
             </p>
           )}
-          <p className={route.changeRequestTargetDayLabel ? 'mt-2' : ''}>{route.changeRequestNote}</p>
+          <p className={route.changeRequestTargetDayLabel ? 'mt-2' : ''}>
+            {route.changeRequestNote}
+          </p>
           {route.changeRequestProposedVisits.length > 0 ? (
             <div className="mt-3 flex flex-wrap gap-2">
               {route.changeRequestProposedVisits.map((proposal) => (
-                <span key={`${proposal.order}-${proposal.pdvId}`} className="rounded-full bg-white px-3 py-1 text-xs text-slate-600">
+                <span
+                  key={`${proposal.order}-${proposal.pdvId}`}
+                  className="rounded-full bg-white px-3 py-1 text-xs text-slate-600"
+                >
                   #{proposal.order} {proposal.pdv ?? 'PDV'}
                 </span>
               ))}
             </div>
           ) : (
-            <p className="mt-3 text-xs font-medium text-rose-700">Dia completo sin tiendas: cancelacion solicitada.</p>
+            <p className="mt-3 text-xs font-medium text-rose-700">
+              Dia completo sin tiendas: cancelacion solicitada.
+            </p>
           )}
         </div>
       )}
 
       {!enabled ? (
         <p className="mt-4 text-sm text-slate-500">
-          La ruta ya se puede consultar, pero la solicitud formal de cambio se habilitara cuando la base
-          local tenga la columna de metadata.
+          La ruta ya se puede consultar, pero la solicitud formal de cambio se habilitara cuando la
+          base local tenga la columna de metadata.
         </p>
       ) : !route.hasEditableFutureDays ? (
         <div className="mt-4 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-          Esta ruta ya no tiene dias vigentes para modificar. Solo pueden ajustarse dias actuales o futuros.
+          Esta ruta ya no tiene dias vigentes para modificar. Solo pueden ajustarse dias actuales o
+          futuros.
         </div>
       ) : (
         <form action={formAction} className="mt-4 space-y-4">
@@ -5008,12 +5872,12 @@ function RouteChangeRequestCard({
               name="change_request_type"
               value={changeType}
               onChange={(event) => {
-                const nextType = event.target.value as RutaSemanalItem['changeRequestType']
-                setChangeType(nextType)
+                const nextType = event.target.value as RutaSemanalItem['changeRequestType'];
+                setChangeType(nextType);
                 if (nextType === 'CANCELACION_DIA') {
-                  setDraftRoute([])
+                  setDraftRoute([]);
                 } else if (draftRoute.length === 0) {
-                  setDraftRoute(buildDraftForDay(selectedDayNumber))
+                  setDraftRoute(buildDraftForDay(selectedDayNumber));
                 }
               }}
               options={[
@@ -5031,12 +5895,10 @@ function RouteChangeRequestCard({
               name="target_day_number"
               value={String(selectedDayNumber)}
               onChange={(event) => {
-                const nextDay = Number(event.target.value)
-                resetDraftForDay(nextDay, changeType)
+                const nextDay = Number(event.target.value);
+                resetDraftForDay(nextDay, changeType);
               }}
-              options={[
-                ...dayOptions,
-              ]}
+              options={[...dayOptions]}
             />
           </div>
           {changeType === 'CAMBIO_TIENDA' ? (
@@ -5060,13 +5922,19 @@ function RouteChangeRequestCard({
           <div className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-slate-950">Nueva ruta propuesta para {getWeekDayLabel(selectedDayNumber)}</p>
+                <p className="text-sm font-semibold text-slate-950">
+                  Nueva ruta propuesta para {getWeekDayLabel(selectedDayNumber)}
+                </p>
                 <p className="mt-1 text-xs text-slate-500">
                   Si la dejas sin tiendas, el sistema interpretara una cancelacion completa del dia.
                 </p>
               </div>
               {changeType !== 'CANCELACION_DIA' ? (
-                <Button type="button" variant="secondary" onClick={() => setIsStorePickerOpen(true)}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setIsStorePickerOpen(true)}
+                >
                   Definir tiendas del dia
                 </Button>
               ) : null}
@@ -5079,10 +5947,15 @@ function RouteChangeRequestCard({
                 </div>
               ) : (
                 draftRoute.map((item, index) => (
-                  <div key={item.clientId} className="rounded-[18px] border border-slate-200 bg-white px-4 py-3">
+                  <div
+                    key={item.clientId}
+                    className="rounded-[18px] border border-slate-200 bg-white px-4 py-3"
+                  >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-950">{item.label}</p>
+                        <p className="truncate text-sm font-semibold text-slate-950">
+                          {item.label}
+                        </p>
                         <p className="mt-1 truncate text-xs text-slate-500">{item.subtitle}</p>
                       </div>
                       <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">
@@ -5091,14 +5964,31 @@ function RouteChangeRequestCard({
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-2">
                       <div className="flex gap-2">
-                        <Button type="button" variant="ghost" size="sm" disabled={index === 0} onClick={() => moveStoreWithinDraft(item.clientId, 'up')}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={index === 0}
+                          onClick={() => moveStoreWithinDraft(item.clientId, 'up')}
+                        >
                           Subir
                         </Button>
-                        <Button type="button" variant="ghost" size="sm" disabled={index === draftRoute.length - 1} onClick={() => moveStoreWithinDraft(item.clientId, 'down')}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={index === draftRoute.length - 1}
+                          onClick={() => moveStoreWithinDraft(item.clientId, 'down')}
+                        >
                           Bajar
                         </Button>
                       </div>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => removeStoreFromDraft(item.clientId)}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeStoreFromDraft(item.clientId)}
+                      >
                         Quitar
                       </Button>
                     </div>
@@ -5113,14 +6003,18 @@ function RouteChangeRequestCard({
             </label>
             <Input
               name="change_request_note"
-              defaultValue={route.changeRequestState === 'PENDIENTE' ? route.changeRequestNote ?? '' : ''}
+              defaultValue={
+                route.changeRequestState === 'PENDIENTE' ? (route.changeRequestNote ?? '') : ''
+              }
               placeholder="Ej. tienda cerrada, incidencia vial o cambio de prioridad"
             />
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <SubmitActionButton label="Solicitar cambio" pendingLabel="Enviando..." />
             {state.message && (
-              <span className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</span>
+              <span className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+                {state.message}
+              </span>
             )}
           </div>
         </form>
@@ -5141,7 +6035,7 @@ function RouteChangeRequestCard({
           />
           <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
             {filteredPdvs.map((pdv) => {
-              const currentDraft = draftRoute.find((item) => item.pdvId === pdv.id)
+              const currentDraft = draftRoute.find((item) => item.pdvId === pdv.id);
               return (
                 <div
                   key={pdv.id}
@@ -5149,39 +6043,41 @@ function RouteChangeRequestCard({
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-950">{pdv.nombre}</p>
-                    <p className="mt-1 text-xs text-slate-500">{pdv.zona ?? pdv.formato ?? 'Sin zona'}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {pdv.zona ?? pdv.formato ?? 'Sin zona'}
+                    </p>
                   </div>
                   <Button
                     type="button"
                     variant={currentDraft ? 'ghost' : 'secondary'}
                     onClick={() => {
                       if (currentDraft) {
-                        removeStoreFromDraft(currentDraft.clientId)
-                        return
+                        removeStoreFromDraft(currentDraft.clientId);
+                        return;
                       }
-                      addStoreToDraft(pdv.id)
+                      addStoreToDraft(pdv.id);
                     }}
                   >
                     {currentDraft ? 'Quitar' : 'Agregar'}
                   </Button>
                 </div>
-              )
+              );
             })}
           </div>
         </div>
       </ModalPanel>
     </div>
-  )
+  );
 }
 
 function RouteChangeImpactCard({
   route,
   supervisor,
 }: {
-  route: RutaSemanalItem
-  supervisor: RutaSupervisorWarRoomItem | null
+  route: RutaSemanalItem;
+  supervisor: RutaSupervisorWarRoomItem | null;
 }) {
-  const visitedPdvIds = new Set(route.visitas.map((visit) => visit.pdvId))
+  const visitedPdvIds = new Set(route.visitas.map((visit) => visit.pdvId));
   const suggestedReplacements =
     supervisor?.quotaProgress
       .filter((item) => !visitedPdvIds.has(item.pdvId))
@@ -5192,7 +6088,7 @@ function RouteChangeImpactCard({
           (right.prioridad === 'ALTA' ? 3 : right.prioridad === 'MEDIA' ? 2 : 1) -
             (left.prioridad === 'ALTA' ? 3 : left.prioridad === 'MEDIA' ? 2 : 1)
       )
-      .slice(0, 4) ?? []
+      .slice(0, 4) ?? [];
 
   return (
     <div className="rounded-[24px] border border-slate-200 bg-white p-5">
@@ -5218,15 +6114,20 @@ function RouteChangeImpactCard({
           <p className="text-sm font-semibold text-slate-950">Solicitud del supervisor</p>
           {route.changeRequestTargetDayLabel && (
             <p className="mt-2 text-sm text-slate-700">
-              Objetivo: {getRouteChangeTypeLabel(route.changeRequestType)} · {route.changeRequestTargetDayLabel}
+              Objetivo: {getRouteChangeTypeLabel(route.changeRequestType)} ·{' '}
+              {route.changeRequestTargetDayLabel}
             </p>
           )}
           <p className="mt-2 text-sm text-slate-600">{route.changeRequestNote}</p>
           {route.changeRequestResolutionNote && (
-            <p className="mt-2 text-sm text-slate-500">Resolucion: {route.changeRequestResolutionNote}</p>
+            <p className="mt-2 text-sm text-slate-500">
+              Resolucion: {route.changeRequestResolutionNote}
+            </p>
           )}
           {route.changeRequestedAt && (
-            <p className="mt-2 text-xs text-slate-500">Solicitado {formatDateTime(route.changeRequestedAt)}</p>
+            <p className="mt-2 text-xs text-slate-500">
+              Solicitado {formatDateTime(route.changeRequestedAt)}
+            </p>
           )}
         </div>
       )}
@@ -5235,24 +6136,32 @@ function RouteChangeImpactCard({
         <div className="rounded-[22px] border border-slate-200 bg-slate-50 p-4">
           <p className="text-sm font-semibold text-slate-950">Ruta actual del dia</p>
           <div className="mt-4 space-y-3">
-            {route.visitas.filter((visit) => visit.diaSemana === route.changeRequestTargetDayNumber).length === 0 ? (
+            {route.visitas.filter((visit) => visit.diaSemana === route.changeRequestTargetDayNumber)
+              .length === 0 ? (
               <p className="text-sm text-slate-500">Ese dia aun no tiene visitas cargadas.</p>
             ) : (
               route.visitas
                 .filter((visit) => visit.diaSemana === route.changeRequestTargetDayNumber)
                 .map((visit) => (
-                <div key={visit.id} className="rounded-[18px] border border-slate-200 bg-white px-4 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-950">{visit.pdv ?? 'PDV sin nombre'}</p>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getVisitTone(visit.estatus)}`}>
-                      {visit.estatus}
-                    </span>
+                  <div
+                    key={visit.id}
+                    className="rounded-[18px] border border-slate-200 bg-white px-4 py-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-950">
+                        {visit.pdv ?? 'PDV sin nombre'}
+                      </p>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${getVisitTone(visit.estatus)}`}
+                      >
+                        {visit.estatus}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {visit.diaLabel} · Orden {visit.orden} · {visit.zona ?? 'Sin zona'}
+                    </p>
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {visit.diaLabel} · Orden {visit.orden} · {visit.zona ?? 'Sin zona'}
-                  </p>
-                </div>
-              ))
+                ))
             )}
           </div>
         </div>
@@ -5262,13 +6171,19 @@ function RouteChangeImpactCard({
           <div className="mt-4 space-y-3">
             {route.changeRequestProposedVisits.length === 0 ? (
               <p className="text-sm text-slate-500">
-                El supervisor propone dejar este dia sin tiendas. Se interpretara como cancelacion total del dia.
+                El supervisor propone dejar este dia sin tiendas. Se interpretara como cancelacion
+                total del dia.
               </p>
             ) : (
               route.changeRequestProposedVisits.map((item) => (
-                <div key={`${item.order}-${item.pdvId}`} className="rounded-[18px] border border-slate-200 bg-white px-4 py-3">
+                <div
+                  key={`${item.order}-${item.pdvId}`}
+                  className="rounded-[18px] border border-slate-200 bg-white px-4 py-3"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-950">{item.pdv ?? 'PDV sin nombre'}</p>
+                    <p className="text-sm font-semibold text-slate-950">
+                      {item.pdv ?? 'PDV sin nombre'}
+                    </p>
                     <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">
                       #{item.order}
                     </span>
@@ -5280,10 +6195,15 @@ function RouteChangeImpactCard({
           </div>
           {suggestedReplacements.length > 0 ? (
             <div className="mt-5">
-              <p className="text-sm font-semibold text-slate-950">PDVs sugeridos para cubrir quota</p>
+              <p className="text-sm font-semibold text-slate-950">
+                PDVs sugeridos para cubrir quota
+              </p>
               <div className="mt-3 space-y-3">
                 {suggestedReplacements.map((item) => (
-                  <div key={item.pdvId} className="rounded-[18px] border border-slate-200 bg-white px-4 py-3">
+                  <div
+                    key={item.pdvId}
+                    className="rounded-[18px] border border-slate-200 bg-white px-4 py-3"
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-semibold text-slate-950">{item.nombre}</p>
                       <span
@@ -5298,9 +6218,12 @@ function RouteChangeImpactCard({
                         {item.prioridad}
                       </span>
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">{item.zona ?? item.formato ?? 'Sin zona'}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {item.zona ?? item.formato ?? 'Sin zona'}
+                    </p>
                     <p className="mt-2 text-xs text-slate-600">
-                      Quota {item.quotaMensual} · Realizadas {item.visitasRealizadas} · Pendientes {item.visitasPendientes}
+                      Quota {item.quotaMensual} · Realizadas {item.visitasRealizadas} · Pendientes{' '}
+                      {item.visitasPendientes}
                     </p>
                   </div>
                 ))}
@@ -5310,24 +6233,22 @@ function RouteChangeImpactCard({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-function VisitCard({
-  item,
-  canEdit,
-}: {
-  item: RutaSemanalVisitItem
-  canEdit: boolean
-}) {
+function VisitCard({ item, canEdit }: { item: RutaSemanalVisitItem; canEdit: boolean }) {
   return (
     <div className="rounded-[22px] border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-slate-950">{item.pdv ?? 'PDV sin nombre'}</p>
-          <p className="mt-1 text-xs text-slate-500">{item.zona ?? 'Sin zona'} · Orden {item.orden}</p>
+          <p className="mt-1 text-xs text-slate-500">
+            {item.zona ?? 'Sin zona'} · Orden {item.orden}
+          </p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getVisitTone(item.estatus)}`}>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-semibold ${getVisitTone(item.estatus)}`}
+        >
           {item.estatus}
         </span>
       </div>
@@ -5339,10 +6260,18 @@ function VisitCard({
       </div>
 
       <div className="mt-3 grid gap-2 text-xs text-slate-500 lg:grid-cols-2">
-        <span className="rounded-full bg-slate-100 px-3 py-1">Entrada {formatDateTime(item.checkInAt)}</span>
-        <span className="rounded-full bg-slate-100 px-3 py-1">Salida {formatDateTime(item.checkOutAt)}</span>
-        <span className="rounded-full bg-slate-100 px-3 py-1">GPS entrada {item.checkInGpsState ?? 'Pendiente'}</span>
-        <span className="rounded-full bg-slate-100 px-3 py-1">GPS salida {item.checkOutGpsState ?? 'Pendiente'}</span>
+        <span className="rounded-full bg-slate-100 px-3 py-1">
+          Entrada {formatDateTime(item.checkInAt)}
+        </span>
+        <span className="rounded-full bg-slate-100 px-3 py-1">
+          Salida {formatDateTime(item.checkOutAt)}
+        </span>
+        <span className="rounded-full bg-slate-100 px-3 py-1">
+          GPS entrada {item.checkInGpsState ?? 'Pendiente'}
+        </span>
+        <span className="rounded-full bg-slate-100 px-3 py-1">
+          GPS salida {item.checkOutGpsState ?? 'Pendiente'}
+        </span>
       </div>
 
       {canEdit && item.estatus !== 'COMPLETADA' && (
@@ -5352,18 +6281,20 @@ function VisitCard({
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function VisitCheckInCard({ item }: { item: RutaSemanalVisitItem }) {
-  const [state, formAction] = useActionState(registrarInicioVisitaRutaSemanal, ESTADO_RUTA_INICIAL)
+  const [state, formAction] = useActionState(registrarInicioVisitaRutaSemanal, ESTADO_RUTA_INICIAL);
 
   return (
     <form action={formAction} className="rounded-[22px] border border-slate-200 bg-slate-50 p-4">
       <input type="hidden" name="visita_id" value={item.id} />
       <div className="flex items-center justify-between gap-3">
         <h4 className="text-sm font-semibold text-slate-950">Llegue a tienda</h4>
-        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${item.checkInAt ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-semibold ${item.checkInAt ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}
+        >
           {item.checkInAt ? 'Registrado' : 'Pendiente'}
         </span>
       </div>
@@ -5387,7 +6318,11 @@ function VisitCheckInCard({ item }: { item: RutaSemanalVisitItem }) {
             ]}
           />
         </div>
-        <Input name="comments" placeholder="Comentario de llegada" defaultValue={item.comentarios ?? ''} />
+        <Input
+          name="comments"
+          placeholder="Comentario de llegada"
+          defaultValue={item.comentarios ?? ''}
+        />
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -5396,23 +6331,27 @@ function VisitCheckInCard({ item }: { item: RutaSemanalVisitItem }) {
           pendingLabel="Guardando..."
         />
         {state.message && (
-          <span className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</span>
+          <span className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+            {state.message}
+          </span>
         )}
       </div>
     </form>
-  )
+  );
 }
 
 function VisitCheckOutCard({ item }: { item: RutaSemanalVisitItem }) {
-  const [state, formAction] = useActionState(registrarSalidaVisitaRutaSemanal, ESTADO_RUTA_INICIAL)
-  const disabled = !item.checkInAt
+  const [state, formAction] = useActionState(registrarSalidaVisitaRutaSemanal, ESTADO_RUTA_INICIAL);
+  const disabled = !item.checkInAt;
 
   return (
     <form action={formAction} className="rounded-[22px] border border-slate-200 bg-slate-50 p-4">
       <input type="hidden" name="visita_id" value={item.id} />
       <div className="flex items-center justify-between gap-3">
         <h4 className="text-sm font-semibold text-slate-950">Cierre de visita</h4>
-        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${item.checkOutAt ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-semibold ${item.checkOutAt ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}
+        >
           {item.checkOutAt ? 'Cerrada' : 'Abierta'}
         </span>
       </div>
@@ -5424,14 +6363,42 @@ function VisitCheckOutCard({ item }: { item: RutaSemanalVisitItem }) {
       )}
 
       <div className="mt-4 grid gap-3">
-        <Input name="selfie_file" type="file" accept="image/*,application/pdf" disabled={disabled} />
-        <Input name="evidencia_file" type="file" accept="image/*,application/pdf" disabled={disabled} />
+        <Input
+          name="selfie_file"
+          type="file"
+          accept="image/*,application/pdf"
+          disabled={disabled}
+        />
+        <Input
+          name="evidencia_file"
+          type="file"
+          accept="image/*,application/pdf"
+          disabled={disabled}
+        />
         <div className="grid gap-3 sm:grid-cols-2">
-          <Input name="latitud" type="number" step="0.000001" placeholder="Latitud" disabled={disabled} />
-          <Input name="longitud" type="number" step="0.000001" placeholder="Longitud" disabled={disabled} />
+          <Input
+            name="latitud"
+            type="number"
+            step="0.000001"
+            placeholder="Latitud"
+            disabled={disabled}
+          />
+          <Input
+            name="longitud"
+            type="number"
+            step="0.000001"
+            placeholder="Longitud"
+            disabled={disabled}
+          />
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Input name="distancia_metros" type="number" step="0.1" placeholder="Distancia metros" disabled={disabled} />
+          <Input
+            name="distancia_metros"
+            type="number"
+            step="0.1"
+            placeholder="Distancia metros"
+            disabled={disabled}
+          />
           <Select
             name="estado_gps"
             defaultValue={item.checkOutGpsState ?? 'PENDIENTE'}
@@ -5444,7 +6411,12 @@ function VisitCheckOutCard({ item }: { item: RutaSemanalVisitItem }) {
             ]}
           />
         </div>
-        <Input name="comments" placeholder="Comentario de salida" defaultValue={item.comentarios ?? ''} disabled={disabled} />
+        <Input
+          name="comments"
+          placeholder="Comentario de salida"
+          defaultValue={item.comentarios ?? ''}
+          disabled={disabled}
+        />
       </div>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -5471,11 +6443,13 @@ function VisitCheckOutCard({ item }: { item: RutaSemanalVisitItem }) {
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <SubmitActionButton label="Cerrar visita" pendingLabel="Cerrando..." disabled={disabled} />
         {state.message && (
-          <span className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</span>
+          <span className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
+            {state.message}
+          </span>
         )}
       </div>
     </form>
-  )
+  );
 }
 
 function ChecklistToggle({
@@ -5484,28 +6458,38 @@ function ChecklistToggle({
   defaultChecked,
   disabled,
 }: {
-  name: string
-  label: string
-  defaultChecked: boolean
-  disabled?: boolean
+  name: string;
+  label: string;
+  defaultChecked: boolean;
+  disabled?: boolean;
 }) {
   return (
     <label
       className={`flex items-center gap-3 rounded-[18px] border px-4 py-3 text-sm ${
-        disabled ? 'border-slate-200 bg-slate-100 text-slate-400' : 'border-slate-200 bg-white text-slate-700'
+        disabled
+          ? 'border-slate-200 bg-slate-100 text-slate-400'
+          : 'border-slate-200 bg-white text-slate-700'
       }`}
     >
-      <input type="checkbox" name={name} value="true" defaultChecked={defaultChecked} disabled={disabled} />
+      <input
+        type="checkbox"
+        name={name}
+        value="true"
+        defaultChecked={defaultChecked}
+        disabled={disabled}
+      />
       <span>{label}</span>
     </label>
-  )
+  );
 }
 
 function RouteMap({ visits }: { visits: RutaSemanalVisitItem[] }) {
-  const points = visits.filter((visit) => visit.latitud !== null && visit.longitud !== null)
+  const points = visits.filter((visit) => visit.latitud !== null && visit.longitud !== null);
 
   if (points.length === 0) {
-    return <EmptyState copy="Faltan coordenadas para dibujar la secuencia geografica de esta ruta." />
+    return (
+      <EmptyState copy="Faltan coordenadas para dibujar la secuencia geografica de esta ruta." />
+    );
   }
 
   const mapPoints: MexicoMapPoint[] = points.map((visit, index) => ({
@@ -5516,19 +6500,18 @@ function RouteMap({ visits }: { visits: RutaSemanalVisitItem[] }) {
     subtitle: `${visit.diaLabel} · ${visit.zona ?? 'Sin zona'}`,
     detail: visit.direccion ?? visit.pdvClaveBtl ?? null,
     tone:
-      visit.estatus === 'COMPLETADA'
-        ? 'emerald'
-        : visit.estatus === 'CANCELADA'
-          ? 'rose'
-          : 'sky',
-  }))
+      visit.estatus === 'COMPLETADA' ? 'emerald' : visit.estatus === 'CANCELADA' ? 'rose' : 'sky',
+  }));
 
   return (
     <div className="space-y-3 rounded-[24px] border border-slate-200 bg-[radial-gradient(circle_at_top,#ecfeff,white_65%)] p-4">
       <MexicoMap points={mapPoints} showPath heightClassName="h-[320px]" minZoom={4} maxZoom={12} />
       <div className="grid gap-2 text-xs text-slate-500 sm:grid-cols-2 xl:grid-cols-3">
         {points.map((visit, index) => (
-          <div key={visit.id} className="rounded-[16px] border border-slate-200 bg-white px-3 py-2.5">
+          <div
+            key={visit.id}
+            className="rounded-[16px] border border-slate-200 bg-white px-3 py-2.5"
+          >
             <p className="font-semibold text-slate-900">
               {index + 1}. {visit.pdv ?? 'PDV'}
             </p>
@@ -5539,5 +6522,5 @@ function RouteMap({ visits }: { visits: RutaSemanalVisitItem[] }) {
         ))}
       </div>
     </div>
-  )
+  );
 }
