@@ -503,6 +503,111 @@ export async function generarExcelRutasAprobadas(
     });
   });
 
+  // -------------------------------------------------------------
+  // HOJA 3: FRECUENCIA POR PDV
+  // -------------------------------------------------------------
+  const freqSheet = workbook.addWorksheet('Frecuencia por PDV');
+  freqSheet.views = [{ state: 'frozen', ySplit: 1, showGridLines: true }];
+
+  freqSheet.columns = [
+    { header: 'CLAVE PDV', key: 'clavePdv', width: 16 },
+    { header: 'CADENA', key: 'cadena', width: 22 },
+    { header: 'NOMBRE PDV', key: 'nombrePdv', width: 34 },
+    { header: 'SUPERVISOR', key: 'supervisorNombre', width: 30 },
+    { header: 'CORREO SUPERVISOR', key: 'supervisorCorreo', width: 32 },
+    { header: 'TELÉFONO SUPERVISOR', key: 'supervisorTelefono', width: 20 },
+    { header: 'MES', key: 'mes', width: 16 },
+    { header: 'FRECUENCIA DE VISITA', key: 'frecuencia', width: 30 },
+  ];
+
+  const freqHeaderRow = freqSheet.getRow(1);
+  freqHeaderRow.height = 28;
+  freqHeaderRow.font = { name: 'Aptos', size: 10, bold: true, color: { argb: 'FFFFFF' } };
+  freqHeaderRow.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FF2F3E4E' },
+  };
+  freqHeaderRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+  const MESES: Record<string, string> = {
+    '01': 'ENERO', '02': 'FEBRERO', '03': 'MARZO', '04': 'ABRIL', '05': 'MAYO', '06': 'JUNIO',
+    '07': 'JULIO', '08': 'AGOSTO', '09': 'SEPTIEMBRE', '10': 'OCTUBRE', '11': 'NOVIEMBRE', '12': 'DICIEMBRE'
+  };
+
+  const pdvFreqMap = new Map<string, {
+    clavePdv: string;
+    cadena: string;
+    nombrePdv: string;
+    supervisorNombre: string;
+    supervisorCorreo: string;
+    supervisorTelefono: string;
+    mes: string;
+    diasVisita: number[];
+  }>();
+
+  visitas.forEach((v) => {
+    const parts = v.fechaVisita.split('/');
+    if (parts.length !== 3) return;
+    const [day, month] = parts;
+
+    const mesNombre = MESES[month as keyof typeof MESES] || month;
+    const key = `${v.clavePdv}_${v.supervisorCorreo}_${mesNombre}`;
+
+    if (!pdvFreqMap.has(key)) {
+      pdvFreqMap.set(key, {
+        clavePdv: v.clavePdv,
+        cadena: v.cadena,
+        nombrePdv: v.nombrePdv,
+        supervisorNombre: v.supervisorNombre,
+        supervisorCorreo: v.supervisorCorreo,
+        supervisorTelefono: v.supervisorTelefono,
+        mes: mesNombre as string,
+        diasVisita: [],
+      });
+    }
+
+    const entry = pdvFreqMap.get(key)!;
+    const diaNum = parseInt(day as string, 10);
+    if (!entry.diasVisita.includes(diaNum)) {
+      entry.diasVisita.push(diaNum);
+    }
+  });
+
+  const freqSorted = Array.from(pdvFreqMap.values()).sort((a, b) => a.clavePdv.localeCompare(b.clavePdv));
+
+  freqSorted.forEach((frecuenciaItem, index) => {
+    const row = freqSheet.addRow({
+      clavePdv: frecuenciaItem.clavePdv,
+      cadena: frecuenciaItem.cadena,
+      nombrePdv: frecuenciaItem.nombrePdv,
+      supervisorNombre: frecuenciaItem.supervisorNombre,
+      supervisorCorreo: frecuenciaItem.supervisorCorreo,
+      supervisorTelefono: frecuenciaItem.supervisorTelefono,
+      mes: frecuenciaItem.mes,
+      frecuencia: frecuenciaItem.diasVisita.sort((a, b) => a - b).join(','),
+    });
+
+    row.height = 22;
+    row.font = { name: 'Aptos', size: 10, color: { argb: 'FF132238' } };
+
+    if (index % 2 === 1) {
+      row.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF8FBFD' },
+      };
+    }
+
+    row.eachCell((cell, colNumber) => {
+      cell.border = borderThin;
+      cell.alignment = {
+        vertical: 'middle',
+        horizontal: colNumber === 7 || colNumber === 8 ? 'center' : 'left',
+      };
+    });
+  });
+
   const fechaHoy = new Date().toISOString().slice(0, 10);
   const filename = `Reporte_Rutas_Semanales_${fechaHoy}.xlsx`;
   const bufferArray = await workbook.xlsx.writeBuffer();
