@@ -82,10 +82,15 @@ export async function obtenerVisitasAprobadasParaExportar(
     if (options.semanaInicio.length === 7) {
       const [yearStr, monthStr] = options.semanaInicio.split('-');
       const lastDay = new Date(parseInt(yearStr), parseInt(monthStr), 0).getDate();
-      const startDate = `${options.semanaInicio}-01`;
+      
+      const firstDayDate = new Date(parseInt(yearStr), parseInt(monthStr) - 1, 1);
+      const startFetchDate = new Date(firstDayDate);
+      startFetchDate.setDate(startFetchDate.getDate() - 6);
+      
+      const startFetchStr = startFetchDate.toISOString().slice(0, 10);
       const endDate = `${options.semanaInicio}-${lastDay}`;
       
-      query = query.gte('semana_inicio', startDate).lte('semana_inicio', endDate);
+      query = query.gte('semana_inicio', startFetchStr).lte('semana_inicio', endDate);
     } else {
       query = query.eq('semana_inicio', options.semanaInicio);
     }
@@ -185,6 +190,14 @@ export async function obtenerVisitasAprobadasParaExportar(
     const semanaInicio = String(ruta.semana_inicio);
     const diaSemana = Number(visitaItem.dia_semana) || 1;
     const fechaVisitaRaw = calcularFechaVisita(semanaInicio, diaSemana);
+    
+    // Si estamos exportando un mes completo, ignorar las visitas que no caigan en ese mes
+    if (options.semanaInicio && options.semanaInicio.length === 7) {
+      if (!fechaVisitaRaw.startsWith(options.semanaInicio)) {
+        continue;
+      }
+    }
+
     const fechaVisita = formatearFechaLegible(fechaVisitaRaw);
     const diaSemanaLabel = DIA_SEMANA_NOMBRES[diaSemana] || `Día ${diaSemana}`;
 
