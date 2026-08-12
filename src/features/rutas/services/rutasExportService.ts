@@ -221,7 +221,8 @@ export async function obtenerVisitasAprobadasParaExportar(
 }
 
 export async function generarExcelRutasAprobadas(
-  visitas: RutaVisitaExportRow[]
+  visitas: RutaVisitaExportRow[],
+  options?: { semanaInicio?: string | null }
 ): Promise<{ buffer: Uint8Array; filename: string }> {
   const ExcelJS = await import('exceljs');
   const workbook = new ExcelJS.Workbook();
@@ -504,36 +505,109 @@ export async function generarExcelRutasAprobadas(
   });
 
   // -------------------------------------------------------------
-  // HOJA 3: FRECUENCIA POR PDV
+  // HOJA 3: FRECUENCIA POR PDV (CALENDARIO)
   // -------------------------------------------------------------
   const freqSheet = workbook.addWorksheet('Frecuencia por PDV');
-  freqSheet.views = [{ state: 'frozen', ySplit: 1, showGridLines: true }];
-
-  freqSheet.columns = [
-    { header: 'CLAVE PDV', key: 'clavePdv', width: 16 },
-    { header: 'CADENA', key: 'cadena', width: 22 },
-    { header: 'NOMBRE PDV', key: 'nombrePdv', width: 34 },
-    { header: 'SUPERVISOR', key: 'supervisorNombre', width: 30 },
-    { header: 'CORREO SUPERVISOR', key: 'supervisorCorreo', width: 32 },
-    { header: 'TELÉFONO SUPERVISOR', key: 'supervisorTelefono', width: 20 },
-    { header: 'MES', key: 'mes', width: 16 },
-    { header: 'FRECUENCIA DE VISITA', key: 'frecuencia', width: 30 },
-  ];
-
-  const freqHeaderRow = freqSheet.getRow(1);
-  freqHeaderRow.height = 28;
-  freqHeaderRow.font = { name: 'Aptos', size: 10, bold: true, color: { argb: 'FFFFFF' } };
-  freqHeaderRow.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FF2F3E4E' },
-  };
-  freqHeaderRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  freqSheet.views = [{ state: 'frozen', ySplit: 3, xSplit: 8, showGridLines: true }];
 
   const MESES: Record<string, string> = {
     '01': 'ENERO', '02': 'FEBRERO', '03': 'MARZO', '04': 'ABRIL', '05': 'MAYO', '06': 'JUNIO',
     '07': 'JULIO', '08': 'AGOSTO', '09': 'SEPTIEMBRE', '10': 'OCTUBRE', '11': 'NOVIEMBRE', '12': 'DICIEMBRE'
   };
+
+  let targetYear = new Date().getFullYear();
+  let targetMonth = new Date().getMonth() + 1;
+
+  if (options?.semanaInicio && options.semanaInicio.length >= 7) {
+    const [y, m] = options.semanaInicio.split('-');
+    targetYear = parseInt(y, 10);
+    targetMonth = parseInt(m, 10);
+  } else if (visitas.length > 0) {
+    const parts = visitas[0].fechaVisita.split('/');
+    if (parts.length === 3) {
+      targetYear = parseInt(parts[2], 10);
+      targetMonth = parseInt(parts[1], 10);
+    }
+  }
+
+  const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
+  const monthKey = targetMonth.toString().padStart(2, '0');
+  const monthName = MESES[monthKey] || 'MES';
+
+  const freqColumns: any[] = [
+    { key: 'clavePdv', width: 16 },
+    { key: 'cadena', width: 22 },
+    { key: 'idPdv', width: 16 },
+    { key: 'nombrePdv', width: 34 },
+    { key: 'supervisorNombre', width: 30 },
+    { key: 'supervisorCorreo', width: 32 },
+    { key: 'supervisorTelefono', width: 20 },
+    { key: 'mes', width: 16 },
+  ];
+
+  for (let i = 1; i <= daysInMonth; i++) {
+    freqColumns.push({ key: `d${i}`, width: 4 });
+  }
+  freqColumns.push({ key: 'diasTotal', width: 10 });
+  freqSheet.columns = freqColumns;
+
+  const freqHeaderRow1 = freqSheet.getRow(1);
+  const freqHeaderRow2 = freqSheet.getRow(2);
+  const freqHeaderRow3 = freqSheet.getRow(3);
+  
+  const fixedHeaders = ['CLAVE BTL', 'CADENA', 'ID PDV', 'SUCURSAL', 'SUPERVISOR', 'CORREO SUPERVISOR', 'TELÉFONO SUPERVISOR', 'MES'];
+  fixedHeaders.forEach((val, idx) => {
+    freqSheet.mergeCells(1, idx + 1, 3, idx + 1);
+    const cell = freqSheet.getCell(1, idx + 1);
+    cell.value = val;
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F3E4E' } };
+    cell.font = { name: 'Aptos', size: 9, bold: true, color: { argb: 'FFFFFF' } };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.border = borderThin;
+  });
+
+  const colStart = 9;
+  const colEnd = 9 + daysInMonth - 1;
+  freqSheet.mergeCells(1, colStart, 1, colEnd);
+  const monthCell = freqSheet.getCell(1, colStart);
+  monthCell.value = monthName;
+  monthCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF60A5FA' } }; // Azul claro
+  monthCell.font = { name: 'Aptos', size: 12, bold: true, color: { argb: 'FF000000' } };
+  monthCell.alignment = { vertical: 'middle', horizontal: 'center' };
+  monthCell.border = borderThin;
+
+  freqSheet.mergeCells(1, colEnd + 1, 3, colEnd + 1);
+  const diasCell = freqSheet.getCell(1, colEnd + 1);
+  diasCell.value = '# DÍAS';
+  diasCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF701A75' } }; // Morado oscuro
+  diasCell.font = { name: 'Aptos', size: 9, bold: true, color: { argb: 'FFFFFF' } };
+  diasCell.alignment = { vertical: 'middle', horizontal: 'center', textRotation: 90 };
+  diasCell.border = borderThin;
+
+  const diasSemana = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
+  for (let i = 1; i <= daysInMonth; i++) {
+    const colIdx = colStart + i - 1;
+    const date = new Date(targetYear, targetMonth - 1, i);
+    const dayOfWeek = diasSemana[date.getDay()];
+    
+    const cellRow2 = freqSheet.getCell(2, colIdx);
+    cellRow2.value = dayOfWeek;
+    cellRow2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
+    cellRow2.font = { name: 'Aptos', size: 8, bold: true, color: { argb: 'FFFFFF' } };
+    cellRow2.alignment = { vertical: 'middle', horizontal: 'center' };
+    cellRow2.border = borderThin;
+
+    const cellRow3 = freqSheet.getCell(3, colIdx);
+    cellRow3.value = i;
+    cellRow3.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } };
+    cellRow3.font = { name: 'Aptos', size: 8, bold: true, color: { argb: 'FFFFFF' } };
+    cellRow3.alignment = { vertical: 'middle', horizontal: 'center' };
+    cellRow3.border = borderThin;
+  }
+
+  freqHeaderRow1.height = 24;
+  freqHeaderRow2.height = 18;
+  freqHeaderRow3.height = 18;
 
   const pdvFreqMap = new Map<string, {
     clavePdv: string;
@@ -542,17 +616,20 @@ export async function generarExcelRutasAprobadas(
     supervisorNombre: string;
     supervisorCorreo: string;
     supervisorTelefono: string;
-    mes: string;
     diasVisita: number[];
   }>();
 
   visitas.forEach((v) => {
     const parts = v.fechaVisita.split('/');
     if (parts.length !== 3) return;
-    const [day, month] = parts;
+    const [day, month, year] = parts;
+    
+    // Ignorar si la visita no es del mes que estamos graficando
+    if (parseInt(month, 10) !== targetMonth || parseInt(year, 10) !== targetYear) {
+      return; 
+    }
 
-    const mesNombre = MESES[month as keyof typeof MESES] || month;
-    const key = `${v.clavePdv}_${v.supervisorCorreo}_${mesNombre}`;
+    const key = `${v.clavePdv}_${v.supervisorCorreo}`;
 
     if (!pdvFreqMap.has(key)) {
       pdvFreqMap.set(key, {
@@ -562,13 +639,12 @@ export async function generarExcelRutasAprobadas(
         supervisorNombre: v.supervisorNombre,
         supervisorCorreo: v.supervisorCorreo,
         supervisorTelefono: v.supervisorTelefono,
-        mes: mesNombre as string,
         diasVisita: [],
       });
     }
 
     const entry = pdvFreqMap.get(key)!;
-    const diaNum = parseInt(day as string, 10);
+    const diaNum = parseInt(day, 10);
     if (!entry.diasVisita.includes(diaNum)) {
       entry.diasVisita.push(diaNum);
     }
@@ -576,35 +652,42 @@ export async function generarExcelRutasAprobadas(
 
   const freqSorted = Array.from(pdvFreqMap.values()).sort((a, b) => a.clavePdv.localeCompare(b.clavePdv));
 
-  freqSorted.forEach((frecuenciaItem, index) => {
-    const row = freqSheet.addRow({
+  freqSorted.forEach((frecuenciaItem) => {
+    const rowData: any = {
       clavePdv: frecuenciaItem.clavePdv,
       cadena: frecuenciaItem.cadena,
+      idPdv: frecuenciaItem.clavePdv,
       nombrePdv: frecuenciaItem.nombrePdv,
       supervisorNombre: frecuenciaItem.supervisorNombre,
       supervisorCorreo: frecuenciaItem.supervisorCorreo,
       supervisorTelefono: frecuenciaItem.supervisorTelefono,
-      mes: frecuenciaItem.mes,
-      frecuencia: frecuenciaItem.diasVisita.sort((a, b) => a - b).join(','),
-    });
+      mes: monthName,
+      diasTotal: frecuenciaItem.diasVisita.length,
+    };
 
-    row.height = 22;
-    row.font = { name: 'Aptos', size: 10, color: { argb: 'FF132238' } };
+    for (let i = 1; i <= daysInMonth; i++) {
+      rowData[`d${i}`] = frecuenciaItem.diasVisita.includes(i) ? 'V' : '';
+    }
 
-    if (index % 2 === 1) {
-      row.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFF8FBFD' },
-      };
+    const row = freqSheet.addRow(rowData);
+    row.height = 18;
+    row.font = { name: 'Aptos', size: 9, color: { argb: 'FF132238' } };
+
+    for (let i = 1; i <= daysInMonth; i++) {
+      const cell = row.getCell(colStart + i - 1);
+      if (frecuenciaItem.diasVisita.includes(i)) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF86EFAC' } };
+        cell.font = { name: 'Aptos', size: 9, bold: true, color: { argb: 'FF166534' } };
+      }
     }
 
     row.eachCell((cell, colNumber) => {
       cell.border = borderThin;
-      cell.alignment = {
-        vertical: 'middle',
-        horizontal: colNumber === 7 || colNumber === 8 ? 'center' : 'left',
-      };
+      if (colNumber < colStart) {
+        cell.alignment = { vertical: 'middle', horizontal: colNumber === 1 || colNumber === 3 || colNumber === 8 ? 'center' : 'left' };
+      } else {
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      }
     });
   });
 
