@@ -1,69 +1,92 @@
-'use server'
+'use server';
 
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { requerirPuestosActivos } from '@/lib/auth/session'
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { requerirPuestosActivos } from '@/lib/auth/session';
 import {
   buildOperationalDocumentUploadLimitMessage,
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES,
   exceedsOperationalDocumentUploadLimit,
-} from '@/lib/files/documentOptimization'
-import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
-import { createServiceClient } from '@/lib/supabase/server'
-import { publishUiChanges } from '@/lib/ui-change/server'
-import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
-import { computeSHA256 } from '@/lib/files/sha256'
-import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
-import { analyzeMaterialDistributionWithGemini } from './lib/materialDistributionGemini'
+} from '@/lib/files/documentOptimization';
+import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage';
+import { createServiceClient } from '@/lib/supabase/server';
+import { publishUiChanges } from '@/lib/ui-change/server';
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types';
+import { computeSHA256 } from '@/lib/files/sha256';
+import {
+  hasDirectR2Reference,
+  readDirectR2Reference,
+  registerDirectR2Evidence,
+} from '@/lib/storage/directR2Server';
+import { getSingleTenantAccountId } from '@/lib/tenant/singleTenant';
+import { analyzeMaterialDistributionWithGemini } from './lib/materialDistributionGemini';
 import {
   parseMaterialDistributionWorkbook,
   type MaterialDistributionPreview,
   type MaterialImportWarning,
-  type MaterialRuleFlags,
   type MaterialRulePreview,
-} from './lib/materialDistributionImport'
-import type { MaterialActionState, MaterialImportActionState } from './state'
-import type { CuentaCliente, Pdv, Puesto, SupervisorPdv } from '@/types/database'
+} from './lib/materialDistributionImport';
+import type { MaterialActionState, MaterialImportActionState } from './state';
+import type { CuentaCliente, Pdv, Puesto, SupervisorPdv } from '@/types/database';
+import XLSX from 'xlsx';
 
-const MATERIALES_BUCKET = 'operacion-evidencias'
-const MATERIALES_IMPORTS_BUCKET = 'materiales-dispersion'
-const MATERIALES_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+const MATERIALES_BUCKET = 'operacion-evidencias';
+const MATERIALES_IMPORTS_BUCKET = 'materiales-dispersion';
+const MATERIALES_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 const MATERIAL_IMPORT_ALLOWED_MIME_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/octet-stream',
-]
+];
 
-const MATERIALES_ADMIN_ROLES = ['ADMINISTRADOR', 'LOGISTICA', 'COORDINADOR'] as const satisfies Puesto[]
-const MATERIALES_DELIVERY_ROLES = ['ADMINISTRADOR', 'LOGISTICA', 'COORDINADOR', 'DERMOCONSEJERO'] as const satisfies Puesto[]
-const MATERIALES_FIELD_ROLES = ['ADMINISTRADOR', 'LOGISTICA', 'COORDINADOR', 'SUPERVISOR', 'DERMOCONSEJERO'] as const satisfies Puesto[]
+const MATERIALES_ADMIN_ROLES = [
+  'ADMINISTRADOR',
+  'LOGISTICA',
+  'COORDINADOR',
+] as const satisfies Puesto[];
+const MATERIALES_DELIVERY_ROLES = [
+  'ADMINISTRADOR',
+  'LOGISTICA',
+  'COORDINADOR',
+  'DERMOCONSEJERO',
+] as const satisfies Puesto[];
+const MATERIALES_FIELD_ROLES = [
+  'ADMINISTRADOR',
+  'LOGISTICA',
+  'COORDINADOR',
+  'SUPERVISOR',
+  'DERMOCONSEJERO',
+] as const satisfies Puesto[];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TypedSupabaseClient = SupabaseClient<any>
+type TypedSupabaseClient = SupabaseClient<any>;
 
-type PdvImportMatchRow = Pick<Pdv, 'id' | 'id_cadena' | 'clave_btl' | 'nombre' | 'zona'>
-type SupervisorPdvRow = Pick<SupervisorPdv, 'pdv_id' | 'empleado_id' | 'activo' | 'fecha_inicio' | 'fecha_fin'>
+type PdvImportMatchRow = Pick<Pdv, 'id' | 'id_cadena' | 'clave_btl' | 'nombre' | 'zona'>;
+type SupervisorPdvRow = Pick<
+  SupervisorPdv,
+  'pdv_id' | 'empleado_id' | 'activo' | 'fecha_inicio' | 'fecha_fin'
+>;
 
 interface MaterialCatalogLookupRow {
-  id: string
-  nombre: string
-  requiere_ticket_compra: boolean
-  requiere_evidencia_obligatoria: boolean
+  id: string;
+  nombre: string;
+  requiere_ticket_compra: boolean;
+  requiere_evidencia_obligatoria: boolean;
 }
 
 interface MaterialDetalleSaldoRow {
-  id: string
-  distribucion_id?: string
-  material_catalogo_id?: string
-  cantidad_recibida: number
-  cantidad_entregada: number
-  cantidad_observada?: number
-  requiere_ticket_mes?: boolean
-  requiere_evidencia_entrega_mes?: boolean
-  requiere_evidencia_mercadeo?: boolean
-  es_regalo_dc?: boolean
-  excluir_de_registrar_entrega?: boolean
-  material_nombre_snapshot?: string | null
-  material_tipo_mes?: string | null
-  material_catalogo?: MaterialCatalogLookupRow | MaterialCatalogLookupRow[] | null
+  id: string;
+  distribucion_id?: string;
+  material_catalogo_id?: string;
+  cantidad_recibida: number;
+  cantidad_entregada: number;
+  cantidad_observada?: number;
+  requiere_ticket_mes?: boolean;
+  requiere_evidencia_entrega_mes?: boolean;
+  requiere_evidencia_mercadeo?: boolean;
+  es_regalo_dc?: boolean;
+  excluir_de_registrar_entrega?: boolean;
+  material_nombre_snapshot?: string | null;
+  material_tipo_mes?: string | null;
+  material_catalogo?: MaterialCatalogLookupRow | MaterialCatalogLookupRow[] | null;
 }
 
 function buildState(partial: Partial<MaterialActionState>): MaterialActionState {
@@ -71,7 +94,7 @@ function buildState(partial: Partial<MaterialActionState>): MaterialActionState 
     ok: false,
     message: null,
     ...partial,
-  }
+  };
 }
 
 function buildImportState(partial: Partial<MaterialImportActionState>): MaterialImportActionState {
@@ -83,103 +106,107 @@ function buildImportState(partial: Partial<MaterialImportActionState>): Material
     geminiAnalysis: null,
     cuentaClienteId: null,
     ...partial,
-  }
+  };
 }
 
 function normalizeRequiredText(value: FormDataEntryValue | null, label: string) {
-  const normalized = String(value ?? '').trim()
+  const normalized = String(value ?? '').trim();
 
   if (!normalized) {
-    throw new Error(`${label} es obligatorio.`)
+    throw new Error(`${label} es obligatorio.`);
   }
 
-  return normalized
+  return normalized;
 }
 
 function normalizeOptionalText(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
-  return normalized || null
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
 }
 
 function normalizePositiveInteger(value: FormDataEntryValue | null, label: string) {
-  const parsed = Number(String(value ?? '').trim())
+  const parsed = Number(String(value ?? '').trim());
 
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${label} debe ser un entero positivo.`)
+    throw new Error(`${label} debe ser un entero positivo.`);
   }
 
-  return parsed
+  return parsed;
 }
 
 function normalizeZeroOrPositiveInteger(value: FormDataEntryValue | null, label: string) {
-  const parsed = Number(String(value ?? '').trim())
+  const parsed = Number(String(value ?? '').trim());
 
   if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`${label} debe ser un entero cero o mayor.`)
+    throw new Error(`${label} debe ser un entero cero o mayor.`);
   }
 
-  return parsed
+  return parsed;
 }
 
 function normalizeBoolean(value: FormDataEntryValue | null) {
-  return ['true', '1', 'on', 'si', 'yes'].includes(String(value ?? '').trim().toLowerCase())
+  return ['true', '1', 'on', 'si', 'yes'].includes(
+    String(value ?? '')
+      .trim()
+      .toLowerCase()
+  );
 }
 
 function normalizeMonthValue(value: string | null) {
   if (!value) {
-    return null
+    return null;
   }
 
-  const trimmed = value.trim()
+  const trimmed = value.trim();
   if (!trimmed) {
-    return null
+    return null;
   }
 
   if (/^\d{4}-\d{2}$/.test(trimmed)) {
-    return `${trimmed}-01`
+    return `${trimmed}-01`;
   }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return `${trimmed.slice(0, 7)}-01`
+    return `${trimmed.slice(0, 7)}-01`;
   }
 
-  return null
+  return null;
 }
 
 function normalizeIsoDateTimeValue(value: string | null) {
   if (!value) {
-    return null
+    return null;
   }
 
-  const trimmed = value.trim()
+  const trimmed = value.trim();
   if (!trimmed || Number.isNaN(Date.parse(trimmed))) {
-    return null
+    return null;
   }
 
-  return new Date(trimmed).toISOString()
+  return new Date(trimmed).toISOString();
 }
 
 function asUploadedFile(value: FormDataEntryValue | null) {
   if (!value || typeof value === 'string' || !(value instanceof File) || value.size === 0) {
-    return null
+    return null;
   }
 
-  return value
+  return value;
 }
 
 function asOptionalDataUrl(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
-  return normalized.startsWith('data:') ? normalized : null
+  const normalized = String(value ?? '').trim();
+  return normalized.startsWith('data:') ? normalized : null;
 }
 
 function fileFromDataUrl(dataUrl: string, fallbackName: string) {
-  const [header, payload] = dataUrl.split(',', 2)
-  const mimeMatch = header.match(/data:(.*?);base64/)
-  const mimeType = mimeMatch?.[1] ?? 'image/png'
-  const extension = mimeType.split('/')[1] ?? 'png'
-  const buffer = Buffer.from(payload ?? '', 'base64')
+  const [header, payload] = dataUrl.split(',', 2);
+  const mimeMatch = header.match(/data:(.*?);base64/);
+  const mimeType = mimeMatch?.[1] ?? 'image/png';
+  const extension = mimeType.split('/')[1] ?? 'png';
+  const buffer = Buffer.from(payload ?? '', 'base64');
 
-  return new File([buffer], `${fallbackName}.${extension}`, { type: mimeType })
+  return new File([buffer], `${fallbackName}.${extension}`, { type: mimeType });
 }
 
 async function ensureBucket(
@@ -192,10 +219,10 @@ async function ensureBucket(
     public: false,
     fileSizeLimit,
     allowedMimeTypes,
-  })
+  });
 
   if (error && !/already exists|duplicate/i.test(error.message)) {
-    throw error
+    throw error;
   }
 }
 
@@ -204,12 +231,12 @@ async function validarCuentaCliente(service: TypedSupabaseClient, cuentaClienteI
     .from('cuenta_cliente')
     .select('id, activa')
     .eq('id', cuentaClienteId)
-    .maybeSingle()
+    .maybeSingle();
 
-  const cuenta = cuentaRaw as CuentaCliente | null
+  const cuenta = cuentaRaw as CuentaCliente | null;
 
   if (error || !cuenta || !cuenta.activa) {
-    throw new Error('La cuenta cliente seleccionada no existe o no esta activa.')
+    throw new Error('La cuenta cliente seleccionada no existe o no esta activa.');
   }
 }
 
@@ -222,18 +249,18 @@ async function uploadMaterialEvidence(
     flowPrefix,
     file,
   }: {
-    actorUsuarioId: string
-    cuentaClienteId: string
-    empleadoId: string
-    flowPrefix: string
-    file: File
+    actorUsuarioId: string;
+    cuentaClienteId: string;
+    empleadoId: string;
+    flowPrefix: string;
+    file: File;
   }
 ) {
   if (exceedsOperationalDocumentUploadLimit(file)) {
-    throw new Error(buildOperationalDocumentUploadLimitMessage('evidencia', file))
+    throw new Error(buildOperationalDocumentUploadLimitMessage('evidencia', file));
   }
 
-  await ensureBucket(service, MATERIALES_BUCKET, MATERIALES_ALLOWED_MIME_TYPES)
+  await ensureBucket(service, MATERIALES_BUCKET, MATERIALES_ALLOWED_MIME_TYPES);
 
   const stored = await storeOptimizedEvidence({
     service,
@@ -241,14 +268,14 @@ async function uploadMaterialEvidence(
     actorUsuarioId,
     storagePrefix: `materiales/${flowPrefix}/${cuentaClienteId}/${empleadoId}`,
     file,
-  })
+  });
 
   return {
     url: stored.archivo.url,
     hash: stored.archivo.hash,
     thumbnailUrl: stored.miniatura?.url ?? null,
     thumbnailHash: stored.miniatura?.hash ?? null,
-  }
+  };
 }
 
 async function resolveMaterialEvidence(
@@ -261,12 +288,12 @@ async function resolveMaterialEvidence(
     file,
     directReference,
   }: {
-    actorUsuarioId: string
-    cuentaClienteId: string
-    empleadoId: string
-    flowPrefix: string
-    file: File | null
-    directReference: ReturnType<typeof readDirectR2Reference>
+    actorUsuarioId: string;
+    cuentaClienteId: string;
+    empleadoId: string;
+    flowPrefix: string;
+    file: File | null;
+    directReference: ReturnType<typeof readDirectR2Reference>;
   }
 ) {
   if (hasDirectR2Reference(directReference)) {
@@ -275,16 +302,16 @@ async function resolveMaterialEvidence(
       modulo: `materiales_${flowPrefix}`,
       referenciaEntidadId: empleadoId,
       reference: directReference,
-    })
+    });
 
     return {
       url: registered.url,
       hash: registered.hash,
-    }
+    };
   }
 
   if (!file) {
-    return null
+    return null;
   }
 
   return uploadMaterialEvidence(service, {
@@ -293,7 +320,7 @@ async function resolveMaterialEvidence(
     empleadoId,
     flowPrefix,
     file,
-  })
+  });
 }
 
 async function insertAuditLog(
@@ -305,11 +332,11 @@ async function insertAuditLog(
     usuarioId,
     cuentaClienteId,
   }: {
-    tabla: string
-    registroId: string
-    payload: Record<string, unknown>
-    usuarioId: string
-    cuentaClienteId: string | null
+    tabla: string;
+    registroId: string;
+    payload: Record<string, unknown>;
+    usuarioId: string;
+    cuentaClienteId: string | null;
   }
 ) {
   await service.from('audit_log').insert({
@@ -319,18 +346,18 @@ async function insertAuditLog(
     payload,
     usuario_id: usuarioId,
     cuenta_cliente_id: cuentaClienteId,
-  })
+  });
 }
 
 async function publishMaterialesPanelChange(
   service: TypedSupabaseClient,
   actor: { cuentaClienteId: string | null; empleadoId: string; usuarioId: string; puesto: Puesto },
   input: {
-    eventType: string
-    cuentaClienteId?: string | null
-    pdvId?: string | null
-    period?: string | null
-    metadata?: Record<string, unknown> | null
+    eventType: string;
+    cuentaClienteId?: string | null;
+    pdvId?: string | null;
+    period?: string | null;
+    metadata?: Record<string, unknown> | null;
   }
 ) {
   await publishUiChanges(
@@ -357,7 +384,7 @@ async function publishMaterialesPanelChange(
       },
     }),
     { service }
-  )
+  );
 }
 
 async function cancelPreviewLotsByActor(
@@ -375,10 +402,10 @@ async function cancelPreviewLotsByActor(
       },
     })
     .eq('created_by_usuario_id', usuarioId)
-    .eq('estado', 'BORRADOR_PREVIEW')
+    .eq('estado', 'BORRADOR_PREVIEW');
 
   if (error) {
-    throw new Error(error.message ?? 'No fue posible limpiar el preview anterior de materiales.')
+    throw new Error(error.message ?? 'No fue posible limpiar el preview anterior de materiales.');
   }
 }
 
@@ -388,23 +415,28 @@ async function uploadImportWorkbook(
     cuentaClienteId,
     file,
   }: {
-    cuentaClienteId: string
-    file: File
+    cuentaClienteId: string;
+    file: File;
   }
 ) {
-  await ensureBucket(service, MATERIALES_IMPORTS_BUCKET, MATERIAL_IMPORT_ALLOWED_MIME_TYPES, `${25 * 1024 * 1024}`)
+  await ensureBucket(
+    service,
+    MATERIALES_IMPORTS_BUCKET,
+    MATERIAL_IMPORT_ALLOWED_MIME_TYPES,
+    `${25 * 1024 * 1024}`
+  );
 
-  const buffer = Buffer.from(await file.arrayBuffer())
-  const hash = await computeSHA256(buffer)
-  const extension = file.name.toLowerCase().endsWith('.xlsx') ? 'xlsx' : 'bin'
-  const route = `materiales/imports/${cuentaClienteId}/${hash}.${extension}`
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const hash = await computeSHA256(buffer);
+  const extension = file.name.toLowerCase().endsWith('.xlsx') ? 'xlsx' : 'bin';
+  const route = `materiales/imports/${cuentaClienteId}/${hash}.${extension}`;
   const { error } = await service.storage.from(MATERIALES_IMPORTS_BUCKET).upload(route, buffer, {
     contentType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     upsert: false,
-  })
+  });
 
   if (error && !/already exists|duplicate/i.test(error.message)) {
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
 
   return {
@@ -413,15 +445,13 @@ async function uploadImportWorkbook(
     size: buffer.byteLength,
     url: `${MATERIALES_IMPORTS_BUCKET}/${route}`,
     mimeType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  }
-}
-
-function normalizeIdCadena(value: string | null) {
-  return String(value ?? '').trim().toLowerCase()
+  };
 }
 
 function normalizeClaveBtl(value: string | null) {
-  return String(value ?? '').trim().toLowerCase()
+  return String(value ?? '')
+    .trim()
+    .toLowerCase();
 }
 
 function mergeGeminiSuggestions(
@@ -429,16 +459,16 @@ function mergeGeminiSuggestions(
   geminiAnalysis: Awaited<ReturnType<typeof analyzeMaterialDistributionWithGemini>>
 ) {
   if (geminiAnalysis.ruleSuggestions.length === 0) {
-    return preview
+    return preview;
   }
 
-  const byKey = new Map(geminiAnalysis.ruleSuggestions.map((item) => [item.materialKey, item]))
+  const byKey = new Map(geminiAnalysis.ruleSuggestions.map((item) => [item.materialKey, item]));
   return {
     ...preview,
     materialRules: preview.materialRules.map((rule) => {
-      const suggestion = byKey.get(rule.key)
+      const suggestion = byKey.get(rule.key);
       if (!suggestion) {
-        return rule
+        return rule;
       }
 
       return {
@@ -448,7 +478,8 @@ function mergeGeminiSuggestions(
         indicacionesProducto: suggestion.indicacionesProducto ?? rule.indicacionesProducto,
         instruccionesMercadeo: suggestion.instruccionesMercadeo ?? rule.instruccionesMercadeo,
         flags: {
-          excluirDeRegistrarEntrega: suggestion.excluirDeRegistrarEntrega ?? rule.flags.excluirDeRegistrarEntrega,
+          excluirDeRegistrarEntrega:
+            suggestion.excluirDeRegistrarEntrega ?? rule.flags.excluirDeRegistrarEntrega,
           requiereTicketMes: suggestion.requiereTicketMes ?? rule.flags.requiereTicketMes,
           requiereEvidenciaEntregaMes:
             suggestion.requiereEvidenciaEntregaMes ?? rule.flags.requiereEvidenciaEntregaMes,
@@ -456,31 +487,31 @@ function mergeGeminiSuggestions(
             suggestion.requiereEvidenciaMercadeo ?? rule.flags.requiereEvidenciaMercadeo,
           esRegaloDc: suggestion.esRegaloDc ?? rule.flags.esRegaloDc,
         },
-      }
+      };
     }),
-  } satisfies MaterialDistributionPreview
+  } satisfies MaterialDistributionPreview;
 }
 
 function applyPdvMatches(
   preview: MaterialDistributionPreview,
   pdvRows: PdvImportMatchRow[]
 ): MaterialDistributionPreview {
-  const duplicates = new Map<string, PdvImportMatchRow[]>()
+  const duplicates = new Map<string, PdvImportMatchRow[]>();
   for (const row of pdvRows) {
-    const key = normalizeClaveBtl(row.clave_btl)
+    const key = normalizeClaveBtl(row.clave_btl);
     if (!key) {
-      continue
+      continue;
     }
 
-    const current = duplicates.get(key) ?? []
-    current.push(row)
-    duplicates.set(key, current)
+    const current = duplicates.get(key) ?? [];
+    current.push(row);
+    duplicates.set(key, current);
   }
 
-  const warnings: MaterialImportWarning[] = [...preview.warnings]
+  const warnings: MaterialImportWarning[] = [...preview.warnings];
   const pdvPackages = preview.pdvPackages.map((item) => {
-    const key = normalizeClaveBtl(item.idBtl)
-    const matches = duplicates.get(key) ?? []
+    const key = normalizeClaveBtl(item.idBtl);
+    const matches = duplicates.get(key) ?? [];
 
     if (matches.length === 1) {
       return {
@@ -492,7 +523,7 @@ function applyPdvMatches(
           pdvNombre: matches[0].nombre,
           pdvClaveBtl: matches[0].clave_btl,
         },
-      }
+      };
     }
 
     warnings.push({
@@ -504,7 +535,7 @@ function applyPdvMatches(
           : `No se encontró un PDV activo para el ID BTL ${item.idBtl}.`,
       idBtl: item.idBtl,
       idPdvCadena: item.idPdvCadena,
-    })
+    });
 
     return {
       ...item,
@@ -514,20 +545,21 @@ function applyPdvMatches(
         pdvNombre: null,
         pdvClaveBtl: null,
       },
-    }
-  })
+    };
+  });
 
   const unmatchedRows = warnings.filter((warning) =>
     ['missing_id_btl', 'pdv_not_found', 'pdv_duplicated_in_system'].includes(warning.code)
-  )
+  );
 
   return {
     ...preview,
     pdvPackages,
     warnings,
     unmatchedRows,
-    canConfirm: unmatchedRows.length === 0 && !warnings.some((warning) => warning.severity === 'error'),
-  }
+    canConfirm:
+      unmatchedRows.length === 0 && !warnings.some((warning) => warning.severity === 'error'),
+  };
 }
 
 function buildSummaryForLot(preview: MaterialDistributionPreview) {
@@ -537,40 +569,13 @@ function buildSummaryForLot(preview: MaterialDistributionPreview) {
     warning_count: preview.warnings.length,
     unmatched_count: preview.unmatchedRows.length,
     can_confirm: preview.canConfirm,
-  }
+  };
 }
 
-function getEditedRules(preview: MaterialDistributionPreview, formData: FormData) {
-  const rulesByKey = new Map<string, MaterialRulePreview>()
-
-  for (const rule of preview.materialRules) {
-    const prefix = `rule__${rule.key}`
-    const selected = normalizeBoolean(formData.get(`${prefix}__selected`))
-    const flags: MaterialRuleFlags = {
-      excluirDeRegistrarEntrega: normalizeBoolean(formData.get(`${prefix}__excluir`)) || false,
-      requiereTicketMes: normalizeBoolean(formData.get(`${prefix}__ticket`)) || false,
-      requiereEvidenciaEntregaMes: normalizeBoolean(formData.get(`${prefix}__evidencia_entrega`)) || false,
-      requiereEvidenciaMercadeo: normalizeBoolean(formData.get(`${prefix}__evidencia_mercadeo`)) || false,
-      esRegaloDc: normalizeBoolean(formData.get(`${prefix}__regalo_dc`)) || false,
-    }
-
-    if (flags.esRegaloDc) {
-      flags.excluirDeRegistrarEntrega = true
-      flags.requiereEvidenciaEntregaMes = false
-    }
-
-    rulesByKey.set(rule.key, {
-      ...rule,
-      selected,
-      materialType: normalizeOptionalText(formData.get(`${prefix}__tipo`)) ?? rule.materialType,
-      mecanicaCanje: normalizeOptionalText(formData.get(`${prefix}__mecanica`)),
-      indicacionesProducto: normalizeOptionalText(formData.get(`${prefix}__indicaciones`)),
-      instruccionesMercadeo: normalizeOptionalText(formData.get(`${prefix}__mercadeo`)),
-      flags,
-    })
-  }
-
-  return rulesByKey
+function getConfirmedRules(preview: MaterialDistributionPreview) {
+  return new Map<string, MaterialRulePreview>(
+    preview.materialRules.map((rule) => [rule.key, { ...rule, selected: true }])
+  );
 }
 
 function areRulesEquivalent(left: MaterialRulePreview, right: MaterialRulePreview) {
@@ -585,11 +590,11 @@ function areRulesEquivalent(left: MaterialRulePreview, right: MaterialRulePrevie
     left.flags.requiereEvidenciaEntregaMes === right.flags.requiereEvidenciaEntregaMes &&
     left.flags.requiereEvidenciaMercadeo === right.flags.requiereEvidenciaMercadeo &&
     left.flags.esRegaloDc === right.flags.esRegaloDc
-  )
+  );
 }
 
 function sumInventoryBalance(rows: Array<{ cantidad_delta: number }>) {
-  return rows.reduce((total, row) => total + Number(row.cantidad_delta ?? 0), 0)
+  return rows.reduce((total, row) => total + Number(row.cantidad_delta ?? 0), 0);
 }
 
 export async function guardarMaterialCatalogo(
@@ -597,16 +602,21 @@ export async function guardarMaterialCatalogo(
   formData: FormData
 ): Promise<MaterialActionState> {
   try {
-    const actor = await requerirPuestosActivos([...MATERIALES_ADMIN_ROLES])
-    const service = createServiceClient() as TypedSupabaseClient
-    const cuentaClienteId = normalizeRequiredText(formData.get('cuenta_cliente_id'), 'Cuenta cliente')
-    const nombre = normalizeRequiredText(formData.get('nombre'), 'Nombre del material')
-    const tipo = normalizeRequiredText(formData.get('tipo'), 'Tipo')
-    const cantidadDefault = normalizePositiveInteger(formData.get('cantidad_default'), 'Cantidad por default')
-    const requiereTicketCompra = normalizeBoolean(formData.get('requiere_ticket_compra'))
-    const requiereEvidenciaObligatoria = normalizeBoolean(formData.get('requiere_evidencia_obligatoria'))
+    const actor = await requerirPuestosActivos([...MATERIALES_ADMIN_ROLES]);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const cuentaClienteId = getSingleTenantAccountId();
+    const nombre = normalizeRequiredText(formData.get('nombre'), 'Nombre del material');
+    const tipo = normalizeRequiredText(formData.get('tipo'), 'Tipo');
+    const cantidadDefault = normalizePositiveInteger(
+      formData.get('cantidad_default'),
+      'Cantidad por default'
+    );
+    const requiereTicketCompra = normalizeBoolean(formData.get('requiere_ticket_compra'));
+    const requiereEvidenciaObligatoria = normalizeBoolean(
+      formData.get('requiere_evidencia_obligatoria')
+    );
 
-    await validarCuentaCliente(service, cuentaClienteId)
+    await validarCuentaCliente(service, cuentaClienteId);
 
     const { data: upserted, error } = await service
       .from('material_catalogo')
@@ -628,10 +638,10 @@ export async function guardarMaterialCatalogo(
         { onConflict: 'cuenta_cliente_id,nombre' }
       )
       .select('id')
-      .maybeSingle()
+      .maybeSingle();
 
     if (error || !upserted?.id) {
-      throw new Error(error?.message ?? 'No fue posible guardar el material.')
+      throw new Error(error?.message ?? 'No fue posible guardar el material.');
     }
 
     await insertAuditLog(service, {
@@ -645,7 +655,7 @@ export async function guardarMaterialCatalogo(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId,
-    })
+    });
 
     await publishMaterialesPanelChange(service, actor, {
       eventType: 'material_catalogo_guardado',
@@ -654,12 +664,12 @@ export async function guardarMaterialCatalogo(
         material_nombre: nombre,
         material_tipo: tipo,
       },
-    })
-    return buildState({ ok: true, message: 'Catalogo promocional actualizado.' })
+    });
+    return buildState({ ok: true, message: 'Catalogo promocional actualizado.' });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible guardar el catalogo.',
-    })
+    });
   }
 }
 
@@ -668,47 +678,66 @@ export async function importarDistribucionMateriales(
   formData: FormData
 ): Promise<MaterialImportActionState> {
   try {
-    const actor = await requerirPuestosActivos([...MATERIALES_ADMIN_ROLES])
-    const service = createServiceClient() as TypedSupabaseClient
-    const cuentaClienteId = normalizeRequiredText(formData.get('cuenta_cliente_id'), 'Cuenta cliente')
-    const monthOverride = normalizeMonthValue(normalizeOptionalText(formData.get('mes_operacion_override')))
-    const uploadedFile = asUploadedFile(formData.get('archivo_excel'))
+    const actor = await requerirPuestosActivos([...MATERIALES_ADMIN_ROLES]);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const cuentaClienteId = getSingleTenantAccountId();
+    const monthOverride = normalizeMonthValue(
+      normalizeOptionalText(formData.get('mes_operacion_override'))
+    );
+    const tipoDispersion = normalizeOptionalText(formData.get('tipo_dispersion')) ?? 'MENSUAL';
+    if (
+      ![
+        'MENSUAL',
+        'ADICIONAL',
+        'EXCLUSIVA_CANJES',
+        'EXCLUSIVA_TESTERS',
+        'EXCLUSIVA_REGALOS',
+        'ENTREGA_RESGUARDO',
+      ].includes(tipoDispersion)
+    ) {
+      throw new Error('Tipo de dispersión no válido.');
+    }
+    const uploadedFile = asUploadedFile(formData.get('archivo_excel'));
 
     if (!uploadedFile) {
-      throw new Error('Adjunta un archivo XLSX con la dispersion del mes.')
+      throw new Error('Adjunta un archivo XLSX con la dispersion del mes.');
     }
 
     if (!uploadedFile.name.toLowerCase().endsWith('.xlsx')) {
-      throw new Error('La dispersion debe cargarse en formato XLSX.')
+      throw new Error('La dispersion debe cargarse en formato XLSX.');
     }
 
-    await validarCuentaCliente(service, cuentaClienteId)
-    await cancelPreviewLotsByActor(service, actor.usuarioId, 'nuevo_preview')
+    await validarCuentaCliente(service, cuentaClienteId);
+    await cancelPreviewLotsByActor(service, actor.usuarioId, 'nuevo_preview');
 
     const storedImport = await uploadImportWorkbook(service, {
       cuentaClienteId,
       file: uploadedFile,
-    })
+    });
 
     const parsed = parseMaterialDistributionWorkbook(storedImport.buffer, {
       fileName: uploadedFile.name,
       monthOverride,
-    })
+    });
 
     const pdvBtlValues = Array.from(
-      new Set(parsed.pdvPackages.map((item) => item.idBtl).filter((value): value is string => Boolean(value)))
-    )
+      new Set(
+        parsed.pdvPackages
+          .map((item) => item.idBtl)
+          .filter((value): value is string => Boolean(value))
+      )
+    );
     const pdvLookupValues = Array.from(
       new Set(
         pdvBtlValues.flatMap((value) => {
-          const trimmed = value.trim()
+          const trimmed = value.trim();
           if (!trimmed) {
-            return []
+            return [];
           }
-          return Array.from(new Set([trimmed, trimmed.toUpperCase(), trimmed.toLowerCase()]))
+          return Array.from(new Set([trimmed, trimmed.toUpperCase(), trimmed.toLowerCase()]));
         })
       )
-    )
+    );
 
     const { data: pdvRowsRaw, error: pdvError } = pdvLookupValues.length
       ? await service
@@ -717,15 +746,15 @@ export async function importarDistribucionMateriales(
           .eq('estatus', 'ACTIVO')
           .in('clave_btl', pdvLookupValues)
           .limit(Math.max(pdvLookupValues.length, 1))
-      : { data: [], error: null }
+      : { data: [], error: null };
 
     if (pdvError) {
-      throw new Error(pdvError.message ?? 'No fue posible validar los PDVs del archivo.')
+      throw new Error(pdvError.message ?? 'No fue posible validar los PDVs del archivo.');
     }
 
-    let preview = applyPdvMatches(parsed, (pdvRowsRaw ?? []) as PdvImportMatchRow[])
-    const geminiAnalysis = await analyzeMaterialDistributionWithGemini(preview)
-    preview = mergeGeminiSuggestions(preview, geminiAnalysis)
+    let preview = applyPdvMatches(parsed, (pdvRowsRaw ?? []) as PdvImportMatchRow[]);
+    const geminiAnalysis = await analyzeMaterialDistributionWithGemini(preview);
+    preview = mergeGeminiSuggestions(preview, geminiAnalysis);
 
     const { data: createdLot, error: lotError } = await service
       .from('material_distribucion_lote')
@@ -734,6 +763,7 @@ export async function importarDistribucionMateriales(
         mes_operacion: preview.resolvedMonth,
         estado: 'BORRADOR_PREVIEW',
         archivo_nombre: uploadedFile.name,
+        tipo_dispersion: tipoDispersion,
         archivo_url: storedImport.url,
         archivo_hash: storedImport.hash,
         archivo_mime_type: storedImport.mimeType,
@@ -764,10 +794,10 @@ export async function importarDistribucionMateriales(
         created_by_usuario_id: actor.usuarioId,
       })
       .select('id')
-      .maybeSingle()
+      .maybeSingle();
 
     if (lotError || !createdLot?.id) {
-      throw new Error(lotError?.message ?? 'No fue posible guardar el preview del lote mensual.')
+      throw new Error(lotError?.message ?? 'No fue posible guardar el preview del lote mensual.');
     }
 
     await insertAuditLog(service, {
@@ -781,7 +811,7 @@ export async function importarDistribucionMateriales(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId,
-    })
+    });
 
     await publishMaterialesPanelChange(service, actor, {
       eventType: 'preview_lote_materiales_creado',
@@ -791,7 +821,7 @@ export async function importarDistribucionMateriales(
         lote_id: createdLot.id,
         mes_operacion: preview.resolvedMonth,
       },
-    })
+    });
     return buildImportState({
       ok: true,
       message: 'Preview generado. Revisa reglas, advertencias y match de PDV antes de confirmar.',
@@ -799,11 +829,13 @@ export async function importarDistribucionMateriales(
       preview,
       geminiAnalysis,
       cuentaClienteId,
-    })
+      tipoDispersion,
+    });
   } catch (error) {
     return buildImportState({
-      message: error instanceof Error ? error.message : 'No fue posible preparar el preview del lote.',
-    })
+      message:
+        error instanceof Error ? error.message : 'No fue posible preparar el preview del lote.',
+    });
   }
 }
 
@@ -812,52 +844,57 @@ export async function confirmarDistribucionMateriales(
   formData: FormData
 ): Promise<MaterialActionState> {
   try {
-    const actor = await requerirPuestosActivos([...MATERIALES_ADMIN_ROLES])
-    const service = createServiceClient() as TypedSupabaseClient
-    const loteId = normalizeRequiredText(formData.get('lote_id'), 'Lote de dispersión')
-    const monthOverride = normalizeMonthValue(normalizeOptionalText(formData.get('mes_operacion_override')))
+    const actor = await requerirPuestosActivos([...MATERIALES_ADMIN_ROLES]);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const loteId = normalizeRequiredText(formData.get('lote_id'), 'Lote de dispersión');
+    const monthOverride = normalizeMonthValue(
+      normalizeOptionalText(formData.get('mes_operacion_override'))
+    );
 
     const { data: loteRaw, error: lotError } = await service
       .from('material_distribucion_lote')
-      .select('id, cuenta_cliente_id, mes_operacion, estado, preview_data')
+      .select('id, cuenta_cliente_id, mes_operacion, estado, preview_data, tipo_dispersion')
       .eq('id', loteId)
-      .maybeSingle()
+      .maybeSingle();
 
     const lote = loteRaw as {
-      id: string
-      cuenta_cliente_id: string
-      mes_operacion: string
-      estado: 'BORRADOR_PREVIEW' | 'CONFIRMADO' | 'CANCELADO'
-      preview_data: Record<string, unknown>
-    } | null
+      id: string;
+      cuenta_cliente_id: string;
+      mes_operacion: string;
+      estado: 'BORRADOR_PREVIEW' | 'CONFIRMADO' | 'CANCELADO';
+      preview_data: Record<string, unknown>;
+      tipo_dispersion: string;
+    } | null;
 
     if (lotError || !lote) {
-      throw new Error(lotError?.message ?? 'No fue posible localizar el lote en preview.')
+      throw new Error(lotError?.message ?? 'No fue posible localizar el lote en preview.');
     }
 
     if (lote.estado !== 'BORRADOR_PREVIEW') {
-      throw new Error('Este lote ya fue confirmado o cancelado; no se puede confirmar nuevamente.')
+      throw new Error('Este lote ya fue confirmado o cancelado; no se puede confirmar nuevamente.');
     }
 
-    const preview = lote.preview_data as unknown as MaterialDistributionPreview
+    const preview = lote.preview_data as unknown as MaterialDistributionPreview;
     if (!preview?.pdvPackages?.length) {
-      throw new Error('El lote no contiene un preview valido para confirmar.')
+      throw new Error('El lote no contiene un preview valido para confirmar.');
     }
 
-    const editedRules = getEditedRules(preview, formData)
-    const confirmedMonth = monthOverride ?? lote.mes_operacion
+    const confirmedRules = getConfirmedRules(preview);
+    const confirmedMonth = monthOverride ?? lote.mes_operacion;
 
-    const matchedPackages = preview.pdvPackages.filter((item) => item.pdvMatch.matched && item.pdvMatch.pdvId)
+    const matchedPackages = preview.pdvPackages.filter(
+      (item) => item.pdvMatch.matched && item.pdvMatch.pdvId
+    );
     if (matchedPackages.length === 0) {
-      throw new Error('No hay PDVs resueltos para confirmar este lote.')
+      throw new Error('No hay PDVs resueltos para confirmar este lote.');
     }
 
-    const selectedRules = Array.from(editedRules.values()).filter((rule) => rule.selected)
-    if (selectedRules.length === 0) {
-      throw new Error('Selecciona al menos un producto del preview antes de confirmar el lote.')
+    const confirmedRulesList = Array.from(confirmedRules.values());
+    if (confirmedRulesList.length === 0) {
+      throw new Error('El preview no contiene productos válidos para confirmar el lote.');
     }
 
-    const materialNames = Array.from(new Set(selectedRules.map((rule) => rule.displayName)))
+    const materialNames = Array.from(new Set(confirmedRulesList.map((rule) => rule.displayName)));
     const { data: catalogRowsRaw, error: catalogError } = materialNames.length
       ? await service
           .from('material_catalogo')
@@ -865,19 +902,19 @@ export async function confirmarDistribucionMateriales(
           .eq('cuenta_cliente_id', lote.cuenta_cliente_id)
           .in('nombre', materialNames)
           .limit(materialNames.length)
-      : { data: [], error: null }
+      : { data: [], error: null };
 
     if (catalogError) {
-      throw new Error(catalogError.message ?? 'No fue posible validar el catalogo de materiales.')
+      throw new Error(catalogError.message ?? 'No fue posible validar el catalogo de materiales.');
     }
 
     const catalogByName = new Map(
       ((catalogRowsRaw ?? []) as MaterialCatalogLookupRow[]).map((item) => [item.nombre, item])
-    )
+    );
 
-    for (const rule of selectedRules) {
+    for (const rule of confirmedRulesList) {
       if (catalogByName.has(rule.displayName)) {
-        continue
+        continue;
       }
 
       const { data: createdCatalog, error: createCatalogError } = await service
@@ -897,66 +934,72 @@ export async function confirmarDistribucionMateriales(
           },
         })
         .select('id, nombre, requiere_ticket_compra, requiere_evidencia_obligatoria')
-        .maybeSingle()
+        .maybeSingle();
 
       if (createCatalogError || !createdCatalog) {
-        throw new Error(createCatalogError?.message ?? `No fue posible crear el material ${rule.displayName}.`)
+        throw new Error(
+          createCatalogError?.message ?? `No fue posible crear el material ${rule.displayName}.`
+        );
       }
 
-      catalogByName.set(createdCatalog.nombre, createdCatalog)
+      catalogByName.set(createdCatalog.nombre, createdCatalog);
     }
 
-    const matchedPdvIds = Array.from(new Set(matchedPackages.map((item) => item.pdvMatch.pdvId!).filter(Boolean)))
+    const matchedPdvIds = Array.from(
+      new Set(matchedPackages.map((item) => item.pdvMatch.pdvId!).filter(Boolean))
+    );
     const { data: supervisorRowsRaw, error: supervisorError } = matchedPdvIds.length
       ? await service
           .from('supervisor_pdv')
           .select('pdv_id, empleado_id, activo, fecha_inicio, fecha_fin')
           .in('pdv_id', matchedPdvIds)
           .limit(Math.max(50, matchedPdvIds.length * 3))
-      : { data: [], error: null }
+      : { data: [], error: null };
 
     if (supervisorError) {
-      throw new Error(supervisorError.message ?? 'No fue posible resolver el supervisor actual de los PDVs.')
+      throw new Error(
+        supervisorError.message ?? 'No fue posible resolver el supervisor actual de los PDVs.'
+      );
     }
 
-    const supervisorByPdv = new Map<string, string | null>()
-    const supervisorRows = (supervisorRowsRaw ?? []) as SupervisorPdvRow[]
+    const supervisorByPdv = new Map<string, string | null>();
+    const supervisorRows = (supervisorRowsRaw ?? []) as SupervisorPdvRow[];
     for (const pdvId of matchedPdvIds) {
       const current = supervisorRows
         .filter((item) => item.pdv_id === pdvId)
         .sort((left, right) => {
           if (left.activo !== right.activo) {
-            return left.activo ? -1 : 1
+            return left.activo ? -1 : 1;
           }
-          return (right.fecha_inicio ?? '').localeCompare(left.fecha_inicio ?? '')
-        })[0]
-      supervisorByPdv.set(pdvId, current?.empleado_id ?? null)
+          return (right.fecha_inicio ?? '').localeCompare(left.fecha_inicio ?? '');
+        })[0];
+      supervisorByPdv.set(pdvId, current?.empleado_id ?? null);
     }
 
-    let confirmedPackageCount = 0
+    let confirmedPackageCount = 0;
 
     for (const item of matchedPackages) {
       const materialTotals = new Map<
         string,
         {
-          quantity: number
-          totalColumn: number | null
-          sheetNames: string[]
-          rowNumbers: number[]
-          blockNames: string[]
-          rule: MaterialRulePreview
-          materialKeys: string[]
+          quantity: number;
+          totalColumn: number | null;
+          sheetNames: string[];
+          rowNumbers: number[];
+          blockNames: string[];
+          rule: MaterialRulePreview;
+          materialKeys: string[];
         }
-      >()
+      >();
 
       for (const material of item.materials) {
-        const rule = editedRules.get(material.materialKey)
-        if (!rule?.selected) {
-          continue
+        const rule = confirmedRules.get(material.materialKey);
+        if (!rule) {
+          continue;
         }
 
-        const materialNameKey = rule.displayName
-        const current = materialTotals.get(materialNameKey)
+        const materialNameKey = rule.displayName;
+        const current = materialTotals.get(materialNameKey);
         if (!current) {
           materialTotals.set(materialNameKey, {
             quantity: material.quantity,
@@ -966,124 +1009,206 @@ export async function confirmarDistribucionMateriales(
             blockNames: [material.blockName],
             rule,
             materialKeys: [material.materialKey],
-          })
-          continue
+          });
+          continue;
         }
 
         if (!areRulesEquivalent(current.rule, rule)) {
           throw new Error(
             `El producto ${rule.displayName} aparece en más de un bloque con reglas distintas para ${item.sucursal ?? item.idBtl ?? 'este PDV'}. Unifica la configuración antes de confirmar.`
-          )
+          );
         }
 
-        current.quantity += material.quantity
+        current.quantity += material.quantity;
         if (current.totalColumn === null && material.totalColumn !== null) {
-          current.totalColumn = material.totalColumn
+          current.totalColumn = material.totalColumn;
         }
         if (!current.sheetNames.includes(material.sheetName)) {
-          current.sheetNames.push(material.sheetName)
+          current.sheetNames.push(material.sheetName);
         }
         if (!current.rowNumbers.includes(material.rowNumber)) {
-          current.rowNumbers.push(material.rowNumber)
+          current.rowNumbers.push(material.rowNumber);
         }
         if (!current.blockNames.includes(material.blockName)) {
-          current.blockNames.push(material.blockName)
+          current.blockNames.push(material.blockName);
         }
         if (!current.materialKeys.includes(material.materialKey)) {
-          current.materialKeys.push(material.materialKey)
+          current.materialKeys.push(material.materialKey);
         }
       }
 
       if (materialTotals.size === 0) {
-        continue
+        continue;
       }
 
-      const pdvId = item.pdvMatch.pdvId!
-      const supervisorEmpleadoId = supervisorByPdv.get(pdvId) ?? null
-      const hojaOrigen = item.sheetNames.length === 1 ? item.sheetNames[0] : 'MULTIHOJA'
-      const { data: distributionRaw, error: distributionError } = await service
+      const pdvId = item.pdvMatch.pdvId!;
+      const supervisorEmpleadoId = supervisorByPdv.get(pdvId) ?? null;
+      const hojaOrigen = item.sheetNames.length === 1 ? item.sheetNames[0] : 'MULTIHOJA';
+      const { data: existingDistributionRaw, error: existingDistributionError } = await service
         .from('material_distribucion_mensual')
-        .upsert(
-          {
-            cuenta_cliente_id: lote.cuenta_cliente_id,
-            lote_id: lote.id,
-            pdv_id: pdvId,
-            supervisor_empleado_id: supervisorEmpleadoId,
-            mes_operacion: confirmedMonth,
-            estado: 'PENDIENTE_RECEPCION',
-            cadena_snapshot: item.cadena,
-            id_pdv_cadena_snapshot: item.idPdvCadena,
-            sucursal_snapshot: item.sucursal,
-            nombre_dc_snapshot: item.nombreDc,
-            territorio_snapshot: item.territorio,
-            hoja_origen: hojaOrigen,
-            metadata: {
-              creado_desde: 'confirmacion_lote_materiales',
-              lote_id: lote.id,
-              id_nomina_dc_snapshot: item.idNominaDc,
-              vacante_excel: !item.idNominaDc,
-              row_numbers: item.rowNumbers,
-              sheet_names: item.sheetNames,
-            },
-          },
-          { onConflict: 'lote_id,pdv_id' }
-        )
+        .select('id, lote_id, estado')
+        .eq('lote_id', lote.id)
+        .eq('pdv_id', pdvId)
+        .eq('metadata->>dispersion_identity_key', item.packageKey)
+        .maybeSingle();
+
+      if (existingDistributionError) {
+        throw new Error(
+          existingDistributionError.message ??
+            `No fue posible revisar la distribución previa de ${item.sucursal ?? pdvId}.`
+        );
+      }
+
+      let reusableDistribution = existingDistributionRaw as {
+        id: string;
+        lote_id: string | null;
+        estado: string;
+      } | null;
+      if (!reusableDistribution) {
+        const { data: monthlyDistributionRaw, error: monthlyDistributionError } = await service
+          .from('material_distribucion_mensual')
+          .select('id, lote_id, estado')
+          .eq('cuenta_cliente_id', lote.cuenta_cliente_id)
+          .eq('pdv_id', pdvId)
+          .eq('mes_operacion', confirmedMonth)
+          .eq('tipo_dispersion', lote.tipo_dispersion)
+          .eq('metadata->>dispersion_identity_key', item.packageKey)
+          .maybeSingle();
+
+        if (monthlyDistributionError) {
+          throw new Error(
+            monthlyDistributionError.message ??
+              `No fue posible revisar si ${item.sucursal ?? pdvId} ya tenía una cápsula del mes.`
+          );
+        }
+
+        reusableDistribution = monthlyDistributionRaw as {
+          id: string;
+          lote_id: string | null;
+          estado: string;
+        } | null;
+      }
+
+      if (
+        reusableDistribution &&
+        reusableDistribution.lote_id !== lote.id &&
+        reusableDistribution.estado !== 'CANCELADA'
+      ) {
+        throw new Error(
+          `Ya existe una cápsula activa de tipo ${lote.tipo_dispersion} para ${item.sucursal ?? pdvId} en ${confirmedMonth.slice(0, 7)}. Cancélala antes de cargar una dispersión de reemplazo.`
+        );
+      }
+
+      const distributionPayload = {
+        cuenta_cliente_id: lote.cuenta_cliente_id,
+        lote_id: lote.id,
+        pdv_id: pdvId,
+        supervisor_empleado_id: supervisorEmpleadoId,
+        mes_operacion: confirmedMonth,
+        tipo_dispersion: lote.tipo_dispersion,
+        estado: 'PENDIENTE_RECEPCION',
+        cadena_snapshot: item.cadena,
+        id_pdv_cadena_snapshot: item.idPdvCadena,
+        sucursal_snapshot: item.sucursal,
+        nombre_dc_snapshot: null,
+        territorio_snapshot: item.territorio,
+        hoja_origen: hojaOrigen,
+        metadata: {
+          creado_desde: 'confirmacion_lote_materiales',
+          lote_id: lote.id,
+          dispersion_identity_key: item.packageKey,
+          receptor_seleccionado_en: 'ULTIMA_MILLA',
+          nombre_dc_excel_legacy: item.nombreDc,
+          usuario_dc_excel_legacy: item.usuarioDc,
+          id_nomina_dc_excel_legacy: item.idNominaDc,
+          row_numbers: item.rowNumbers,
+          sheet_names: item.sheetNames,
+          reactivado_desde_cancelacion: reusableDistribution?.estado === 'CANCELADA',
+          distribucion_reutilizada_id: reusableDistribution?.id ?? null,
+        },
+      };
+
+      const distributionQuery = reusableDistribution?.id
+        ? service
+            .from('material_distribucion_mensual')
+            .update(distributionPayload)
+            .eq('id', reusableDistribution.id)
+        : service.from('material_distribucion_mensual').insert(distributionPayload);
+
+      const { data: distributionRaw, error: distributionError } = await distributionQuery
         .select('id')
-        .maybeSingle()
+        .maybeSingle();
 
       if (distributionError || !distributionRaw?.id) {
         throw new Error(
-          distributionError?.message ?? `No fue posible crear la distribución para ${item.sucursal ?? pdvId}.`
-        )
+          distributionError?.message ??
+            `No fue posible crear la distribución para ${item.sucursal ?? pdvId}.`
+        );
       }
 
-      confirmedPackageCount += 1
+      const { error: cleanupDetailsError } = await service
+        .from('material_distribucion_detalle')
+        .delete()
+        .eq('distribucion_id', distributionRaw.id);
+
+      if (cleanupDetailsError) {
+        throw new Error(
+          cleanupDetailsError.message ??
+            `No fue posible limpiar el detalle previo para ${item.sucursal ?? pdvId}.`
+        );
+      }
+
+      confirmedPackageCount += 1;
 
       for (const [, totals] of materialTotals.entries()) {
-        const rule = totals.rule
-        const catalog = catalogByName.get(rule.displayName)
+        const rule = totals.rule;
+        const catalog = catalogByName.get(rule.displayName);
         if (!catalog) {
-          throw new Error(`No se encontro el material ${rule.displayName} en el catalogo del lote.`)
+          throw new Error(
+            `No se encontro el material ${rule.displayName} en el catalogo del lote.`
+          );
         }
 
-        const { error: detailError } = await service
-          .from('material_distribucion_detalle')
-          .upsert(
-            {
-              distribucion_id: distributionRaw.id,
-              material_catalogo_id: catalog.id,
-              cantidad_enviada: totals.quantity,
-              material_nombre_snapshot: rule.displayName,
-              material_tipo_mes: rule.materialType,
-              mecanica_canje: rule.mecanicaCanje,
-              indicaciones_producto: rule.indicacionesProducto,
-              instrucciones_mercadeo: rule.instruccionesMercadeo,
-              requiere_ticket_mes: rule.flags.requiereTicketMes,
-              requiere_evidencia_entrega_mes: rule.flags.requiereEvidenciaEntregaMes,
-              requiere_evidencia_mercadeo: rule.flags.requiereEvidenciaMercadeo,
-              es_regalo_dc: rule.flags.esRegaloDc,
-              excluir_de_registrar_entrega: rule.flags.excluirDeRegistrarEntrega,
-              total_columna_hoja: totals.totalColumn,
-              metadata: {
-                lote_id: lote.id,
-                material_key: totals.materialKeys[0] ?? null,
-                material_keys: totals.materialKeys,
-                block_names: totals.blockNames,
-                sheet_names: totals.sheetNames,
-                row_numbers: totals.rowNumbers,
-              },
+        const { error: detailError } = await service.from('material_distribucion_detalle').upsert(
+          {
+            distribucion_id: distributionRaw.id,
+            material_catalogo_id: catalog.id,
+            cantidad_enviada: totals.quantity,
+            material_nombre_snapshot: rule.displayName,
+            material_tipo_mes: rule.materialType,
+            mecanica_canje: rule.mecanicaCanje,
+            indicaciones_producto: rule.indicacionesProducto,
+            instrucciones_mercadeo: rule.instruccionesMercadeo,
+            requiere_ticket_mes: rule.flags.requiereTicketMes,
+            requiere_evidencia_entrega_mes: rule.flags.requiereEvidenciaEntregaMes,
+            requiere_evidencia_mercadeo: rule.flags.requiereEvidenciaMercadeo,
+            es_regalo_dc: rule.flags.esRegaloDc,
+            excluir_de_registrar_entrega: rule.flags.excluirDeRegistrarEntrega,
+            total_columna_hoja: totals.totalColumn,
+            metadata: {
+              lote_id: lote.id,
+              material_key: totals.materialKeys[0] ?? null,
+              material_keys: totals.materialKeys,
+              block_names: totals.blockNames,
+              sheet_names: totals.sheetNames,
+              row_numbers: totals.rowNumbers,
             },
-            { onConflict: 'distribucion_id,material_catalogo_id' }
-          )
+          },
+          { onConflict: 'distribucion_id,material_catalogo_id' }
+        );
 
         if (detailError) {
-          throw new Error(detailError.message ?? `No fue posible crear el detalle para ${rule.displayName}.`)
+          throw new Error(
+            detailError.message ?? `No fue posible crear el detalle para ${rule.displayName}.`
+          );
         }
       }
     }
 
     if (confirmedPackageCount === 0) {
-      throw new Error('Los productos seleccionados no generan dispersiones válidas para ningún PDV del lote.')
+      throw new Error(
+        'Los productos detectados no generan dispersiones válidas para ningún PDV del lote.'
+      );
     }
 
     const { error: updateLotError } = await service
@@ -1102,10 +1227,10 @@ export async function confirmarDistribucionMateriales(
           confirmado_por_nombre: actor.nombreCompleto,
         },
       })
-      .eq('id', lote.id)
+      .eq('id', lote.id);
 
     if (updateLotError) {
-      throw new Error(updateLotError.message ?? 'No fue posible cerrar la confirmación del lote.')
+      throw new Error(updateLotError.message ?? 'No fue posible cerrar la confirmación del lote.');
     }
 
     await insertAuditLog(service, {
@@ -1118,7 +1243,7 @@ export async function confirmarDistribucionMateriales(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId: lote.cuenta_cliente_id,
-    })
+    });
 
     await publishMaterialesPanelChange(service, actor, {
       eventType: 'lote_materiales_confirmado',
@@ -1129,12 +1254,15 @@ export async function confirmarDistribucionMateriales(
         mes_operacion: confirmedMonth,
         pdv_count: confirmedPackageCount,
       },
-    })
-    return buildState({ ok: true, message: 'Lote mensual confirmado. La dispersión quedó pendiente de recepción.' })
+    });
+    return buildState({
+      ok: true,
+      message: 'Lote mensual confirmado. La dispersión quedó pendiente de recepción.',
+    });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible confirmar el lote mensual.',
-    })
+    });
   }
 }
 
@@ -1143,33 +1271,33 @@ export async function descartarPreviewMateriales(
   formData: FormData
 ): Promise<MaterialActionState> {
   try {
-    const actor = await requerirPuestosActivos([...MATERIALES_ADMIN_ROLES])
-    const service = createServiceClient() as TypedSupabaseClient
-    const loteId = normalizeRequiredText(formData.get('lote_id'), 'Preview de dispersión')
+    const actor = await requerirPuestosActivos([...MATERIALES_ADMIN_ROLES]);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const loteId = normalizeRequiredText(formData.get('lote_id'), 'Preview de dispersión');
 
     const { data: loteRaw, error: lotError } = await service
       .from('material_distribucion_lote')
       .select('id, cuenta_cliente_id, estado, created_by_usuario_id')
       .eq('id', loteId)
-      .maybeSingle()
+      .maybeSingle();
 
     const lote = loteRaw as {
-      id: string
-      cuenta_cliente_id: string
-      estado: 'BORRADOR_PREVIEW' | 'CONFIRMADO' | 'CANCELADO'
-      created_by_usuario_id: string | null
-    } | null
+      id: string;
+      cuenta_cliente_id: string;
+      estado: 'BORRADOR_PREVIEW' | 'CONFIRMADO' | 'CANCELADO';
+      created_by_usuario_id: string | null;
+    } | null;
 
     if (lotError || !lote) {
-      throw new Error(lotError?.message ?? 'No fue posible localizar el preview a descartar.')
+      throw new Error(lotError?.message ?? 'No fue posible localizar el preview a descartar.');
     }
 
     if (lote.estado !== 'BORRADOR_PREVIEW') {
-      throw new Error('Este preview ya no está activo y no se puede descartar.')
+      throw new Error('Este preview ya no está activo y no se puede descartar.');
     }
 
     if (lote.created_by_usuario_id && lote.created_by_usuario_id !== actor.usuarioId) {
-      throw new Error('Solo puedes descartar previews generados por tu usuario.')
+      throw new Error('Solo puedes descartar previews generados por tu usuario.');
     }
 
     const { error: discardError } = await service
@@ -1183,10 +1311,10 @@ export async function descartarPreviewMateriales(
           cancelado_en: new Date().toISOString(),
         },
       })
-      .eq('id', lote.id)
+      .eq('id', lote.id);
 
     if (discardError) {
-      throw new Error(discardError.message ?? 'No fue posible descartar el preview.')
+      throw new Error(discardError.message ?? 'No fue posible descartar el preview.');
     }
 
     await insertAuditLog(service, {
@@ -1197,7 +1325,7 @@ export async function descartarPreviewMateriales(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId: lote.cuenta_cliente_id,
-    })
+    });
 
     await publishMaterialesPanelChange(service, actor, {
       eventType: 'preview_lote_materiales_descartado',
@@ -1205,12 +1333,135 @@ export async function descartarPreviewMateriales(
       metadata: {
         lote_id: lote.id,
       },
-    })
-    return buildState({ ok: true, message: 'Preview descartado. Ya puedes cargar un nuevo archivo.' })
+    });
+    return buildState({
+      ok: true,
+      message: 'Preview descartado. Ya puedes cargar un nuevo archivo.',
+    });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible descartar el preview.',
-    })
+    });
+  }
+}
+
+export async function cancelarCapsulaUltimaMillaInvalida(
+  _prevState: MaterialActionState,
+  formData: FormData
+): Promise<MaterialActionState> {
+  try {
+    const actor = await requerirPuestosActivos(['ADMINISTRADOR']);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const distribucionId = normalizeRequiredText(formData.get('distribucion_id'), 'Cápsula');
+    const motivo = normalizeRequiredText(formData.get('motivo'), 'Motivo de cancelación');
+
+    const { data: distributionRaw, error: distributionError } = await service
+      .from('material_distribucion_mensual')
+      .select('id, cuenta_cliente_id, pdv_id, estado, metadata')
+      .eq('id', distribucionId)
+      .maybeSingle();
+
+    const distribution = distributionRaw as {
+      id: string;
+      cuenta_cliente_id: string;
+      pdv_id: string;
+      estado: string;
+      metadata: Record<string, unknown> | null;
+    } | null;
+
+    if (distributionError || !distribution) {
+      throw new Error(distributionError?.message ?? 'No fue posible localizar la cápsula.');
+    }
+
+    if (!['PENDIENTE_RECEPCION', 'PENDIENTE_ACLARACION'].includes(distribution.estado)) {
+      throw new Error('Solo se pueden cancelar cápsulas pendientes.');
+    }
+
+    const [{ data: detailRows, error: detailError }, { data: lastMileRows, error: lastMileError }] =
+      await Promise.all([
+        service
+          .from('material_distribucion_detalle')
+          .select('id')
+          .eq('distribucion_id', distribution.id)
+          .limit(1),
+        service
+          .from('material_entrega_ultima_milla')
+          .select('id')
+          .eq('distribucion_id', distribution.id)
+          .limit(1),
+      ]);
+
+    if (detailError || lastMileError) {
+      throw new Error(
+        detailError?.message ||
+          lastMileError?.message ||
+          'No fue posible validar el estado de la cápsula.'
+      );
+    }
+
+    if ((detailRows ?? []).length > 0) {
+      throw new Error('Esta cápsula sí tiene detalle de materiales; no se considera inválida.');
+    }
+
+    if ((lastMileRows ?? []).length > 0) {
+      throw new Error(
+        'Esta cápsula ya tiene una entrega de última milla ligada y no se puede cancelar desde esta bandeja.'
+      );
+    }
+
+    const now = new Date().toISOString();
+    const { error: cancelError } = await service
+      .from('material_distribucion_mensual')
+      .update({
+        estado: 'CANCELADA',
+        observaciones: motivo,
+        metadata: {
+          ...(distribution.metadata ?? {}),
+          cancelado_desde: 'admin_capsula_ultima_milla_invalida',
+          cancelado_por_usuario_id: actor.usuarioId,
+          cancelado_por_nombre: actor.nombreCompleto,
+          cancelado_en: now,
+          motivo_cancelacion: motivo,
+          causa_operativa: 'SIN_DETALLE_DISPERSION',
+        },
+      })
+      .eq('id', distribution.id);
+
+    if (cancelError) {
+      throw new Error(cancelError.message ?? 'No fue posible cancelar la cápsula.');
+    }
+
+    await insertAuditLog(service, {
+      tabla: 'material_distribucion_mensual',
+      registroId: distribution.id,
+      payload: {
+        evento: 'capsula_ultima_milla_invalida_cancelada',
+        motivo,
+        causa_operativa: 'SIN_DETALLE_DISPERSION',
+      },
+      usuarioId: actor.usuarioId,
+      cuentaClienteId: distribution.cuenta_cliente_id,
+    });
+
+    await publishMaterialesPanelChange(service, actor, {
+      eventType: 'capsula_ultima_milla_invalida_cancelada',
+      cuentaClienteId: distribution.cuenta_cliente_id,
+      pdvId: distribution.pdv_id,
+      metadata: {
+        distribucion_id: distribution.id,
+        causa_operativa: 'SIN_DETALLE_DISPERSION',
+      },
+    });
+
+    return buildState({
+      ok: true,
+      message: 'Cápsula inválida cancelada. Ya puedes cargar una nueva dispersión corregida.',
+    });
+  } catch (error) {
+    return buildState({
+      message:
+        error instanceof Error ? error.message : 'No fue posible cancelar la cápsula inválida.',
+    });
   }
 }
 
@@ -1219,53 +1470,55 @@ export async function confirmarRecepcionMaterial(
   formData: FormData
 ): Promise<MaterialActionState> {
   try {
-    const actor = await requerirPuestosActivos(['DERMOCONSEJERO', 'ADMINISTRADOR'])
-    const service = createServiceClient() as TypedSupabaseClient
-    const distribucionId = normalizeRequiredText(formData.get('distribucion_id'), 'Distribución')
-    const cuentaClienteId = normalizeRequiredText(formData.get('cuenta_cliente_id'), 'Cuenta cliente')
+    const actor = await requerirPuestosActivos(['DERMOCONSEJERO', 'ADMINISTRADOR']);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const distribucionId = normalizeRequiredText(formData.get('distribucion_id'), 'Distribución');
+    const cuentaClienteId = getSingleTenantAccountId();
     const firmaFile =
       asUploadedFile(formData.get('firma_recepcion')) ??
       (() => {
-        const firmaDataUrl = asOptionalDataUrl(formData.get('firma_recepcion_data_url'))
-        return firmaDataUrl ? fileFromDataUrl(firmaDataUrl, 'firma-recepcion-materiales') : null
-      })()
+        const firmaDataUrl = asOptionalDataUrl(formData.get('firma_recepcion_data_url'));
+        return firmaDataUrl ? fileFromDataUrl(firmaDataUrl, 'firma-recepcion-materiales') : null;
+      })();
     const fotoFile =
       asUploadedFile(formData.get('foto_recepcion')) ??
       (() => {
-        const fotoDataUrl = asOptionalDataUrl(formData.get('foto_recepcion_data_url'))
-        return fotoDataUrl ? fileFromDataUrl(fotoDataUrl, 'foto-recepcion-materiales') : null
-      })()
-    const fotoCapturadaEn = normalizeOptionalText(formData.get('foto_recepcion_capturada_en'))
-    const observaciones = normalizeOptionalText(formData.get('observaciones'))
+        const fotoDataUrl = asOptionalDataUrl(formData.get('foto_recepcion_data_url'));
+        return fotoDataUrl ? fileFromDataUrl(fotoDataUrl, 'foto-recepcion-materiales') : null;
+      })();
+    const fotoCapturadaEn = normalizeOptionalText(formData.get('foto_recepcion_capturada_en'));
+    const observaciones = normalizeOptionalText(formData.get('observaciones'));
 
     if (!firmaFile) {
-      throw new Error('La firma digital es obligatoria para confirmar la recepción.')
+      throw new Error('La firma digital es obligatoria para confirmar la recepción.');
     }
 
     if (!fotoFile) {
-      throw new Error('La fotografía de recepción es obligatoria.')
+      throw new Error('La fotografía de recepción es obligatoria.');
     }
 
     const { data: distributionRaw, error: distributionError } = await service
       .from('material_distribucion_mensual')
       .select('id, cuenta_cliente_id, pdv_id, lote_id, estado')
       .eq('id', distribucionId)
-      .maybeSingle()
+      .maybeSingle();
 
     const distribution = distributionRaw as {
-      id: string
-      cuenta_cliente_id: string
-      pdv_id: string
-      lote_id: string | null
-      estado: string
-    } | null
+      id: string;
+      cuenta_cliente_id: string;
+      pdv_id: string;
+      lote_id: string | null;
+      estado: string;
+    } | null;
 
     if (distributionError || !distribution) {
-      throw new Error(distributionError?.message ?? 'No fue posible localizar la recepción pendiente.')
+      throw new Error(
+        distributionError?.message ?? 'No fue posible localizar la recepción pendiente.'
+      );
     }
 
     if (!['PENDIENTE_RECEPCION', 'PENDIENTE_ACLARACION'].includes(distribution.estado)) {
-      throw new Error('Esta recepción ya fue confirmada y no puede volver a procesarse.')
+      throw new Error('Esta recepción ya fue confirmada y no puede volver a procesarse.');
     }
 
     const [firma, foto, detalleResult] = await Promise.all([
@@ -1285,32 +1538,41 @@ export async function confirmarRecepcionMaterial(
       }),
       service
         .from('material_distribucion_detalle')
-        .select('id, distribucion_id, material_catalogo_id, cantidad_recibida, cantidad_entregada, cantidad_observada, requiere_ticket_mes, requiere_evidencia_entrega_mes, requiere_evidencia_mercadeo, es_regalo_dc, excluir_de_registrar_entrega, material_nombre_snapshot, material_tipo_mes, cantidad_enviada')
+        .select(
+          'id, distribucion_id, material_catalogo_id, cantidad_recibida, cantidad_entregada, cantidad_observada, requiere_ticket_mes, requiere_evidencia_entrega_mes, requiere_evidencia_mercadeo, es_regalo_dc, excluir_de_registrar_entrega, material_nombre_snapshot, material_tipo_mes, cantidad_enviada'
+        )
         .eq('distribucion_id', distribucionId)
         .limit(500),
-    ])
+    ]);
 
     if (detalleResult.error) {
-      throw new Error(detalleResult.error.message ?? 'No fue posible consultar el checklist de recepción.')
+      throw new Error(
+        detalleResult.error.message ?? 'No fue posible consultar el checklist de recepción.'
+      );
     }
 
-    const detalleRows = (detalleResult.data ?? []) as Array<MaterialDetalleSaldoRow & { cantidad_enviada: number }>
-    let tieneObservaciones = false
-    const receiptMovements: Array<Record<string, unknown>> = []
+    const detalleRows = (detalleResult.data ?? []) as Array<
+      MaterialDetalleSaldoRow & { cantidad_enviada: number }
+    >;
+    let tieneObservaciones = false;
+    const receiptMovements: Array<Record<string, unknown>> = [];
 
     for (const row of detalleRows) {
+      if (row.cantidad_enviada === 0) {
+        continue;
+      }
       const cantidadRecibida = normalizeZeroOrPositiveInteger(
         formData.get(`cantidad_recibida__${row.id}`),
         'Cantidad recibida'
-      )
+      );
       const cantidadObservada = normalizeZeroOrPositiveInteger(
         formData.get(`cantidad_observada__${row.id}`),
         'Cantidad observada'
-      )
-      const detalleObservacion = normalizeOptionalText(formData.get(`observacion__${row.id}`))
+      );
+      const detalleObservacion = normalizeOptionalText(formData.get(`observacion__${row.id}`));
 
       if (cantidadObservada > 0 || cantidadRecibida < row.cantidad_enviada) {
-        tieneObservaciones = true
+        tieneObservaciones = true;
       }
 
       const { error: updateError } = await service
@@ -1325,10 +1587,12 @@ export async function confirmarRecepcionMaterial(
             confirmado_por_nombre: actor.nombreCompleto,
           },
         })
-        .eq('id', row.id)
+        .eq('id', row.id);
 
       if (updateError) {
-        throw new Error(updateError.message ?? 'No fue posible actualizar el detalle de recepción.')
+        throw new Error(
+          updateError.message ?? 'No fue posible actualizar el detalle de recepción.'
+        );
       }
 
       if (!row.excluir_de_registrar_entrega && cantidadRecibida > 0) {
@@ -1349,7 +1613,7 @@ export async function confirmarRecepcionMaterial(
           metadata: {
             material_tipo_mes: row.material_tipo_mes,
           },
-        })
+        });
       }
     }
 
@@ -1358,18 +1622,24 @@ export async function confirmarRecepcionMaterial(
         .from('material_inventario_movimiento')
         .delete()
         .eq('distribucion_id', distribucionId)
-        .eq('tipo_movimiento', 'RECEPCION_LOTE')
+        .eq('tipo_movimiento', 'RECEPCION_LOTE');
 
-      const { error: movementError } = await service.from('material_inventario_movimiento').insert(receiptMovements)
+      const { error: movementError } = await service
+        .from('material_inventario_movimiento')
+        .insert(receiptMovements);
       if (movementError) {
-        throw new Error(movementError.message ?? 'No fue posible crear el inventario inicial del lote.')
+        throw new Error(
+          movementError.message ?? 'No fue posible crear el inventario inicial del lote.'
+        );
       }
     }
 
-    const now = new Date().toISOString()
+    const now = new Date().toISOString();
     const fotoCapturedAt =
-      fotoCapturadaEn && !Number.isNaN(Date.parse(fotoCapturadaEn)) ? new Date(fotoCapturadaEn).toISOString() : now
-    const estado = tieneObservaciones ? 'RECIBIDA_CON_OBSERVACIONES' : 'RECIBIDA_CONFORME'
+      fotoCapturadaEn && !Number.isNaN(Date.parse(fotoCapturadaEn))
+        ? new Date(fotoCapturadaEn).toISOString()
+        : now;
+    const estado = tieneObservaciones ? 'RECIBIDA_CON_OBSERVACIONES' : 'RECIBIDA_CONFORME';
     const { error: distributionUpdateError } = await service
       .from('material_distribucion_mensual')
       .update({
@@ -1390,10 +1660,10 @@ export async function confirmarRecepcionMaterial(
           foto_thumbnail_url: foto.thumbnailUrl,
         },
       })
-      .eq('id', distribucionId)
+      .eq('id', distribucionId);
 
     if (distributionUpdateError) {
-      throw new Error(distributionUpdateError.message ?? 'No fue posible cerrar la recepción.')
+      throw new Error(distributionUpdateError.message ?? 'No fue posible cerrar la recepción.');
     }
 
     await insertAuditLog(service, {
@@ -1406,7 +1676,7 @@ export async function confirmarRecepcionMaterial(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId,
-    })
+    });
 
     await publishMaterialesPanelChange(service, actor, {
       eventType: 'recepcion_material_confirmada',
@@ -1416,12 +1686,12 @@ export async function confirmarRecepcionMaterial(
         distribucion_id: distribucionId,
         estado,
       },
-    })
-    return buildState({ ok: true, message: 'Recepción formal confirmada en tienda.' })
+    });
+    return buildState({ ok: true, message: 'Recepción formal confirmada en tienda.' });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible confirmar la recepción.',
-    })
+    });
   }
 }
 
@@ -1430,94 +1700,108 @@ export async function registrarEntregaPromocional(
   formData: FormData
 ): Promise<MaterialActionState> {
   try {
-    const actor = await requerirPuestosActivos([...MATERIALES_DELIVERY_ROLES])
-    const service = createServiceClient() as TypedSupabaseClient
-    const cuentaClienteId = normalizeRequiredText(formData.get('cuenta_cliente_id'), 'Cuenta cliente')
-    const pdvId = normalizeRequiredText(formData.get('pdv_id'), 'PDV')
-    const distribucionId = normalizeOptionalText(formData.get('distribucion_id'))
+    const actor = await requerirPuestosActivos([...MATERIALES_DELIVERY_ROLES]);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const cuentaClienteId = getSingleTenantAccountId();
+    const pdvId = normalizeRequiredText(formData.get('pdv_id'), 'PDV');
+    const distribucionId = normalizeOptionalText(formData.get('distribucion_id'));
     const distribucionDetalleId = normalizeRequiredText(
       formData.get('distribucion_detalle_id'),
       'Material del inventario'
-    )
-    const materialCatalogoId = normalizeRequiredText(formData.get('material_catalogo_id'), 'Material')
-    const cantidadEntregada = normalizePositiveInteger(formData.get('cantidad_entregada'), 'Cantidad entregada')
-    const observaciones = normalizeOptionalText(formData.get('observaciones'))
+    );
+    const materialCatalogoId = normalizeRequiredText(
+      formData.get('material_catalogo_id'),
+      'Material'
+    );
+    const cantidadEntregada = normalizePositiveInteger(
+      formData.get('cantidad_entregada'),
+      'Cantidad entregada'
+    );
+    const observaciones = normalizeOptionalText(formData.get('observaciones'));
 
     // Phase 2: Intercepcion limpia R2 (Subida Directa)
-    const materialEvidenceR2 = readDirectR2Reference(formData, 'evidencia_material')
-    const pdvEvidenceR2 = readDirectR2Reference(formData, 'evidencia_pdv')
-    const ticketEvidenceR2 = readDirectR2Reference(formData, 'ticket_compra')
+    const materialEvidenceR2 = readDirectR2Reference(formData, 'evidencia_material');
+    const pdvEvidenceR2 = readDirectR2Reference(formData, 'evidencia_pdv');
+    const ticketEvidenceR2 = readDirectR2Reference(formData, 'ticket_compra');
 
     const evidenciaMaterial =
       asUploadedFile(formData.get('evidencia_material')) ??
       (() => {
-        const dataUrl = asOptionalDataUrl(formData.get('evidencia_material_data_url'))
-        return dataUrl ? fileFromDataUrl(dataUrl, 'evidencia-material') : null
-      })()
+        const dataUrl = asOptionalDataUrl(formData.get('evidencia_material_data_url'));
+        return dataUrl ? fileFromDataUrl(dataUrl, 'evidencia-material') : null;
+      })();
     const evidenciaPdv =
       asUploadedFile(formData.get('evidencia_pdv')) ??
       (() => {
-        const dataUrl = asOptionalDataUrl(formData.get('evidencia_pdv_data_url'))
-        return dataUrl ? fileFromDataUrl(dataUrl, 'evidencia-pdv') : null
-      })()
+        const dataUrl = asOptionalDataUrl(formData.get('evidencia_pdv_data_url'));
+        return dataUrl ? fileFromDataUrl(dataUrl, 'evidencia-pdv') : null;
+      })();
     const ticketCompra =
       asUploadedFile(formData.get('ticket_compra')) ??
       (() => {
-        const dataUrl = asOptionalDataUrl(formData.get('ticket_compra_data_url'))
-        return dataUrl ? fileFromDataUrl(dataUrl, 'ticket-compra') : null
-      })()
+        const dataUrl = asOptionalDataUrl(formData.get('ticket_compra_data_url'));
+        return dataUrl ? fileFromDataUrl(dataUrl, 'ticket-compra') : null;
+      })();
     const evidenciaMaterialCapturadaEn = normalizeIsoDateTimeValue(
       normalizeOptionalText(formData.get('evidencia_material_capturada_en'))
-    )
+    );
     const evidenciaPdvCapturadaEn = normalizeIsoDateTimeValue(
       normalizeOptionalText(formData.get('evidencia_pdv_capturada_en'))
-    )
+    );
     const ticketCompraCapturadoEn = normalizeIsoDateTimeValue(
       normalizeOptionalText(formData.get('ticket_compra_capturada_en'))
-    )
+    );
 
     if (!evidenciaMaterial || !evidenciaPdv) {
-      throw new Error('Debes subir la foto del promocional y la foto dentro del punto de venta.')
+      throw new Error('Debes subir la foto del promocional y la foto dentro del punto de venta.');
     }
 
     const { data: detalleRaw, error: detailError } = await service
       .from('material_distribucion_detalle')
-      .select('id, distribucion_id, material_catalogo_id, cantidad_recibida, cantidad_entregada, cantidad_observada, requiere_ticket_mes, requiere_evidencia_entrega_mes, requiere_evidencia_mercadeo, es_regalo_dc, excluir_de_registrar_entrega, material_nombre_snapshot, material_tipo_mes')
+      .select(
+        'id, distribucion_id, material_catalogo_id, cantidad_recibida, cantidad_entregada, cantidad_observada, requiere_ticket_mes, requiere_evidencia_entrega_mes, requiere_evidencia_mercadeo, es_regalo_dc, excluir_de_registrar_entrega, material_nombre_snapshot, material_tipo_mes'
+      )
       .eq('id', distribucionDetalleId)
-      .maybeSingle()
-    const detalle = detalleRaw as MaterialDetalleSaldoRow | null
+      .maybeSingle();
+    const detalle = detalleRaw as MaterialDetalleSaldoRow | null;
 
     if (detailError || !detalle?.id) {
-      throw new Error(detailError?.message ?? 'No fue posible validar el saldo disponible del material.')
+      throw new Error(
+        detailError?.message ?? 'No fue posible validar el saldo disponible del material.'
+      );
     }
 
     if (detalle.excluir_de_registrar_entrega || detalle.es_regalo_dc) {
-      throw new Error('Este material esta excluido de registrar entrega al cliente final.')
+      throw new Error('Este material esta excluido de registrar entrega al cliente final.');
     }
 
     const saldoDetalle = Math.max(
       Number(detalle.cantidad_recibida ?? 0) - Number(detalle.cantidad_entregada ?? 0),
       0
-    )
+    );
     const { data: movementRowsRaw, error: movementsError } = await service
       .from('material_inventario_movimiento')
       .select('cantidad_delta')
       .eq('pdv_id', pdvId)
       .eq('material_catalogo_id', materialCatalogoId)
-      .limit(2000)
+      .limit(2000);
 
     if (movementsError) {
-      throw new Error(movementsError.message ?? 'No fue posible validar el inventario actual del PDV.')
+      throw new Error(
+        movementsError.message ?? 'No fue posible validar el inventario actual del PDV.'
+      );
     }
 
-    const saldoInventario = sumInventoryBalance((movementRowsRaw ?? []) as Array<{ cantidad_delta: number }>)
-    const saldoDisponible = Math.max(Math.min(saldoDetalle, saldoInventario), 0)
+    const saldoInventario = sumInventoryBalance(
+      (movementRowsRaw ?? []) as Array<{ cantidad_delta: number }>
+    );
+    const saldoDisponible = Math.max(Math.min(saldoDetalle, saldoInventario), 0);
     if (cantidadEntregada > saldoDisponible) {
-      throw new Error(`Solo hay ${saldoDisponible} pieza(s) disponible(s) para este material.`)
+      throw new Error(`Solo hay ${saldoDisponible} pieza(s) disponible(s) para este material.`);
     }
 
     if (detalle.requiere_ticket_mes && !ticketCompra) {
-      throw new Error('Este material requiere ticket de compra como evidencia obligatoria.')
+      throw new Error('Este material requiere ticket de compra como evidencia obligatoria.');
     }
 
     const [evidenciaPromocionalStored, evidenciaPdvStored, ticketStored] = await Promise.all([
@@ -1547,10 +1831,10 @@ export async function registrarEntregaPromocional(
             directReference: ticketEvidenceR2,
           })
         : Promise.resolve(null),
-    ])
+    ]);
 
     if (!evidenciaPromocionalStored || !evidenciaPdvStored) {
-      throw new Error('No fue posible consolidar la evidencia de entrega del material.')
+      throw new Error('No fue posible consolidar la evidencia de entrega del material.');
     }
 
     const rpcPayload = {
@@ -1576,14 +1860,17 @@ export async function registrarEntregaPromocional(
         evidencia_pdv_capturada_en: evidenciaPdvCapturadaEn,
         ticket_compra_capturado_en: ticketCompraCapturadoEn,
       },
-    }
+    };
 
-    const { data: rpcResult, error: rpcError } = await service.rpc('rpc_registrar_entrega_promocional', {
-      p_datos: rpcPayload,
-    })
+    const { data: rpcResult, error: rpcError } = await service.rpc(
+      'rpc_registrar_entrega_promocional',
+      {
+        p_datos: rpcPayload,
+      }
+    );
 
     if (rpcError || !rpcResult?.ok) {
-      throw new Error(rpcError?.message ?? 'No fue posible registrar la entrega mediante RPC.')
+      throw new Error(rpcError?.message ?? 'No fue posible registrar la entrega mediante RPC.');
     }
 
     await insertAuditLog(service, {
@@ -1597,7 +1884,7 @@ export async function registrarEntregaPromocional(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId,
-    })
+    });
 
     await publishMaterialesPanelChange(service, actor, {
       eventType: 'material_entregado_cliente',
@@ -1607,12 +1894,13 @@ export async function registrarEntregaPromocional(
         distribucion_id: distribucionId,
         material_catalogo_id: materialCatalogoId,
       },
-    })
-    return buildState({ ok: true, message: 'Entrega de material registrada.' })
+    });
+    return buildState({ ok: true, message: 'Entrega de material registrada.' });
   } catch (error) {
     return buildState({
-      message: error instanceof Error ? error.message : 'No fue posible registrar la entrega promocional.',
-    })
+      message:
+        error instanceof Error ? error.message : 'No fue posible registrar la entrega promocional.',
+    });
   }
 }
 
@@ -1621,21 +1909,23 @@ export async function registrarEvidenciaMercadeoMaterial(
   formData: FormData
 ): Promise<MaterialActionState> {
   try {
-    const actor = await requerirPuestosActivos([...MATERIALES_FIELD_ROLES])
-    const service = createServiceClient() as TypedSupabaseClient
-    const distribucionId = normalizeRequiredText(formData.get('distribucion_id'), 'Dispersión')
-    const cuentaClienteId = normalizeRequiredText(formData.get('cuenta_cliente_id'), 'Cuenta cliente')
-    const observaciones = normalizeOptionalText(formData.get('observaciones'))
+    const actor = await requerirPuestosActivos([...MATERIALES_FIELD_ROLES]);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const distribucionId = normalizeRequiredText(formData.get('distribucion_id'), 'Dispersión');
+    const cuentaClienteId = getSingleTenantAccountId();
+    const observaciones = normalizeOptionalText(formData.get('observaciones'));
     const photo =
       asUploadedFile(formData.get('foto_mercadeo')) ??
       (() => {
-        const photoDataUrl = asOptionalDataUrl(formData.get('foto_mercadeo_data_url'))
-        return photoDataUrl ? fileFromDataUrl(photoDataUrl, 'foto-mercadeo-materiales') : null
-      })()
-    const fotoMercadeoCapturadaEn = normalizeOptionalText(formData.get('foto_mercadeo_capturada_en'))
+        const photoDataUrl = asOptionalDataUrl(formData.get('foto_mercadeo_data_url'));
+        return photoDataUrl ? fileFromDataUrl(photoDataUrl, 'foto-mercadeo-materiales') : null;
+      })();
+    const fotoMercadeoCapturadaEn = normalizeOptionalText(
+      formData.get('foto_mercadeo_capturada_en')
+    );
 
     if (!photo) {
-      throw new Error('La evidencia de mercadeo requiere una foto capturada en el PDV.')
+      throw new Error('La evidencia de mercadeo requiere una foto capturada en el PDV.');
     }
 
     const [distributionResult, detailResult] = await Promise.all([
@@ -1650,27 +1940,32 @@ export async function registrarEvidenciaMercadeoMaterial(
         .eq('distribucion_id', distribucionId)
         .eq('requiere_evidencia_mercadeo', true)
         .limit(200),
-    ])
+    ]);
 
     const distribution = distributionResult.data as {
-      id: string
-      cuenta_cliente_id: string
-      lote_id: string | null
-      pdv_id: string
-      estado: string
-    } | null
+      id: string;
+      cuenta_cliente_id: string;
+      lote_id: string | null;
+      pdv_id: string;
+      estado: string;
+    } | null;
 
     if (distributionResult.error || !distribution) {
-      throw new Error(distributionResult.error?.message ?? 'No fue posible localizar la dispersión del PDV.')
+      throw new Error(
+        distributionResult.error?.message ?? 'No fue posible localizar la dispersión del PDV.'
+      );
     }
 
     if (!['RECIBIDA_CONFORME', 'RECIBIDA_CON_OBSERVACIONES'].includes(distribution.estado)) {
-      throw new Error('La evidencia de mercadeo se habilita solo después de la recepción formal.')
+      throw new Error('La evidencia de mercadeo se habilita solo después de la recepción formal.');
     }
 
-    const details = (detailResult.data ?? []) as Array<{ id: string; material_nombre_snapshot: string | null }>
+    const details = (detailResult.data ?? []) as Array<{
+      id: string;
+      material_nombre_snapshot: string | null;
+    }>;
     if (details.length === 0) {
-      throw new Error('Este lote no tiene materiales marcados con evidencia de mercadeo.')
+      throw new Error('Este lote no tiene materiales marcados con evidencia de mercadeo.');
     }
 
     const stored = await uploadMaterialEvidence(service, {
@@ -1679,12 +1974,12 @@ export async function registrarEvidenciaMercadeoMaterial(
       empleadoId: actor.empleadoId,
       flowPrefix: 'mercadeo',
       file: photo,
-    })
+    });
 
     const capturedAt =
       fotoMercadeoCapturadaEn && !Number.isNaN(Date.parse(fotoMercadeoCapturadaEn))
         ? new Date(fotoMercadeoCapturadaEn).toISOString()
-        : new Date().toISOString()
+        : new Date().toISOString();
 
     const payload = {
       cuenta_cliente_id: cuentaClienteId,
@@ -1701,16 +1996,18 @@ export async function registrarEvidenciaMercadeoMaterial(
         materiales_cubiertos: details.map((item) => item.material_nombre_snapshot ?? item.id),
         capturado_desde: 'materiales_mercadeo',
       },
-    }
+    };
 
     const { data: existingEvidence, error: existingEvidenceError } = await service
       .from('material_evidencia_mercadeo')
       .select('id')
       .eq('distribucion_id', distribution.id)
-      .maybeSingle()
+      .maybeSingle();
 
     if (existingEvidenceError) {
-      throw new Error(existingEvidenceError.message ?? 'No fue posible validar la evidencia previa de mercadeo.')
+      throw new Error(
+        existingEvidenceError.message ?? 'No fue posible validar la evidencia previa de mercadeo.'
+      );
     }
 
     const result = existingEvidence?.id
@@ -1724,10 +2021,10 @@ export async function registrarEvidenciaMercadeoMaterial(
           .from('material_evidencia_mercadeo')
           .insert(payload)
           .select('id')
-          .maybeSingle()
+          .maybeSingle();
 
     if (result.error || !result.data?.id) {
-      throw new Error(result.error?.message ?? 'No fue posible guardar la evidencia de mercadeo.')
+      throw new Error(result.error?.message ?? 'No fue posible guardar la evidencia de mercadeo.');
     }
 
     await insertAuditLog(service, {
@@ -1740,7 +2037,7 @@ export async function registrarEvidenciaMercadeoMaterial(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId,
-    })
+    });
 
     await publishMaterialesPanelChange(service, actor, {
       eventType: 'evidencia_mercadeo_cargada',
@@ -1749,12 +2046,15 @@ export async function registrarEvidenciaMercadeoMaterial(
       metadata: {
         distribucion_id: distribution.id,
       },
-    })
-    return buildState({ ok: true, message: 'Evidencia de mercadeo registrada.' })
+    });
+    return buildState({ ok: true, message: 'Evidencia de mercadeo registrada.' });
   } catch (error) {
     return buildState({
-      message: error instanceof Error ? error.message : 'No fue posible registrar la evidencia de mercadeo.',
-    })
+      message:
+        error instanceof Error
+          ? error.message
+          : 'No fue posible registrar la evidencia de mercadeo.',
+    });
   }
 }
 
@@ -1763,56 +2063,65 @@ export async function registrarConteoJornadaMaterial(
   formData: FormData
 ): Promise<MaterialActionState> {
   try {
-    const actor = await requerirPuestosActivos(['DERMOCONSEJERO', 'ADMINISTRADOR'])
-    const service = createServiceClient() as TypedSupabaseClient
-    const cuentaClienteId = normalizeRequiredText(formData.get('cuenta_cliente_id'), 'Cuenta cliente')
-    const pdvId = normalizeRequiredText(formData.get('pdv_id'), 'PDV')
-    const fechaOperacion = normalizeRequiredText(formData.get('fecha_operacion'), 'Fecha de operación')
-    const momento = normalizeRequiredText(formData.get('momento'), 'Momento de conteo') as 'APERTURA' | 'CIERRE'
-    const observaciones = normalizeOptionalText(formData.get('observaciones'))
-    const clasificacionDiferencia = normalizeOptionalText(formData.get('clasificacion_diferencia'))
-    const observacionDiferencia = normalizeOptionalText(formData.get('observacion_diferencia'))
+    const actor = await requerirPuestosActivos(['DERMOCONSEJERO', 'ADMINISTRADOR']);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const cuentaClienteId = getSingleTenantAccountId();
+    const pdvId = normalizeRequiredText(formData.get('pdv_id'), 'PDV');
+    const fechaOperacion = normalizeRequiredText(
+      formData.get('fecha_operacion'),
+      'Fecha de operación'
+    );
+    const momento = normalizeRequiredText(formData.get('momento'), 'Momento de conteo') as
+      | 'APERTURA'
+      | 'CIERRE';
+    const observaciones = normalizeOptionalText(formData.get('observaciones'));
+    const clasificacionDiferencia = normalizeOptionalText(formData.get('clasificacion_diferencia'));
+    const observacionDiferencia = normalizeOptionalText(formData.get('observacion_diferencia'));
 
     if (!['APERTURA', 'CIERRE'].includes(momento)) {
-      throw new Error('El momento del conteo debe ser APERTURA o CIERRE.')
+      throw new Error('El momento del conteo debe ser APERTURA o CIERRE.');
     }
 
     const { data: movementRowsRaw, error: movementError } = await service
       .from('material_inventario_movimiento')
-      .select('material_catalogo_id, cantidad_delta, material_catalogo:material_catalogo_id(id, nombre, tipo)')
+      .select(
+        'material_catalogo_id, cantidad_delta, material_catalogo:material_catalogo_id(id, nombre, tipo)'
+      )
       .eq('pdv_id', pdvId)
-      .limit(4000)
+      .limit(4000);
 
     if (movementError) {
-      throw new Error(movementError.message ?? 'No fue posible consultar el inventario del PDV.')
+      throw new Error(movementError.message ?? 'No fue posible consultar el inventario del PDV.');
     }
 
     const movements = (movementRowsRaw ?? []) as Array<{
-      material_catalogo_id: string
-      cantidad_delta: number
+      material_catalogo_id: string;
+      cantidad_delta: number;
       material_catalogo:
         | { id: string; nombre: string; tipo: string }
         | { id: string; nombre: string; tipo: string }[]
-        | null
-    }>
+        | null;
+    }>;
 
-    const balanceByMaterial = new Map<string, { balance: number; nombre: string; tipo: string }>()
+    const balanceByMaterial = new Map<string, { balance: number; nombre: string; tipo: string }>();
     for (const row of movements) {
-      const material = Array.isArray(row.material_catalogo) ? row.material_catalogo[0] : row.material_catalogo
+      const material = Array.isArray(row.material_catalogo)
+        ? row.material_catalogo[0]
+        : row.material_catalogo;
       if (!material) {
-        continue
+        continue;
       }
       const current = balanceByMaterial.get(row.material_catalogo_id) ?? {
         balance: 0,
         nombre: material.nombre,
         tipo: material.tipo,
-      }
-      current.balance += Number(row.cantidad_delta ?? 0)
-      balanceByMaterial.set(row.material_catalogo_id, current)
+      };
+      current.balance += Number(row.cantidad_delta ?? 0);
+      balanceByMaterial.set(row.material_catalogo_id, current);
     }
 
     if (balanceByMaterial.size === 0) {
-      throw new Error('No hay materiales inventariables para contar en este PDV.')
+      throw new Error('No hay materiales inventariables para contar en este PDV.');
     }
 
     const { data: conteoRaw, error: conteoError } = await service
@@ -1832,20 +2141,20 @@ export async function registrarConteoJornadaMaterial(
         { onConflict: 'pdv_id,fecha_operacion,momento' }
       )
       .select('id')
-      .maybeSingle()
+      .maybeSingle();
 
     if (conteoError || !conteoRaw?.id) {
-      throw new Error(conteoError?.message ?? 'No fue posible guardar el conteo de jornada.')
+      throw new Error(conteoError?.message ?? 'No fue posible guardar el conteo de jornada.');
     }
 
-    const conteoId = conteoRaw.id
-    const detailPayload: Array<Record<string, unknown>> = []
+    const conteoId = conteoRaw.id;
+    const detailPayload: Array<Record<string, unknown>> = [];
 
     for (const [materialCatalogoId, summary] of balanceByMaterial.entries()) {
       const cantidadContada = normalizeZeroOrPositiveInteger(
         formData.get(`conteo__${materialCatalogoId}`),
         `Conteo de ${summary.nombre}`
-      )
+      );
       detailPayload.push({
         material_catalogo_id: materialCatalogoId,
         cantidad_contada: cantidadContada,
@@ -1853,7 +2162,7 @@ export async function registrarConteoJornadaMaterial(
           nombre_material: summary.nombre,
           tipo_material: summary.tipo,
         },
-      })
+      });
     }
 
     const { data: rpcResult, error: rpcError } = await service.rpc('rpc_registrar_conteo_jornada', {
@@ -1871,10 +2180,10 @@ export async function registrarConteoJornadaMaterial(
         },
         detalles: detailPayload,
       },
-    })
+    });
 
     if (rpcError || !rpcResult?.ok) {
-      throw new Error(rpcError?.message ?? 'No fue posible registrar el conteo mediante RPC.')
+      throw new Error(rpcError?.message ?? 'No fue posible registrar el conteo mediante RPC.');
     }
 
     await insertAuditLog(service, {
@@ -1887,7 +2196,7 @@ export async function registrarConteoJornadaMaterial(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId,
-    })
+    });
 
     await publishMaterialesPanelChange(service, actor, {
       eventType: 'conteo_jornada_material_registrado',
@@ -1897,11 +2206,260 @@ export async function registrarConteoJornadaMaterial(
         fecha_operacion: fechaOperacion,
         momento,
       },
-    })
-    return buildState({ ok: true, message: `Conteo de ${momento.toLowerCase()} registrado.` })
+    });
+    return buildState({ ok: true, message: `Conteo de ${momento.toLowerCase()} registrado.` });
   } catch (error) {
     return buildState({
-      message: error instanceof Error ? error.message : 'No fue posible registrar el conteo de jornada.',
-    })
+      message:
+        error instanceof Error ? error.message : 'No fue posible registrar el conteo de jornada.',
+    });
+  }
+}
+
+export async function importarInventarioInicialCanjes(
+  _prevState: MaterialActionState,
+  formData: FormData
+): Promise<MaterialActionState> {
+  try {
+    const actor = await requerirPuestosActivos([...MATERIALES_ADMIN_ROLES]);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const cuentaClienteId = getSingleTenantAccountId();
+    const uploadedFile = asUploadedFile(formData.get('archivo_excel'));
+
+    if (!uploadedFile) {
+      throw new Error('Adjunta un archivo XLSX con el inventario inicial.');
+    }
+
+    if (!uploadedFile.name.toLowerCase().endsWith('.xlsx')) {
+      throw new Error('El inventario debe cargarse en formato XLSX.');
+    }
+
+    await validarCuentaCliente(service, cuentaClienteId);
+
+    // 1. Leer el archivo Excel en memoria
+    const arrayBuffer = await uploadedFile.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: null }) as Record<string, any>[];
+
+    if (rows.length === 0) {
+      throw new Error('El archivo Excel esta vacio.');
+    }
+
+    // 2. Cargar PDVs y materiales de la cuenta de cliente en memoria para cruzar
+    const [pdvsResult, materialesResult] = await Promise.all([
+      service.from('pdv').select('id, nombre, clave_btl').eq('estatus', 'ACTIVO'),
+      service
+        .from('material_catalogo')
+        .select('id, nombre')
+        .eq('cuenta_cliente_id', cuentaClienteId)
+        .eq('activo', true),
+    ]);
+
+    if (pdvsResult.error) throw new Error(pdvsResult.error.message);
+    if (materialesResult.error) throw new Error(materialesResult.error.message);
+
+    const pdvList = pdvsResult.data || [];
+    const materialList = materialesResult.data || [];
+
+    // Mapeos para busqueda rapida tolerante a mayusculas/espacios
+    const pdvByClaveBtl = new Map<string, string>();
+    const pdvByNombre = new Map<string, string>();
+    const pdvById = new Map<string, string>();
+
+    pdvList.forEach((p) => {
+      pdvById.set(p.id.toLowerCase(), p.id);
+      if (p.clave_btl) {
+        pdvByClaveBtl.set(p.clave_btl.trim().toLowerCase(), p.id);
+      }
+      if (p.nombre) {
+        pdvByNombre.set(p.nombre.trim().toLowerCase().replace(/\s+/g, ' '), p.id);
+      }
+    });
+
+    const materialByNombre = new Map<string, string>();
+    const materialById = new Map<string, string>();
+
+    materialList.forEach((m) => {
+      materialById.set(m.id.toLowerCase(), m.id);
+      if (m.nombre) {
+        materialByNombre.set(m.nombre.trim().toLowerCase().replace(/\s+/g, ' '), m.id);
+      }
+    });
+
+    // 3. Procesar las filas del Excel
+    const ahora = new Date().toISOString();
+    const inserts = [];
+    const errores = [];
+    const processedRows = [];
+
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
+      const rowNumber = index + 2;
+
+      // Identificar las columnas
+      const pdvKey =
+        row['PUNTO DE VENTA'] ||
+        row['PDV'] ||
+        row['TIENDA'] ||
+        row['Punto de Venta'] ||
+        row['punto de venta'];
+      const materialKey =
+        row['CANJE'] ||
+        row['MATERIAL'] ||
+        row['ARTICULO'] ||
+        row['ARTÍCULO'] ||
+        row['Canje'] ||
+        row['canje'];
+      const cantidadRaw =
+        row['CANTIDAD'] ||
+        row['CANTIDAD INICIAL'] ||
+        row['CANTIDAD_INICIAL'] ||
+        row['Cantidad'] ||
+        row['cantidad'];
+
+      if (pdvKey === null && materialKey === null && cantidadRaw === null) {
+        continue; // Saltarse filas vacias
+      }
+
+      const pdvStr = String(pdvKey ?? '').trim();
+      const materialStr = String(materialKey ?? '').trim();
+      const cantidadVal = Number(
+        String(cantidadRaw ?? '')
+          .trim()
+          .replace(/,/g, '')
+      );
+
+      const rowErrors = [];
+
+      if (!pdvStr) rowErrors.push('Falta el Punto de Venta');
+      if (!materialStr) rowErrors.push('Falta el Material de Canje');
+      if (Number.isNaN(cantidadVal) || cantidadVal < 0) {
+        rowErrors.push('La cantidad inicial debe ser un numero mayor o igual a cero');
+      }
+
+      // Intentar resolver PDV
+      let resolvedPdvId = null;
+      if (pdvStr) {
+        resolvedPdvId =
+          pdvById.get(pdvStr.toLowerCase()) ||
+          pdvByClaveBtl.get(pdvStr.toLowerCase()) ||
+          pdvByNombre.get(pdvStr.toLowerCase().replace(/\s+/g, ' '));
+        if (!resolvedPdvId) {
+          rowErrors.push(`El Punto de Venta "${pdvStr}" no fue encontrado o esta inactivo`);
+        }
+      }
+
+      // Intentar resolver Material
+      let resolvedMaterialId = null;
+      if (materialStr) {
+        resolvedMaterialId =
+          materialById.get(materialStr.toLowerCase()) ||
+          materialByNombre.get(materialStr.toLowerCase().replace(/\s+/g, ' '));
+        if (!resolvedMaterialId) {
+          rowErrors.push(
+            `El Material/Canje "${materialStr}" no fue encontrado en el catalogo de esta cuenta`
+          );
+        }
+      }
+
+      if (rowErrors.length > 0) {
+        errores.push({
+          fila: rowNumber,
+          pdv: pdvStr,
+          material: materialStr,
+          cantidad: cantidadRaw,
+          errores: rowErrors,
+        });
+        continue;
+      }
+
+      // Preparar payload de insercion
+      inserts.push({
+        cuenta_cliente_id: cuentaClienteId,
+        pdv_id: resolvedPdvId,
+        material_catalogo_id: resolvedMaterialId,
+        tipo_movimiento: 'CARGA_INICIAL',
+        sentido: 'ENTRADA',
+        cantidad: cantidadVal,
+        cantidad_delta: cantidadVal,
+        motivo: 'CARGA_INICIAL_EXCEL',
+        observaciones: `Inventario inicial cargado por el Administrador mediante Excel el ${ahora}.`,
+        metadata: {
+          creado_desde: 'importar_inventario_inicial_canjes',
+          archivo_nombre: uploadedFile.name,
+          actor_usuario_id: actor.usuarioId,
+          actor_nombre: actor.nombreCompleto,
+          row_number: rowNumber,
+        },
+        created_at: ahora,
+        updated_at: ahora,
+      });
+
+      processedRows.push({
+        fila: rowNumber,
+        pdvNombre: pdvList.find((p) => p.id === resolvedPdvId)?.nombre ?? pdvStr,
+        materialNombre:
+          materialList.find((m) => m.id === resolvedMaterialId)?.nombre ?? materialStr,
+        cantidad: cantidadVal,
+      });
+    }
+
+    if (errores.length > 0) {
+      return buildState({
+        ok: false,
+        message: `No se pudo importar. Se encontraron ${errores.length} errores en las filas de tu Excel. Revisa el listado e intenta de nuevo.`,
+        metadata: { errores },
+      });
+    }
+
+    if (inserts.length === 0) {
+      throw new Error('No se encontraron filas con datos validos para procesar.');
+    }
+
+    // 4. Insertar los registros masivamente a traves del cliente de Supabase
+    const { error: errorInsert } = await service
+      .from('material_inventario_movimiento')
+      .insert(inserts);
+
+    if (errorInsert) {
+      throw new Error(
+        errorInsert.message ??
+          'Error al insertar los registros de inventario inicial en la base de datos.'
+      );
+    }
+
+    // Registrar en auditoria
+    await insertAuditLog(service, {
+      tabla: 'material_inventario_movimiento',
+      registroId: '00000000-0000-0000-0000-000000000000',
+      payload: {
+        evento: 'carga_inicial_inventario_canjes_excel',
+        archivo_nombre: uploadedFile.name,
+        filas_procesadas: inserts.length,
+      },
+      usuarioId: actor.usuarioId,
+      cuentaClienteId,
+    });
+
+    // Publicar cambios en tiempo real
+    await publishMaterialesPanelChange(service, actor, {
+      eventType: 'carga_inicial_inventario_canjes_excel',
+      cuentaClienteId,
+    });
+
+    return buildState({
+      ok: true,
+      message: `¡Espectacular! Se ha cargado el inventario inicial de canjes exitosamente para ${inserts.length} puntos de venta.`,
+      metadata: { procesados: processedRows },
+    });
+  } catch (err) {
+    console.error('[importarInventarioInicialCanjes] Error:', err);
+    return buildState({
+      message:
+        err instanceof Error ? err.message : 'No fue posible importar el inventario inicial.',
+    });
   }
 }

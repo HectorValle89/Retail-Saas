@@ -49,15 +49,18 @@ import { AdminInventarioInicialSection } from './AdminInventarioInicialSection';
 import type {
   MaterialDistributionItem,
   MaterialLastMileReceiverOption,
+  MaterialLastMileDeliveryItem,
   MaterialLotPreviewItem,
   MaterialesPanelData,
 } from '../services/materialService';
 import {
+  convertHeifToJpeg,
   fileToDataUrl,
   isHeifLikeFile,
   stampMaterialEvidencePhoto,
 } from '../lib/materialEvidenceCapture';
 import { injectDirectR2Upload } from '@/lib/storage/directR2Client';
+import { SupervisorDeliveryHistoryList } from './SupervisorDeliveryHistoryList';
 
 const ADMIN_ROLES = ['ADMINISTRADOR', 'COORDINADOR', 'LOGISTICA'];
 const EVIDENCE_IMAGE_ACCEPT = 'image/*,.heic,.heif,.hif,image/heic,image/heif';
@@ -131,6 +134,7 @@ export function MaterialesPanel({
   const data = demandDataByCapsule[activeCapsule] ?? liveData;
 
   const [selectedMonth, setSelectedMonth] = useState(data.currentMonth);
+  const [supervisorSubTab, setSupervisorSubTab] = useState<'avance' | 'registrar'>('avance');
   const [selectedSupervisorId, setSelectedSupervisorId] = useState('');
   const [selectedTipoDispersion, setSelectedTipoDispersion] = useState('');
   const [monthlyReportRequested, setMonthlyReportRequested] = useState(false);
@@ -342,13 +346,12 @@ export function MaterialesPanel({
             </div>
             <h2 className="mt-2 text-xl font-semibold text-slate-950">PDV bajo tu supervisión</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Aquí solo aparecen las entregas de última milla y el estado de materiales de los PDV
-              que tienes asignados.
+              Consulta tu avance por mes o registra entregas de última milla asignando explícitamente el mes de operación.
             </p>
           </div>
           <div className="grid gap-3">
             <Select
-              label="Mes"
+              label="Mes de Operación"
               options={data.monthOptions.map((item) => ({ value: item, label: formatMonth(item) }))}
               value={selectedMonth}
               onChange={(event) => handleMonthChange(event.target.value)}
@@ -357,8 +360,48 @@ export function MaterialesPanel({
           </div>
         </Card>
 
-        <LastMileProgressDashboard items={monthDistributions} />
-        <SupervisorLastMileSection actor={actor} data={data} />
+        {/* Sub-Tabs Switcher */}
+        <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+          <button
+            type="button"
+            onClick={() => setSupervisorSubTab('avance')}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition ${
+              supervisorSubTab === 'avance'
+                ? 'bg-sky-700 text-white shadow-xs'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            📊 Avance de Mis Entregas
+          </button>
+          <button
+            type="button"
+            onClick={() => setSupervisorSubTab('registrar')}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition ${
+              supervisorSubTab === 'registrar'
+                ? 'bg-sky-700 text-white shadow-xs'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            🚚 Registrar Entrega de Última Milla
+          </button>
+        </div>
+
+        {supervisorSubTab === 'avance' ? (
+          <div className="space-y-6">
+            <SupervisorDeliverySummary
+              distributions={monthDistributions}
+              deliveries={data.lastMileDeliveries}
+              selectedMonth={selectedMonth}
+            />
+            <SupervisorDeliveryHistoryList
+              deliveries={data.lastMileDeliveries}
+              selectedMonth={selectedMonth}
+              monthLabel={formatMonth(selectedMonth)}
+            />
+          </div>
+        ) : (
+          <SupervisorLastMileSection actor={actor} data={data} />
+        )}
       </div>
     );
   }
@@ -410,11 +453,11 @@ export function MaterialesPanel({
             options={[
               { value: '', label: 'Todos los tipos' },
               { value: 'MENSUAL', label: 'Mensual (Ordinaria)' },
-              { value: 'ADICIONAL', label: 'Adicional (Resurtido)' },
-              { value: 'EXCLUSIVA_CANJES', label: 'Exclusiva para Canjes' },
-              { value: 'EXCLUSIVA_TESTERS', label: 'Exclusiva para Testers' },
-              { value: 'EXCLUSIVA_REGALOS', label: 'Exclusiva para Regalos' },
-              { value: 'OTRA', label: 'Otra' },
+              { value: 'ADICIONAL', label: 'Por campaña' },
+              { value: 'EXCLUSIVA_CANJES', label: 'Exclusiva Canjes' },
+              { value: 'EXCLUSIVA_TESTERS', label: 'Exclusiva Testers' },
+              { value: 'EXCLUSIVA_REGALOS', label: 'Exclusiva Regalos' },
+              { value: 'ENTREGA_RESGUARDO', label: 'Entrega de paquete en resguardo' },
             ]}
             value={selectedTipoDispersion}
             onChange={(event) => handleTipoDispersionChange(event.target.value)}
@@ -748,11 +791,11 @@ function AdminImportSection({
           defaultValue="MENSUAL"
           options={[
             { value: 'MENSUAL', label: 'Mensual (Ordinaria)' },
-            { value: 'ADICIONAL', label: 'Adicional (Resurtido)' },
-            { value: 'EXCLUSIVA_CANJES', label: 'Exclusiva para Canjes' },
-            { value: 'EXCLUSIVA_TESTERS', label: 'Exclusiva para Testers' },
-            { value: 'EXCLUSIVA_REGALOS', label: 'Exclusiva para Regalos' },
-            { value: 'OTRA', label: 'Otra' },
+            { value: 'ADICIONAL', label: 'Por campaña' },
+            { value: 'EXCLUSIVA_CANJES', label: 'Exclusiva Canjes' },
+            { value: 'EXCLUSIVA_TESTERS', label: 'Exclusiva Testers' },
+            { value: 'EXCLUSIVA_REGALOS', label: 'Exclusiva Regalos' },
+            { value: 'ENTREGA_RESGUARDO', label: 'Entrega de paquete en resguardo' },
           ]}
         />
         <label className="block text-sm text-slate-600">
@@ -1766,20 +1809,154 @@ function SupervisorLastMileSection({
   const router = useRouter();
   const offline = useOfflineSync();
 
+  // 1. Selector states
+  const [selectedMonth, setSelectedMonth] = useState(data.currentMonth);
+  const [selectedTipoDispersion, setSelectedTipoDispersion] = useState('MENSUAL');
+  const [selectedPdvId, setSelectedPdvId] = useState('');
+
+  const monthOptions = useMemo(() => {
+    const rawOpts = data.monthOptions ?? [];
+    const currentYear = new Date().getFullYear();
+    const fullYearMonths: string[] = [];
+    for (let year = currentYear - 1; year <= currentYear + 1; year++) {
+      for (let m = 1; m <= 12; m++) {
+        fullYearMonths.push(`${year}-${String(m).padStart(2, '0')}`);
+      }
+    }
+    const set = new Set([data.currentMonth, ...rawOpts, ...fullYearMonths]);
+    return Array.from(set).sort((left, right) => right.localeCompare(left));
+  }, [data.monthOptions, data.currentMonth]);
+
+  // 2. Clear selected PDV on month or type change
+  const handleMonthChange = (value: string) => {
+    setSelectedMonth(value);
+    setSelectedPdvId('');
+  };
+
+  const handleTipoDispersionChange = (value: string) => {
+    setSelectedTipoDispersion(value);
+    setSelectedPdvId('');
+  };
+
+  // 3. Filter pending distributions by selected month and type
+  const pendingDistributions = useMemo(() => {
+    return data.supervisorLastMileDistributions.filter(
+      (item) =>
+        item.mesOperacion === selectedMonth &&
+        item.tipoDispersion === selectedTipoDispersion
+    );
+  }, [data.supervisorLastMileDistributions, selectedMonth, selectedTipoDispersion]);
+
+  // 4. PDV Options for Select (using all supervisor scoped PDVs)
+  const pdvOptions = useMemo(() => {
+    return [
+      { value: '', label: 'Seleccionar punto de venta...' },
+      { value: 'ca1d4a0a-1111-1111-1111-111111111111', label: 'NO APLICA' },
+      ...(data.supervisorScopePdvs ?? [])
+        .filter((pdv) => pdv.id !== 'ca1d4a0a-1111-1111-1111-111111111111')
+        .map((pdv) => ({ value: pdv.id, label: `${pdv.claveBtl} - ${pdv.nombre}` }))
+        .sort((left, right) => left.label.localeCompare(right.label, 'es')),
+    ];
+  }, [data.supervisorScopePdvs]);
+
+  // 5. Selected distribution object (constructing a virtual draft if none exists)
+  const selectedDistribution = useMemo(() => {
+    if (!selectedPdvId) return null;
+    const realDist = pendingDistributions.find((item) => item.pdvId === selectedPdvId);
+    if (realDist) return realDist;
+
+    // Create a virtual draft distribution if not exists
+    const isNoAplica = selectedPdvId === 'ca1d4a0a-1111-1111-1111-111111111111';
+    let scopedPdv = (data.supervisorScopePdvs ?? []).find((item) => item.id === selectedPdvId);
+    if (!scopedPdv && isNoAplica) {
+      // Mock scopedPdv for NO APLICA
+      scopedPdv = {
+        id: 'ca1d4a0a-1111-1111-1111-111111111111',
+        claveBtl: 'NO_APLICA',
+        nombre: 'NO APLICA',
+        idCadena: null as any,
+        zona: null as any,
+        cadenaId: null as any,
+      } as any;
+    }
+    if (!scopedPdv) return null;
+
+    // Get the receiver options from the map
+    let receptorOptions = data.receiverOptionsByPdv?.[selectedPdvId] ?? [];
+    if (isNoAplica && receptorOptions.length === 0) {
+      const uniqueOptions = new Map<string, MaterialLastMileReceiverOption>();
+      if (data.receiverOptionsByPdv) {
+        for (const options of Object.values(data.receiverOptionsByPdv)) {
+          for (const opt of options) {
+            uniqueOptions.set(opt.id, opt);
+          }
+        }
+      }
+      if (!uniqueOptions.has(actor.empleadoId)) {
+        uniqueOptions.set(actor.empleadoId, {
+          id: actor.empleadoId,
+          nombre: actor.nombreCompleto,
+          username: actor.username ?? null,
+          idNomina: null,
+          scope: 'SUPERVISOR',
+          label: `${actor.nombreCompleto} (Supervisor)`,
+        });
+      }
+      receptorOptions = Array.from(uniqueOptions.values()).sort((left, right) =>
+        left.nombre.localeCompare(right.nombre, 'es')
+      );
+    }
+
+    return {
+      id: '', // Empty ID represents a virtual distribution that will be created on the sync API
+      loteId: null,
+      cuentaClienteId: actor.cuentaClienteId || data.distributions[0]?.cuentaClienteId || '',
+      cuentaCliente: data.distributions[0]?.cuentaCliente ?? null,
+      supervisorEmpleadoId: '', // Will be resolved on sync/RPC
+      supervisorNombre: '',
+      pdvId: scopedPdv.id,
+      pdvClaveBtl: scopedPdv.claveBtl,
+      pdvNombre: scopedPdv.nombre,
+      idPdvCadena: scopedPdv.idCadena,
+      zona: scopedPdv.zona,
+      cadena: null,
+      sucursal: scopedPdv.nombre,
+      nombreDc: null,
+      territorio: null,
+      hojaOrigen: 'VIRTUAL',
+      mesOperacion: selectedMonth,
+      tipoDispersion: selectedTipoDispersion as any,
+      estado: 'PENDIENTE_RECEPCION',
+      estadoEntregaActual: 'NO_ENTREGADO',
+      confirmadoEn: null,
+      observaciones: '',
+      firmaRecepcionUrl: null,
+      fotoRecepcionUrl: null,
+      fotoRecepcionCapturadaEn: null,
+      mercadeoEvidence: null,
+      detalles: [],
+      configuredPackageCount: 0,
+      totalEnviado: 0,
+      totalRecibido: 0,
+      totalEntregado: 0,
+      totalDisponible: 0,
+      receptorOptions,
+    } satisfies MaterialDistributionItem;
+  }, [pendingDistributions, selectedPdvId, data.supervisorScopePdvs, data.distributions, selectedMonth, selectedTipoDispersion, data.receiverOptionsByPdv, actor]);
+
+
   return (
-    <Card className="space-y-5">
+    <Card className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
             Última milla
           </p>
           <h2 className="mt-2 text-lg font-semibold text-slate-950">
-            Entrega real a dermoconsejero
+            Registrar Entrega de Última Milla
           </h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Selecciona una dispersión pendiente, valida las cantidades reales y captura las
-            evidencias obligatorias. El registro se guarda localmente y se sincroniza cuando haya
-            conexión.
+            Selecciona el mes, el tipo de dispersión y el punto de venta. Valida las cantidades, captura las evidencias en <strong>formato vertical</strong> y guarda la entrega.
           </p>
         </div>
         <Pill tone={offline.isOnline ? 'emerald' : 'amber'}>
@@ -1787,24 +1964,60 @@ function SupervisorLastMileSection({
         </Pill>
       </div>
 
-      {data.supervisorLastMileDistributions.length === 0 ? (
-        <EmptyState message="No tienes entregas de última milla pendientes en el periodo operativo." />
+      {/* Selector de Mes y Tipo de Dispersión */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Select
+          label="Mes de operación"
+          options={monthOptions.map((item) => ({ value: item, label: formatMonth(item) }))}
+          value={selectedMonth}
+          onChange={(event) => handleMonthChange(event.target.value)}
+        />
+        <Select
+          label="Tipo de dispersión"
+          options={[
+            { value: 'MENSUAL', label: 'Mensual (Ordinaria)' },
+            { value: 'ADICIONAL', label: 'Por campaña' },
+            { value: 'EXCLUSIVA_CANJES', label: 'Exclusiva Canjes' },
+            { value: 'EXCLUSIVA_TESTERS', label: 'Exclusiva Testers' },
+            { value: 'EXCLUSIVA_REGALOS', label: 'Exclusiva Regalos' },
+            { value: 'ENTREGA_RESGUARDO', label: 'Entrega de paquete en resguardo' },
+          ]}
+          value={selectedTipoDispersion}
+          onChange={(event) => handleTipoDispersionChange(event.target.value)}
+        />
+      </div>
+
+      {/* Selector de PDV */}
+      <Select
+        label="Punto de venta"
+        options={pdvOptions}
+        value={selectedPdvId}
+        onChange={(event) => setSelectedPdvId(event.target.value)}
+      />
+
+      {selectedDistribution ? (
+        <SupervisorLastMileForm
+          key={selectedDistribution.id}
+          actor={actor}
+          distribution={selectedDistribution}
+          onQueued={async () => {
+            setSelectedPdvId('');
+            await offline.refreshSummary();
+            router.refresh();
+          }}
+          syncNow={offline.syncNow}
+          isOnline={offline.isOnline}
+        />
       ) : (
-        <div className="space-y-5">
-          {data.supervisorLastMileDistributions.map((distribution) => (
-            <SupervisorLastMileForm
-              key={distribution.id}
-              actor={actor}
-              distribution={distribution}
-              onQueued={async () => {
-                await offline.refreshSummary();
-                router.refresh();
-              }}
-              syncNow={offline.syncNow}
-              isOnline={offline.isOnline}
-            />
-          ))}
-        </div>
+        selectedPdvId === '' && (
+          <div className="rounded-[18px] border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
+            {pendingDistributions.length === 0 ? (
+              <p>No tienes entregas de última milla pendientes para el mes y tipo de dispersión seleccionados.</p>
+            ) : (
+              <p>Selecciona un punto de venta para mostrar el formulario de entrega.</p>
+            )}
+          </div>
+        )
       )}
     </Card>
   );
@@ -1921,13 +2134,17 @@ function SearchableReceiverSelect({
                             ? 'bg-emerald-50 text-emerald-700'
                             : option.scope === 'POR_CUBRIR'
                               ? 'bg-amber-50 text-amber-700'
-                              : 'bg-slate-100 text-slate-600'
+                              : option.scope === 'SUPERVISOR'
+                                ? 'bg-indigo-50 text-indigo-700'
+                                : 'bg-slate-100 text-slate-600'
                         }`}>
                           {option.scope === 'ASIGNADO_PDV'
                             ? 'Asignada'
                             : option.scope === 'POR_CUBRIR'
                               ? 'Resguardo'
-                              : 'Cobertura'}
+                              : option.scope === 'SUPERVISOR'
+                                ? 'Supervisor'
+                                : 'Cobertura'}
                         </span>
                       )}
                     </div>
@@ -1955,74 +2172,120 @@ function SupervisorLastMileForm({
   syncNow: () => Promise<void>;
   isOnline: boolean;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(true);
   const [deliveryPhoto, setDeliveryPhoto] = useState<MaterialCameraCaptureDraft | null>(null);
   const [acusePhotos, setAcusePhotos] = useState<MaterialCameraCaptureDraft[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // States for simplified flow
+  const [modoEntrega, setModoEntrega] = useState<'ENTREGADO' | 'RESGUARDO'>('ENTREGADO');
+  const [motivoResguardo, setModoResguardoText] = useState('');
+  const [recibioCompleto, setRecibioCompleto] = useState<'SI' | 'NO'>('SI');
+  const [observacionesDiscrepancia, setObservacionesDiscrepancia] = useState('');
+
   const receiverOptions = distribution.receptorOptions;
-  const [selectedReceiverId, setSelectedReceiverId] = useState(receiverOptions[0]?.id ?? '');
+  const [receiverType, setReceiverType] = useState<'DERMOCONSEJERA' | 'SUPERVISOR'>('DERMOCONSEJERA');
+
+  const dcsList = useMemo(() => {
+    return receiverOptions.filter((r) => r.scope !== 'POR_CUBRIR' && r.scope !== 'SUPERVISOR');
+  }, [receiverOptions]);
+
+  const supervisorsList = useMemo(() => {
+    return receiverOptions.filter((r) => r.scope === 'SUPERVISOR');
+  }, [receiverOptions]);
+
+  const [selectedReceiverId, setSelectedReceiverId] = useState(() => {
+    return (
+      receiverOptions.find((r) => r.scope !== 'POR_CUBRIR' && r.scope !== 'SUPERVISOR')?.id ??
+      receiverOptions[0]?.id ??
+      ''
+    );
+  });
+
   const selectedReceiver = receiverOptions.find((r) => r.id === selectedReceiverId) ?? null;
-  const isPdvPorCubrir = selectedReceiver?.scope === 'POR_CUBRIR';
+
+  useEffect(() => {
+    if (modoEntrega === 'RESGUARDO') {
+      setSelectedReceiverId('__POR_CUBRIR__');
+      return;
+    }
+
+    if (receiverType === 'DERMOCONSEJERA') {
+      if (!dcsList.some((r) => r.id === selectedReceiverId) || selectedReceiverId === '__POR_CUBRIR__') {
+        setSelectedReceiverId(dcsList[0]?.id ?? '');
+      }
+    } else {
+      if (!supervisorsList.some((r) => r.id === selectedReceiverId) || selectedReceiverId === '__POR_CUBRIR__') {
+        setSelectedReceiverId(supervisorsList[0]?.id ?? '');
+      }
+    }
+  }, [receiverType, modoEntrega, dcsList, supervisorsList, selectedReceiverId]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMessage(null);
 
-    if (!selectedReceiver) {
+    if (modoEntrega === 'ENTREGADO' && !selectedReceiver) {
       setMessage({
         ok: false,
-        text: 'Selecciona la dermoconsejera o marca el PDV como por cubrir.',
+        text:
+          receiverType === 'DERMOCONSEJERA'
+            ? 'Selecciona la dermoconsejera receptora.'
+            : 'Selecciona el supervisor receptor.',
       });
       return;
     }
 
-    if (distribution.detalles.length === 0) {
+    if (modoEntrega === 'RESGUARDO' && !motivoResguardo.trim()) {
       setMessage({
         ok: false,
-        text: 'Esta dispersión no tiene paquetes configurados. Pide a administración regenerar los detalles del lote antes de registrar la entrega.',
+        text: 'Por favor, describe el motivo del resguardo (p. ej. PDV vacante).',
+      });
+      return;
+    }
+
+    if (recibioCompleto === 'NO' && !observacionesDiscrepancia.trim()) {
+      setMessage({
+        ok: false,
+        text: 'Por favor, describe lo que no se recibió en el cuadro de discrepancias.',
       });
       return;
     }
 
     if (!deliveryPhoto) {
-      setMessage({ ok: false, text: 'Captura la foto de entrega física antes de finalizar.' });
+      setMessage({ ok: false, text: 'Captura la foto con el paquete antes de finalizar.' });
       return;
     }
 
-    if (!isPdvPorCubrir && acusePhotos.length === 0) {
-      setMessage({ ok: false, text: 'Captura al menos un acuse firmado antes de finalizar.' });
+    if (acusePhotos.length === 0) {
+      setMessage({ ok: false, text: 'Captura la foto del acuse firmado antes de finalizar.' });
       return;
     }
 
     setIsSaving(true);
     try {
       const formData = new FormData(event.currentTarget);
-      const detalles = distribution.detalles
-        .filter((detail) => detail.cantidadEnviada > 0)
-        .map((detail) => {
-          const rawReal = String(formData.get(`cantidad_real__${detail.id}`) ?? '').trim();
-          const cantidadReal = Number(rawReal);
+      const isCompleto = recibioCompleto === 'SI';
+      const observacionesEnvio = isCompleto ? null : observacionesDiscrepancia.trim();
 
-          if (!Number.isInteger(cantidadReal) || cantidadReal < 0) {
-            throw new Error(`Captura una cantidad real válida para ${detail.materialNombre}.`);
-          }
+      // General details structure for backward compatibility
+      const detalles = [
+        {
+          distribucion_detalle_id: distribution.detalles[0]?.id || '',
+          material_catalogo_id: distribution.detalles[0]?.materialCatalogoId || '',
+          cantidad_teorica: 1,
+          estado_item: isCompleto ? ('COMPLETO' as const) : ('CON_DISCREPANCIA' as const),
+          cantidad_real_recibida: isCompleto ? 1 : 0,
+          observaciones: observacionesEnvio,
+        },
+      ];
 
-          const estadoItem: 'COMPLETO' | 'CON_DISCREPANCIA' =
-            cantidadReal === detail.cantidadEnviada ? 'COMPLETO' : 'CON_DISCREPANCIA';
-
-          return {
-            distribucion_detalle_id: detail.id,
-            material_catalogo_id: detail.materialCatalogoId,
-            cantidad_teorica: detail.cantidadEnviada,
-            estado_item: estadoItem,
-            cantidad_real_recibida: cantidadReal,
-            observaciones: String(formData.get(`observacion__${detail.id}`) ?? '').trim() || null,
-          };
-        });
       const gps = await getCurrentGpsPosition();
       const id = crypto.randomUUID();
       const offlineClientId = `material-ultima-milla-${id}`;
+
+      const isPdvPorCubrir = modoEntrega === 'RESGUARDO';
 
       await queueOfflineMaterialEntrega({
         id,
@@ -2031,7 +2294,7 @@ function SupervisorLastMileForm({
         pdv_id: distribution.pdvId,
         cadena_id: null,
         supervisor_empleado_id: actor.empleadoId,
-        dermoconsejero_empleado_id: isPdvPorCubrir ? null : selectedReceiver.id,
+        dermoconsejero_empleado_id: isPdvPorCubrir ? null : selectedReceiver?.id || null,
         pdv_snapshot: {
           id: distribution.pdvId,
           nombre: distribution.pdvNombre,
@@ -2042,11 +2305,11 @@ function SupervisorLastMileForm({
           nombre: distribution.cadena,
         },
         dermoconsejero_snapshot: {
-          id: isPdvPorCubrir ? null : selectedReceiver.id,
-          nombre: selectedReceiver.nombre,
-          username: selectedReceiver.username,
-          id_nomina: selectedReceiver.idNomina,
-          seleccion_origen: selectedReceiver.scope,
+          id: isPdvPorCubrir ? null : selectedReceiver?.id || null,
+          nombre: isPdvPorCubrir ? 'Por cubrir' : selectedReceiver?.nombre || 'Sin asignar',
+          username: isPdvPorCubrir ? null : selectedReceiver?.username || null,
+          id_nomina: isPdvPorCubrir ? null : selectedReceiver?.idNomina || null,
+          seleccion_origen: isPdvPorCubrir ? 'POR_CUBRIR' : selectedReceiver?.scope || 'TODOS',
           estado_operativo: isPdvPorCubrir ? 'POR_CUBRIR' : 'ASIGNADA',
         },
         correccion_solicitada: {},
@@ -2060,9 +2323,14 @@ function SupervisorLastMileForm({
           capturado_desde: 'supervisor_ultima_milla',
           pdv_label: distribution.pdvNombre,
           cadena_label: distribution.cadena,
-          receptor_label: selectedReceiver.label,
-          receptor_origen: selectedReceiver.scope,
+          receptor_label: isPdvPorCubrir ? 'Por cubrir' : selectedReceiver?.label || 'Sin asignar',
+          receptor_origen: isPdvPorCubrir ? 'POR_CUBRIR' : selectedReceiver?.scope || 'TODOS',
           modo_entrega: isPdvPorCubrir ? 'POR_CUBRIR' : 'ENTREGA_DC',
+          motivo_resguardo: isPdvPorCubrir ? motivoResguardo.trim() : null,
+          recibio_completo: recibioCompleto,
+          discrepancias_declaradas: observacionesEnvio,
+          mes_operacion: distribution.mesOperacion,
+          tipo_dispersion: distribution.tipoDispersion || 'MENSUAL',
         },
         detalles,
         evidencia_entrega_fisica: {
@@ -2074,17 +2342,15 @@ function SupervisorLastMileForm({
           localHash: null,
           evidenceRole: isPdvPorCubrir ? 'PRODUCTO_EN_RESGUARDO' : 'ENTREGA_FISICA',
         },
-        evidencias_acuse_firmado: isPdvPorCubrir
-          ? []
-          : acusePhotos.map((photo) => ({
-              file: photo.file,
-              fileName: photo.fileName,
-              mimeType: photo.file.type,
-              fileSize: photo.fileSize,
-              capturedAt: photo.capturedAt,
-              localHash: null,
-              evidenceRole: 'ACUSE_FIRMADO',
-            })),
+        evidencias_acuse_firmado: acusePhotos.map((photo) => ({
+          file: photo.file,
+          fileName: photo.fileName,
+          mimeType: photo.file.type,
+          fileSize: photo.fileSize,
+          capturedAt: photo.capturedAt,
+          localHash: null,
+          evidenceRole: 'ACUSE_FIRMADO' as const,
+        })),
       });
 
       if (typeof navigator !== 'undefined' && navigator.onLine && isOnline) {
@@ -2092,12 +2358,18 @@ function SupervisorLastMileForm({
         await onQueued();
         setDeliveryPhoto(null);
         setAcusePhotos([]);
-        setMessage({ ok: true, text: 'Entrega sincronizada. Estado: entrega realizada.' });
+        setModoResguardoText('');
+        setObservacionesDiscrepancia('');
+        setRecibioCompleto('SI');
+        setMessage({ ok: true, text: 'Entrega sincronizada con éxito.' });
         return;
       }
 
       setDeliveryPhoto(null);
       setAcusePhotos([]);
+      setModoResguardoText('');
+      setObservacionesDiscrepancia('');
+      setRecibioCompleto('SI');
       setMessage({
         ok: true,
         text: 'Entrega guardada sin conexión. Se sincronizará al recuperar internet.',
@@ -2123,16 +2395,14 @@ function SupervisorLastMileForm({
           <div>
             <p className="font-medium text-slate-950">{distribution.pdvNombre}</p>
             <p className="mt-1 text-sm text-slate-600">
-              {distribution.detalles.length} paquete{distribution.detalles.length !== 1 ? 's' : ''}{' '}
-              para entrega ·{' '}
-              {isPdvPorCubrir
-                ? 'PDV por cubrir'
-                : `Asignado: ${selectedReceiver?.nombre ?? 'Sin asignar'}`}
+              {modoEntrega === 'RESGUARDO'
+                ? 'PDV en resguardo (vacante)'
+                : `Entregado a: ${selectedReceiver?.nombre ?? 'Dermoconsejera'}`}
             </p>
           </div>
           <div className="flex gap-2 items-center">
             <Pill tone="sky">{formatMonth(distribution.mesOperacion)}</Pill>
-            <span className="text-sm font-medium text-sky-600 ml-2">Abrir cápsula</span>
+            <span className="text-sm font-medium text-sky-600 ml-2">Abrir formulario</span>
           </div>
         </div>
       </div>
@@ -2142,7 +2412,7 @@ function SupervisorLastMileForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="space-y-5 rounded-[22px] border border-slate-200 p-5 shadow-sm"
+      className="space-y-5 rounded-[22px] border border-slate-200 p-5 shadow-sm bg-white"
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -2159,116 +2429,235 @@ function SupervisorLastMileForm({
         </div>
       </div>
 
-      <input type="hidden" name="dermoconsejero_empleado_id" value={selectedReceiverId} />
-      {receiverOptions.length > 0 ? (
-        <SearchableReceiverSelect
-          label="Dermoconsejera receptora"
-          options={receiverOptions}
-          value={selectedReceiverId}
-          onChange={setSelectedReceiverId}
-        />
-      ) : (
-        <ReadOnlyAccountField
-          label="Dermoconsejera receptora"
-          value="Sin dermoconsejera disponible"
-        />
-      )}
-
-      <div className="grid gap-2.5">
-        {distribution.detalles.length === 0 ? (
-          <div className="rounded-[18px] border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-            <p className="font-medium">Paquetes pendientes de configurar</p>
-            <p className="mt-1">
-              Esta cápsula existe, pero todavía no tiene materiales copiados desde la dispersión. No
-              se puede registrar una entrega real hasta que el lote tenga detalle de paquetes.
-            </p>
-          </div>
-        ) : (
-          distribution.detalles
-            .filter((detail) => detail.cantidadEnviada > 0)
-            .map((detail) => {
-              return (
-                <div
-                  key={detail.id}
-                  className="rounded-[14px] border border-slate-200 bg-slate-50 px-3 py-2.5"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="break-words text-[13px] font-semibold leading-tight text-slate-950">
-                        {detail.materialNombre}
-                      </p>
-                      <p className="mt-0.5 truncate text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        {detail.materialTipo}
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-200">
-                      Teórico {detail.cantidadEnviada}
-                    </span>
-                  </div>
-                  <div className="mt-1.5 grid grid-cols-[104px_minmax(0,1fr)] gap-2">
-                    <label className="block">
-                      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                        Recibida
-                      </span>
-                      <input
-                        name={`cantidad_real__${detail.id}`}
-                        type="number"
-                        min="0"
-                        defaultValue={String(detail.cantidadEnviada)}
-                        className="h-9 w-full rounded-[11px] border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-950 focus:border-sky-500 focus:outline-none focus:ring-4 focus:ring-sky-100"
-                      />
-                    </label>
-                    <label className="block min-w-0">
-                      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                        Obs.
-                      </span>
-                      <input
-                        name={`observacion__${detail.id}`}
-                        type="text"
-                        className="h-9 w-full rounded-[11px] border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-4 focus:ring-sky-100"
-                      />
-                    </label>
-                  </div>
-                </div>
-              );
-            })
-        )}
+      {/* Banner de advertencia de formato vertical */}
+      <div className="flex gap-3 rounded-[18px] border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-800">
+        <svg
+          className="h-5 w-5 shrink-0 text-sky-600 mt-0.5"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth="1.5"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.852l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"
+          />
+        </svg>
+        <div>
+          <p className="font-semibold">Captura Obligatoria en Formato Vertical (Retrato)</p>
+          <p className="mt-1">
+            Por favor, asegúrate de tomar <strong>todas las fotos</strong> (tanto el acuse de recibo como la foto de entrega) con el celular en <strong>posición vertical</strong>. Evita fotos horizontales para que no se recorten en los reportes.
+          </p>
+        </div>
       </div>
 
+      {/* Selector de Modo de Entrega */}
+      <div className="space-y-2">
+        <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+          Modo de entrega
+        </span>
+        <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl">
+          <button
+            type="button"
+            className={`py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
+              modoEntrega === 'ENTREGADO'
+                ? 'bg-sky-600 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-200/50 hover:text-slate-900'
+            }`}
+            onClick={() => {
+              setModoEntrega('ENTREGADO');
+            }}
+          >
+            Entregado (DC / Supervisor)
+          </button>
+          <button
+            type="button"
+            className={`py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
+              modoEntrega === 'RESGUARDO'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-200/50 hover:text-slate-900'
+            }`}
+            onClick={() => {
+              setModoEntrega('RESGUARDO');
+            }}
+          >
+            En resguardo (PDV vacante)
+          </button>
+        </div>
+      </div>
+
+      {/* Campos Dinámicos según el Modo */}
+      {modoEntrega === 'ENTREGADO' ? (
+        <>
+          <input type="hidden" name="dermoconsejero_empleado_id" value={selectedReceiverId} />
+
+          {/* Selector de tipo de receptor (DC vs Supervisor) */}
+          <div className="space-y-2">
+            <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Tipo de receptor
+            </span>
+            <div className="flex gap-2 p-1 bg-slate-100 rounded-[14px]">
+              <button
+                type="button"
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
+                  receiverType === 'DERMOCONSEJERA'
+                    ? 'bg-sky-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-200/50 hover:text-slate-900'
+                }`}
+                onClick={() => setReceiverType('DERMOCONSEJERA')}
+              >
+                Dermoconsejera
+              </button>
+              <button
+                type="button"
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
+                  receiverType === 'SUPERVISOR'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-200/50 hover:text-slate-900'
+                }`}
+                onClick={() => setReceiverType('SUPERVISOR')}
+              >
+                Supervisor
+              </button>
+            </div>
+          </div>
+
+          {receiverType === 'DERMOCONSEJERA' ? (
+            dcsList.length > 0 ? (
+              <SearchableReceiverSelect
+                label="Dermoconsejera receptora"
+                options={dcsList}
+                value={selectedReceiverId}
+                onChange={setSelectedReceiverId}
+              />
+            ) : (
+              <div className="rounded-[18px] border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                <p className="font-medium">Sin dermoconsejera disponible</p>
+                <p className="mt-1">
+                  No hay dermoconsejeras asignadas a esta tienda. Si necesitas dejar el material en resguardo, elige el modo <strong>En resguardo (PDV vacante)</strong> arriba.
+                </p>
+              </div>
+            )
+          ) : (
+            supervisorsList.length > 0 ? (
+              <SearchableReceiverSelect
+                label="Supervisor receptor"
+                options={supervisorsList}
+                value={selectedReceiverId}
+                onChange={setSelectedReceiverId}
+              />
+            ) : (
+              <div className="rounded-[18px] border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                <p className="font-medium">Sin supervisor disponible</p>
+                <p className="mt-1">
+                  No hay supervisores activos asociados a esta cuenta.
+                </p>
+              </div>
+            )
+          )}
+        </>
+      ) : (
+        <label className="block text-sm text-slate-600">
+          <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 mb-2">
+            Motivo del resguardo (Obligatorio)
+          </span>
+          <textarea
+            value={motivoResguardo}
+            onChange={(e) => setModoResguardoText(e.target.value)}
+            placeholder="Ej. PDV vacante / Sin dermoconsejera asignada este mes"
+            rows={2}
+            className="w-full rounded-[14px] border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-4 focus:ring-sky-100"
+          />
+        </label>
+      )}
+
+      {/* Control de Recepción Completa */}
+      <div className="space-y-2">
+        <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+          ¿El paquete fue recibido completo?
+        </span>
+        <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl">
+          <button
+            type="button"
+            className={`py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
+              recibioCompleto === 'SI'
+                ? 'bg-emerald-500 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+            onClick={() => setRecibioCompleto('SI')}
+          >
+            Sí, completo
+          </button>
+          <button
+            type="button"
+            className={`py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
+              recibioCompleto === 'NO'
+                ? 'bg-rose-500 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+            onClick={() => setRecibioCompleto('NO')}
+          >
+            No, incompleto / Con daños
+          </button>
+        </div>
+      </div>
+
+      {/* Cuadro de Discrepancias */}
+      {recibioCompleto === 'NO' && (
+        <label className="block text-sm text-slate-600">
+          <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 mb-2">
+            Detalle de lo que no se recibió (Obligatorio)
+          </span>
+          <textarea
+            value={observacionesDiscrepancia}
+            onChange={(e) => setObservacionesDiscrepancia(e.target.value)}
+            placeholder="Describe detalladamente qué materiales o unidades faltan o están dañadas"
+            rows={3}
+            className="w-full rounded-[14px] border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-4 focus:ring-sky-100"
+          />
+        </label>
+      )}
+
+      {/* Cámaras de Evidencias */}
       <div className="grid gap-5 xl:grid-cols-2">
         <LastMileCameraField
-          title={isPdvPorCubrir ? 'Foto de producto en resguardo' : 'Foto de entrega física'}
+          title={modoEntrega === 'RESGUARDO' ? 'Foto de ti con el paquete (Formato vertical)' : 'Foto de entrega física (Formato vertical)'}
           description={
-            isPdvPorCubrir
-              ? 'Captura el producto resguardado mientras el PDV queda por cubrir.'
-              : 'Captura una sola foto del supervisor con el dermoconsejero.'
+            modoEntrega === 'RESGUARDO'
+              ? 'Captura una foto de ti (supervisor) sosteniendo el paquete en el punto de venta en formato vertical.'
+              : 'Captura al supervisor junto a la dermoconsejera recibiendo el material en formato vertical.'
           }
-          buttonLabel={isPdvPorCubrir ? 'Capturar resguardo' : 'Capturar entrega'}
+          buttonLabel={modoEntrega === 'RESGUARDO' ? 'Capturar foto de resguardo' : 'Capturar foto de entrega'}
           pdvLabel={distribution.pdvNombre}
           flowLabel="Ultima milla"
           drafts={deliveryPhoto ? [deliveryPhoto] : []}
           onChange={(drafts) => setDeliveryPhoto(drafts[0] ?? null)}
         />
-        {!isPdvPorCubrir && (
-          <LastMileCameraField
-            title="Acuses firmados"
-            description="Captura uno o más acuses de recibo firmados en papel."
-            buttonLabel="Capturar acuse"
-            pdvLabel={distribution.pdvNombre}
-            flowLabel="Acuse firmado"
-            multiple
-            drafts={acusePhotos}
-            onChange={setAcusePhotos}
-          />
-        )}
+        <LastMileCameraField
+          title="Acuses firmados (Formato vertical)"
+          description={
+            modoEntrega === 'RESGUARDO'
+              ? 'Captura el acuse de resguardo firmado por ti en formato vertical (celular parado).'
+              : 'Captura el acuse de recibo firmado por la dermoconsejera en formato vertical (celular parado).'
+          }
+          buttonLabel="Capturar acuse"
+          pdvLabel={distribution.pdvNombre}
+          flowLabel="Acuse firmado"
+          multiple
+          drafts={acusePhotos}
+          onChange={setAcusePhotos}
+        />
       </div>
 
       <label className="block text-sm text-slate-600">
-        Observaciones generales
+        Observaciones generales (Opcional)
         <textarea
           name="observaciones"
-          rows={3}
-          className="mt-2 w-full rounded-[14px] border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+          rows={2}
+          placeholder="Escribe comentarios adicionales si es necesario"
+          className="mt-2 w-full rounded-[14px] border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-4 focus:ring-sky-100"
         />
       </label>
 
@@ -2276,7 +2665,7 @@ function SupervisorLastMileForm({
         <Button
           type="submit"
           isLoading={isSaving}
-          disabled={isSaving || receiverOptions.length === 0 || distribution.detalles.length === 0}
+          disabled={isSaving || (modoEntrega === 'ENTREGADO' && receiverOptions.filter(r => r.scope !== 'POR_CUBRIR').length === 0)}
         >
           {isSaving ? 'Guardando...' : 'Guardar y sincronizar entrega'}
         </Button>
@@ -2540,6 +2929,143 @@ function LastMileSummaryTile({
       </p>
       <p className="mt-1 text-2xl font-semibold leading-none">{value}</p>
     </div>
+  );
+}
+
+function SupervisorDeliverySummary({
+  distributions,
+  deliveries,
+  selectedMonth,
+}: {
+  distributions: MaterialDistributionItem[];
+  deliveries: MaterialLastMileDeliveryItem[];
+  selectedMonth: string;
+}) {
+  const summary = useMemo(() => {
+    // 1. Filter deliveries that belong to this operational month
+    const monthDeliveries = deliveries.filter((d) => d.mesOperacion === selectedMonth);
+
+    // 2. Count by type
+    // R_total: modoEntrega === 'POR_CUBRIR'
+    // D_resguardo: tipoDispersion === 'ENTREGA_RESGUARDO'
+    // D_direct: modoEntrega === 'ENTREGA_DC' && tipoDispersion !== 'ENTREGA_RESGUARDO'
+    let rTotal = 0;
+    let dResguardo = 0;
+    let dDirect = 0;
+
+    const byType = new Map<string, { entregados: number; enResguardo: number }>();
+
+    for (const d of monthDeliveries) {
+      const type = d.tipoDispersion || 'MENSUAL';
+      const current = byType.get(type) ?? { entregados: 0, enResguardo: 0 };
+
+      if (d.modoEntrega === 'POR_CUBRIR') {
+        rTotal += 1;
+        current.enResguardo += 1;
+      } else if (d.tipoDispersion === 'ENTREGA_RESGUARDO') {
+        dResguardo += 1;
+        current.entregados += 1;
+      } else {
+        dDirect += 1;
+        current.entregados += 1;
+      }
+
+      byType.set(type, current);
+    }
+
+    const enResguardoActivo = Math.max(0, rTotal - dResguardo);
+    const entregadosTotal = dDirect + dResguardo;
+
+    const breakdown = Array.from(byType.entries())
+      .map(([type, counts]) => {
+        // For type = 'ENTREGA_RESGUARDO', it shows how many resguardos were released.
+        // For other types, it shows how many were directly delivered or put in resguardo.
+        return {
+          type,
+          label: formatTipoDispersionLabel(type),
+          entregados: counts.entregados,
+          enResguardo: counts.enResguardo,
+        };
+      })
+      .filter((b) => b.entregados > 0 || b.enResguardo > 0);
+
+    return {
+      entregados: entregadosTotal,
+      enResguardo: enResguardoActivo,
+      rTotal,
+      breakdown,
+      total: monthDeliveries.length + distributions.length,
+    };
+  }, [deliveries, selectedMonth, distributions.length]);
+
+  if (summary.total === 0) return null;
+
+  const capsules: { icon: string; label: string; value: number; bg: string; text: string; ring: string }[] = [];
+
+  capsules.push({
+    icon: '✅',
+    label: 'Entregados a DC',
+    value: summary.entregados,
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-800',
+    ring: 'ring-emerald-200',
+  });
+
+  if (summary.enResguardo > 0 || summary.rTotal > 0) {
+    capsules.push({
+      icon: '📦',
+      label: 'En resguardo activo',
+      value: summary.enResguardo,
+      bg: summary.enResguardo === 0 ? 'bg-slate-50' : 'bg-amber-50',
+      text: summary.enResguardo === 0 ? 'text-slate-800' : 'text-amber-800',
+      ring: summary.enResguardo === 0 ? 'ring-slate-200' : 'ring-amber-200',
+    });
+  }
+
+  return (
+    <Card className="space-y-4">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
+          Resumen del mes
+        </p>
+      </div>
+
+      <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+        {capsules.map((c) => (
+          <div
+            key={c.label}
+            className={`flex items-center gap-3 rounded-2xl px-4 py-3 ring-1 ${c.bg} ${c.ring}`}
+          >
+            <span className="text-2xl" aria-hidden="true">{c.icon}</span>
+            <div className="min-w-0">
+              <p className={`text-[10px] font-semibold uppercase tracking-wider ${c.text}`}>
+                {c.label}
+              </p>
+              <p className={`text-xl font-bold leading-tight ${c.text}`}>{c.value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {summary.breakdown.length > 0 && (
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+            Control por tipo de entrega:
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {summary.breakdown.map((b) => (
+              <span
+                key={b.type}
+                className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 text-[10px] font-medium text-slate-600 ring-1 ring-inset ring-slate-200"
+              >
+                <strong>{b.label}:</strong> {b.entregados} entregados
+                {b.enResguardo > 0 && ` · ${b.enResguardo} en resguardo`}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -3537,6 +4063,8 @@ function LastMileCorrectionForm({
           corregido_por_empleado_id: actor.empleadoId,
           receptor_origen: isPdvPorCubrir ? 'POR_CUBRIR' : (selectedReceiver?.scope ?? null),
           modo_entrega: isPdvPorCubrir ? 'POR_CUBRIR' : 'ENTREGA_DC',
+          mes_operacion: row.mesOperacion,
+          tipo_dispersion: row.tipoDispersion || 'MENSUAL',
         },
         detalles,
         evidencia_entrega_fisica: deliveryPhoto
@@ -3861,6 +4389,18 @@ function CameraCaptureField({
         facingMode="environment"
         captureLabel={buttonLabel}
         onClose={() => setIsOpen(false)}
+        forcedOrientation={
+          name === 'evidencia_material' || name === 'foto_recepcion'
+            ? 'portrait'
+            : name === 'evidencia_pdv' || name === 'foto_mercadeo'
+              ? 'landscape'
+              : undefined
+        }
+        topAlertMessage={
+          name === 'evidencia_material'
+            ? 'La fotografía del Acuse de recibo debe estar COMPLETA. No se aceptan imágenes recortadas.'
+            : undefined
+        }
         onCapture={async (file) => {
           try {
             await handleCapture(file);
@@ -3913,8 +4453,35 @@ function LastMileCameraField({
   }, []);
 
   const prepareEvidenceDraft = async (file: File) => {
+    let normalizedFile = file;
+    if (isHeifLikeFile(file)) {
+      normalizedFile = await convertHeifToJpeg(file);
+    }
+    // Validar orientación vertical antes de procesar en el navegador
+    if (typeof window !== 'undefined' && typeof Image !== 'undefined') {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(normalizedFile);
+      img.src = objectUrl;
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve();
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('No fue posible leer la imagen para validar su orientación.'));
+        };
+      });
+
+      if (img.width > img.height) {
+        throw new Error(
+          'La foto debe estar en formato vertical (retrato). Por favor, voltea tu celular y tómala en posición vertical.'
+        );
+      }
+    }
+
     const capturedAt = new Date().toISOString();
-    const stamped = await stampMaterialEvidencePhoto(file, {
+    const stamped = await stampMaterialEvidencePhoto(normalizedFile, {
       capturedAt,
       pdvLabel,
       flowLabel,
@@ -4044,6 +4611,12 @@ function LastMileCameraField({
         facingMode="environment"
         captureLabel={buttonLabel}
         onClose={() => setIsOpen(false)}
+        forcedOrientation={flowLabel === 'Acuse firmado' ? 'portrait' : 'landscape'}
+        topAlertMessage={
+          flowLabel === 'Acuse firmado'
+            ? 'La fotografía del Acuse de recibo debe estar COMPLETA. No se aceptan imágenes recortadas.'
+            : undefined
+        }
         onCapture={async (file) => {
           try {
             await handleCapture(file);
@@ -4262,11 +4835,11 @@ function formatMonth(value: string) {
 function formatTipoDispersionLabel(value?: string | null) {
   const map: Record<string, string> = {
     MENSUAL: 'Mensual (Ordinaria)',
-    ADICIONAL: 'Adicional',
+    ADICIONAL: 'Por campaña',
     EXCLUSIVA_CANJES: 'Exclusiva Canjes',
     EXCLUSIVA_TESTERS: 'Exclusiva Testers',
     EXCLUSIVA_REGALOS: 'Exclusiva Regalos',
-    OTRA: 'Otra',
+    ENTREGA_RESGUARDO: 'Entrega de paquete en resguardo',
   };
   return map[value ?? ''] ?? value ?? 'Mensual (Ordinaria)';
 }

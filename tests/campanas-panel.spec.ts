@@ -1,11 +1,11 @@
-import { expect, test } from '@playwright/test'
-import type { ActorActual } from '../src/lib/auth/session'
-import { obtenerPanelCampanas } from '../src/features/campanas/services/campanaService'
+import { expect, test } from '@playwright/test';
+import type { ActorActual } from '../src/lib/auth/session';
+import { obtenerPanelCampanas } from '../src/features/campanas/services/campanaService';
 
 type QueryResult = {
-  data: unknown[] | null
-  error: { message: string } | null
-}
+  data: unknown[] | null;
+  error: { message: string } | null;
+};
 
 function applyFilters(
   rows: unknown[],
@@ -14,71 +14,77 @@ function applyFilters(
   isFilters: Array<{ column: string; value: unknown }>
 ) {
   return rows.filter((row) => {
-    const record = row as Record<string, unknown>
-    const eqOk = eqFilters.every((filter) => String(record[filter.column] ?? '') === String(filter.value))
-    const inOk = inFilters.every((filter) => filter.values.includes(String(record[filter.column] ?? '')))
-    const isOk = isFilters.every((filter) => (record[filter.column] ?? null) === filter.value)
-    return eqOk && inOk && isOk
-  })
+    const record = row as Record<string, unknown>;
+    const eqOk = eqFilters.every(
+      (filter) => String(record[filter.column] ?? '') === String(filter.value)
+    );
+    const inOk = inFilters.every((filter) =>
+      filter.values.includes(String(record[filter.column] ?? ''))
+    );
+    const isOk = isFilters.every((filter) => (record[filter.column] ?? null) === filter.value);
+    return eqOk && inOk && isOk;
+  });
 }
 
 function createFakeCampaignServiceClient(results: Record<string, QueryResult>) {
   return {
     from(table: string) {
-      const eqFilters: Array<{ column: string; value: string }> = []
-      const inFilters: Array<{ column: string; values: string[] }> = []
-      const isFilters: Array<{ column: string; value: unknown }> = []
+      const eqFilters: Array<{ column: string; value: string }> = [];
+      const inFilters: Array<{ column: string; values: string[] }> = [];
+      const isFilters: Array<{ column: string; value: unknown }> = [];
 
       const builder = {
         select() {
-          return builder
+          return builder;
         },
         eq(column: string, value: string) {
-          eqFilters.push({ column, value })
-          return builder
+          eqFilters.push({ column, value });
+          return builder;
         },
         in(column: string, values: string[]) {
-          inFilters.push({ column, values })
-          return builder
+          inFilters.push({ column, values });
+          return builder;
         },
         is(column: string, value: unknown) {
-          isFilters.push({ column, value })
-          return builder
+          isFilters.push({ column, value });
+          return builder;
         },
         order() {
-          return builder
+          return builder;
         },
         limit() {
-          return builder
+          return builder;
         },
         update(payload: Record<string, unknown>) {
           return {
             in(column: string, values: string[]) {
-              const result = results[table] ?? { data: [], error: null }
+              const result = results[table] ?? { data: [], error: null };
 
               if (!Array.isArray(result.data)) {
-                return Promise.resolve({ data: null, error: result.error })
+                return Promise.resolve({ data: null, error: result.error });
               }
 
               const updatedRows = result.data.map((row) => {
-                const record = row as Record<string, unknown>
-                return values.includes(String(record[column] ?? '')) ? { ...record, ...payload } : row
-              })
+                const record = row as Record<string, unknown>;
+                return values.includes(String(record[column] ?? ''))
+                  ? { ...record, ...payload }
+                  : row;
+              });
 
               results[table] = {
                 data: updatedRows,
                 error: null,
-              }
+              };
 
-              return Promise.resolve({ data: updatedRows, error: null })
+              return Promise.resolve({ data: updatedRows, error: null });
             },
-          }
+          };
         },
         then(resolve: (value: QueryResult) => unknown, reject?: (reason: unknown) => unknown) {
           try {
-            const result = results[table] ?? { data: [], error: null }
+            const result = results[table] ?? { data: [], error: null };
             if (result.error || !Array.isArray(result.data)) {
-              return Promise.resolve(resolve(result))
+              return Promise.resolve(resolve(result));
             }
 
             return Promise.resolve(
@@ -86,20 +92,20 @@ function createFakeCampaignServiceClient(results: Record<string, QueryResult>) {
                 data: applyFilters(result.data, eqFilters, inFilters, isFilters),
                 error: null,
               })
-            )
+            );
           } catch (error) {
             if (reject) {
-              return Promise.resolve(reject(error))
+              return Promise.resolve(reject(error));
             }
 
-            throw error
+            throw error;
           }
         },
-      }
+      };
 
-      return builder
+      return builder;
     },
-  }
+  };
 }
 
 const actorAdmin: ActorActual = {
@@ -113,7 +119,7 @@ const actorAdmin: ActorActual = {
   estadoCuenta: 'ACTIVA',
   nombreCompleto: 'Admin Uno',
   puesto: 'ADMINISTRADOR',
-}
+};
 
 test('consolida campanas, PDVs y reporte comercial por DC y PDV', async () => {
   const client = createFakeCampaignServiceClient({
@@ -226,9 +232,33 @@ test('consolida campanas, PDVs y reporte comercial por DC y PDV', async () => {
     },
     pdv: {
       data: [
-        { id: 'pdv-1', clave_btl: 'SP001', nombre: 'San Pablo Valle', zona: 'NORTE', direccion: 'Av Uno', cadena_id: 'cadena-1', estatus: 'ACTIVO' },
-        { id: 'pdv-2', clave_btl: 'SP002', nombre: 'San Pablo Centro', zona: 'CENTRO', direccion: 'Av Dos', cadena_id: 'cadena-1', estatus: 'ACTIVO' },
-        { id: 'pdv-3', clave_btl: 'SP003', nombre: 'Otro PDV', zona: 'SUR', direccion: 'Av Tres', cadena_id: null, estatus: 'ACTIVO' },
+        {
+          id: 'pdv-1',
+          clave_btl: 'SP001',
+          nombre: 'San Pablo Valle',
+          zona: 'NORTE',
+          direccion: 'Av Uno',
+          cadena_id: 'cadena-1',
+          estatus: 'ACTIVO',
+        },
+        {
+          id: 'pdv-2',
+          clave_btl: 'SP002',
+          nombre: 'San Pablo Centro',
+          zona: 'CENTRO',
+          direccion: 'Av Dos',
+          cadena_id: 'cadena-1',
+          estatus: 'ACTIVO',
+        },
+        {
+          id: 'pdv-3',
+          clave_btl: 'SP003',
+          nombre: 'Otro PDV',
+          zona: 'SUR',
+          direccion: 'Av Tres',
+          cadena_id: null,
+          estatus: 'ACTIVO',
+        },
       ],
       error: null,
     },
@@ -237,7 +267,15 @@ test('consolida campanas, PDVs y reporte comercial por DC y PDV', async () => {
       error: null,
     },
     producto: {
-      data: [{ id: 'prod-1', sku: 'SKU-1', nombre: 'Producto completo', nombre_corto: 'Foco', activo: true }],
+      data: [
+        {
+          id: 'prod-1',
+          sku: 'SKU-1',
+          nombre: 'Producto completo',
+          nombre_corto: 'Foco',
+          activo: true,
+        },
+      ],
       error: null,
     },
     asignacion: {
@@ -274,22 +312,22 @@ test('consolida campanas, PDVs y reporte comercial por DC y PDV', async () => {
       ],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelCampanas(actorAdmin, {
     scopeAccountId: 'c1',
     serviceClient: client as never,
-  })
+  });
 
-  expect(data.infraestructuraLista).toBe(true)
-  expect(data.puedeGestionar).toBe(true)
+  expect(data.infraestructuraLista).toBe(true);
+  expect(data.puedeGestionar).toBe(true);
   expect(data.resumen).toMatchObject({
     totalCampanas: 1,
     activas: 0,
     pdvsObjetivo: 2,
     pdvsCumplidos: 1,
     cuotaAdicionalTotal: 1500,
-  })
+  });
   expect(data.campanas[0]).toMatchObject({
     id: 'cam-1',
     nombre: 'Spring ISDIN',
@@ -298,16 +336,16 @@ test('consolida campanas, PDVs y reporte comercial por DC y PDV', async () => {
     estado: 'CERRADA',
     totalPdvs: 2,
     pdvsCumplidos: 1,
-  })
-  expect(data.campanas[0].productosFoco).toEqual(['SKU-1 - Foco'])
+  });
+  expect(data.campanas[0].productosFoco).toEqual(['SKU-1 - Foco']);
   expect(data.reportePorDc[0]).toMatchObject({
     empleado: 'Ana DC',
     pdvsObjetivo: 2,
     pdvsCumplidos: 1,
-  })
-  expect(data.reportePorPdv).toHaveLength(2)
-  expect(data.pdvsDisponibles).toHaveLength(2)
-})
+  });
+  expect(data.reportePorPdv).toHaveLength(2);
+  expect(data.pdvsDisponibles).toHaveLength(2);
+});
 
 test('filtra campanas por PDVs asignados cuando entra una dermoconsejera', async () => {
   const client = createFakeCampaignServiceClient({
@@ -383,8 +421,24 @@ test('filtra campanas por PDVs asignados cuando entra una dermoconsejera', async
     },
     pdv: {
       data: [
-        { id: 'pdv-1', clave_btl: 'SP001', nombre: 'San Pablo Valle', zona: 'NORTE', direccion: 'Av Uno', cadena_id: null, estatus: 'ACTIVO' },
-        { id: 'pdv-2', clave_btl: 'SP002', nombre: 'San Pablo Centro', zona: 'CENTRO', direccion: 'Av Dos', cadena_id: null, estatus: 'ACTIVO' },
+        {
+          id: 'pdv-1',
+          clave_btl: 'SP001',
+          nombre: 'San Pablo Valle',
+          zona: 'NORTE',
+          direccion: 'Av Uno',
+          cadena_id: null,
+          estatus: 'ACTIVO',
+        },
+        {
+          id: 'pdv-2',
+          clave_btl: 'SP002',
+          nombre: 'San Pablo Centro',
+          zona: 'CENTRO',
+          direccion: 'Av Dos',
+          cadena_id: null,
+          estatus: 'ACTIVO',
+        },
       ],
       error: null,
     },
@@ -427,7 +481,7 @@ test('filtra campanas por PDVs asignados cuando entra una dermoconsejera', async
       data: [{ id: 'dc-1', nombre_completo: 'Ana DC', puesto: 'DERMOCONSEJERO' }],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelCampanas(
     {
@@ -440,14 +494,14 @@ test('filtra campanas por PDVs asignados cuando entra una dermoconsejera', async
     {
       serviceClient: client as never,
     }
-  )
+  );
 
-  expect(data.puedeGestionar).toBe(false)
-  expect(data.campanas).toHaveLength(1)
-  expect(data.campanas[0].pdvs).toHaveLength(1)
-  expect(data.campanas[0].pdvs[0].pdvId).toBe('pdv-1')
-  expect(data.reportePorPdv).toHaveLength(1)
-})
+  expect(data.puedeGestionar).toBe(false);
+  expect(data.campanas).toHaveLength(1);
+  expect(data.campanas[0].pdvs).toHaveLength(1);
+  expect(data.campanas[0].pdvs[0].pdvId).toBe('pdv-1');
+  expect(data.reportePorPdv).toHaveLength(1);
+});
 
 test('degrada el panel cuando la tabla campana no esta disponible', async () => {
   const client = createFakeCampaignServiceClient({
@@ -467,12 +521,12 @@ test('degrada el panel cuando la tabla campana no esta disponible', async () => 
       data: [],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelCampanas(actorAdmin, {
     serviceClient: client as never,
-  })
+  });
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.mensajeInfraestructura).toContain('campana')
-})
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.mensajeInfraestructura).toContain('campana');
+});

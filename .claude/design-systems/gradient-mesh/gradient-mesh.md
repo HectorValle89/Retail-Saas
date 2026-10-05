@@ -1,6 +1,6 @@
 # Gradient Mesh - Sistema de Fondos
 
-> *"Los fondos que ves en Stripe, Linear, Vercel. Colores fluidos que respiran."*
+> _"Los fondos que ves en Stripe, Linear, Vercel. Colores fluidos que respiran."_
 
 ## Referencia Visual
 
@@ -22,13 +22,13 @@
 
 ### Características Clave
 
-| Característica | Descripción |
-|----------------|-------------|
-| Múltiples gradientes | 2-5 radial-gradients superpuestos |
-| Blur intenso | `filter: blur()` o blobs desenfocados |
-| Colores RGBA | Transparencia para mezcla suave |
-| Posicionamiento | Cada gradiente en diferente posición |
-| Fluido/orgánico | Sin bordes duros, todo se funde |
+| Característica       | Descripción                           |
+| -------------------- | ------------------------------------- |
+| Múltiples gradientes | 2-5 radial-gradients superpuestos     |
+| Blur intenso         | `filter: blur()` o blobs desenfocados |
+| Colores RGBA         | Transparencia para mezcla suave       |
+| Posicionamiento      | Cada gradiente en diferente posición  |
+| Fluido/orgánico      | Sin bordes duros, todo se funde       |
 
 ---
 
@@ -57,13 +57,19 @@ Elementos posicionados con blur extremo:
 ```html
 <div class="relative overflow-hidden">
   <!-- Blob 1 -->
-  <div class="absolute top-0 left-1/4 w-96 h-96 bg-purple-500 rounded-full filter blur-[128px] opacity-30"></div>
+  <div
+    class="absolute top-0 left-1/4 w-96 h-96 bg-purple-500 rounded-full filter blur-[128px] opacity-30"
+  ></div>
 
   <!-- Blob 2 -->
-  <div class="absolute top-1/2 right-1/4 w-80 h-80 bg-pink-500 rounded-full filter blur-[128px] opacity-25"></div>
+  <div
+    class="absolute top-1/2 right-1/4 w-80 h-80 bg-pink-500 rounded-full filter blur-[128px] opacity-25"
+  ></div>
 
   <!-- Blob 3 -->
-  <div class="absolute bottom-0 left-1/2 w-72 h-72 bg-blue-500 rounded-full filter blur-[128px] opacity-30"></div>
+  <div
+    class="absolute bottom-0 left-1/2 w-72 h-72 bg-blue-500 rounded-full filter blur-[128px] opacity-30"
+  ></div>
 
   <!-- Contenido -->
   <div class="relative z-10">
@@ -96,21 +102,25 @@ Para máximo rendimiento, usa una imagen:
 ### Gradiente Simple (3 colores)
 
 ```html
-<div class="
+<div
+  class="
   min-h-screen
   bg-slate-950
   [background-image:radial-gradient(at_40%_20%,rgba(120,119,198,0.3)_0px,transparent_50%),radial-gradient(at_80%_0%,rgba(251,113,133,0.3)_0px,transparent_50%),radial-gradient(at_0%_50%,rgba(59,130,246,0.3)_0px,transparent_50%)]
-">
+"
+></div>
 ```
 
 ### Gradiente Completo (5 colores)
 
 ```html
-<div class="
+<div
+  class="
   min-h-screen
   bg-gray-950
   [background-image:radial-gradient(at_40%_20%,rgba(120,119,198,0.3)_0px,transparent_50%),radial-gradient(at_80%_0%,rgba(251,113,133,0.3)_0px,transparent_50%),radial-gradient(at_0%_50%,rgba(59,130,246,0.3)_0px,transparent_50%),radial-gradient(at_80%_50%,rgba(168,85,247,0.3)_0px,transparent_50%),radial-gradient(at_0%_100%,rgba(20,184,166,0.3)_0px,transparent_50%)]
-">
+"
+></div>
 ```
 
 ### Técnica de Blobs (Más Flexible)
@@ -118,9 +128,15 @@ Para máximo rendimiento, usa una imagen:
 ```html
 <div class="relative min-h-screen bg-slate-950 overflow-hidden">
   <!-- Blobs de gradiente -->
-  <div class="absolute top-0 -left-40 w-[500px] h-[500px] bg-purple-500 rounded-full blur-[128px] opacity-20"></div>
-  <div class="absolute top-0 -right-40 w-[400px] h-[400px] bg-pink-500 rounded-full blur-[128px] opacity-20"></div>
-  <div class="absolute -bottom-20 left-1/2 w-[600px] h-[400px] bg-blue-500 rounded-full blur-[128px] opacity-20"></div>
+  <div
+    class="absolute top-0 -left-40 w-[500px] h-[500px] bg-purple-500 rounded-full blur-[128px] opacity-20"
+  ></div>
+  <div
+    class="absolute top-0 -right-40 w-[400px] h-[400px] bg-pink-500 rounded-full blur-[128px] opacity-20"
+  ></div>
+  <div
+    class="absolute -bottom-20 left-1/2 w-[600px] h-[400px] bg-blue-500 rounded-full blur-[128px] opacity-20"
+  ></div>
 
   <!-- Contenido -->
   <div class="relative z-10">
@@ -139,23 +155,31 @@ Para máximo rendimiento, usa una imagen:
 <section class="relative min-h-screen overflow-hidden bg-slate-950">
   <!-- Mesh Gradient Background -->
   <div class="absolute inset-0">
-    <div class="absolute top-20 left-1/4 w-[600px] h-[600px] bg-violet-600 rounded-full blur-[150px] opacity-20"></div>
-    <div class="absolute top-40 right-1/4 w-[500px] h-[500px] bg-fuchsia-600 rounded-full blur-[150px] opacity-15"></div>
-    <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-cyan-500 rounded-full blur-[150px] opacity-15"></div>
+    <div
+      class="absolute top-20 left-1/4 w-[600px] h-[600px] bg-violet-600 rounded-full blur-[150px] opacity-20"
+    ></div>
+    <div
+      class="absolute top-40 right-1/4 w-[500px] h-[500px] bg-fuchsia-600 rounded-full blur-[150px] opacity-15"
+    ></div>
+    <div
+      class="absolute bottom-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-cyan-500 rounded-full blur-[150px] opacity-15"
+    ></div>
   </div>
 
   <!-- Grid Pattern Overlay (opcional) -->
-  <div class="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:64px_64px]"></div>
+  <div
+    class="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:64px_64px]"
+  ></div>
 
   <!-- Content -->
   <div class="relative z-10 max-w-6xl mx-auto px-8 py-32 text-center">
-    <h1 class="text-5xl md:text-7xl font-bold text-white mb-6">
-      Your Amazing Product
-    </h1>
+    <h1 class="text-5xl md:text-7xl font-bold text-white mb-6">Your Amazing Product</h1>
     <p class="text-xl text-gray-400 mb-10 max-w-2xl mx-auto">
       A beautiful description of what makes your product special.
     </p>
-    <button class="bg-white text-gray-900 px-8 py-4 rounded-full font-semibold hover:bg-gray-100 transition-colors">
+    <button
+      class="bg-white text-gray-900 px-8 py-4 rounded-full font-semibold hover:bg-gray-100 transition-colors"
+    >
       Get Started
     </button>
   </div>
@@ -169,15 +193,24 @@ Para máximo rendimiento, usa una imagen:
   <!-- Aurora Effect -->
   <div class="absolute inset-0">
     <!-- Layer 1: Main aurora -->
-    <div class="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1/2 bg-gradient-to-b from-emerald-500/20 via-cyan-500/10 to-transparent blur-3xl"></div>
+    <div
+      class="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1/2 bg-gradient-to-b from-emerald-500/20 via-cyan-500/10 to-transparent blur-3xl"
+    ></div>
 
     <!-- Layer 2: Side glows -->
-    <div class="absolute top-1/4 -left-20 w-96 h-96 bg-purple-500 rounded-full blur-[100px] opacity-20"></div>
-    <div class="absolute top-1/4 -right-20 w-96 h-96 bg-blue-500 rounded-full blur-[100px] opacity-20"></div>
+    <div
+      class="absolute top-1/4 -left-20 w-96 h-96 bg-purple-500 rounded-full blur-[100px] opacity-20"
+    ></div>
+    <div
+      class="absolute top-1/4 -right-20 w-96 h-96 bg-blue-500 rounded-full blur-[100px] opacity-20"
+    ></div>
   </div>
 
   <!-- Noise Overlay (opcional) -->
-  <div class="absolute inset-0 opacity-20" style="background-image: url('data:image/svg+xml,...');"></div>
+  <div
+    class="absolute inset-0 opacity-20"
+    style="background-image: url('data:image/svg+xml,...');"
+  ></div>
 
   <!-- Content -->
   <div class="relative z-10">
@@ -189,16 +222,22 @@ Para máximo rendimiento, usa una imagen:
 ### Gradient Card Background
 
 ```html
-<div class="
+<div
+  class="
   relative
   p-8
   rounded-3xl
   bg-gray-900
   overflow-hidden
-">
+"
+>
   <!-- Mini mesh gradient -->
-  <div class="absolute top-0 right-0 w-64 h-64 bg-purple-500 rounded-full blur-[80px] opacity-20"></div>
-  <div class="absolute bottom-0 left-0 w-48 h-48 bg-blue-500 rounded-full blur-[60px] opacity-20"></div>
+  <div
+    class="absolute top-0 right-0 w-64 h-64 bg-purple-500 rounded-full blur-[80px] opacity-20"
+  ></div>
+  <div
+    class="absolute bottom-0 left-0 w-48 h-48 bg-blue-500 rounded-full blur-[60px] opacity-20"
+  ></div>
 
   <!-- Content -->
   <div class="relative z-10">
@@ -213,9 +252,15 @@ Para máximo rendimiento, usa una imagen:
 ```html
 <div class="relative min-h-screen bg-white overflow-hidden">
   <!-- Light mesh gradient -->
-  <div class="absolute top-0 left-1/4 w-[500px] h-[500px] bg-violet-200 rounded-full blur-[150px] opacity-60"></div>
-  <div class="absolute top-1/2 right-1/4 w-[400px] h-[400px] bg-pink-200 rounded-full blur-[150px] opacity-50"></div>
-  <div class="absolute bottom-0 left-1/2 w-[600px] h-[400px] bg-blue-200 rounded-full blur-[150px] opacity-50"></div>
+  <div
+    class="absolute top-0 left-1/4 w-[500px] h-[500px] bg-violet-200 rounded-full blur-[150px] opacity-60"
+  ></div>
+  <div
+    class="absolute top-1/2 right-1/4 w-[400px] h-[400px] bg-pink-200 rounded-full blur-[150px] opacity-50"
+  ></div>
+  <div
+    class="absolute bottom-0 left-1/2 w-[600px] h-[400px] bg-blue-200 rounded-full blur-[150px] opacity-50"
+  ></div>
 
   <!-- Content -->
   <div class="relative z-10">
@@ -229,11 +274,17 @@ Para máximo rendimiento, usa una imagen:
 ```html
 <footer class="relative bg-gray-950 pt-32 pb-16 overflow-hidden">
   <!-- Top glow -->
-  <div class="absolute top-0 left-1/2 -translate-x-1/2 w-full h-48 bg-gradient-to-b from-purple-500/10 to-transparent"></div>
+  <div
+    class="absolute top-0 left-1/2 -translate-x-1/2 w-full h-48 bg-gradient-to-b from-purple-500/10 to-transparent"
+  ></div>
 
   <!-- Mesh blobs -->
-  <div class="absolute bottom-0 left-1/4 w-96 h-96 bg-blue-500 rounded-full blur-[120px] opacity-10"></div>
-  <div class="absolute bottom-0 right-1/4 w-80 h-80 bg-purple-500 rounded-full blur-[100px] opacity-10"></div>
+  <div
+    class="absolute bottom-0 left-1/4 w-96 h-96 bg-blue-500 rounded-full blur-[120px] opacity-10"
+  ></div>
+  <div
+    class="absolute bottom-0 right-1/4 w-80 h-80 bg-purple-500 rounded-full blur-[100px] opacity-10"
+  ></div>
 
   <!-- Content -->
   <div class="relative z-10 max-w-6xl mx-auto px-8">
@@ -251,13 +302,17 @@ Para máximo rendimiento, usa una imagen:
 
   <!-- Mesh overlay -->
   <div class="absolute top-0 left-0 w-96 h-96 bg-white rounded-full blur-[100px] opacity-20"></div>
-  <div class="absolute bottom-0 right-0 w-80 h-80 bg-yellow-300 rounded-full blur-[100px] opacity-20"></div>
+  <div
+    class="absolute bottom-0 right-0 w-80 h-80 bg-yellow-300 rounded-full blur-[100px] opacity-20"
+  ></div>
 
   <!-- Content -->
   <div class="relative z-10 max-w-4xl mx-auto px-8 text-center">
     <h2 class="text-4xl font-bold text-white mb-6">Ready to Get Started?</h2>
     <p class="text-white/80 text-lg mb-10">Join thousands of happy customers today.</p>
-    <button class="bg-white text-purple-600 px-10 py-4 rounded-full font-bold hover:bg-gray-100 transition-colors">
+    <button
+      class="bg-white text-purple-600 px-10 py-4 rounded-full font-bold hover:bg-gray-100 transition-colors"
+    >
       Start Free Trial
     </button>
   </div>
@@ -272,67 +327,57 @@ Para máximo rendimiento, usa una imagen:
 
 ```html
 <!-- Blobs -->
-bg-purple-500   /* #A855F7 */
-bg-pink-500     /* #EC4899 */
-bg-cyan-500     /* #06B6D4 */
-bg-blue-500     /* #3B82F6 */
+bg-purple-500 /* #A855F7 */ bg-pink-500 /* #EC4899 */ bg-cyan-500 /* #06B6D4 */ bg-blue-500 /*
+#3B82F6 */
 
 <!-- Base -->
-bg-slate-950    /* #020617 */
-bg-gray-950     /* #030712 */
+bg-slate-950 /* #020617 */ bg-gray-950 /* #030712 */
 ```
 
 ### Aurora/Northern Lights (Linear style)
 
 ```html
 <!-- Blobs -->
-bg-emerald-500  /* #10B981 */
-bg-teal-500     /* #14B8A6 */
-bg-cyan-500     /* #06B6D4 */
-bg-blue-500     /* #3B82F6 */
+bg-emerald-500 /* #10B981 */ bg-teal-500 /* #14B8A6 */ bg-cyan-500 /* #06B6D4 */ bg-blue-500 /*
+#3B82F6 */
 
 <!-- Base -->
-bg-black        /* #000000 */
+bg-black /* #000000 */
 ```
 
 ### Sunset/Warm
 
 ```html
 <!-- Blobs -->
-bg-orange-500   /* #F97316 */
-bg-rose-500     /* #F43F5E */
-bg-purple-500   /* #A855F7 */
-bg-yellow-400   /* #FACC15 */
+bg-orange-500 /* #F97316 */ bg-rose-500 /* #F43F5E */ bg-purple-500 /* #A855F7 */ bg-yellow-400 /*
+#FACC15 */
 
 <!-- Base -->
-bg-slate-900    /* #0F172A */
+bg-slate-900 /* #0F172A */
 ```
 
 ### Minimal/Subtle (Light mode)
 
 ```html
 <!-- Blobs -->
-bg-violet-200   /* #DDD6FE */
-bg-pink-200     /* #FBCFE8 */
-bg-blue-200     /* #BFDBFE */
-bg-indigo-200   /* #C7D2FE */
+bg-violet-200 /* #DDD6FE */ bg-pink-200 /* #FBCFE8 */ bg-blue-200 /* #BFDBFE */ bg-indigo-200 /*
+#C7D2FE */
 
 <!-- Base -->
-bg-white        /* #FFFFFF */
-bg-gray-50      /* #F9FAFB */
+bg-white /* #FFFFFF */ bg-gray-50 /* #F9FAFB */
 ```
 
 ---
 
 ## Valores de Blur Recomendados
 
-| Intensidad | Tailwind | Uso |
-|------------|----------|-----|
-| Sutil | `blur-[60px]` | Cards, elementos pequeños |
-| Medio | `blur-[100px]` | Secciones medianas |
-| Intenso | `blur-[128px]` | Hero sections |
-| Extremo | `blur-[150px]` | Fondos full-page |
-| Máximo | `blur-[200px]` | Efecto muy difuso |
+| Intensidad | Tailwind       | Uso                       |
+| ---------- | -------------- | ------------------------- |
+| Sutil      | `blur-[60px]`  | Cards, elementos pequeños |
+| Medio      | `blur-[100px]` | Secciones medianas        |
+| Intenso    | `blur-[128px]` | Hero sections             |
+| Extremo    | `blur-[150px]` | Fondos full-page          |
+| Máximo     | `blur-[200px]` | Efecto muy difuso         |
 
 ---
 
@@ -363,13 +408,14 @@ export default {
       },
     },
   },
-}
+};
 ```
 
 ```html
 <!-- Uso -->
 <div class="min-h-screen bg-slate-950 bg-mesh-1">
-<div class="min-h-screen bg-black bg-mesh-aurora">
+  <div class="min-h-screen bg-black bg-mesh-aurora"></div>
+</div>
 ```
 
 ---
@@ -380,13 +426,17 @@ export default {
 
 ```html
 <!-- Sobre el mesh gradient -->
-<div class="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:64px_64px]"></div>
+<div
+  class="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:64px_64px]"
+></div>
 ```
 
 ### Dot Pattern
 
 ```html
-<div class="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.1)_1px,transparent_1px)] bg-[size:20px_20px]"></div>
+<div
+  class="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.1)_1px,transparent_1px)] bg-[size:20px_20px]"
+></div>
 ```
 
 ### Noise Texture (requiere imagen)
@@ -398,7 +448,9 @@ export default {
 ### Vignette
 
 ```html
-<div class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(0,0,0,0.4)_100%)]"></div>
+<div
+  class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(0,0,0,0.4)_100%)]"
+></div>
 ```
 
 ---
@@ -432,7 +484,7 @@ export default {
   theme: {
     extend: {
       animation: {
-        'blob': 'blob 7s infinite',
+        blob: 'blob 7s infinite',
       },
       keyframes: {
         blob: {
@@ -444,20 +496,28 @@ export default {
       },
     },
   },
-}
+};
 ```
 
 ```html
 <div class="absolute animate-blob bg-purple-500 rounded-full blur-[128px] opacity-20"></div>
-<div class="absolute animate-blob animation-delay-2000 bg-pink-500 rounded-full blur-[128px] opacity-20"></div>
-<div class="absolute animate-blob animation-delay-4000 bg-blue-500 rounded-full blur-[128px] opacity-20"></div>
+<div
+  class="absolute animate-blob animation-delay-2000 bg-pink-500 rounded-full blur-[128px] opacity-20"
+></div>
+<div
+  class="absolute animate-blob animation-delay-4000 bg-blue-500 rounded-full blur-[128px] opacity-20"
+></div>
 ```
 
 **Nota:** `animation-delay` requiere CSS adicional:
 
 ```css
-.animation-delay-2000 { animation-delay: 2s; }
-.animation-delay-4000 { animation-delay: 4s; }
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
 ```
 
 ---
@@ -482,4 +542,4 @@ export default {
 
 ---
 
-*Este documento es parte del Design System de SaaS Factory V2.*
+_Este documento es parte del Design System de SaaS Factory V2._

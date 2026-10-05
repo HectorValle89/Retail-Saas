@@ -1,5 +1,42 @@
 # 📜 AGENT_HISTORY.md - Registro Maestro de la Fábrica
 
+## [2026-10-04 22:58] - Fix: Restauración de aplicar_planeacion_mensual a Versión Estable (relation "public.ui_change_event" does not exist) (Antigravity)
+
+- **Contexto**:
+  - Tras corregir `version_publicada` y `last_event_type`, al confirmar la liberación de 2 PDVs en `/asignaciones` apareció un tercer error: `relation "public.ui_change_event" does not exist`.
+- **Causa Raíz (`systematic-debugging`)**:
+  - La migración `20260921120000_corregir_dias_laborales_descanso_planeacion.sql` reescribió `aplicar_planeacion_mensual` desde cero en lugar de parchear solo `dias_laborales`. Auditoría contra la base real confirmó que referenciaba objetos inexistentes: tabla `ui_change_event`, tablas `formacion`/`formacion_participante` (la real es `formacion_evento`), columnas `supervisor_pdv.cuenta_cliente_id`/`observaciones`, columna `version_publicada` (ya agregada en 20261005110000).
+  - También perdió comportamiento de la versión estable `20260823170000`: `touch_ui_change_version`, `publicado_por_usuario_id`/`publicado_at`, `planeacion_evento_outbox`, `audit_log`, cola diaria por empleado y la llave `preview` que lee `planeacionMensualService.ts`.
+  - Los errores salían uno a la vez porque PL/pgSQL solo valida cada sentencia al ejecutarla.
+- **Solución**:
+  - `supabase/migrations/20261005130000_restaurar_aplicar_planeacion_mensual_estable.sql`: generada de forma determinista desde la versión estable de agosto, conservando solo la corrección legítima de septiembre (derivar `dias_laborales` desde `diaDescanso`, ahora tolerante a acentos) y registrando `version_publicada`.
+- **Validaciones**:
+  - Ensayo transaccional con ROLLBACK sobre datos reales (LIBERAR_DC en 2 PDVs de octubre 2026): `ok: true`, asignaciones cerradas al 2026-10-04, lote `PUBLICADO` con `version_publicada = 1`. Repetido contra la función ya desplegada con el mismo resultado.
+  - `npm run docs:check-encoding` y pruebas unitarias de `src/features/asignaciones`.
+- **Lección (Auto-Blindaje)**: Al corregir una función SQL grande, parchear el delta sobre la última versión estable; nunca reescribirla completa. Validar con un ensayo `begin … rollback` que ejecute la función, no solo con `create or replace` (que no detecta tablas inexistentes en PL/pgSQL).
+- **Estado**: Terminado, verificado y desplegado en base de datos.
+
+## [2026-10-04 22:45] - Fix: Corrección de Restricción NOT NULL en ui_change_version.last_event_type al Confirmar Planeación Mensual (Antigravity)
+
+- **Contexto**:
+  - Al intentar confirmar la liberación o actualización de puntos de venta en `/asignaciones` (modal "Liberar DCs de PDVs seleccionados" -> "Confirmar"), el sistema arrojaba en letras rojas: `null value in column "last_event_type" of relation "ui_change_version" violates not-null constraint`.
+- **Causas Raíz Diagnosticadas (`systematic-debugging`)**:
+  - La tabla `public.ui_change_version` tiene una restricción `NOT NULL` sobre la columna `last_event_type` sin valor por defecto (`DEFAULT`).
+  - En la función RPC `aplicar_planeacion_mensual`, al registrar la versión de UI para un mes nuevo que aún no tenía registro previo en `ui_change_version` (en este caso octubre 2026), se realizaba un `insert into public.ui_change_version (module, surface, scope_key, role_target, version, updated_at) values ('asignaciones', 'planeacion_mensual', v_scope_key, 'ALL', v_current_version + 1, now())` omitiendo `last_event_type`.
+  - Como el registro para el mes no existía previamente, PostgreSQL intentaba insertar `NULL` en `last_event_type`, violando la restricción NOT NULL y abortando la transacción de publicación de cambios.
+- **Solución Implementada**:
+  - **Migración DDL & RPC (`supabase/migrations/20261005120000_corregir_last_event_type_ui_change_version.sql`)**:
+    1. Se estableció el valor por defecto defensivo en la tabla: `alter table public.ui_change_version alter column last_event_type set default 'updated';` evitando cualquier falla futura en inserciones directas.
+    2. Se actualizó la función `aplicar_planeacion_mensual` para incluir explícitamente `cuenta_cliente_id` y `last_event_type = 'planeacion_mensual_publicada'` en el `INSERT ... ON CONFLICT DO UPDATE`.
+    3. Se corrigió aserción de tipos en `src/features/empleados/lib/supervisorTransfer.test.ts` para TypeScript estricto.
+  - Aplicada exitosamente a la base de datos remota de Supabase en 806ms.
+- **Validaciones**:
+  - Prueba de inserción directa a `ui_change_version` sin especificar `last_event_type` verificando que toma el default `'updated'` sin error.
+  - Verificación de tipos TypeScript (`tsc --noEmit`): 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 135 suites, 592 pruebas pasadas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,078 archivos verificados sin BOM.
+- **Estado**: Terminado, verificado y desplegado en base de datos.
+
 ## [2026-10-04 22:30] - Fix: Corrección de Columna Inexistente "version_publicada" en Tabla "planeacion_cambio_lote" (Antigravity)
 
 - **Contexto**:

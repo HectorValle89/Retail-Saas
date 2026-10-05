@@ -1,57 +1,50 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import {
-  cambiarPasswordAutenticado,
-  iniciarCambioCorreoAutenticado,
-} from '@/actions/auth'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { useState } from 'react';
+import { cambiarPasswordAutenticado, iniciarCambioCorreoAutenticado } from '@/actions/auth';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
-export function SecurityCredentialsPanel({
-  correoActual,
-}: {
-  correoActual: string | null
-}) {
-  const [passwordError, setPasswordError] = useState<string | null>(null)
-  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null)
-  const [emailError, setEmailError] = useState<string | null>(null)
-  const [emailSuccess, setEmailSuccess] = useState<string | null>(null)
-  const [loadingPassword, setLoadingPassword] = useState(false)
-  const [loadingEmail, setLoadingEmail] = useState(false)
+export function SecurityCredentialsPanel({ correoActual }: { correoActual: string | null }) {
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
+  const [loadingPassword, setLoadingPassword] = useState(false);
+  const [loadingEmail, setLoadingEmail] = useState(false);
 
   async function handlePassword(formData: FormData) {
-    setLoadingPassword(true)
-    setPasswordError(null)
-    setPasswordSuccess(null)
-    const result = await cambiarPasswordAutenticado(formData)
+    setLoadingPassword(true);
+    setPasswordError(null);
+    setPasswordSuccess(null);
+    const result = await cambiarPasswordAutenticado(formData);
 
     if (result?.error) {
-      setPasswordError(result.error)
-      setLoadingPassword(false)
-      return
+      setPasswordError(result.error);
+      setLoadingPassword(false);
+      return;
     }
 
-    setPasswordSuccess('Actualizamos tu contrasena y enviamos un correo informativo.')
-    setLoadingPassword(false)
+    setPasswordSuccess('Actualizamos tu contrasena y enviamos un correo informativo.');
+    setLoadingPassword(false);
   }
 
   async function handleEmail(formData: FormData) {
-    setLoadingEmail(true)
-    setEmailError(null)
-    setEmailSuccess(null)
-    const result = await iniciarCambioCorreoAutenticado(formData)
+    setLoadingEmail(true);
+    setEmailError(null);
+    setEmailSuccess(null);
+    const result = await iniciarCambioCorreoAutenticado(formData);
 
     if (result?.error) {
-      setEmailError(result.error)
-      setLoadingEmail(false)
-      return
+      setEmailError(result.error);
+      setLoadingEmail(false);
+      return;
     }
 
     setEmailSuccess(
       'Registramos el cambio. Mantendremos tu correo actual hasta que valides el nuevo enlace desde la bandeja de entrada.'
-    )
-    setLoadingEmail(false)
+    );
+    setLoadingEmail(false);
   }
 
   return (
@@ -66,7 +59,13 @@ export function SecurityCredentialsPanel({
         </p>
 
         <form action={handlePassword} className="mt-5 space-y-4">
-          <Input id="current_password" name="current_password" type="password" label="Contrasena actual" required />
+          <Input
+            id="current_password"
+            name="current_password"
+            type="password"
+            label="Contrasena actual"
+            required
+          />
           <Input id="password" name="password" type="password" label="Nueva contrasena" required />
           <Input
             id="confirm_password"
@@ -100,8 +99,9 @@ export function SecurityCredentialsPanel({
         </p>
         <h2 className="mt-3 text-xl font-semibold text-slate-950">Actualizar correo principal</h2>
         <p className="mt-2 text-sm text-slate-600">
-          Hoy tu acceso sigue usando <span className="font-semibold text-slate-950">{correoActual ?? 'tu correo activo'}</span>.
-          El sistema mantendra ese correo hasta que el nuevo quede validado.
+          Hoy tu acceso sigue usando{' '}
+          <span className="font-semibold text-slate-950">{correoActual ?? 'tu correo activo'}</span>
+          . El sistema mantendra ese correo hasta que el nuevo quede validado.
         </p>
 
         <form action={handleEmail} className="mt-5 space-y-4">
@@ -132,6 +132,5 @@ export function SecurityCredentialsPanel({
         </form>
       </section>
     </div>
-  )
+  );
 }
-

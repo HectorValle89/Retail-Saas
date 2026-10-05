@@ -1,4 +1,4 @@
-import { unstable_cache } from 'next/cache';
+import { unstable_cache, revalidateTag } from 'next/cache';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ActorActual } from '@/lib/auth/session';
 import { buildModuleCacheTags } from '@/lib/cache/moduleTags';
@@ -13,6 +13,10 @@ import type {
   Empleado,
   Pdv,
 } from '@/types/database';
+import {
+  buildResolvedSupervisorLookup,
+  resolveEffectiveSupervisorId,
+} from '../lib/supervisorAttribution';
 import {
   obtenerRegistrosExtemporaneosPanel,
   type RegistroExtemporaneoListadoItem,
@@ -67,6 +71,7 @@ interface VentaQueryRow extends Pick<
   | 'total_monto'
   | 'confirmada'
   | 'observaciones'
+  | 'created_at'
 > {
   cuenta_cliente: MaybeMany<CuentaClienteRelacion>;
   asistencia: MaybeMany<AsistenciaRelacion>;
@@ -178,6 +183,7 @@ export interface VentaCuotaDiariaIndicador {
 
 export interface VentaDatasetItem {
   fechaOperacion: string;
+  fechaRegistro?: string;
   weekBucket: string;
   pdvId: string;
   pdvLabel: string;
@@ -186,6 +192,7 @@ export interface VentaDatasetItem {
   pdvNombre?: string;
   empleadoId: string;
   empleadoLabel: string;
+  empleadoIdNomina?: string;
   supervisorId: string | null;
   supervisorLabel: string;
   zona: string;
@@ -194,11 +201,33 @@ export interface VentaDatasetItem {
   totalMonto: number;
   confirmada: boolean;
   total: number;
+  subtipoIncidencia?: 'V' | 'I' | 'F' | '0';
+  productoId?: string | null;
+  productoSku?: string | null;
+  productoNombre?: string | null;
+  productoNombreCorto?: string | null;
 }
 
 export interface SelectorOption {
   id: string;
   label: string;
+}
+
+export interface VentaCapturaDetalleItem {
+  id: string;
+  createdAt: string;
+  empleadoId: string;
+  fechaOperativa: string;
+  tipoRegistro: 'VENTA' | 'LOVE_ISDIN' | 'CANJE' | 'DESABASTO' | string;
+  subtipoRegistro: string | null;
+  cantidad: number;
+  productoNombre: string | null;
+  materialNombre: string | null;
+  materialNombreCorto?: string | null;
+  observaciones: string | null;
+  pdvId: string | null;
+  pdvNombre?: string | null;
+  pdvClaveBtl?: string | null;
 }
 
 export interface VentasPanelData {
@@ -220,6 +249,7 @@ export interface VentasPanelData {
   supervisores: SelectorOption[];
   pdvs: SelectorOption[];
   empleados: SelectorOption[];
+  capturasDetalle?: VentaCapturaDetalleItem[];
 }
 
 interface ObtenerVentasOptions {
@@ -230,6 +260,7 @@ interface ObtenerVentasOptions {
   actor?: ActorActual | null;
   serviceClient?: TypedSupabaseClient;
   month?: string | null;
+  bypassCache?: boolean;
 }
 
 const VENTAS_PANEL_REVALIDATE_SECONDS = 60;
@@ -258,8 +289,17 @@ function normalizePageSize(value?: number) {
   return Math.min(50, Math.max(10, Math.floor(value)));
 }
 
+function getMexicoDateIso(value: string | Date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(typeof value === 'string' ? new Date(value) : value);
+}
+
 function getTodayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return getMexicoDateIso(new Date());
 }
 
 function roundToTwo(value: number) {
@@ -290,13 +330,14 @@ function buildQuotaKey(empleadoId: string, cuentaClienteId: string) {
 }
 
 function buildVentasCacheKey(actor: ActorActual, options?: ObtenerVentasOptions) {
+  const defaultMonth = getMexicoDateIso(new Date()).slice(0, 7);
   return [
     actor.cuentaClienteId ?? 'sin-cuenta',
     actor.empleadoId,
     actor.puesto,
     String(normalizePage(options?.page)),
     String(normalizePageSize(options?.pageSize)),
-    options?.month ?? 'no-month',
+    options?.month || defaultMonth,
   ].join(':');
 }
 
@@ -309,21 +350,129 @@ function buildVentasCacheTags(actor: ActorActual) {
   });
 }
 
-function getMexicoDateIso(value: string | Date) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Mexico_City',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(typeof value === 'string' ? new Date(value) : value);
-}
-
 function getWeekStartIso(dayIso: string) {
   const [year, month, day] = dayIso.split('-').map((value) => Number.parseInt(value, 10));
   const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
   const weekday = date.getUTCDay() === 0 ? 7 : date.getUTCDay();
   date.setUTCDate(date.getUTCDate() - weekday + 1);
   return date.toISOString().slice(0, 10);
+}
+
+async function fetchAsignacionesDiariasResueltasMes(
+  supabase: SupabaseClient,
+  options: {
+    monthStartIso: string;
+    monthEndIso: string;
+    accountId?: string | null;
+    supervisorEmpleadoId?: string | null;
+  }
+) {
+  let allRows: Array<{
+    fecha: string;
+    empleado_id: string;
+    pdv_id: string | null;
+    supervisor_empleado_id: string | null;
+  }> = [];
+
+  let page = 0;
+  const PAGE_SIZE = 1000;
+  while (true) {
+    let q = supabase
+      .from('asignacion_diaria_resuelta')
+      .select('fecha, empleado_id, pdv_id, supervisor_empleado_id')
+      .gte('fecha', options.monthStartIso)
+      .lte('fecha', options.monthEndIso)
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+    if (options.accountId) {
+      q = q.eq('cuenta_cliente_id', options.accountId);
+    }
+    if (options.supervisorEmpleadoId) {
+      q = q.eq('supervisor_empleado_id', options.supervisorEmpleadoId);
+    }
+
+    const { data, error } = await q;
+    if (error) {
+      console.error('[ventaService] Error fetching asignacion_diaria_resuelta page:', error.message);
+      break;
+    }
+    if (!data || data.length === 0) break;
+    allRows = allRows.concat(data as any);
+    if (data.length < PAGE_SIZE) break;
+    page++;
+    if (page >= 20) break;
+  }
+
+  return allRows;
+}
+
+async function fetchCapturasDetalleMes(
+  supabase: SupabaseClient,
+  options: {
+    monthStartIso: string;
+    monthEndIso: string;
+    accountId?: string | null;
+    teamDermoIdsArr?: string[] | null;
+  }
+) {
+  let allCaptures: any[] = [];
+  let page = 0;
+  const PAGE_SIZE = 1000;
+
+  while (true) {
+    let q = supabase
+      .from('captura_publica_registro')
+      .select(
+        `
+        id,
+        created_at,
+        empleado_id,
+        fecha_operativa,
+        tipo_registro,
+        subtipo_registro,
+        cantidad,
+        producto_nombre_snapshot,
+        material_nombre_snapshot,
+        material:material_catalogo_id(nombre, nombre_corto),
+        observaciones,
+        pdv_id,
+        pdv:pdv_id(clave_btl, nombre, zona, cadena_id)
+      `
+      )
+      .gte('fecha_operativa', options.monthStartIso)
+      .lte('fecha_operativa', options.monthEndIso)
+      .or(
+        'tipo_registro.in.(LOVE_ISDIN,CANJE,DESABASTO),subtipo_registro.in.(VACACIONES,INCAPACIDAD,FALTA,SIN_VENTAS)'
+      )
+      .order('fecha_operativa', { ascending: false })
+      .order('created_at', { ascending: false })
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+    if (options.accountId) {
+      q = q.eq('cuenta_cliente_id', options.accountId);
+    }
+
+    if (options.teamDermoIdsArr) {
+      if (options.teamDermoIdsArr.length === 0) {
+        q = q.eq('empleado_id', '00000000-0000-0000-0000-000000000000');
+      } else {
+        q = q.in('empleado_id', options.teamDermoIdsArr);
+      }
+    }
+
+    const { data, error } = await q;
+    if (error) {
+      console.error('[ventaService] Error fetching capturasDetalle page:', error.message);
+      break;
+    }
+    if (!data || data.length === 0) break;
+    allCaptures = allCaptures.concat(data);
+    if (data.length < PAGE_SIZE) break;
+    page++;
+    if (page >= 20) break;
+  }
+
+  return allCaptures;
 }
 
 async function obtenerPanelVentasUncached(
@@ -337,42 +486,14 @@ async function obtenerPanelVentasUncached(
   const actorEmpleadoId = options?.actorEmpleadoId ?? options?.actor?.empleadoId ?? null;
   const esSupervisor = actorPuesto === 'SUPERVISOR';
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = getMexicoDateIso(new Date());
   const currentMonth = options?.month || todayIso.slice(0, 7);
 
-  const esVisualizadorReporte = ['ADMINISTRADOR', 'COORDINADOR', 'SUPERVISOR'].includes(actorPuesto ?? '');
+  const esVisualizadorReporte = ['ADMINISTRADOR', 'COORDINADOR', 'SUPERVISOR'].includes(
+    actorPuesto ?? ''
+  );
 
   if (esVisualizadorReporte) {
-    let query = supabase
-      .from('vista_venta_diaria_agrupada')
-      .select(`
-        cuenta_cliente_id,
-        empleado_id,
-        empleado_nombre,
-        supervisor_id,
-        supervisor_nombre,
-        pdv_id,
-        pdv_clave_btl,
-        pdv_nombre,
-        pdv_zona,
-        cadena_nombre,
-        fecha_operacion,
-        confirmada,
-        total_unidades,
-        total_monto,
-        total_transacciones
-      `)
-      .eq('periodo_mes', currentMonth)
-      .range(0, 4999);
-
-    if (accountId) {
-      query = query.eq('cuenta_cliente_id', accountId);
-    }
-
-    if (actorPuesto === 'SUPERVISOR' && actorEmpleadoId) {
-      query = query.eq('supervisor_id', actorEmpleadoId);
-    }
-
     const [yearStr, monthStr] = currentMonth.split('-');
     const year = parseInt(yearStr, 10);
     const month = parseInt(monthStr, 10);
@@ -380,19 +501,24 @@ async function obtenerPanelVentasUncached(
     const monthStartIso = `${currentMonth}-01`;
     const monthEndIso = `${currentMonth}-${lastDay}`;
 
-    // Query active assignments for the supervisor/client in the current month
+    // Construct base queries for parallel execution
     let assignmentsQuery = supabase
       .from('asignacion')
-      .select(`
+      .select(
+        `
         empleado_id,
-        empleado:empleado_id(nombre_completo),
+        empleado:empleado_id(id, nombre_completo, id_nomina, estatus_laboral, fecha_baja),
         pdv_id,
         pdv:pdv_id(id, clave_btl, nombre, zona, cadena_id),
-        supervisor_empleado_id
-      `)
+        supervisor_empleado_id,
+        fecha_inicio,
+        fecha_fin
+      `
+      )
       .eq('estado_publicacion', 'PUBLICADA')
       .lte('fecha_inicio', monthEndIso)
-      .or(`fecha_fin.is.null,fecha_fin.gte.${monthStartIso}`);
+      .or(`fecha_fin.is.null,fecha_fin.gte.${monthStartIso}`)
+      .limit(10000);
 
     if (accountId) {
       assignmentsQuery = assignmentsQuery.eq('cuenta_cliente_id', accountId);
@@ -401,41 +527,96 @@ async function obtenerPanelVentasUncached(
       assignmentsQuery = assignmentsQuery.eq('supervisor_empleado_id', actorEmpleadoId);
     }
 
-    const { data: asgData, error: asgError } = await assignmentsQuery;
-    if (asgError) {
-      console.error('[ventaService] Error querying active assignments:', asgError.message);
-    }
-
-    // Query active employees to ensure we list all dermoconsejeras of the team
     let employeesQuery = supabase
       .from('empleado')
-      .select('id, nombre_completo, puesto, supervisor_empleado_id, usuario:usuario!usuario_empleado_id_fkey!inner(cuenta_cliente_id)')
-      .eq('estatus_laboral', 'ACTIVO');
+      .select(
+        'id, id_nomina, nombre_completo, puesto, supervisor_empleado_id, usuario:usuario!usuario_empleado_id_fkey!inner(cuenta_cliente_id)'
+      )
+      .eq('estatus_laboral', 'ACTIVO')
+      .limit(10000);
 
     if (accountId) {
       employeesQuery = employeesQuery.eq('usuario.cuenta_cliente_id', accountId);
     }
 
-    const { data: empData, error: empError } = await employeesQuery;
-    if (empError) {
-      console.error('[ventaService] Error querying active employees:', empError.message);
+    const cadenasQuery = supabase.from('cadena').select('id, nombre').limit(1000);
+    const productosQuery = supabase.from('producto').select('id, sku, nombre, nombre_corto').limit(5000);
+    const supervisorPdvsQuery = supabase
+      .from('supervisor_pdv')
+      .select('pdv_id, empleado_id, fecha_inicio, fecha_fin')
+      .lte('fecha_inicio', monthEndIso)
+      .or(`fecha_fin.is.null,fecha_fin.gte.${monthStartIso}`)
+      .limit(10000);
+
+    let pdvsQuery = supabase
+      .from('pdv')
+      .select('id, clave_btl, nombre, zona, cadena_id, id_cadena')
+      .limit(10000);
+
+    if (accountId) {
+      pdvsQuery = pdvsQuery.eq('cuenta_cliente_id', accountId);
     }
 
-    // Query cadenas for mapping
-    const { data: cadenasData } = await supabase
-      .from('cadena')
-      .select('id, nombre');
+    // Parallel resolution of all metadata queries first
+    const [asgRes, empRes, cadRes, prodRes, supPdvRes, adrData, pdvsRes] = await Promise.all([
+      assignmentsQuery,
+      employeesQuery,
+      cadenasQuery,
+      productosQuery,
+      supervisorPdvsQuery,
+      fetchAsignacionesDiariasResueltasMes(supabase, {
+        monthStartIso,
+        monthEndIso,
+        accountId,
+        supervisorEmpleadoId: actorPuesto === 'SUPERVISOR' ? actorEmpleadoId : null,
+      }),
+      pdvsQuery,
+    ]);
+
+    const asgData = asgRes.data ?? [];
+    const empData = empRes.data ?? [];
+    const cadenasData = cadRes.data ?? [];
+    const productosData = prodRes.data ?? [];
+    const supervisorPdvsData = supPdvRes.data ?? [];
+    const pdvsData = pdvsRes.data ?? [];
+
+    if (asgRes.error)
+      console.error('[ventaService] Error querying assignments:', asgRes.error.message);
+    if (empRes.error)
+      console.error('[ventaService] Error querying employees:', empRes.error.message);
+
+    const resolvedSupervisorLookup = buildResolvedSupervisorLookup(adrData as any[]);
     const cadenaMap = new Map((cadenasData ?? []).map((c: any) => [c.id, c.nombre]));
+    const productosMap = new Map((productosData ?? []).map((p: any) => [p.id, p]));
 
     const supervisorMap = new Map<string, string>();
     const activeDermos: any[] = [];
+    const teamDermoIds = new Set<string>();
+
+    if (actorPuesto === 'SUPERVISOR' && actorEmpleadoId) {
+      (adrData ?? []).forEach((row: any) => {
+        if (
+          row.empleado_id &&
+          (row.pdv_id || row.estado_operativo === 'FORMACION' || row.estado_operativo === 'ASIGNADA_PDV') &&
+          row.estado_operativo !== 'SIN_ASIGNACION'
+        ) {
+          teamDermoIds.add(row.empleado_id);
+        }
+      });
+      (asgData ?? []).forEach((a: any) => {
+        if (a.empleado_id && a.pdv_id) teamDermoIds.add(a.empleado_id);
+      });
+      (empData ?? []).forEach((e: any) => {
+        if (e.supervisor_empleado_id === actorEmpleadoId) teamDermoIds.add(e.id);
+      });
+    }
 
     (empData ?? []).forEach((emp: any) => {
       if (emp.puesto === 'SUPERVISOR') {
         supervisorMap.set(emp.id, emp.nombre_completo);
       } else if (emp.puesto === 'DERMOCONSEJERO') {
         if (actorPuesto === 'SUPERVISOR' && actorEmpleadoId) {
-          if (emp.supervisor_empleado_id === actorEmpleadoId) {
+          if (teamDermoIds.has(emp.id)) {
             activeDermos.push(emp);
           }
         } else {
@@ -444,54 +625,401 @@ async function obtenerPanelVentasUncached(
       }
     });
 
-    const { data: viewData, error: viewError } = await query;
-    if (viewError) {
-      console.error('[ventaService] Error querying vista_venta_diaria_agrupada:', viewError.message);
+    const teamDermoIdsArr = Array.from(teamDermoIds);
+
+    const nextMonthYear = month === 12 ? year + 1 : year;
+    const nextMonthNum = month === 12 ? 1 : month + 1;
+    const nextMonthStr = String(nextMonthNum).padStart(2, '0');
+    const monthStartUtcFilter = `${currentMonth}-01T06:00:00.000Z`;
+    const monthEndUtcFilter = `${nextMonthYear}-${nextMonthStr}-01T05:59:59.999Z`;
+
+    // 1. Build fast in-memory lookup maps for PDVs and Empleados
+    const pdvMap = new Map<string, any>();
+    (pdvsData ?? []).forEach((p: any) => {
+      if (p && p.id) {
+        pdvMap.set(p.id, p);
+      }
+    });
+    (asgData ?? []).forEach((a: any) => {
+      const pdv = Array.isArray(a.pdv) ? a.pdv[0] : a.pdv;
+      if (pdv && pdv.id && !pdvMap.has(pdv.id)) {
+        pdvMap.set(pdv.id, pdv);
+      }
+    });
+
+    const empMap = new Map<string, any>();
+    (empData ?? []).forEach((e: any) => {
+      if (e.id) {
+        empMap.set(e.id, e);
+      }
+    });
+    (asgData ?? []).forEach((a: any) => {
+      const emp = Array.isArray(a.empleado) ? a.empleado[0] : a.empleado;
+      if (emp && emp.id && !empMap.has(emp.id)) {
+        empMap.set(emp.id, emp);
+      }
+    });
+
+    // 2. Fetch total count scoped to team if supervisor
+    let totalCountQuery = supabase
+      .from('venta')
+      .select('id', { count: 'exact', head: true })
+      .gte('fecha_utc', monthStartUtcFilter)
+      .lte('fecha_utc', monthEndUtcFilter);
+
+    if (accountId) {
+      totalCountQuery = totalCountQuery.eq('cuenta_cliente_id', accountId);
     }
 
-    const dataset: VentaDatasetItem[] = (viewData ?? []).map((row: any) => {
-      const dateStr = String(row.fecha_operacion);
-      return {
-        fechaOperacion: dateStr,
-        weekBucket: getWeekStartIso(dateStr),
-        pdvId: row.pdv_id,
-        pdvLabel: `${row.pdv_clave_btl ?? 'SIN BTL'} - ${row.pdv_nombre}`,
-        pdvClaveBtl: row.pdv_clave_btl ?? 'SIN BTL',
-        pdvIdCadena: '',
-        pdvNombre: row.pdv_nombre ?? 'PDV sin nombre',
-        empleadoId: row.empleado_id,
-        empleadoLabel: row.empleado_nombre ?? 'Sin dermoconsejera',
-        supervisorId: row.supervisor_id,
-        supervisorLabel: row.supervisor_nombre ?? 'Sin supervisor',
-        zona: row.pdv_zona ?? 'Sin zona',
-        cadena: row.cadena_nombre ?? 'Sin cadena',
-        totalUnidades: row.total_unidades,
-        totalMonto: Number(row.total_monto),
-        confirmada: row.confirmada,
-        total: row.total_transacciones,
-      };
+    if (actorPuesto === 'SUPERVISOR' && actorEmpleadoId) {
+      if (teamDermoIdsArr.length === 0) {
+        totalCountQuery = totalCountQuery.eq('empleado_id', '00000000-0000-0000-0000-000000000000');
+      } else {
+        totalCountQuery = totalCountQuery.in('empleado_id', teamDermoIdsArr);
+      }
+    }
+
+    // Parallel fetch of paginated capturas and total count
+    const [captData, totalCountRes] = await Promise.all([
+      fetchCapturasDetalleMes(supabase, {
+        monthStartIso,
+        monthEndIso,
+        accountId,
+        teamDermoIdsArr: actorPuesto === 'SUPERVISOR' && actorEmpleadoId ? teamDermoIdsArr : null,
+      }),
+      totalCountQuery,
+    ]);
+
+    const { count: totalVentasCount } = totalCountRes;
+    const totalCount = totalVentasCount ?? 0;
+
+    const PAGE_SIZE = 1000;
+    const totalPagesToFetch = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+    let viewData: any[] = [];
+    const BATCH_SIZE = 6; // Keep subrequest concurrency <= 6 to respect Cloudflare Workers limits
+
+    for (let batchStart = 0; batchStart < totalPagesToFetch; batchStart += BATCH_SIZE) {
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, totalPagesToFetch);
+      const pagePromises = [];
+      for (let p = batchStart; p < batchEnd; p++) {
+        const from = p * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        let pQuery = supabase
+          .from('venta')
+          .select(
+            `
+            id,
+            cuenta_cliente_id,
+            empleado_id,
+            pdv_id,
+            producto_id,
+            producto_sku,
+            producto_nombre,
+            producto_nombre_corto,
+            fecha_utc,
+            total_unidades,
+            total_monto,
+            confirmada,
+            asistencia:asistencia_id(fecha_operacion),
+            pdv:pdv_id(id, clave_btl, nombre, zona, cadena_id, id_cadena)
+          `
+          )
+          .gte('fecha_utc', monthStartUtcFilter)
+          .lte('fecha_utc', monthEndUtcFilter)
+          .order('fecha_utc', { ascending: false })
+          .range(from, to);
+
+        if (accountId) {
+          pQuery = pQuery.eq('cuenta_cliente_id', accountId);
+        }
+
+        if (actorPuesto === 'SUPERVISOR' && actorEmpleadoId) {
+          if (teamDermoIdsArr.length === 0) {
+            pQuery = pQuery.eq('empleado_id', '00000000-0000-0000-0000-000000000000');
+          } else {
+            pQuery = pQuery.in('empleado_id', teamDermoIdsArr);
+          }
+        }
+
+        pagePromises.push(pQuery);
+      }
+
+      const batchResults = await Promise.all(pagePromises);
+      batchResults.forEach((res) => {
+        if (res.data) {
+          viewData = viewData.concat(res.data);
+        }
+      });
+    }
+
+    const employeeNominaMap = new Map<string, string>();
+    (empData ?? []).forEach((emp: any) => {
+      employeeNominaMap.set(emp.id, emp.id_nomina ?? '');
     });
+
+    const datasetMap = new Map<string, VentaDatasetItem>();
+
+    (viewData ?? []).forEach((row: any) => {
+      const dateStr =
+        (Array.isArray(row.asistencia)
+          ? row.asistencia[0]?.fecha_operacion
+          : row.asistencia?.fecha_operacion) || getMexicoDateIso(row.fecha_utc);
+      const pdv = pdvMap.get(row.pdv_id) || (Array.isArray(row.pdv) ? row.pdv[0] : row.pdv);
+      const emp = empMap.get(row.empleado_id);
+      const prod = row.producto_id ? productosMap.get(row.producto_id) : null;
+
+      const supervisorId = resolveEffectiveSupervisorId({
+        empleadoId: row.empleado_id,
+        pdvId: row.pdv_id,
+        operationDate: dateStr,
+        resolvedMap: resolvedSupervisorLookup,
+        assignments: asgData,
+        supervisorPdvs: supervisorPdvsData,
+        employeeSupervisorId: emp?.supervisor_empleado_id ?? null,
+      });
+      const supervisorLabel = supervisorId
+        ? supervisorMap.get(supervisorId) || 'Sin supervisor'
+        : 'Sin supervisor';
+
+      if (actorPuesto === 'SUPERVISOR' && actorEmpleadoId && supervisorId !== actorEmpleadoId) {
+        return;
+      }
+
+      const key = `${row.empleado_id}_${row.pdv_id}_${dateStr}_${row.producto_id ?? 'general'}`;
+
+      let item = datasetMap.get(key);
+      if (!item) {
+        item = {
+          fechaOperacion: dateStr,
+          weekBucket: getWeekStartIso(dateStr),
+          pdvId: row.pdv_id,
+          pdvLabel: pdv ? `${pdv.clave_btl ?? 'SIN BTL'} - ${pdv.nombre}` : 'PDV sin nombre',
+          pdvClaveBtl: pdv?.clave_btl ?? 'SIN BTL',
+          pdvIdCadena: '',
+          pdvNombre: pdv?.nombre ?? 'PDV sin nombre',
+          empleadoId: row.empleado_id,
+          empleadoLabel: emp?.nombre_completo ?? 'Sin dermoconsejera',
+          empleadoIdNomina: emp?.id_nomina ?? employeeNominaMap.get(row.empleado_id) ?? '',
+          supervisorId: supervisorId,
+          supervisorLabel: supervisorLabel,
+          zona: pdv?.zona ?? emp?.zona ?? 'Sin zona',
+          cadena: pdv?.cadena_id ? (cadenaMap.get(pdv.cadena_id) ?? 'Sin cadena') : 'Sin cadena',
+          totalUnidades: 0,
+          totalMonto: 0,
+          confirmada: row.confirmada,
+          total: 0,
+          productoId: row.producto_id ?? null,
+          productoSku: row.producto_sku ?? prod?.sku ?? null,
+          productoNombre: row.producto_nombre ?? prod?.nombre ?? null,
+          productoNombreCorto: row.producto_nombre_corto ?? prod?.nombre_corto ?? null,
+        };
+        datasetMap.set(key, item);
+      }
+
+      item.totalUnidades += row.total_unidades ?? 0;
+      item.totalMonto += Number(row.total_monto ?? 0);
+      item.total += 1;
+    });
+
+    const capturesByGroup = new Map<string, any[]>();
+    (captData ?? []).forEach((capt: any) => {
+      const dateStr = String(capt.fecha_operativa).slice(0, 10);
+      const key = `${capt.empleado_id}||${capt.pdv_id || ''}||${dateStr}`;
+      if (!capturesByGroup.has(key)) {
+        capturesByGroup.set(key, []);
+      }
+      capturesByGroup.get(key)!.push(capt);
+    });
+
+    capturesByGroup.forEach((list) => {
+      list.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    });
+
+    capturesByGroup.forEach((list, key) => {
+      const [empId, pdvId, dateStr] = key.split('||');
+
+      const targetCaptures = list.filter((c: any) =>
+        ['VACACIONES', 'INCAPACIDAD', 'FALTA', 'SIN_VENTAS'].includes(c.subtipo_registro)
+      );
+
+      if (targetCaptures.length === 0) return;
+
+      const latestCapt = targetCaptures[targetCaptures.length - 1];
+      const subtipo = latestCapt.subtipo_registro;
+
+      let resolvedPdvId = pdvId;
+      let pdvObj = latestCapt.pdv;
+      if (!pdvObj && empId) {
+        const matchingAsg = (asgData ?? []).find((a: any) => a.empleado_id === empId);
+        if (matchingAsg) {
+          resolvedPdvId = matchingAsg.pdv_id;
+          pdvObj = matchingAsg.pdv;
+        }
+      }
+
+      const resolvedKey = `${empId}||${resolvedPdvId}||${dateStr}`;
+      let item = datasetMap.get(resolvedKey);
+
+      const subtipoMap: Record<string, 'V' | 'I' | 'F' | '0'> = {
+        VACACIONES: 'V',
+        INCAPACIDAD: 'I',
+        FALTA: 'F',
+        SIN_VENTAS: '0',
+      };
+
+      const subtipoInc = subtipo ? subtipoMap[subtipo] : undefined;
+
+      if (item) {
+        if (item.totalUnidades === 0 && subtipoInc) {
+          item.subtipoIncidencia = subtipoInc;
+        }
+      } else {
+        const emp = (empData ?? []).find((e: any) => e.id === empId);
+        const supervisorId = resolveEffectiveSupervisorId({
+          empleadoId: empId,
+          pdvId: resolvedPdvId,
+          operationDate: dateStr,
+          assignments: asgData,
+          supervisorPdvs: supervisorPdvsData,
+          employeeSupervisorId: emp?.supervisor_empleado_id ?? null,
+        });
+        const supervisorLabel = supervisorId
+          ? supervisorMap.get(supervisorId) || 'Sin supervisor'
+          : 'Sin supervisor';
+
+        datasetMap.set(resolvedKey, {
+          fechaOperacion: dateStr,
+          weekBucket: getWeekStartIso(dateStr),
+          pdvId: resolvedPdvId,
+          pdvLabel: pdvObj
+            ? `${pdvObj.clave_btl ?? 'SIN BTL'} - ${pdvObj.nombre}`
+            : 'PDV sin nombre',
+          pdvClaveBtl: pdvObj?.clave_btl ?? 'SIN BTL',
+          pdvIdCadena: '',
+          pdvNombre: pdvObj?.nombre ?? 'PDV sin nombre',
+          empleadoId: empId,
+          empleadoLabel: emp?.nombre_completo ?? 'Sin dermoconsejera',
+          empleadoIdNomina: emp?.id_nomina ?? employeeNominaMap.get(empId) ?? '',
+          supervisorId,
+          supervisorLabel: supervisorLabel,
+          zona: pdvObj?.zona ?? 'Sin zona',
+          cadena: pdvObj?.cadena_id
+            ? (cadenaMap.get(pdvObj.cadena_id) ?? 'Sin cadena')
+            : 'Sin cadena',
+          totalUnidades: 0,
+          totalMonto: 0,
+          confirmada: true,
+          total: 0,
+          subtipoIncidencia: subtipoInc,
+        });
+      }
+    });
+
+    const dataset = Array.from(datasetMap.values());
 
     const salesCombinations = new Set(dataset.map((row) => `${row.empleadoId}||${row.pdvId}`));
 
     // 1. Merge active assignments that have 0 sales in the current month
     (asgData ?? []).forEach((asg: any) => {
+      const emp = Array.isArray(asg.empleado) ? asg.empleado[0] : asg.empleado;
+      // Omitir asignaciones con fechas inconsistentes o invertidas
+      if (asg.fecha_fin && asg.fecha_inicio && asg.fecha_inicio > asg.fecha_fin) {
+        return;
+      }
+      // Omitir colaboradores con baja anterior al inicio del mes
+      if (emp?.estatus_laboral === 'BAJA' && emp?.fecha_baja && emp.fecha_baja < monthStartIso) {
+        return;
+      }
+      // Omitir asignaciones posteriores a la fecha efectiva de baja
+      if (emp?.estatus_laboral === 'BAJA' && emp?.fecha_baja && asg.fecha_inicio > emp.fecha_baja) {
+        return;
+      }
+      const supervisorId = resolveEffectiveSupervisorId({
+        empleadoId: asg.empleado_id,
+        pdvId: asg.pdv_id,
+        operationDate: asg.fecha_inicio || monthStartIso,
+        resolvedMap: resolvedSupervisorLookup,
+        assignments: asgData,
+        supervisorPdvs: supervisorPdvsData,
+        employeeSupervisorId: asg.supervisor_empleado_id,
+      });
+
+      if (actorPuesto === 'SUPERVISOR' && actorEmpleadoId && supervisorId !== actorEmpleadoId) {
+        return;
+      }
+
       const key = `${asg.empleado_id}||${asg.pdv_id}`;
       if (!salesCombinations.has(key)) {
+        const pdv = asg.pdv || pdvMap.get(asg.pdv_id);
         dataset.push({
           fechaOperacion: '',
           weekBucket: '',
           pdvId: asg.pdv_id,
-          pdvLabel: asg.pdv ? `${asg.pdv.clave_btl ?? 'SIN BTL'} - ${asg.pdv.nombre}` : 'PDV sin nombre',
-          pdvClaveBtl: asg.pdv?.clave_btl ?? 'SIN BTL',
+          pdvLabel: pdv
+            ? `${pdv.clave_btl ?? 'SIN BTL'} - ${pdv.nombre}`
+            : (pdvMap.get(asg.pdv_id) ? `${pdvMap.get(asg.pdv_id).clave_btl ?? 'SIN BTL'} - ${pdvMap.get(asg.pdv_id).nombre}` : 'PDV sin nombre'),
+          pdvClaveBtl: pdv?.clave_btl ?? pdvMap.get(asg.pdv_id)?.clave_btl ?? 'SIN BTL',
           pdvIdCadena: '',
-          pdvNombre: asg.pdv?.nombre ?? 'PDV sin nombre',
+          pdvNombre: pdv?.nombre ?? pdvMap.get(asg.pdv_id)?.nombre ?? 'PDV sin nombre',
           empleadoId: asg.empleado_id,
-          empleadoLabel: asg.empleado?.nombre_completo ?? 'Sin dermoconsejera',
-          supervisorId: asg.supervisor_empleado_id,
-          supervisorLabel: supervisorMap.get(asg.supervisor_empleado_id) || 'Sin supervisor',
-          zona: asg.pdv?.zona ?? 'Sin zona',
-          cadena: asg.pdv?.cadena_id ? (cadenaMap.get(asg.pdv.cadena_id) ?? 'Sin cadena') : 'Sin cadena',
+          empleadoLabel: asg.empleado?.nombre_completo ?? emp?.nombre_completo ?? 'Sin dermoconsejera',
+          empleadoIdNomina: asg.empleado?.id_nomina ?? emp?.id_nomina ?? employeeNominaMap.get(asg.empleado_id) ?? '',
+          supervisorId,
+          supervisorLabel: supervisorId ? (supervisorMap.get(supervisorId) || 'Sin supervisor') : 'Sin supervisor',
+          zona: asg.pdv?.zona ?? pdvMap.get(asg.pdv_id)?.zona ?? 'Sin zona',
+          cadena: asg.pdv?.cadena_id
+            ? (cadenaMap.get(asg.pdv.cadena_id) ?? 'Sin cadena')
+            : (pdvMap.get(asg.pdv_id)?.cadena_id ? (cadenaMap.get(pdvMap.get(asg.pdv_id).cadena_id) ?? 'Sin cadena') : 'Sin cadena'),
+          totalUnidades: 0,
+          totalMonto: 0,
+          confirmada: true,
+          total: 0,
+        });
+        salesCombinations.add(key);
+      }
+    });
+
+    // 1b. Merge combinations from asignacion_diaria_resuelta
+    (adrData ?? []).forEach((adr: any) => {
+      if (!adr.empleado_id || !adr.pdv_id) return;
+      const key = `${adr.empleado_id}||${adr.pdv_id}`;
+      if (!salesCombinations.has(key)) {
+        const emp = empMap.get(adr.empleado_id);
+        const pdv = pdvMap.get(adr.pdv_id);
+        if (emp?.estatus_laboral === 'BAJA' && emp?.fecha_baja && emp.fecha_baja < monthStartIso) {
+          return;
+        }
+
+        const supervisorId = resolveEffectiveSupervisorId({
+          empleadoId: adr.empleado_id,
+          pdvId: adr.pdv_id,
+          operationDate: adr.fecha || monthStartIso,
+          resolvedMap: resolvedSupervisorLookup,
+          assignments: asgData,
+          supervisorPdvs: supervisorPdvsData,
+          employeeSupervisorId: adr.supervisor_empleado_id,
+        });
+
+        if (actorPuesto === 'SUPERVISOR' && actorEmpleadoId && supervisorId !== actorEmpleadoId) {
+          return;
+        }
+
+        dataset.push({
+          fechaOperacion: '',
+          weekBucket: '',
+          pdvId: adr.pdv_id,
+          pdvLabel: pdv ? `${pdv.clave_btl ?? 'SIN BTL'} - ${pdv.nombre}` : 'PDV sin nombre',
+          pdvClaveBtl: pdv?.clave_btl ?? 'SIN BTL',
+          pdvIdCadena: pdv?.id_cadena ?? '',
+          pdvNombre: pdv?.nombre ?? 'PDV sin nombre',
+          empleadoId: adr.empleado_id,
+          empleadoLabel: emp?.nombre_completo ?? 'Sin dermoconsejera',
+          empleadoIdNomina: emp?.id_nomina ?? employeeNominaMap.get(adr.empleado_id) ?? '',
+          supervisorId,
+          supervisorLabel: supervisorId ? (supervisorMap.get(supervisorId) || 'Sin supervisor') : 'Sin supervisor',
+          zona: pdv?.zona ?? 'Sin zona',
+          cadena: pdv?.cadena_id ? (cadenaMap.get(pdv.cadena_id) ?? 'Sin cadena') : 'Sin cadena',
           totalUnidades: 0,
           totalMonto: 0,
           confirmada: true,
@@ -505,6 +1033,18 @@ async function obtenerPanelVentasUncached(
     const dermosInDataset = new Set(dataset.map((row) => row.empleadoId));
     activeDermos.forEach((emp) => {
       if (!dermosInDataset.has(emp.id)) {
+        const empSupId = resolveEffectiveSupervisorId({
+          empleadoId: emp.id,
+          pdvId: '',
+          operationDate: monthStartIso,
+          resolvedMap: resolvedSupervisorLookup,
+          assignments: asgData,
+          supervisorPdvs: supervisorPdvsData,
+          employeeSupervisorId: emp.supervisor_empleado_id ?? null,
+        });
+        if (actorPuesto === 'SUPERVISOR' && actorEmpleadoId && empSupId !== actorEmpleadoId) {
+          return;
+        }
         dataset.push({
           fechaOperacion: '',
           weekBucket: '',
@@ -515,8 +1055,9 @@ async function obtenerPanelVentasUncached(
           pdvNombre: 'Sin tienda',
           empleadoId: emp.id,
           empleadoLabel: emp.nombre_completo,
-          supervisorId: emp.supervisor_empleado_id,
-          supervisorLabel: supervisorMap.get(emp.supervisor_empleado_id) || 'Sin supervisor',
+          empleadoIdNomina: emp.id_nomina ?? '',
+          supervisorId: empSupId,
+          supervisorLabel: empSupId ? (supervisorMap.get(empSupId) || 'Sin supervisor') : 'Sin supervisor',
           zona: 'Sin zona',
           cadena: 'Sin cadena',
           totalUnidades: 0,
@@ -526,6 +1067,14 @@ async function obtenerPanelVentasUncached(
         });
       }
     });
+
+    if (esSupervisor && actorEmpleadoId) {
+      dataset.splice(
+        0,
+        dataset.length,
+        ...dataset.filter((item) => item.supervisorId === actorEmpleadoId)
+      );
+    }
 
     const uniquePdvs = new Map<string, string>();
     const uniqueEmpleados = new Map<string, string>();
@@ -569,6 +1118,23 @@ async function obtenerPanelVentasUncached(
       }
     });
 
+    const capturasDetalle: VentaCapturaDetalleItem[] = (captData ?? []).map((c: any) => ({
+      id: c.id,
+      createdAt: c.created_at,
+      empleadoId: c.empleado_id,
+      fechaOperativa: String(c.fecha_operativa || '').slice(0, 10),
+      tipoRegistro: c.tipo_registro,
+      subtipoRegistro: c.subtipo_registro ?? null,
+      cantidad: Number(c.cantidad ?? (c.tipo_registro === 'LOVE_ISDIN' ? 1 : 1)),
+      productoNombre: c.producto_nombre_snapshot ?? null,
+      materialNombre: c.material_nombre_snapshot ?? null,
+      materialNombreCorto: c.material?.nombre_corto ?? null,
+      observaciones: c.observaciones ?? null,
+      pdvId: c.pdv_id ?? null,
+      pdvNombre: c.pdv?.nombre ?? null,
+      pdvClaveBtl: c.pdv?.clave_btl ?? null,
+    }));
+
     return {
       resumen: {
         total: totalTransacciones,
@@ -598,6 +1164,7 @@ async function obtenerPanelVentasUncached(
       supervisores: supervisoresList,
       pdvs: pdvsList,
       empleados: empleadosList,
+      capturasDetalle,
     };
   }
 
@@ -951,6 +1518,7 @@ async function obtenerPanelVentasUncached(
     total_monto,
     confirmada,
     observaciones,
+    created_at,
     cuenta_cliente:cuenta_cliente_id(nombre),
     pdv:pdv_id(id, clave_btl, nombre, zona, cadena_id, id_cadena)
   `;
@@ -1034,14 +1602,13 @@ async function obtenerPanelVentasUncached(
     ((cadenaResult.data ?? []) as any[]).map((c) => [c.id, c.nombre] as const)
   );
 
-  const productoMap = new Map(
-    ((productosData ?? []) as Producto[]).map((p) => [p.id, p] as const)
-  );
+  const productoMap = new Map(((productosData ?? []) as Producto[]).map((p) => [p.id, p] as const));
 
   const dataset: VentaDatasetItem[] = monthVentasRows.map((row) => {
     const pdv = obtenerPrimero(row.pdv);
     const empleado = obtenerPrimero(row.empleado);
     const dateStr = getMexicoDateIso(row.fecha_utc);
+    const fechaRegistro = row.created_at ? getMexicoDateIso(row.created_at) : dateStr;
     const weekBucket = getWeekStartIso(dateStr);
     const supervisorId = empleado?.supervisor_empleado_id ?? null;
     const supervisorLabel = supervisorId
@@ -1053,6 +1620,7 @@ async function obtenerPanelVentasUncached(
 
     return {
       fechaOperacion: dateStr,
+      fechaRegistro,
       weekBucket,
       pdvId: row.pdv_id,
       pdvLabel: pdv ? `${pdv.clave_btl ?? 'SIN BTL'} - ${pdv.nombre}` : 'PDV sin nombre',
@@ -1061,6 +1629,7 @@ async function obtenerPanelVentasUncached(
       pdvNombre: pdv?.nombre ?? 'PDV sin nombre',
       empleadoId: row.empleado_id,
       empleadoLabel: empleado?.nombre_completo ?? 'Sin dermoconsejera',
+      empleadoIdNomina: empleado?.id_nomina ?? '',
       supervisorId,
       supervisorLabel,
       zona,
@@ -1069,6 +1638,10 @@ async function obtenerPanelVentasUncached(
       totalMonto: Number(row.total_monto),
       confirmada: row.confirmada,
       total: 1,
+      productoId: row.producto_id ?? null,
+      productoSku: row.producto_sku ?? prod?.sku ?? null,
+      productoNombre: row.producto_nombre ?? prod?.nombre ?? null,
+      productoNombreCorto: row.producto_nombre_corto ?? prod?.nombre_corto ?? null,
     };
   });
 
@@ -1155,6 +1728,18 @@ export async function obtenerPanelVentas(
     actorEmpleadoId: actor.empleadoId ?? null,
   };
 
+  if (resolvedOptions.bypassCache) {
+    const tags = buildVentasCacheTags(actor);
+    tags.forEach((tag) => {
+      try {
+        revalidateTag(tag, 'max');
+      } catch (err) {
+        console.warn(`[ventaService] Error revalidating tag ${tag}:`, err);
+      }
+    });
+    return obtenerPanelVentasUncached(customSupabase ?? createServiceClient(), resolvedOptions);
+  }
+
   if (customSupabase) {
     return obtenerPanelVentasUncached(customSupabase, resolvedOptions);
   }
@@ -1162,7 +1747,7 @@ export async function obtenerPanelVentas(
   const service = options?.serviceClient ?? createServiceClient();
   return unstable_cache(
     async () => obtenerPanelVentasUncached(service, { ...resolvedOptions, serviceClient: service }),
-    ['ventas-panel-v3', buildVentasCacheKey(actor, resolvedOptions)],
+    ['ventas-panel-v6', buildVentasCacheKey(actor, resolvedOptions)],
     {
       revalidate: VENTAS_PANEL_REVALIDATE_SECONDS,
       tags: buildVentasCacheTags(actor),

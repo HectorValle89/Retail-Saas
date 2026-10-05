@@ -1,13 +1,13 @@
-'use client'
+'use client';
 
-import { useEffect, useRef, useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { useOfflineSync } from '@/hooks/useOfflineSync'
-import type { PermissionRecoveryState } from '@/lib/device/permissionRecovery'
-import type { ActorActual } from '@/lib/auth/session'
-import { queueOfflineAsistencia, syncAsistenciaNow } from '@/lib/offline/syncQueue'
-import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog'
+import { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { useOfflineSync } from '@/hooks/useOfflineSync';
+import type { PermissionRecoveryState } from '@/lib/device/permissionRecovery';
+import type { ActorActual } from '@/lib/auth/session';
+import { queueOfflineAsistencia, syncAsistenciaNow } from '@/lib/offline/syncQueue';
+import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog';
 import {
   calcularHashArchivo,
   captureAttendancePosition,
@@ -15,20 +15,20 @@ import {
   type AttendanceGpsState,
   type CapturedPosition,
   type SelfieCapture,
-} from '@/features/asistencias/lib/attendanceCapture'
-import type { DashboardDermoconsejoData } from '../services/dashboardService'
+} from '@/features/asistencias/lib/attendanceCapture';
+import type { DashboardDermoconsejoData } from '../services/dashboardService';
 
 interface DermoCheckOutSheetProps {
-  actor: ActorActual
-  data: DashboardDermoconsejoData
-  onClose: () => void
-  onSuccess: (message: string) => void
-  onError: (message: string) => void
+  actor: ActorActual;
+  data: DashboardDermoconsejoData;
+  onClose: () => void;
+  onSuccess: (message: string) => void;
+  onError: (message: string) => void;
 }
 
 interface GpsCaptureResult {
-  position: CapturedPosition
-  estadoGps: AttendanceGpsState
+  position: CapturedPosition;
+  estadoGps: AttendanceGpsState;
 }
 
 export function DermoCheckOutSheet({
@@ -38,114 +38,116 @@ export function DermoCheckOutSheet({
   onSuccess,
   onError,
 }: DermoCheckOutSheetProps) {
-  const offline = useOfflineSync()
-  const [isCameraOpen, setIsCameraOpen] = useState(false)
-  const [isCapturingGps, setIsCapturingGps] = useState(false)
-  const [capturedPosition, setCapturedPosition] = useState<CapturedPosition | null>(null)
-  const [gpsState, setGpsState] = useState<AttendanceGpsState>('PENDIENTE')
-  const [gpsRecoveryState, setGpsRecoveryState] = useState<PermissionRecoveryState | null>(null)
-  const [selfieCapture, setSelfieCapture] = useState<SelfieCapture | null>(null)
-  const [justificacion, setJustificacion] = useState('')
-  const [isPreparingCapture, setIsPreparingCapture] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const gpsPromiseRef = useRef<Promise<GpsCaptureResult> | null>(null)
+  const offline = useOfflineSync();
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isCapturingGps, setIsCapturingGps] = useState(false);
+  const [capturedPosition, setCapturedPosition] = useState<CapturedPosition | null>(null);
+  const [gpsState, setGpsState] = useState<AttendanceGpsState>('PENDIENTE');
+  const [gpsRecoveryState, setGpsRecoveryState] = useState<PermissionRecoveryState | null>(null);
+  const [selfieCapture, setSelfieCapture] = useState<SelfieCapture | null>(null);
+  const [justificacion, setJustificacion] = useState('');
+  const [isPreparingCapture, setIsPreparingCapture] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const gpsPromiseRef = useRef<Promise<GpsCaptureResult> | null>(null);
 
-  const attendanceId = data.shift.attendanceId
-  const canCloseShift = Boolean(attendanceId && data.shift.isOpen)
+  const attendanceId = data.shift.attendanceId;
+  const canCloseShift = Boolean(attendanceId && data.shift.isOpen);
   const blockingReason =
     data.shift.disabledReason ??
-    'Necesitas una jornada abierta y una asignacion activa para cerrar la salida.'
+    'Necesitas una jornada abierta y una asignacion activa para cerrar la salida.';
 
   useEffect(() => {
     return () => {
       if (selfieCapture?.previewUrl) {
-        URL.revokeObjectURL(selfieCapture.previewUrl)
+        URL.revokeObjectURL(selfieCapture.previewUrl);
       }
-    }
-  }, [selfieCapture])
+    };
+  }, [selfieCapture]);
 
   const buildSyncFallbackMessage = (error: unknown) => {
     const reason =
       error instanceof Error && error.message.trim()
         ? error.message.trim()
-        : 'No fue posible contactar al servidor.'
+        : 'No fue posible contactar al servidor.';
 
-    return `La salida no se sincronizo con el servidor. Motivo: ${reason}. Quedo guardada solo en este telefono y se reenviara automaticamente cuando la app confirme conectividad real.`
-  }
+    return `La salida no se sincronizo con el servidor. Motivo: ${reason}. Quedo guardada solo en este telefono y se reenviara automaticamente cuando la app confirme conectividad real.`;
+  };
 
   const beginGpsCapture = () => {
     if (gpsPromiseRef.current) {
-      return gpsPromiseRef.current
+      return gpsPromiseRef.current;
     }
 
-    setIsCapturingGps(true)
+    setIsCapturingGps(true);
     const pendingCapture = captureAttendancePosition({
       geocercaLatitud: data.checkIn.geocercaLatitud,
       geocercaLongitud: data.checkIn.geocercaLongitud,
       geocercaRadioMetros: data.checkIn.geocercaRadioMetros,
     })
       .then((result) => {
-        setCapturedPosition(result.position)
-        setGpsState(result.estadoGps)
-        setGpsRecoveryState(result.recoveryState)
-        return result
+        setCapturedPosition(result.position);
+        setGpsState(result.estadoGps);
+        setGpsRecoveryState(result.recoveryState);
+        return result;
       })
       .finally(() => {
-        setIsCapturingGps(false)
-        gpsPromiseRef.current = null
-      })
+        setIsCapturingGps(false);
+        gpsPromiseRef.current = null;
+      });
 
-    gpsPromiseRef.current = pendingCapture
-    return pendingCapture
-  }
+    gpsPromiseRef.current = pendingCapture;
+    return pendingCapture;
+  };
 
   const resolveGpsCapture = async () => {
     if (gpsPromiseRef.current) {
-      return gpsPromiseRef.current
+      return gpsPromiseRef.current;
     }
 
     if (capturedPosition) {
       return {
         position: capturedPosition,
         estadoGps: gpsState,
-      }
+      };
     }
 
-    return beginGpsCapture()
-  }
+    return beginGpsCapture();
+  };
 
   const handleStartCameraFlow = async () => {
     if (!canCloseShift) {
-      onError(blockingReason)
-      return
+      onError(blockingReason);
+      return;
     }
 
     try {
-      await beginGpsCapture()
-      setIsCameraOpen(true)
+      await beginGpsCapture();
+      setIsCameraOpen(true);
     } catch (error) {
       onError(
-        error instanceof Error ? error.message : 'No fue posible capturar la ubicacion para cerrar la jornada.'
-      )
+        error instanceof Error
+          ? error.message
+          : 'No fue posible capturar la ubicacion para cerrar la jornada.'
+      );
     }
-  }
+  };
 
   const handleCaptureSelfie = async (file: File) => {
-    setIsPreparingCapture(true)
+    setIsPreparingCapture(true);
 
     try {
-      const gpsCapture = await resolveGpsCapture()
-      const capturedAt = new Date().toISOString()
+      const gpsCapture = await resolveGpsCapture();
+      const capturedAt = new Date().toISOString();
       const stampedResult = await stampAttendanceSelfie(file, {
         capturedAt,
         latitude: gpsCapture.position.latitud,
         longitude: gpsCapture.position.longitud,
         flowLabel: 'Check-out',
-      })
-      const hash = await calcularHashArchivo(stampedResult.file)
+      });
+      const hash = await calcularHashArchivo(stampedResult.file);
 
       if (selfieCapture?.previewUrl) {
-        URL.revokeObjectURL(selfieCapture.previewUrl)
+        URL.revokeObjectURL(selfieCapture.previewUrl);
       }
 
       const newSelfieCapture: SelfieCapture = {
@@ -163,47 +165,47 @@ export function DermoCheckOutSheet({
         originalBytes: file.size,
         targetBytes: stampedResult.targetBytes,
         targetMet: stampedResult.targetMet,
-      }
+      };
 
-      setSelfieCapture(newSelfieCapture)
+      setSelfieCapture(newSelfieCapture);
 
       if (gpsCapture.estadoGps === 'DENTRO_GEOCERCA') {
-        setJustificacion('')
+        setJustificacion('');
       }
 
       // Auto-submit si esta dentro de geocerca y no requiere justificacion
       const puedeAutoCerrar =
         gpsCapture.estadoGps === 'DENTRO_GEOCERCA' ||
-        (gpsCapture.estadoGps === 'FUERA_GEOCERCA' && data.checkIn.permiteCheckinConJustificacion)
+        (gpsCapture.estadoGps === 'FUERA_GEOCERCA' && data.checkIn.permiteCheckinConJustificacion);
 
       if (puedeAutoCerrar && canCloseShift) {
         // Pequena espera para que se vea la preview antes de cerrar
-        await new Promise((resolve) => setTimeout(resolve, 800))
-        await handleAutoSubmitCheckout(newSelfieCapture, gpsCapture)
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        await handleAutoSubmitCheckout(newSelfieCapture, gpsCapture);
       }
     } finally {
-      setIsPreparingCapture(false)
+      setIsPreparingCapture(false);
     }
-  }
+  };
 
   const handleAutoSubmitCheckout = async (
     selfieData: typeof selfieCapture,
     gpsCapture: { position: CapturedPosition; estadoGps: AttendanceGpsState }
   ) => {
-    if (!canCloseShift || !attendanceId) return
+    if (!canCloseShift || !attendanceId) return;
 
     const resolvedCuentaClienteId =
-      actor.cuentaClienteId ?? data.context.cuentaClienteId ?? data.checkIn.cuentaClienteId
+      actor.cuentaClienteId ?? data.context.cuentaClienteId ?? data.checkIn.cuentaClienteId;
 
-    if (!data.context.empleadoId || !data.context.pdvId || !resolvedCuentaClienteId) return
+    if (!data.context.empleadoId || !data.context.pdvId || !resolvedCuentaClienteId) return;
 
-    if (!selfieData) return
+    if (!selfieData) return;
 
     if (gpsCapture.estadoGps === 'FUERA_GEOCERCA' && !data.checkIn.permiteCheckinConJustificacion) {
-      return
+      return;
     }
 
-    setIsSubmitting(true)
+    setIsSubmitting(true);
 
     try {
       const payload = {
@@ -211,7 +213,8 @@ export function DermoCheckOutSheet({
         cuenta_cliente_id: resolvedCuentaClienteId,
         asignacion_id: data.checkIn.assignmentId,
         empleado_id: data.context.empleadoId,
-        supervisor_empleado_id: data.context.supervisorEmpleadoId ?? data.checkIn.supervisorEmpleadoId,
+        supervisor_empleado_id:
+          data.context.supervisorEmpleadoId ?? data.checkIn.supervisorEmpleadoId,
         pdv_id: data.context.pdvId,
         fecha_operacion: data.shift.fechaOperacion,
         empleado_nombre: data.profile.nombreCompleto,
@@ -265,70 +268,72 @@ export function DermoCheckOutSheet({
             },
           },
         },
-      }
+      };
 
       if (offline.isOnline) {
         try {
-          await syncAsistenciaNow(payload)
-          onSuccess('Salida registrada automaticamente. Completa tus reportes pendientes.')
-          onClose()
+          await syncAsistenciaNow(payload);
+          onSuccess('Salida registrada automaticamente. Completa tus reportes pendientes.');
+          onClose();
         } catch (error) {
-          await queueOfflineAsistencia(payload)
-          await offline.refreshSummary()
-          onError(buildSyncFallbackMessage(error))
-          onClose()
+          await queueOfflineAsistencia(payload);
+          await offline.refreshSummary();
+          onError(buildSyncFallbackMessage(error));
+          onClose();
         }
       } else {
-        await queueOfflineAsistencia(payload)
-        await offline.refreshSummary()
-        onSuccess('Salida guardada localmente. Se enviara cuando haya conexion.')
-        onClose()
+        await queueOfflineAsistencia(payload);
+        await offline.refreshSummary();
+        onSuccess('Salida guardada localmente. Se enviara cuando haya conexion.');
+        onClose();
       }
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'No fue posible cerrar la jornada.')
+      onError(error instanceof Error ? error.message : 'No fue posible cerrar la jornada.');
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   const handleSubmitCheckout = async () => {
     if (!canCloseShift || !attendanceId) {
-      onError(blockingReason)
-      return
+      onError(blockingReason);
+      return;
     }
 
-    const resolvedCuentaClienteId = actor.cuentaClienteId ?? data.context.cuentaClienteId ?? data.checkIn.cuentaClienteId
+    const resolvedCuentaClienteId =
+      actor.cuentaClienteId ?? data.context.cuentaClienteId ?? data.checkIn.cuentaClienteId;
 
     if (!data.context.empleadoId || !data.context.pdvId || !resolvedCuentaClienteId) {
-      onError('No hay contexto operativo suficiente para cerrar la jornada.')
-      return
+      onError('No hay contexto operativo suficiente para cerrar la jornada.');
+      return;
     }
 
     if (!selfieCapture) {
-      onError('Primero toma la selfie operativa de salida.')
-      return
+      onError('Primero toma la selfie operativa de salida.');
+      return;
     }
 
     if (gpsState === 'FUERA_GEOCERCA' && !data.checkIn.permiteCheckinConJustificacion) {
-      onError('El PDV no permite excepcion fuera de geocerca para el cierre de jornada.')
-      return
+      onError('El PDV no permite excepcion fuera de geocerca para el cierre de jornada.');
+      return;
     }
 
     if (gpsState === 'FUERA_GEOCERCA' && !justificacion.trim()) {
-      onError('La justificacion es obligatoria cuando el check-out queda fuera de geocerca.')
-      return
+      onError('La justificacion es obligatoria cuando el check-out queda fuera de geocerca.');
+      return;
     }
 
-    setIsSubmitting(true)
+    setIsSubmitting(true);
 
     try {
-      const gpsCapture = await resolveGpsCapture()
+      const gpsCapture = await resolveGpsCapture();
       const payload = {
         id: attendanceId,
         cuenta_cliente_id: resolvedCuentaClienteId,
         asignacion_id: data.checkIn.assignmentId,
         empleado_id: data.context.empleadoId,
-        supervisor_empleado_id: data.context.supervisorEmpleadoId ?? data.checkIn.supervisorEmpleadoId,
+        supervisor_empleado_id:
+          data.context.supervisorEmpleadoId ?? data.checkIn.supervisorEmpleadoId,
         pdv_id: data.context.pdvId,
         fecha_operacion: data.shift.fechaOperacion,
         empleado_nombre: data.profile.nombreCompleto,
@@ -381,33 +386,33 @@ export function DermoCheckOutSheet({
             },
           },
         },
-      }
+      };
 
       if (offline.isOnline) {
         try {
-          await syncAsistenciaNow(payload)
-          onSuccess('Salida registrada. Ahora completa tus reportes pendientes del dia.')
-          onClose()
-          return
+          await syncAsistenciaNow(payload);
+          onSuccess('Salida registrada. Ahora completa tus reportes pendientes del dia.');
+          onClose();
+          return;
         } catch (error) {
-          await queueOfflineAsistencia(payload)
-          await offline.refreshSummary()
-          onError(buildSyncFallbackMessage(error))
-          onClose()
-          return
+          await queueOfflineAsistencia(payload);
+          await offline.refreshSummary();
+          onError(buildSyncFallbackMessage(error));
+          onClose();
+          return;
         }
       }
 
-      await queueOfflineAsistencia(payload)
-      await offline.refreshSummary()
-      onSuccess('Salida guardada localmente. Completa tus reportes cuando vuelva la conectividad.')
-      onClose()
+      await queueOfflineAsistencia(payload);
+      await offline.refreshSummary();
+      onSuccess('Salida guardada localmente. Completa tus reportes cuando vuelva la conectividad.');
+      onClose();
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'No fue posible cerrar la jornada.')
+      onError(error instanceof Error ? error.message : 'No fue posible cerrar la jornada.');
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   return (
     <div className="space-y-4">
@@ -428,8 +433,8 @@ export function DermoCheckOutSheet({
           Toma la selfie de salida y termina tu presencia fisica en tienda.
         </p>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          Despues del check-out podras completar ventas y LOVE ISDIN desde Reportes pendientes del dia
-          o, si aplica, usar Registro extemporaneo en Incidencias.
+          Despues del check-out podras completar ventas y LOVE ISDIN desde Reportes pendientes del
+          dia o, si aplica, usar Registro extemporaneo en Incidencias.
         </p>
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
           <Button
@@ -509,7 +514,12 @@ export function DermoCheckOutSheet({
                 </p>
               ))}
             </div>
-            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => void beginGpsCapture()}>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => void beginGpsCapture()}
+            >
               {gpsRecoveryState.retryLabel}
             </Button>
           </div>
@@ -567,15 +577,15 @@ export function DermoCheckOutSheet({
         description="Abre la camara frontal, toma la selfie operativa y cierra la jornada sin salir del dashboard."
         onClose={() => {
           if (!isPreparingCapture && !isSubmitting) {
-            setIsCameraOpen(false)
+            setIsCameraOpen(false);
           }
         }}
         onCapture={handleCaptureSelfie}
         captureLabel="Capturar salida"
         onRetryPermissions={() => {
-          void beginGpsCapture()
+          void beginGpsCapture();
         }}
       />
     </div>
-  )
+  );
 }

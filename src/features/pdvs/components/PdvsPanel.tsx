@@ -1,9 +1,19 @@
 'use client';
 
-import { useActionState, useCallback, useEffect, useMemo, useState, useTransition, type ReactNode } from 'react';
+import {
+  Fragment,
+  useActionState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+  type ReactNode,
+} from 'react';
 import { useFormStatus } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { MexicoMap, type MexicoMapPoint } from '@/components/maps/MexicoMap';
+import { PdvsOperationalMapTab } from './PdvsOperationalMapTab';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
@@ -102,6 +112,37 @@ function getHorarioLabel(mode: PdvListadoItem['horarioMode']) {
   }
 }
 
+function getPublicationTone(value: PdvListadoItem['publicacionMensualEstado']) {
+  if (value === 'ASIGNADO') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+
+  if (value === 'PARCIAL') {
+    return 'bg-amber-100 text-amber-700';
+  }
+
+  if (value === 'SIN_ASIGNACION') {
+    return 'bg-rose-100 text-rose-700';
+  }
+
+  return 'bg-slate-200 text-slate-700';
+}
+
+function formatMonthLabel(value: string) {
+  if (!/^\d{4}-\d{2}$/.test(value)) {
+    return 'Sin mes';
+  }
+
+  const [year, month] = value.split('-').map((part) => Number(part));
+  const date = new Date(Date.UTC(year, month - 1, 1));
+
+  return new Intl.DateTimeFormat('es-MX', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date);
+}
+
 export function PdvsPanel({
   actor,
   data: initialData,
@@ -119,20 +160,26 @@ export function PdvsPanel({
   const [isNavigating, startTransition] = useTransition();
   const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
   const queryString = searchParams.toString();
-  const fetcher = useCallback(async (signal: AbortSignal) => {
-    const response = await fetch(queryString ? `/api/pdvs/panel?${queryString}` : '/api/pdvs/panel', {
-      cache: 'no-store',
-      credentials: 'same-origin',
-      signal,
-    });
-    const payload = (await response.json()) as { data?: PdvsPanelData; message?: string };
+  const fetcher = useCallback(
+    async (signal: AbortSignal) => {
+      const response = await fetch(
+        queryString ? `/api/pdvs/panel?${queryString}` : '/api/pdvs/panel',
+        {
+          cache: 'no-store',
+          credentials: 'same-origin',
+          signal,
+        }
+      );
+      const payload = (await response.json()) as { data?: PdvsPanelData; message?: string };
 
-    if (!response.ok || !payload.data) {
-      throw new Error(payload.message ?? 'No fue posible refrescar el panel de PDVs.');
-    }
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.message ?? 'No fue posible refrescar el panel de PDVs.');
+      }
 
-    return payload.data;
-  }, [queryString]);
+      return payload.data;
+    },
+    [queryString]
+  );
   const { data } = useScopedWidgetData({
     initialData,
     module: 'pdvs',
@@ -143,6 +190,7 @@ export function PdvsPanel({
     debounceMs: 650,
   });
 
+  const [monthFilter, setMonthFilter] = useState(data.month);
   const [search, setSearch] = useState(data.filters.search);
   const [cadenaFilter, setCadenaFilter] = useState(data.filters.cadenaId || 'ALL');
   const [ciudadFilter, setCiudadFilter] = useState(data.filters.ciudadId || 'ALL');
@@ -150,16 +198,55 @@ export function PdvsPanel({
   const [zonaFilter, setZonaFilter] = useState(data.filters.zona || 'ALL');
   const [supervisorFilter, setSupervisorFilter] = useState(data.filters.supervisorId || 'ALL');
   const [estatusFilter, setEstatusFilter] = useState(data.filters.estatus || 'ALL');
-  const [selectedPdvId, setSelectedPdvId] = useState<string | null>(data.hasActiveFilters ? data.pdvs[0]?.id ?? null : null);
+  const [publicacionFilter, setPublicacionFilter] = useState(
+    data.filters.publicacionEstado || 'ALL'
+  );
+  const [selectedPdvId, setSelectedPdvId] = useState<string | null>(null);
   const [detailPdvId, setDetailPdvId] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [toast, setToast] = useState<{ tone: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const tabFromUrl = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<'catalogo' | 'mapa'>(
+    tabFromUrl === 'mapa' ? 'mapa' : 'catalogo'
+  );
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [toast, setToast] = useState<{
+    tone: 'success' | 'error' | 'info';
+    message: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (tabFromUrl === 'mapa' || tabFromUrl === 'catalogo') {
+      setActiveTab(tabFromUrl);
+    }
+  }, [tabFromUrl]);
+
+  const handleTabChange = (newTab: 'catalogo' | 'mapa') => {
+    setActiveTab(newTab);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', newTab);
+    startTransition(() => {
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    });
+  };
+
+  const handleMonthChangeFromMap = (newMonth: string) => {
+    if (!newMonth || newMonth === monthFilter) return;
+    setMonthFilter(newMonth);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('month', newMonth);
+    params.set('tab', 'mapa');
+    startTransition(() => {
+      router.push(`${pathname}?${params.toString()}`);
+    });
+  };
   const selectedPdv = data.pdvs.find((pdv) => pdv.id === detailPdvId) ?? null;
   const [detailData, setDetailData] = useState<PdvDetalleItem | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
   useEffect(() => {
+    setMonthFilter(data.month);
     setSearch(data.filters.search);
     setCadenaFilter(data.filters.cadenaId || 'ALL');
     setCiudadFilter(data.filters.ciudadId || 'ALL');
@@ -167,8 +254,10 @@ export function PdvsPanel({
     setZonaFilter(data.filters.zona || 'ALL');
     setSupervisorFilter(data.filters.supervisorId || 'ALL');
     setEstatusFilter(data.filters.estatus || 'ALL');
-    setSelectedPdvId(data.hasActiveFilters ? data.pdvs[0]?.id ?? null : null);
-  }, [data.filters, data.hasActiveFilters, data.pdvs]);
+    setPublicacionFilter(data.filters.publicacionEstado || 'ALL');
+    setSelectedPdvId(null);
+    setCurrentPage(1);
+  }, [data.filters, data.month, data.pdvs]);
 
   useEffect(() => {
     if (!toast) {
@@ -191,13 +280,18 @@ export function PdvsPanel({
     setDetailLoading(true);
     setDetailError(null);
 
-    void fetch(`/api/pdvs/${detailPdvId}/detail`, {
+    const detailParams = monthFilter ? `?month=${encodeURIComponent(monthFilter)}` : '';
+
+    void fetch(`/api/pdvs/${detailPdvId}/detail${detailParams}`, {
       cache: 'no-store',
       credentials: 'same-origin',
       signal: controller.signal,
     })
       .then(async (response) => {
-        const payload = (await response.json()) as { data?: PdvDetalleItem | null; message?: string };
+        const payload = (await response.json()) as {
+          data?: PdvDetalleItem | null;
+          message?: string;
+        };
 
         if (!response.ok || !payload.data) {
           throw new Error(payload.message ?? 'No fue posible cargar el detalle del PDV.');
@@ -215,15 +309,20 @@ export function PdvsPanel({
         }
 
         setDetailData(null);
-        setDetailError(error instanceof Error ? error.message : 'No fue posible cargar el detalle del PDV.');
+        setDetailError(
+          error instanceof Error ? error.message : 'No fue posible cargar el detalle del PDV.'
+        );
         setDetailLoading(false);
       });
 
     return () => controller.abort();
-  }, [detailPdvId]);
+  }, [detailPdvId, monthFilter]);
 
   const applyFilters = () => {
     const params = new URLSearchParams();
+    if (monthFilter) {
+      params.set('month', monthFilter);
+    }
     const normalizedSearch = search.trim();
     if (normalizedSearch) {
       params.set('search', normalizedSearch);
@@ -246,6 +345,12 @@ export function PdvsPanel({
     if (estatusFilter !== 'ALL') {
       params.set('estatus', estatusFilter);
     }
+    if (publicacionFilter !== 'ALL') {
+      params.set('publicacion', publicacionFilter);
+    }
+    if (activeTab === 'mapa') {
+      params.set('tab', 'mapa');
+    }
 
     startTransition(() => {
       router.push(params.size > 0 ? `${pathname}?${params.toString()}` : pathname);
@@ -253,6 +358,7 @@ export function PdvsPanel({
   };
 
   const clearFilters = () => {
+    setMonthFilter(data.month);
     setSearch('');
     setCadenaFilter('ALL');
     setCiudadFilter('ALL');
@@ -260,12 +366,56 @@ export function PdvsPanel({
     setZonaFilter('ALL');
     setSupervisorFilter('ALL');
     setEstatusFilter('ALL');
+    setPublicacionFilter('ALL');
+    setCurrentPage(1);
     startTransition(() => {
-      router.push(pathname);
+      const clearParams = new URLSearchParams();
+      if (activeTab === 'mapa') {
+        clearParams.set('tab', 'mapa');
+      }
+      router.push(clearParams.size > 0 ? `${pathname}?${clearParams.toString()}` : pathname);
     });
   };
 
   const pdvsFiltrados = data.pdvs;
+  const totalItems = pdvsFiltrados.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedPdvs = useMemo(() => {
+    const startIndex = (safePage - 1) * pageSize;
+    return pdvsFiltrados.slice(startIndex, startIndex + pageSize);
+  }, [pdvsFiltrados, safePage, pageSize]);
+
+  const buildExportUrl = useCallback(
+    (format: 'xlsx' | 'csv' = 'xlsx') => {
+      const params = new URLSearchParams();
+      if (monthFilter) params.set('month', monthFilter);
+      if (format) params.set('format', format);
+      if (search.trim()) params.set('search', search.trim());
+      if (cadenaFilter && cadenaFilter !== 'ALL') params.set('cadenaId', cadenaFilter);
+      if (ciudadFilter && ciudadFilter !== 'ALL') params.set('ciudadId', ciudadFilter);
+      if (estadoFilter && estadoFilter !== 'ALL') params.set('estado', estadoFilter);
+      if (zonaFilter && zonaFilter !== 'ALL') params.set('zona', zonaFilter);
+      if (supervisorFilter && supervisorFilter !== 'ALL')
+        params.set('supervisorId', supervisorFilter);
+      if (estatusFilter && estatusFilter !== 'ALL') params.set('estatus', estatusFilter);
+      if (publicacionFilter && publicacionFilter !== 'ALL')
+        params.set('publicacion', publicacionFilter);
+      return `/api/pdvs/export?${params.toString()}`;
+    },
+    [
+      monthFilter,
+      search,
+      cadenaFilter,
+      ciudadFilter,
+      estadoFilter,
+      zonaFilter,
+      supervisorFilter,
+      estatusFilter,
+      publicacionFilter,
+    ]
+  );
 
   return (
     <div className="space-y-6">
@@ -287,94 +437,152 @@ export function PdvsPanel({
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-5">
-        <MetricCard label="Total visible" value={String(data.resumen.total)} />
-        <MetricCard label="Activos" value={String(data.resumen.activos)} />
-        <MetricCard label="Con geocerca" value={String(data.resumen.conGeocerca)} />
-        <MetricCard label="Con supervisor" value={String(data.resumen.conSupervisor)} />
-        <MetricCard label="Con horario" value={String(data.resumen.conHorario)} />
+      {/* Navegación por pestañas ejecutivas */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+        <button
+          type="button"
+          onClick={() => handleTabChange('catalogo')}
+          className={`flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-semibold transition ${
+            activeTab === 'catalogo'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+          }`}
+        >
+          <span>📋</span>
+          <span>Catálogo de Tiendas</span>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+              activeTab === 'catalogo' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+            }`}
+          >
+            {totalItems}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => handleTabChange('mapa')}
+          className={`flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-semibold transition ${
+            activeTab === 'mapa'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+          }`}
+        >
+          <span>🗺️</span>
+          <span>Mapa Operacional de Supervisión</span>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+              activeTab === 'mapa' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+            }`}
+          >
+            {data.resumen.conGeocerca}
+          </span>
+        </button>
       </div>
 
-      {canEdit && (
-        <Card className="p-6">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-950">Gestion de PDVs</h2>
-              <p className="mt-1 max-w-3xl text-sm text-slate-500">
-                Da de alta puntos de venta y administra cobertura, geocerca, supervisor y horario.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 xl:justify-end">
-              <div className="text-sm text-slate-500">
-                <p>
-                  Supervisores disponibles:{' '}
-                  <span className="font-semibold text-slate-900">{data.supervisores.length}</span>
-                </p>
-                <p className="mt-1">
-                  Turnos de cadena:{' '}
-                  <span className="font-semibold text-slate-900">{data.turnosCadena.length}</span>
+      {activeTab === 'catalogo' && (
+        <>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label="Asignados" value={String(data.publicacionMensual.asignados)} />
+            <MetricCard label="Parciales" value={String(data.publicacionMensual.parciales)} />
+            <MetricCard label="Sin asignacion" value={String(data.publicacionMensual.sinAsignacion)} />
+            <MetricCard label="Inactivos" value={String(data.publicacionMensual.inactivos)} />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">Asignado</span>
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700">Parcial</span>
+            <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-700">Sin asignacion</span>
+            <span className="rounded-full bg-slate-200 px-3 py-1 text-slate-700">Inactivo</span>
+            <span className="ml-1 text-slate-400">Mes: {formatMonthLabel(data.month)}</span>
+            <span className="ml-auto text-slate-400">
+              Base estructural: {data.resumen.total} PDVs · {data.resumen.activos} activos ·{' '}
+              {data.resumen.conGeocerca} con geocerca · {data.resumen.conSupervisor} con supervisor ·{' '}
+              {data.resumen.conHorario} con horario
+            </span>
+          </div>
+
+          <Card className="p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-slate-950 sm:text-lg">Gestión de PDVs</h2>
+                <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">
+                  Supervisores disponibles: <strong className="text-slate-900">{data.supervisores.length}</strong> · Turnos de cadena: <strong className="text-slate-900">{data.turnosCadena.length}</strong>
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setCreateModalOpen(true)}
-                className="inline-flex min-h-11 items-center justify-center rounded-[14px] bg-[var(--module-primary)] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[var(--module-hover)]"
-              >
-                Alta de PDV
-              </button>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-        <Card className="p-6">
-          <div className="grid gap-5">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-950">Catalogo y filtros</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Busca por nombre, clave, estado, zona o supervisor. La tabla y el mapa comparten los mismos
-                filtros.
-              </p>
-            </div>
-            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
-                  {data.hasActiveFilters ? (
-                    <>
-                      Mostrando <span className="font-semibold text-slate-900">{pdvsFiltrados.length}</span> PDVs filtrados.
-                    </>
-                  ) : (
-                    <>
-                      Aplica al menos un filtro para consultar el catalogo y evitar una carga automatica pesada.
-                    </>
-                  )}
-                </div>
+              <div className="flex flex-wrap items-center gap-2.5">
                 <a
-                  href="/api/pdvs/export"
-                  className="inline-flex min-h-11 items-center justify-center rounded-[16px] border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-100"
+                  href={buildExportUrl('xlsx')}
+                  className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-900 shadow-xs transition hover:bg-emerald-100"
+                  title={`Descargar Excel con cobertura y supervisores de ${formatMonthLabel(monthFilter)}`}
                 >
-                  Descargar base de PDVs
+                  <span>📊</span>
+                  <span>Descargar Excel ({formatMonthLabel(monthFilter)})</span>
                 </a>
+                <a
+                  href={buildExportUrl('csv')}
+                  className="inline-flex min-h-10 items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-xs transition hover:bg-slate-50"
+                  title="Descargar versión CSV"
+                >
+                  <span>CSV</span>
+                </a>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setCreateModalOpen(true)}
+                    className="inline-flex min-h-10 items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-slate-800"
+                  >
+                    + Alta de PDV
+                  </button>
+                )}
               </div>
             </div>
-          </div>
+          </Card>
 
-          <div className="mt-4 rounded-[24px] border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          {/* Filtros compactos del Catálogo */}
+          <Card className="p-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-slate-950">Catálogo y filtros</h2>
+                <p className="text-xs text-slate-500">
+                  Busca por nombre, clave, mes, estado mensual, zona o supervisor.
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+                Mostrando <strong className="font-semibold text-slate-900">{totalItems}</strong> PDVs del mes <strong className="font-semibold text-slate-900">{formatMonthLabel(monthFilter)}</strong>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
               <div className="xl:col-span-2">
                 <Input
                   label="Buscar"
                   placeholder="Nombre, clave, ciudad o supervisor"
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) => {
+                    setSearch(event.target.value);
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
+              <div>
+                <Input
+                  label="Mes"
+                  type="month"
+                  value={monthFilter}
+                  onChange={(event) => {
+                    setMonthFilter(event.target.value);
+                    setCurrentPage(1);
+                  }}
                 />
               </div>
               <div>
                 <Select
                   label="Cadena"
                   value={cadenaFilter}
-                  onChange={(event) => setCadenaFilter(event.target.value)}
+                  onChange={(event) => {
+                    setCadenaFilter(event.target.value);
+                    setCurrentPage(1);
+                  }}
                   options={[
                     { value: 'ALL', label: 'Todas' },
                     ...data.cadenas.map((item) => ({ value: item.id, label: item.nombre })),
@@ -385,7 +593,10 @@ export function PdvsPanel({
                 <Select
                   label="Ciudad"
                   value={ciudadFilter}
-                  onChange={(event) => setCiudadFilter(event.target.value)}
+                  onChange={(event) => {
+                    setCiudadFilter(event.target.value);
+                    setCurrentPage(1);
+                  }}
                   options={[
                     { value: 'ALL', label: 'Todas' },
                     ...data.ciudades.map((item) => ({ value: item.id, label: item.nombre })),
@@ -396,7 +607,10 @@ export function PdvsPanel({
                 <Select
                   label="Estado"
                   value={estadoFilter}
-                  onChange={(event) => setEstadoFilter(event.target.value)}
+                  onChange={(event) => {
+                    setEstadoFilter(event.target.value);
+                    setCurrentPage(1);
+                  }}
                   options={[
                     { value: 'ALL', label: 'Todos' },
                     { value: 'SIN_ESTADO', label: 'Sin estado' },
@@ -408,7 +622,10 @@ export function PdvsPanel({
                 <Select
                   label="Zona"
                   value={zonaFilter}
-                  onChange={(event) => setZonaFilter(event.target.value)}
+                  onChange={(event) => {
+                    setZonaFilter(event.target.value);
+                    setCurrentPage(1);
+                  }}
                   options={[
                     { value: 'ALL', label: 'Todas' },
                     { value: 'SIN_ZONA', label: 'Sin zona' },
@@ -420,7 +637,10 @@ export function PdvsPanel({
                 <Select
                   label="Supervisor"
                   value={supervisorFilter}
-                  onChange={(event) => setSupervisorFilter(event.target.value)}
+                  onChange={(event) => {
+                    setSupervisorFilter(event.target.value);
+                    setCurrentPage(1);
+                  }}
                   options={[
                     { value: 'ALL', label: 'Todos' },
                     {
@@ -440,7 +660,10 @@ export function PdvsPanel({
                 <Select
                   label="Estatus"
                   value={estatusFilter}
-                  onChange={(event) => setEstatusFilter(event.target.value)}
+                  onChange={(event) => {
+                    setEstatusFilter(event.target.value);
+                    setCurrentPage(1);
+                  }}
                   options={[
                     { value: 'ALL', label: 'Todos' },
                     { value: 'ACTIVO', label: 'ACTIVO' },
@@ -448,91 +671,196 @@ export function PdvsPanel({
                   ]}
                 />
               </div>
-              <div className="md:col-span-2 xl:col-span-3">
-                <div className="flex h-full flex-col justify-end gap-3 sm:flex-row sm:items-end">
+              <div className="xl:col-span-2">
+                <Select
+                  label="Publicacion"
+                  value={publicacionFilter}
+                  onChange={(event) => {
+                    setPublicacionFilter(event.target.value);
+                    setCurrentPage(1);
+                  }}
+                  options={[
+                    { value: 'ALL', label: 'Todas' },
+                    { value: 'ASIGNADO', label: 'Asignados' },
+                    { value: 'PARCIAL', label: 'Parciales' },
+                    { value: 'SIN_ASIGNACION', label: 'Sin asignacion' },
+                    { value: 'INACTIVO', label: 'Inactivos' },
+                  ]}
+                />
+              </div>
+              <div className="md:col-span-2 xl:col-span-1">
+                <div className="flex h-full flex-col justify-end gap-2 sm:flex-row sm:items-end">
                   <button
                     type="button"
-                    onClick={applyFilters}
+                    onClick={() => {
+                      setCurrentPage(1);
+                      applyFilters();
+                    }}
                     disabled={isNavigating}
-                    className="inline-flex min-h-11 w-full items-center justify-center rounded-[16px] border border-slate-900 bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isNavigating ? 'Consultando...' : 'Aplicar filtros'}
+                    {isNavigating ? 'Buscando...' : 'Aplicar'}
                   </button>
                   <button
                     type="button"
-                    onClick={clearFilters}
+                    onClick={() => {
+                      setCurrentPage(1);
+                      clearFilters();
+                    }}
                     disabled={isNavigating}
-                    className="inline-flex min-h-11 w-full items-center justify-center rounded-[16px] border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex min-h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Limpiar
                   </button>
                 </div>
               </div>
             </div>
-          </div>
-        </Card>
+          </Card>
 
-        <CoverageMap
+          {/* Tabla Paginada de PDVs */}
+          <Card className="overflow-hidden p-0">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-left text-slate-500">
+                  <tr>
+                    <th className="px-6 py-3 font-medium">PDV</th>
+                    <th className="px-6 py-3 font-medium">Publicacion</th>
+                    <th className="px-6 py-3 font-medium">Cadena / ciudad</th>
+                    <th className="px-6 py-3 font-medium">Geocerca</th>
+                    <th className="px-6 py-3 font-medium">Horario</th>
+                    <th className="px-6 py-3 font-medium">Supervisor</th>
+                    <th className="px-6 py-3 font-medium">Detalle</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedPdvs.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                        No hay PDVs que coincidan con los filtros activos.
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedPdvs.map((pdv) => (
+                      <PdvRow
+                        key={pdv.id}
+                        data={data}
+                        pdv={pdv}
+                        canEdit={canEdit}
+                        expanded={false}
+                        onToggle={() => {
+                          setSelectedPdvId(pdv.id);
+                          setDetailPdvId(pdv.id);
+                        }}
+                      />
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Barra de Paginación */}
+            {totalItems > 0 && (
+              <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50/70 px-6 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3 text-xs text-slate-600">
+                  <span>
+                    Mostrando{' '}
+                    <strong className="font-semibold text-slate-900">
+                      {(safePage - 1) * pageSize + 1}
+                    </strong>{' '}
+                    -{' '}
+                    <strong className="font-semibold text-slate-900">
+                      {Math.min(safePage * pageSize, totalItems)}
+                    </strong>{' '}
+                    de <strong className="font-semibold text-slate-900">{totalItems}</strong> tiendas
+                  </span>
+                  <span className="text-slate-300">|</span>
+                  <div className="flex items-center gap-1.5">
+                    <span>Por página:</span>
+                    <select
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-800 focus:outline-hidden"
+                    >
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={safePage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="inline-flex h-8 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    &lt; Anterior
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((page) => {
+                        if (totalPages <= 7) return true;
+                        if (page === 1 || page === totalPages) return true;
+                        return Math.abs(page - safePage) <= 1;
+                      })
+                      .map((page, idx, arr) => {
+                        const prev = arr[idx - 1];
+                        const hasGap = prev && page - prev > 1;
+                        return (
+                          <Fragment key={page}>
+                            {hasGap && <span className="px-1 text-xs text-slate-400">...</span>}
+                            <button
+                              type="button"
+                              onClick={() => setCurrentPage(page)}
+                              className={`h-8 min-w-[32px] rounded-xl px-2 text-xs font-semibold transition ${
+                                safePage === page
+                                  ? 'bg-slate-900 text-white shadow-xs'
+                                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              {page}
+                            </button>
+                          </Fragment>
+                        );
+                      })}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="inline-flex h-8 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Siguiente &gt;
+                  </button>
+                </div>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+
+      {activeTab === 'mapa' && (
+        <PdvsOperationalMapTab
           pdvs={pdvsFiltrados}
+          supervisores={data.supervisores}
           selectedPdvId={selectedPdvId}
-          onSelect={(pdvId) => {
+          onSelectPdv={(pdvId) => {
+            setSelectedPdvId(pdvId ? pdvId : null);
+          }}
+          onOpenDetail={(pdvId) => {
             setSelectedPdvId(pdvId);
             setDetailPdvId(pdvId);
           }}
-          hasActiveFilters={data.hasActiveFilters}
+          canEdit={canEdit}
+          month={monthFilter}
+          onMonthChange={handleMonthChangeFromMap}
+          isNavigatingMonth={isNavigating}
         />
-      </div>
-
-      <Card className="overflow-hidden p-0">
-        {data.hasActiveFilters ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-500">
-                <tr>
-                  <th className="px-6 py-3 font-medium">PDV</th>
-                  <th className="px-6 py-3 font-medium">Cadena / ciudad</th>
-                  <th className="px-6 py-3 font-medium">Geocerca</th>
-                  <th className="px-6 py-3 font-medium">Horario</th>
-                  <th className="px-6 py-3 font-medium">Supervisor</th>
-                  <th className="px-6 py-3 font-medium">Detalle</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pdvsFiltrados.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
-                      No hay PDVs que coincidan con los filtros activos.
-                    </td>
-                  </tr>
-                ) : (
-                  pdvsFiltrados.map((pdv) => (
-                    <PdvRow
-                      key={pdv.id}
-                      data={data}
-                      pdv={pdv}
-                      canEdit={canEdit}
-                      expanded={false}
-                      onToggle={() => {
-                        setSelectedPdvId(pdv.id);
-                        setDetailPdvId(pdv.id);
-                      }}
-                    />
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="flex min-h-[220px] items-center justify-center px-6 py-10 text-center">
-            <div className="max-w-2xl space-y-3">
-              <p className="text-lg font-semibold text-slate-900">Vista diferida para bajar consumo</p>
-              <p className="text-sm leading-6 text-slate-500">
-                El catalogo de PDVs ya no se carga ni se lista automaticamente. Primero aplica un filtro y despues revisamos mapa, tabla y detalle del punto de venta.
-              </p>
-            </div>
-          </div>
-        )}
-      </Card>
+      )}
 
       {selectedPdv ? (
         <PdvDetailModal
@@ -629,6 +957,22 @@ function PdvRow({
           </div>
         </td>
         <td className="px-6 py-4 text-slate-600">
+          <StatusPill
+            label={pdv.publicacionMensualEtiqueta}
+            className={getPublicationTone(pdv.publicacionMensualEstado)}
+          />
+          <div className="mt-2 text-xs text-slate-500">
+            {pdv.publicacionMensualEstado === 'INACTIVO'
+              ? 'Inactivo en la publicación mensual.'
+              : `${pdv.publicacionMensualCoberturaPct}% del mes publicado`}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {pdv.publicacionMensualDiasAsignados}/
+            {pdv.publicacionMensualDiasAsignados + pdv.publicacionMensualDiasFaltantes} dias
+            publicados
+          </div>
+        </td>
+        <td className="px-6 py-4 text-slate-600">
           <div className="font-medium text-slate-900">{pdv.cadena ?? 'Sin cadena'}</div>
           <div className="mt-1 text-xs text-slate-500">{pdv.ciudad ?? 'Sin ciudad'}</div>
           <div className="mt-1 text-xs text-slate-500">estado: {pdv.estado ?? 'Sin estado'}</div>
@@ -679,7 +1023,7 @@ function PdvRow({
       </tr>
       {expanded && (
         <tr className="border-t border-slate-100 bg-slate-50/70">
-          <td colSpan={6} className="px-6 py-5">
+          <td colSpan={7} className="px-6 py-5">
             <div className="grid gap-4 xl:grid-cols-2">
               <DetailCard
                 title="Ficha PDV"
@@ -751,10 +1095,7 @@ function PdvRow({
                 )}
               </DetailCard>
 
-              <DetailCard
-                title="Supervisor"
-                description="Supervisor vigente del punto de venta."
-              >
+              <DetailCard title="Supervisor" description="Supervisor vigente del punto de venta.">
                 <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-2">
                   <InfoRow label="Supervisor actual" value={pdv.supervisorActual ?? 'Pendiente'} />
                   <InfoRow label="Vigente desde" value={formatDate(pdv.supervisorVigenteDesde)} />
@@ -1054,7 +1395,9 @@ function CrearPdvForm({
           label="Estatus"
           name="estatus"
           value={formValues.estatus}
-          onChange={(event) => updateField('estatus', event.target.value === 'INACTIVO' ? 'INACTIVO' : 'ACTIVO')}
+          onChange={(event) =>
+            updateField('estatus', event.target.value === 'INACTIVO' ? 'INACTIVO' : 'ACTIVO')
+          }
           options={[
             { value: 'ACTIVO', label: 'ACTIVO' },
             { value: 'INACTIVO', label: 'INACTIVO' },
@@ -1086,7 +1429,9 @@ function CrearPdvForm({
           type="checkbox"
           name="permite_checkin_con_justificacion"
           checked={formValues.permite_checkin_con_justificacion}
-          onChange={(event) => updateField('permite_checkin_con_justificacion', event.target.checked)}
+          onChange={(event) =>
+            updateField('permite_checkin_con_justificacion', event.target.checked)
+          }
           className="h-4 w-4 rounded border-slate-300"
         />
         Permitir check-in con justificacion fuera de geocerca
@@ -1098,7 +1443,7 @@ function CrearPdvForm({
           name="supervisor_empleado_id"
           value={formValues.supervisor_empleado_id}
           onChange={(event) => updateField('supervisor_empleado_id', event.target.value)}
-          options={buildSupervisorOptions(data.supervisores)}
+          options={buildSupervisorOptions(data.supervisoresCatalogo)}
         />
         <Select
           label="Modo horario"
@@ -1126,14 +1471,15 @@ function CrearPdvForm({
             options={[
               {
                 value: '',
-                label: data.turnosCadena.length > 0 ? 'Selecciona un turno' : 'Sin catalogo disponible',
+                label:
+                  data.turnosCadena.length > 0 ? 'Selecciona un turno' : 'Sin catalogo disponible',
               },
               ...data.turnosCadena.map((item) => ({ value: item.nomenclatura, label: item.label })),
             ]}
           />
           <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 md:col-span-2">
-            La herencia usa el catalogo operativo de cadena cargado en configuracion. Al aplicar este
-            modo se desactivan reglas personalizadas activas del PDV.
+            La herencia usa el catalogo operativo de cadena cargado en configuracion. Al aplicar
+            este modo se desactivan reglas personalizadas activas del PDV.
           </div>
         </div>
       ) : (
@@ -1241,7 +1587,9 @@ function GeocercaForm({ data, pdv }: { data: PdvsPanelData; pdv: PdvListadoItem 
           label="Coordenadas"
           name="coordenadas"
           defaultValue={
-            pdv.latitud !== null && pdv.longitud !== null ? `${pdv.latitud.toFixed(7)}, ${pdv.longitud.toFixed(7)}` : ''
+            pdv.latitud !== null && pdv.longitud !== null
+              ? `${pdv.latitud.toFixed(7)}, ${pdv.longitud.toFixed(7)}`
+              : ''
           }
           placeholder="19.432608, -99.133209"
           hint="Usa el formato latitud, longitud."
@@ -1323,18 +1671,42 @@ function HorarioForm({
 function SupervisorForm({ data, pdv }: { data: PdvsPanelData; pdv: PdvListadoItem }) {
   const [state, formAction] = useActionState(actualizarSupervisorPdv, ESTADO_PDV_INICIAL);
 
+  const defaultEffectiveDate = () => {
+    const now = new Date();
+    if (now.getDate() >= 20) {
+      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const y = nextMonth.getFullYear();
+      const m = String(nextMonth.getMonth() + 1).padStart(2, '0');
+      const d = String(nextMonth.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
   return (
     <form
       action={formAction}
       className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4"
     >
       <input type="hidden" name="pdv_id" value={pdv.id} />
-      <Select
-        label="Cambiar de supervisor"
-        name="supervisor_empleado_id"
-        defaultValue={pdv.supervisorActualId ?? ''}
-        options={buildSupervisorOptions(data.supervisores)}
-      />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Select
+          label="Cambiar de supervisor"
+          name="supervisor_empleado_id"
+          defaultValue={pdv.supervisorActualId ?? ''}
+          options={buildSupervisorOptions(data.supervisoresCatalogo)}
+        />
+        <Input
+          label="Aplica a partir de"
+          name="fecha_efectiva"
+          type="date"
+          defaultValue={defaultEffectiveDate()}
+          required
+        />
+      </div>
       <SubmitButton
         idleLabel="Actualizar supervisor"
         pendingLabel="Guardando..."
@@ -1413,103 +1785,6 @@ function ScheduleFields({
   );
 }
 
-function CoverageMap({
-  pdvs,
-  selectedPdvId,
-  onSelect,
-  hasActiveFilters,
-}: {
-  pdvs: PdvListadoItem[];
-  selectedPdvId: string | null;
-  onSelect: (pdvId: string) => void;
-  hasActiveFilters: boolean;
-}) {
-  const points = pdvs.filter(
-    (item) => item.latitud !== null && item.longitud !== null && item.geocercaCompleta
-  );
-
-  const latitudes = points.map((item) => item.latitud ?? 0);
-  const longitudes = points.map((item) => item.longitud ?? 0);
-  const minLat = points.length > 0 ? Math.min(...latitudes) : null;
-  const maxLat = points.length > 0 ? Math.max(...latitudes) : null;
-  const minLng = points.length > 0 ? Math.min(...longitudes) : null;
-  const maxLng = points.length > 0 ? Math.max(...longitudes) : null;
-  const mapPoints: MexicoMapPoint[] = points.map((pdv) => ({
-    id: pdv.id,
-    lat: pdv.latitud ?? 0,
-    lng: pdv.longitud ?? 0,
-    title: pdv.nombre,
-    subtitle: `${pdv.claveBtl} · ${pdv.ciudad ?? 'Sin ciudad'}`,
-    detail: `${pdv.cadena ?? 'Sin cadena'} · ${pdv.zona ?? 'Sin zona'}`,
-    tone:
-      pdv.estatus === 'INACTIVO' ? 'slate' : pdv.alertarGeocercaFueraDeRango ? 'amber' : 'emerald',
-    radiusMeters: pdv.radioMetros,
-  }));
-
-  return (
-    <Card className="p-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-950">Mapa operacional</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Vista geoespacial de PDVs filtrados con geocerca. Haz clic en un punto para abrir su
-            detalle.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 text-xs">
-          <StatusPill label="Geocerca OK" className="bg-emerald-100 text-emerald-700" />
-          <StatusPill label="Radio alerta" className="bg-amber-100 text-amber-700" />
-          <StatusPill label="Inactivo" className="bg-slate-200 text-slate-700" />
-        </div>
-      </div>
-
-      <div className="mt-5">
-        {points.length > 0 ? (
-          <MexicoMap
-            points={mapPoints}
-            selectedPointId={selectedPdvId}
-            onSelect={onSelect}
-            showCoverageCircles
-            heightClassName="h-[320px] sm:h-[360px]"
-          />
-        ) : (
-          <div className="flex h-[320px] items-center justify-center rounded-[28px] border border-slate-200 bg-slate-50 px-6 text-center sm:h-[360px]">
-            <div className="max-w-sm space-y-2">
-              <p className="text-base font-semibold text-slate-900">
-                {hasActiveFilters ? 'Sin resultados en el mapa' : 'Mapa diferido'}
-              </p>
-              <p className="text-sm leading-6 text-slate-500">
-                {hasActiveFilters
-                  ? 'No hay puntos de venta con geocerca dentro de los filtros actuales. Ajusta los filtros o limpialos para volver a ver ubicaciones en Mexico.'
-                  : 'El mapa ya no se dibuja automaticamente. Primero aplica un filtro para consultar solo el subconjunto necesario de PDVs.'}
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <InfoRow label="PDVs georreferenciados" value={String(points.length)} />
-        <InfoRow
-          label="Latitud"
-          value={
-            minLat !== null && maxLat !== null
-              ? `${minLat.toFixed(3)} a ${maxLat.toFixed(3)}`
-              : 'Sin resultados'
-          }
-        />
-        <InfoRow
-          label="Longitud"
-          value={
-            minLng !== null && maxLng !== null
-              ? `${minLng.toFixed(3)} a ${maxLng.toFixed(3)}`
-              : 'Sin resultados'
-          }
-        />
-      </div>
-    </Card>
-  );
-}
 
 function HorarioSummary({ horarios }: { horarios?: PdvHorarioItem[] | null }) {
   const horarioEntries = Array.isArray(horarios) ? horarios : [];

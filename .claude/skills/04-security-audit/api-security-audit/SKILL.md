@@ -6,6 +6,7 @@ description: Auditoría de seguridad para API Rules de PocketBase
 # API Security Audit - Beteele PocketBase
 
 ## Cuando Usar
+
 - Antes de deploy a producción
 - Al agregar nuevas colecciones
 - Modificar API Rules existentes
@@ -14,6 +15,7 @@ description: Auditoría de seguridad para API Rules de PocketBase
 ## Checklist de Seguridad
 
 ### 1. Principio de Mínimo Privilegio
+
 ```javascript
 // ✅ CORRECTO: Nómina solo LECTURA
 // Collection: attendance
@@ -34,6 +36,7 @@ description: Auditoría de seguridad para API Rules de PocketBase
 ```
 
 ### 2. Validación de Inputs
+
 ```javascript
 // Collection: employees
 {
@@ -53,26 +56,27 @@ description: Auditoría de seguridad para API Rules de PocketBase
 ```
 
 ### 3. Rate Limiting
+
 ```javascript
 // Hook de PocketBase para uploads
 onRecordBeforeCreateRequest((e) => {
-  const userId = e.httpContext.get("auth").id;
-  
+  const userId = e.httpContext.get('auth').id;
+
   // Limitar a 10 fotos por hora
-  const recentUploads = $app.dao().findRecordsByFilter(
-    "attendance",
-    `user_id = '${userId}' && created >= @now-1h`
-  );
-  
+  const recentUploads = $app
+    .dao()
+    .findRecordsByFilter('attendance', `user_id = '${userId}' && created >= @now-1h`);
+
   if (recentUploads.length >= 10) {
-    throw new BadRequestError("Rate limit exceeded");
+    throw new BadRequestError('Rate limit exceeded');
   }
-}, "attendance");
+}, 'attendance');
 ```
 
 ## Casos Críticos en Beteele
 
 ### Exportación de Nómina
+
 ```javascript
 // ❌ VULNERABLE
 {
@@ -86,6 +90,7 @@ onRecordBeforeCreateRequest((e) => {
 ```
 
 ### Sincronización Offline
+
 ```javascript
 // Validar que registro pertenece al usuario
 {
@@ -94,6 +99,7 @@ onRecordBeforeCreateRequest((e) => {
 ```
 
 ## Comandos de Auditoría
+
 ```bash
 # Exportar todas las API Rules
 curl http://localhost:8090/api/collections | jq '.[] | {name, listRule, createRule}'

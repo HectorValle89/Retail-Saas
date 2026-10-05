@@ -1,51 +1,44 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import {
-  enviarOtpRescateActivacion,
-  validarOtpRescateActivacion,
-} from '@/actions/auth'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { useState } from 'react';
+import { enviarOtpRescateActivacion, validarOtpRescateActivacion } from '@/actions/auth';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
-export function AccessRecoveryOtpForm({
-  initialEmail,
-}: {
-  initialEmail?: string
-}) {
-  const [email, setEmail] = useState(initialEmail ?? '')
-  const [otpSent, setOtpSent] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [loadingSend, setLoadingSend] = useState(false)
-  const [loadingValidate, setLoadingValidate] = useState(false)
+export function AccessRecoveryOtpForm({ initialEmail }: { initialEmail?: string }) {
+  const [email, setEmail] = useState(initialEmail ?? '');
+  const [otpSent, setOtpSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [loadingSend, setLoadingSend] = useState(false);
+  const [loadingValidate, setLoadingValidate] = useState(false);
 
   async function handleSend(formData: FormData) {
-    setLoadingSend(true)
-    setError(null)
-    setSuccess(null)
+    setLoadingSend(true);
+    setError(null);
+    setSuccess(null);
 
-    const result = await enviarOtpRescateActivacion(formData)
+    const result = await enviarOtpRescateActivacion(formData);
     if (result?.error) {
-      setError(result.error)
-      setLoadingSend(false)
-      return
+      setError(result.error);
+      setLoadingSend(false);
+      return;
     }
 
-    setOtpSent(true)
-    setSuccess('Te enviamos un codigo de 6 digitos para retomar la activacion.')
-    setLoadingSend(false)
+    setOtpSent(true);
+    setSuccess('Te enviamos un codigo de 6 digitos para retomar la activacion.');
+    setLoadingSend(false);
   }
 
   async function handleValidate(formData: FormData) {
-    setLoadingValidate(true)
-    setError(null)
-    setSuccess(null)
+    setLoadingValidate(true);
+    setError(null);
+    setSuccess(null);
 
-    const result = await validarOtpRescateActivacion(formData)
+    const result = await validarOtpRescateActivacion(formData);
     if (result?.error) {
-      setError(result.error)
-      setLoadingValidate(false)
+      setError(result.error);
+      setLoadingValidate(false);
     }
   }
 
@@ -53,7 +46,8 @@ export function AccessRecoveryOtpForm({
     <div className="rounded-[22px] border border-amber-200 bg-amber-50 p-5">
       <p className="text-sm font-semibold text-slate-950">Retomar activacion</p>
       <p className="mt-2 text-sm text-slate-700">
-        Si tu correo ya quedo validado pero cerraste antes de crear tu contrasena, genera un codigo para volver directo al paso de seguridad.
+        Si tu correo ya quedo validado pero cerraste antes de crear tu contrasena, genera un codigo
+        para volver directo al paso de seguridad.
       </p>
 
       <form action={handleSend} className="mt-4 space-y-4">
@@ -78,7 +72,10 @@ export function AccessRecoveryOtpForm({
       </form>
 
       {otpSent && (
-        <form action={handleValidate} className="mt-4 space-y-4 rounded-[18px] border border-white/70 bg-white p-4">
+        <form
+          action={handleValidate}
+          className="mt-4 space-y-4 rounded-[18px] border border-white/70 bg-white p-4"
+        >
           <input type="hidden" name="email" value={email} />
           <Input
             id="otp"
@@ -110,6 +107,5 @@ export function AccessRecoveryOtpForm({
         </div>
       )}
     </div>
-  )
+  );
 }
-

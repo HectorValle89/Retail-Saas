@@ -1,198 +1,194 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  revalidatePathMock,
-  requerirOperadorNominaMock,
-  createClientMock,
-} = vi.hoisted(() => ({
+const { revalidatePathMock, requerirOperadorNominaMock, createClientMock } = vi.hoisted(() => ({
   revalidatePathMock: vi.fn(),
   requerirOperadorNominaMock: vi.fn(),
   createClientMock: vi.fn(),
-}))
+}));
 
 vi.mock('next/cache', () => ({
   revalidatePath: revalidatePathMock,
   revalidateTag: vi.fn(),
   unstable_cache: vi.fn((fn) => fn),
-}))
+}));
 
 vi.mock('@/lib/auth/session', () => ({
   requerirOperadorNomina: requerirOperadorNominaMock,
-}))
+}));
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: createClientMock,
-}))
+}));
 
-import type { ActorActual } from '@/lib/auth/session'
-import { collectReportExportPayload } from '@/features/reportes/services/reporteExport'
-import { actualizarEstadoPeriodoNomina } from './actions'
-import { obtenerPanelNomina } from './services/nominaService'
-import { ESTADO_NOMINA_INICIAL } from './state'
+import type { ActorActual } from '@/lib/auth/session';
+import { collectReportExportPayload } from '@/features/reportes/services/reporteExport';
+import { actualizarEstadoPeriodoNomina } from './actions';
+import { obtenerPanelNomina } from './services/nominaService';
+import { ESTADO_NOMINA_INICIAL } from './state';
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-  count?: number | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+  count?: number | null;
+};
 
 function createIntegratedClient(results: Record<string, QueryResult>) {
-  const updates = new Map<string, Array<Record<string, unknown>>>()
+  const updates = new Map<string, Array<Record<string, unknown>>>();
 
   return {
     rpc() {
-      return Promise.resolve({ data: null, error: null })
+      return Promise.resolve({ data: null, error: null });
     },
     from(table: string) {
-      const entry = results[table] ?? { data: [], error: null }
+      const entry = results[table] ?? { data: [], error: null };
       const state = {
         filters: [] as Array<{ op: string; column: string; value: unknown }>,
-      }
+      };
 
       const applyFilters = () => {
-        const source = Array.isArray(entry.data) ? [...entry.data] : entry.data
+        const source = Array.isArray(entry.data) ? [...entry.data] : entry.data;
 
         if (!Array.isArray(source)) {
-          return source
+          return source;
         }
 
         return source.filter((row) => {
           return state.filters.every((filter) => {
-            const rowValue = (row as Record<string, unknown>)[filter.column]
+            const rowValue = (row as Record<string, unknown>)[filter.column];
 
             if (filter.op === 'eq') {
-              return rowValue === filter.value
+              return rowValue === filter.value;
             }
 
             if (filter.op === 'neq') {
-              return rowValue !== filter.value
+              return rowValue !== filter.value;
             }
 
             if (filter.op === 'in') {
-              return Array.isArray(filter.value) && filter.value.includes(rowValue)
+              return Array.isArray(filter.value) && filter.value.includes(rowValue);
             }
 
             if (filter.op === 'gte') {
-              return String(rowValue ?? '') >= String(filter.value ?? '')
+              return String(rowValue ?? '') >= String(filter.value ?? '');
             }
 
             if (filter.op === 'lte') {
-              return String(rowValue ?? '') <= String(filter.value ?? '')
+              return String(rowValue ?? '') <= String(filter.value ?? '');
             }
 
             if (filter.op === 'lt') {
-              return String(rowValue ?? '') < String(filter.value ?? '')
+              return String(rowValue ?? '') < String(filter.value ?? '');
             }
 
-            return true
-          })
-        })
-      }
+            return true;
+          });
+        });
+      };
 
       const chain = {
         select() {
-          return chain
+          return chain;
         },
         eq(column: string, value: unknown) {
-          state.filters.push({ op: 'eq', column, value })
-          return chain
+          state.filters.push({ op: 'eq', column, value });
+          return chain;
         },
         neq(column: string, value: unknown) {
-          state.filters.push({ op: 'neq', column, value })
-          return chain
+          state.filters.push({ op: 'neq', column, value });
+          return chain;
         },
         in(column: string, value: unknown[]) {
-          state.filters.push({ op: 'in', column, value })
-          return chain
+          state.filters.push({ op: 'in', column, value });
+          return chain;
         },
         gte(column: string, value: unknown) {
-          state.filters.push({ op: 'gte', column, value })
-          return chain
+          state.filters.push({ op: 'gte', column, value });
+          return chain;
         },
         lte(column: string, value: unknown) {
-          state.filters.push({ op: 'lte', column, value })
-          return chain
+          state.filters.push({ op: 'lte', column, value });
+          return chain;
         },
         lt(column: string, value: unknown) {
-          state.filters.push({ op: 'lt', column, value })
-          return chain
+          state.filters.push({ op: 'lt', column, value });
+          return chain;
         },
         order() {
-          return chain
+          return chain;
         },
         limit() {
           return Promise.resolve({
             data: applyFilters(),
             error: entry.error,
             count: entry.count ?? (Array.isArray(entry.data) ? entry.data.length : null),
-          })
+          });
         },
         then(resolve: (value: QueryResult) => void) {
           return Promise.resolve({
             data: applyFilters(),
             error: entry.error,
             count: entry.count ?? (Array.isArray(entry.data) ? entry.data.length : null),
-          }).then(resolve)
+          }).then(resolve);
         },
         maybeSingle() {
-          const filtered = applyFilters()
+          const filtered = applyFilters();
           return Promise.resolve({
-            data: Array.isArray(filtered) ? filtered[0] ?? null : filtered,
+            data: Array.isArray(filtered) ? (filtered[0] ?? null) : filtered,
             error: entry.error,
-          })
+          });
         },
         single() {
-          return this.maybeSingle()
+          return this.maybeSingle();
         },
         or() {
-          return chain
+          return chain;
         },
         insert(payload: Record<string, unknown> | Record<string, unknown>[]) {
-          const current = updates.get(table) ?? []
+          const current = updates.get(table) ?? [];
           if (Array.isArray(payload)) {
-            current.push(...payload)
+            current.push(...payload);
           } else {
-            current.push(payload)
+            current.push(payload);
           }
-          updates.set(table, current)
-          return Promise.resolve({ error: null })
+          updates.set(table, current);
+          return Promise.resolve({ error: null });
         },
         update(payload: Record<string, unknown>) {
-          const current = updates.get(table) ?? []
-          current.push(payload)
-          updates.set(table, current)
+          const current = updates.get(table) ?? [];
+          current.push(payload);
+          updates.set(table, current);
 
-          const source = results[table]?.data
+          const source = results[table]?.data;
           if (Array.isArray(source)) {
             for (const row of source) {
               const matches = state.filters.every((filter) => {
                 if (filter.op !== 'eq') {
-                  return true
+                  return true;
                 }
-                return (row as Record<string, unknown>)[filter.column] === filter.value
-              })
+                return (row as Record<string, unknown>)[filter.column] === filter.value;
+              });
 
               if (matches) {
-                Object.assign(row as Record<string, unknown>, payload)
+                Object.assign(row as Record<string, unknown>, payload);
               }
             }
           }
 
           return {
             eq(column: string, value: unknown) {
-              state.filters.push({ op: 'eq', column, value })
-              return Promise.resolve({ error: null })
+              state.filters.push({ op: 'eq', column, value });
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         },
-      }
+      };
 
-      return chain
+      return chain;
     },
     getUpdates(table: string) {
-      return updates.get(table) ?? []
+      return updates.get(table) ?? [];
     },
-  }
+  };
 }
 
 const adminActor: ActorActual = {
@@ -206,17 +202,17 @@ const adminActor: ActorActual = {
   estadoCuenta: 'ACTIVA',
   nombreCompleto: 'Admin Principal',
   puesto: 'ADMINISTRADOR',
-}
+};
 
 describe('nomina end-to-end flow', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.clearAllMocks();
     requerirOperadorNominaMock.mockResolvedValue({
       usuarioId: 'user-admin',
       puesto: 'NOMINA',
       nombreCompleto: 'Nomina Admin',
-    })
-  })
+    });
+  });
 
   it('consolida prenomina con sueldo base, comision y deducciones, luego aprueba, dispersa y exporta', async () => {
     const client = createIntegratedClient({
@@ -361,25 +357,30 @@ describe('nomina end-to-end flow', () => {
       gasto: { data: [], error: null },
       love_isdin: {
         data: [
-          { empleado_id: 'emp-1', cuenta_cliente_id: 'c1', estatus: 'VALIDA', fecha_utc: '2026-03-09T12:00:00.000Z' },
+          {
+            empleado_id: 'emp-1',
+            cuenta_cliente_id: 'c1',
+            estatus: 'VALIDA',
+            fecha_utc: '2026-03-09T12:00:00.000Z',
+          },
         ],
         error: null,
       },
       audit_log: { data: [], error: null },
       cuenta_cliente: { data: [{ id: 'c1', nombre: 'ISDIN Mexico', activa: true }], error: null },
       usuario: { data: [{ id: 'user-1', email: 'admin@example.com' }], error: null },
-    })
+    });
 
-    createClientMock.mockResolvedValue(client)
+    createClientMock.mockResolvedValue(client);
 
-    const panel = await obtenerPanelNomina(client as never)
+    const panel = await obtenerPanelNomina(client as never);
 
-    expect(panel.infraestructuraLista).toBe(true)
-    expect(panel.periodoActivoId).toBe('periodo-1')
+    expect(panel.infraestructuraLista).toBe(true);
+    expect(panel.periodoActivoId).toBe('periodo-1');
     expect(panel.periodos[0]).toMatchObject({
       estado: 'BORRADOR',
       empleadosIncluidos: 1,
-    })
+    });
     expect(panel.preNomina[0]).toMatchObject({
       empleado: 'Ana Uno',
       sueldoBaseDiario: 600,
@@ -391,37 +392,37 @@ describe('nomina end-to-end flow', () => {
       deduccionIsr: 193.05,
       deducciones: 242.55,
       netoEstimado: 1737.45,
-    })
+    });
     expect(panel.cuotas[0]).toMatchObject({
       semaforo: 'VERDE',
       loveObjetivo: 2,
       visitasObjetivo: 1,
-    })
+    });
 
-    const aprobar = new FormData()
-    aprobar.set('periodo_id', 'periodo-1')
-    aprobar.set('estado_destino', 'APROBADO')
+    const aprobar = new FormData();
+    aprobar.set('periodo_id', 'periodo-1');
+    aprobar.set('estado_destino', 'APROBADO');
 
-    const aprobado = await actualizarEstadoPeriodoNomina(ESTADO_NOMINA_INICIAL, aprobar)
-    expect(aprobado.ok).toBe(true)
-    expect(client.getUpdates('nomina_periodo')[0]).toMatchObject({ estado: 'APROBADO' })
+    const aprobado = await actualizarEstadoPeriodoNomina(ESTADO_NOMINA_INICIAL, aprobar);
+    expect(aprobado.ok).toBe(true);
+    expect(client.getUpdates('nomina_periodo')[0]).toMatchObject({ estado: 'APROBADO' });
 
-    const dispersar = new FormData()
-    dispersar.set('periodo_id', 'periodo-1')
-    dispersar.set('estado_destino', 'DISPERSADO')
+    const dispersar = new FormData();
+    dispersar.set('periodo_id', 'periodo-1');
+    dispersar.set('estado_destino', 'DISPERSADO');
 
-    const dispersado = await actualizarEstadoPeriodoNomina(ESTADO_NOMINA_INICIAL, dispersar)
-    expect(dispersado.ok).toBe(true)
-    expect(client.getUpdates('nomina_periodo')[1]).toMatchObject({ estado: 'DISPERSADO' })
+    const dispersado = await actualizarEstadoPeriodoNomina(ESTADO_NOMINA_INICIAL, dispersar);
+    expect(dispersado.ok).toBe(true);
+    expect(client.getUpdates('nomina_periodo')[1]).toMatchObject({ estado: 'DISPERSADO' });
 
     const exportPayload = await collectReportExportPayload(
       client as never,
       adminActor,
       'nomina',
       '2026-03'
-    )
+    );
 
-    expect(exportPayload.filenameBase).toBe('nomina-2026-03')
+    expect(exportPayload.filenameBase).toBe('nomina-2026-03');
     expect(exportPayload.rows).toContainEqual([
       '2026-03-Q1',
       'Ana Uno',
@@ -437,6 +438,6 @@ describe('nomina end-to-end flow', () => {
       0,
       0,
       1,
-    ])
-  })
-})
+    ]);
+  });
+});

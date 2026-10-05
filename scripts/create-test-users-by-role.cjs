@@ -1,91 +1,91 @@
-const fs = require('node:fs')
-const path = require('node:path')
-const { createClient } = require('@supabase/supabase-js')
+const fs = require('node:fs');
+const path = require('node:path');
+const { createClient } = require('@supabase/supabase-js');
 
 function loadEnvFile(filePath, { override = false } = {}) {
   if (!fs.existsSync(filePath)) {
-    return
+    return;
   }
 
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/)
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
   for (const line of lines) {
-    const trimmed = line.trim()
+    const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) {
-      continue
+      continue;
     }
 
-    const separatorIndex = trimmed.indexOf('=')
+    const separatorIndex = trimmed.indexOf('=');
     if (separatorIndex === -1) {
-      continue
+      continue;
     }
 
-    const key = trimmed.slice(0, separatorIndex).trim()
-    const value = trimmed.slice(separatorIndex + 1).trim()
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
 
     if (override || !process.env[key]) {
-      process.env[key] = value
+      process.env[key] = value;
     }
   }
 }
 
 function requireEnv(name) {
-  const value = process.env[name] ?? null
+  const value = process.env[name] ?? null;
   if (!value) {
-    throw new Error(`Missing required env var: ${name}`)
+    throw new Error(`Missing required env var: ${name}`);
   }
 
-  return value
+  return value;
 }
 
 function timestampFileSafe(date) {
-  return date.toISOString().replace(/[:.]/g, '-')
+  return date.toISOString().replace(/[:.]/g, '-');
 }
 
 function toIso(value) {
-  return value.toISOString()
+  return value.toISOString();
 }
 
 function buildPhone(index) {
-  return `5510000${String(index).padStart(3, '0')}`
+  return `5510000${String(index).padStart(3, '0')}`;
 }
 
 function buildCurp(token, index) {
-  const suffix = String(index).padStart(2, '0')
-  return `TST${token}900101HDF${suffix}AA`.slice(0, 18)
+  const suffix = String(index).padStart(2, '0');
+  return `TST${token}900101HDF${suffix}AA`.slice(0, 18);
 }
 
 function buildRfc(token, index) {
-  const suffix = String(index).padStart(2, '0')
-  return `TST${token}900101${suffix}`.slice(0, 13)
+  const suffix = String(index).padStart(2, '0');
+  return `TST${token}900101${suffix}`.slice(0, 13);
 }
 
 function buildNss(index) {
-  return `99010${String(index).padStart(6, '0')}`
+  return `99010${String(index).padStart(6, '0')}`;
 }
 
 async function listAllAuthUsers(supabase) {
-  const users = []
-  let page = 1
-  const perPage = 200
+  const users = [];
+  let page = 1;
+  const perPage = 200;
 
   while (true) {
-    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage })
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
 
     if (error) {
-      throw error
+      throw error;
     }
 
-    const batch = data?.users ?? []
-    users.push(...batch)
+    const batch = data?.users ?? [];
+    users.push(...batch);
 
     if (batch.length < perPage) {
-      break
+      break;
     }
 
-    page += 1
+    page += 1;
   }
 
-  return users
+  return users;
 }
 
 async function ensureDemoAccountId(supabase) {
@@ -93,13 +93,13 @@ async function ensureDemoAccountId(supabase) {
     .from('cuenta_cliente')
     .select('id, identificador, activa')
     .eq('identificador', 'be_te_ele_demo')
-    .maybeSingle()
+    .maybeSingle();
 
   if (error || !data || !data.activa) {
-    throw error ?? new Error('No fue posible encontrar la cuenta cliente activa be_te_ele_demo.')
+    throw error ?? new Error('No fue posible encontrar la cuenta cliente activa be_te_ele_demo.');
   }
 
-  return data.id
+  return data.id;
 }
 
 async function findEmpleadoExistente(supabase, spec) {
@@ -107,32 +107,32 @@ async function findEmpleadoExistente(supabase, spec) {
     .from('empleado')
     .select('id, id_nomina, nombre_completo, puesto, supervisor_empleado_id')
     .eq('correo_electronico', spec.email)
-    .maybeSingle()
+    .maybeSingle();
 
   if (byEmailError) {
-    throw byEmailError
+    throw byEmailError;
   }
 
   if (byEmail) {
-    return byEmail
+    return byEmail;
   }
 
   const { data, error } = await supabase
     .from('empleado')
     .select('id, id_nomina, nombre_completo, puesto, supervisor_empleado_id')
     .eq('id_nomina', spec.idNomina)
-    .maybeSingle()
+    .maybeSingle();
 
   if (error) {
-    throw error
+    throw error;
   }
 
-  return data ?? null
+  return data ?? null;
 }
 
 async function upsertEmpleado(supabase, spec) {
-  const existing = await findEmpleadoExistente(supabase, spec)
-  const nowIso = toIso(new Date())
+  const existing = await findEmpleadoExistente(supabase, spec);
+  const nowIso = toIso(new Date());
 
   if (existing) {
     const { data, error } = await supabase
@@ -158,13 +158,13 @@ async function upsertEmpleado(supabase, spec) {
       })
       .eq('id', existing.id)
       .select('id, id_nomina, nombre_completo, puesto')
-      .maybeSingle()
+      .maybeSingle();
 
     if (error || !data) {
-      throw error ?? new Error(`No fue posible actualizar el empleado ${spec.idNomina}.`)
+      throw error ?? new Error(`No fue posible actualizar el empleado ${spec.idNomina}.`);
     }
 
-    return { empleado: data, action: 'updated' }
+    return { empleado: data, action: 'updated' };
   }
 
   const { data, error } = await supabase
@@ -193,17 +193,17 @@ async function upsertEmpleado(supabase, spec) {
       },
     })
     .select('id, id_nomina, nombre_completo, puesto')
-    .maybeSingle()
+    .maybeSingle();
 
   if (error || !data) {
-    throw error ?? new Error(`No fue posible crear el empleado ${spec.idNomina}.`)
+    throw error ?? new Error(`No fue posible crear el empleado ${spec.idNomina}.`);
   }
 
-  return { empleado: data, action: 'created' }
+  return { empleado: data, action: 'created' };
 }
 
 async function upsertAuthUser(supabase, authUsersByEmail, spec) {
-  const existing = authUsersByEmail.get(spec.email.toLowerCase()) ?? null
+  const existing = authUsersByEmail.get(spec.email.toLowerCase()) ?? null;
 
   if (existing) {
     const { data, error } = await supabase.auth.admin.updateUserById(existing.id, {
@@ -215,14 +215,14 @@ async function upsertAuthUser(supabase, authUsersByEmail, spec) {
         source: 'test_users_by_role_script',
         test_user: true,
       },
-    })
+    });
 
     if (error || !data.user) {
-      throw error ?? new Error(`No fue posible actualizar auth user ${spec.email}.`)
+      throw error ?? new Error(`No fue posible actualizar auth user ${spec.email}.`);
     }
 
-    authUsersByEmail.set(spec.email.toLowerCase(), data.user)
-    return { authUser: data.user, action: 'updated' }
+    authUsersByEmail.set(spec.email.toLowerCase(), data.user);
+    return { authUser: data.user, action: 'updated' };
   }
 
   const { data, error } = await supabase.auth.admin.createUser({
@@ -234,26 +234,26 @@ async function upsertAuthUser(supabase, authUsersByEmail, spec) {
       source: 'test_users_by_role_script',
       test_user: true,
     },
-  })
+  });
 
   if (error || !data.user) {
-    throw error ?? new Error(`No fue posible crear auth user ${spec.email}.`)
+    throw error ?? new Error(`No fue posible crear auth user ${spec.email}.`);
   }
 
-  authUsersByEmail.set(spec.email.toLowerCase(), data.user)
-  return { authUser: data.user, action: 'created' }
+  authUsersByEmail.set(spec.email.toLowerCase(), data.user);
+  return { authUser: data.user, action: 'created' };
 }
 
 async function upsertUsuario(supabase, spec) {
-  const nowIso = toIso(new Date())
+  const nowIso = toIso(new Date());
   const { data: existing, error: existingError } = await supabase
     .from('usuario')
     .select('id')
     .eq('empleado_id', spec.empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (existingError) {
-    throw existingError
+    throw existingError;
   }
 
   const payload = {
@@ -268,7 +268,7 @@ async function upsertUsuario(supabase, spec) {
     password_temporal_expira_en: null,
     ultimo_acceso_en: null,
     updated_at: nowIso,
-  }
+  };
 
   if (existing) {
     const { data, error } = await supabase
@@ -276,13 +276,13 @@ async function upsertUsuario(supabase, spec) {
       .update(payload)
       .eq('id', existing.id)
       .select('id, username, cuenta_cliente_id, estado_cuenta')
-      .maybeSingle()
+      .maybeSingle();
 
     if (error || !data) {
-      throw error ?? new Error(`No fue posible actualizar el usuario ${spec.username}.`)
+      throw error ?? new Error(`No fue posible actualizar el usuario ${spec.username}.`);
     }
 
-    return { usuario: data, action: 'updated' }
+    return { usuario: data, action: 'updated' };
   }
 
   const { data, error } = await supabase
@@ -292,13 +292,13 @@ async function upsertUsuario(supabase, spec) {
       created_at: nowIso,
     })
     .select('id, username, cuenta_cliente_id, estado_cuenta')
-    .maybeSingle()
+    .maybeSingle();
 
   if (error || !data) {
-    throw error ?? new Error(`No fue posible crear el usuario ${spec.username}.`)
+    throw error ?? new Error(`No fue posible crear el usuario ${spec.username}.`);
   }
 
-  return { usuario: data, action: 'created' }
+  return { usuario: data, action: 'created' };
 }
 
 async function verifyLogin(supabaseUrl, anonKey, credentials) {
@@ -307,43 +307,41 @@ async function verifyLogin(supabaseUrl, anonKey, credentials) {
       autoRefreshToken: false,
       persistSession: false,
     },
-  })
+  });
 
   const { data, error } = await client.auth.signInWithPassword({
     email: credentials.email,
     password: credentials.password,
-  })
+  });
 
   if (error || !data.user || !data.session) {
-    throw error ?? new Error(`No fue posible validar login para ${credentials.email}.`)
+    throw error ?? new Error(`No fue posible validar login para ${credentials.email}.`);
   }
 
-  await client.auth.signOut()
+  await client.auth.signOut();
 }
 
 async function main() {
-  loadEnvFile(path.resolve('.env.local'))
-  loadEnvFile(path.resolve('.dev.vars'), { override: true })
+  loadEnvFile(path.resolve('.env.local'));
+  loadEnvFile(path.resolve('.dev.vars'), { override: true });
 
-  const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL')
-  const anonKey = requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
-  const serviceRoleKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY')
-  const generatedAt = new Date()
+  const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
+  const anonKey = requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  const serviceRoleKey = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
+  const generatedAt = new Date();
 
   const service = createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
-  })
+  });
 
-  const demoAccountId = await ensureDemoAccountId(service)
-  const authUsers = await listAllAuthUsers(service)
+  const demoAccountId = await ensureDemoAccountId(service);
+  const authUsers = await listAllAuthUsers(service);
   const authUsersByEmail = new Map(
-    authUsers
-      .filter((user) => user.email)
-      .map((user) => [String(user.email).toLowerCase(), user])
-  )
+    authUsers.filter((user) => user.email).map((user) => [String(user.email).toLowerCase(), user])
+  );
 
   const roles = [
     { puesto: 'ADMINISTRADOR', token: 'ADM', passwordToken: 'Adm', accountMode: 'global' },
@@ -356,26 +354,26 @@ async function main() {
     { puesto: 'VENTAS', token: 'VTA', passwordToken: 'Vta', accountMode: 'scoped' },
     { puesto: 'DERMOCONSEJERO', token: 'DER', passwordToken: 'Der', accountMode: 'scoped' },
     { puesto: 'CLIENTE', token: 'CLI', passwordToken: 'Cli', accountMode: 'scoped' },
-  ]
+  ];
 
-  const roleCounters = new Map()
-  const supervisorIds = []
-  const results = []
+  const roleCounters = new Map();
+  const supervisorIds = [];
+  const results = [];
 
   for (const role of roles) {
     for (let sequence = 1; sequence <= 3; sequence += 1) {
-      const padded = String(sequence).padStart(2, '0')
-      const username = `test_${role.puesto.toLowerCase()}_${padded}`.replace(/[^a-z0-9_]/g, '_')
-      const email = `${username}@fieldforce.test`
-      const password = 'BTL2026'
-      const idNomina = `TST-${role.token}-${padded}`
-      const roleIndex = (roleCounters.get(role.puesto) ?? 0) + 1
-      roleCounters.set(role.puesto, roleIndex)
+      const padded = String(sequence).padStart(2, '0');
+      const username = `test_${role.puesto.toLowerCase()}_${padded}`.replace(/[^a-z0-9_]/g, '_');
+      const email = `${username}@fieldforce.test`;
+      const password = 'BTL2026';
+      const idNomina = `TST-${role.token}-${padded}`;
+      const roleIndex = (roleCounters.get(role.puesto) ?? 0) + 1;
+      roleCounters.set(role.puesto, roleIndex);
 
       const supervisorEmpleadoId =
         role.puesto === 'DERMOCONSEJERO' && supervisorIds.length > 0
           ? supervisorIds[(sequence - 1) % supervisorIds.length]
-          : null
+          : null;
 
       const empleadoSpec = {
         idNomina,
@@ -390,28 +388,28 @@ async function main() {
         rfc: buildRfc(role.token, sequence),
         nss: buildNss(sequence + roles.indexOf(role) * 10),
         sequence,
-      }
+      };
 
-      const { empleado, action: empleadoAction } = await upsertEmpleado(service, empleadoSpec)
+      const { empleado, action: empleadoAction } = await upsertEmpleado(service, empleadoSpec);
 
       if (role.puesto === 'SUPERVISOR') {
-        supervisorIds.push(empleado.id)
+        supervisorIds.push(empleado.id);
       }
 
       const { authUser, action: authAction } = await upsertAuthUser(service, authUsersByEmail, {
         email,
         password,
         username,
-      })
+      });
 
-      const cuentaClienteId = role.accountMode === 'global' ? null : demoAccountId
+      const cuentaClienteId = role.accountMode === 'global' ? null : demoAccountId;
       const { usuario, action: usuarioAction } = await upsertUsuario(service, {
         authUserId: authUser.id,
         empleadoId: empleado.id,
         cuentaClienteId,
         username,
         email,
-      })
+      });
 
       results.push({
         puesto: role.puesto,
@@ -428,16 +426,19 @@ async function main() {
           auth: authAction,
           usuario: usuarioAction,
         },
-      })
+      });
     }
   }
 
   for (const credential of results) {
-    await verifyLogin(supabaseUrl, anonKey, credential)
+    await verifyLogin(supabaseUrl, anonKey, credential);
   }
 
-  const reportPath = path.resolve('tmp', `test-users-by-role-${timestampFileSafe(generatedAt)}.json`)
-  fs.mkdirSync(path.dirname(reportPath), { recursive: true })
+  const reportPath = path.resolve(
+    'tmp',
+    `test-users-by-role-${timestampFileSafe(generatedAt)}.json`
+  );
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.writeFileSync(
     reportPath,
     JSON.stringify(
@@ -453,7 +454,7 @@ async function main() {
       2
     ),
     'utf8'
-  )
+  );
 
   console.log(
     JSON.stringify(
@@ -475,10 +476,10 @@ async function main() {
       null,
       2
     )
-  )
+  );
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error)
-  process.exit(1)
-})
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});

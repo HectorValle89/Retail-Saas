@@ -1,48 +1,48 @@
-import { expect, test } from '@playwright/test'
-import { obtenerPanelMateriales } from '../src/features/materiales/services/materialService'
+import { expect, test } from '@playwright/test';
+import { obtenerPanelMateriales } from '../src/features/materiales/services/materialService';
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+};
 
-type FakeResults = Record<string, QueryResult>
+type FakeResults = Record<string, QueryResult>;
 
 function createFakeMaterialesClient(results: FakeResults) {
   return {
     from(table: string) {
-      const entry = results[table] ?? { data: [], error: null }
+      const entry = results[table] ?? { data: [], error: null };
 
       const chain = {
         select() {
-          return chain
+          return chain;
         },
         eq() {
-          return chain
+          return chain;
         },
         in() {
-          return chain
+          return chain;
         },
         order() {
-          return chain
+          return chain;
         },
         limit() {
-          return chain
+          return chain;
         },
         maybeSingle() {
           if (Array.isArray(entry.data)) {
-            return Promise.resolve({ data: entry.data[0] ?? null, error: entry.error })
+            return Promise.resolve({ data: entry.data[0] ?? null, error: entry.error });
           }
-          return Promise.resolve(entry)
+          return Promise.resolve(entry);
         },
         then(resolve: (value: QueryResult) => void) {
-          return Promise.resolve(entry).then(resolve)
+          return Promise.resolve(entry).then(resolve);
         },
-      }
+      };
 
-      return chain
+      return chain;
     },
-  }
+  };
 }
 
 const actor = {
@@ -56,7 +56,7 @@ const actor = {
   estadoCuenta: 'ACTIVA' as const,
   nombreCompleto: 'DC Uno',
   puesto: 'ADMINISTRADOR' as const,
-}
+};
 
 test('consolida catalogo, dispersiones, supervisor view y reporte mensual', async () => {
   const fakeClient = createFakeMaterialesClient({
@@ -96,7 +96,13 @@ test('consolida catalogo, dispersiones, supervisor view y reporte mensual', asyn
           observaciones: null,
           metadata: {},
           cuenta_cliente: { id: 'cuenta-1', nombre: 'ISDIN' },
-          pdv: { id: 'pdv-1', clave_btl: 'BTL-001', nombre: 'Farmacia Centro', zona: 'CENTRO', cadena_id: 'cad-1' },
+          pdv: {
+            id: 'pdv-1',
+            clave_btl: 'BTL-001',
+            nombre: 'Farmacia Centro',
+            zona: 'CENTRO',
+            cadena_id: 'cad-1',
+          },
         },
       ],
       error: null,
@@ -147,14 +153,27 @@ test('consolida catalogo, dispersiones, supervisor view y reporte mensual', asyn
           observaciones: null,
           metadata: {},
           material_catalogo: { id: 'cat-1', nombre: 'Tester Fusion Water', tipo: 'TESTER' },
-          pdv: { id: 'pdv-1', clave_btl: 'BTL-001', nombre: 'Farmacia Centro', zona: 'CENTRO', cadena_id: 'cad-1' },
+          pdv: {
+            id: 'pdv-1',
+            clave_btl: 'BTL-001',
+            nombre: 'Farmacia Centro',
+            zona: 'CENTRO',
+            cadena_id: 'cad-1',
+          },
         },
       ],
       error: null,
     },
     pdv: {
       data: [
-        { id: 'pdv-1', clave_btl: 'BTL-001', nombre: 'Farmacia Centro', zona: 'CENTRO', cadena_id: 'cad-1', estatus: 'ACTIVO' },
+        {
+          id: 'pdv-1',
+          clave_btl: 'BTL-001',
+          nombre: 'Farmacia Centro',
+          zona: 'CENTRO',
+          cadena_id: 'cad-1',
+          estatus: 'ACTIVO',
+        },
       ],
       error: null,
     },
@@ -166,20 +185,20 @@ test('consolida catalogo, dispersiones, supervisor view y reporte mensual', asyn
       data: [{ id: 'cad-1', nombre: 'San Pablo' }],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelMateriales(fakeClient as never, actor)
+  const data = await obtenerPanelMateriales(fakeClient as never, actor);
 
-  expect(data.infraestructuraLista).toBe(true)
-  expect(data.catalog).toHaveLength(1)
-  expect(data.distributions).toHaveLength(1)
+  expect(data.infraestructuraLista).toBe(true);
+  expect(data.catalog).toHaveLength(1);
+  expect(data.distributions).toHaveLength(1);
   expect(data.distributions[0]).toMatchObject({
     totalEnviado: 10,
     totalRecibido: 9,
     totalEntregado: 4,
     totalDisponible: 5,
     cadena: 'San Pablo',
-  })
+  });
   expect(data.supervisorView).toEqual([
     expect.objectContaining({
       pdvNombre: 'Farmacia Centro',
@@ -190,7 +209,7 @@ test('consolida catalogo, dispersiones, supervisor view y reporte mensual', asyn
       observaciones: 1,
       evidencias: 2,
     }),
-  ])
+  ]);
   expect(data.reportRows).toEqual([
     expect.objectContaining({
       pdv: 'Farmacia Centro',
@@ -202,18 +221,21 @@ test('consolida catalogo, dispersiones, supervisor view y reporte mensual', asyn
       observaciones: 1,
       evidencias: 2,
     }),
-  ])
-})
+  ]);
+});
 
 test('degrada con mensaje de infraestructura cuando faltan las tablas nuevas', async () => {
   const fakeClient = createFakeMaterialesClient({
-    material_catalogo: { data: null, error: { message: 'relation material_catalogo does not exist' } },
-  })
+    material_catalogo: {
+      data: null,
+      error: { message: 'relation material_catalogo does not exist' },
+    },
+  });
 
-  const data = await obtenerPanelMateriales(fakeClient as never, actor)
+  const data = await obtenerPanelMateriales(fakeClient as never, actor);
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.mensajeInfraestructura).toContain('material_catalogo')
-  expect(data.catalog).toEqual([])
-  expect(data.distributions).toEqual([])
-})
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.mensajeInfraestructura).toContain('material_catalogo');
+  expect(data.catalog).toEqual([]);
+  expect(data.distributions).toEqual([]);
+});

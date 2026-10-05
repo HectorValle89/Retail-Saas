@@ -1,9 +1,9 @@
-import Link from 'next/link'
+import Link from 'next/link';
 
 interface AsignacionesBackButtonProps {
-  href?: string
-  label?: string
-  className?: string
+  href?: string;
+  label?: string;
+  className?: string;
 }
 
 export function AsignacionesBackButton({
@@ -18,5 +18,5 @@ export function AsignacionesBackButton({
     >
       ← {label}
     </Link>
-  )
+  );
 }

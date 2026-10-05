@@ -1,31 +1,31 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { updatePassword } from '@/actions/auth'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { useState } from 'react';
+import { updatePassword } from '@/actions/auth';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 export function UpdatePasswordForm({
   flowId,
   correo,
   submitLabel = 'Confirmar credenciales',
 }: {
-  flowId?: string | null
-  correo?: string | null
-  submitLabel?: string
+  flowId?: string | null;
+  correo?: string | null;
+  submitLabel?: string;
 }) {
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(formData: FormData) {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
 
-    const result = await updatePassword(formData)
+    const result = await updatePassword(formData);
 
     if (result?.error) {
-      setError(result.error)
-      setLoading(false)
+      setError(result.error);
+      setLoading(false);
     }
   }
 
@@ -77,5 +77,5 @@ export function UpdatePasswordForm({
         {submitLabel}
       </Button>
     </form>
-  )
+  );
 }

@@ -4,22 +4,22 @@ const path = require('node:path');
 
 function loadEnvFile(filePath, { override = false } = {}) {
   if (!fs.existsSync(filePath)) {
-    return
+    return;
   }
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/)
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
   for (const line of lines) {
-    const trimmed = line.trim()
+    const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) {
-      continue
+      continue;
     }
-    const separatorIndex = trimmed.indexOf('=')
+    const separatorIndex = trimmed.indexOf('=');
     if (separatorIndex === -1) {
-      continue
+      continue;
     }
-    const key = trimmed.slice(0, separatorIndex).trim()
-    const value = trimmed.slice(separatorIndex + 1).trim()
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
     if (override || !process.env[key]) {
-      process.env[key] = value
+      process.env[key] = value;
     }
   }
 }
@@ -40,14 +40,16 @@ async function run() {
 
   const { data: rutas, error } = await supabase
     .from('ruta_semanal')
-    .select(`
+    .select(
+      `
       id,
       cuenta_cliente_id,
       supervisor_empleado_id,
       semana_inicio,
       estatus,
       metadata
-    `)
+    `
+    )
     .eq('cuenta_cliente_id', actorCuentaId)
     .eq('semana_inicio', weekStart);
 
@@ -57,7 +59,7 @@ async function run() {
   }
 
   console.log(`Rutas encontradas en ISDIN para la semana ${weekStart}: ${rutas.length}`);
-  rutas.forEach(r => {
+  rutas.forEach((r) => {
     console.log(`- ID: ${r.id} | Sup: ${r.supervisor_empleado_id} | Estatus: ${r.estatus}`);
   });
 }

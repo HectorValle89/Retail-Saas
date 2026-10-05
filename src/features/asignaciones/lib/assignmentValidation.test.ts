@@ -1,5 +1,5 @@
-import fc from 'fast-check'
-import { describe, expect, it } from 'vitest'
+import fc from 'fast-check';
+import { describe, expect, it } from 'vitest';
 import {
   evaluarReglasAsignacion,
   evaluarValidacionesAsignacion,
@@ -9,7 +9,7 @@ import {
   type AsignacionValidable,
   type AsignacionValidationContext,
   type SupervisorAsignacionRow,
-} from './assignmentValidation'
+} from './assignmentValidation';
 
 function buildSupervisores(
   pdvId: string,
@@ -17,10 +17,10 @@ function buildSupervisores(
   activo: boolean
 ): SupervisorAsignacionRow[] {
   if (!activo) {
-    return [{ pdv_id: pdvId, activo: false, fecha_fin: referencia }]
+    return [{ pdv_id: pdvId, activo: false, fecha_fin: referencia }];
   }
 
-  return [{ pdv_id: pdvId, activo: true, fecha_fin: null, empleado_id: 'sup-1' }]
+  return [{ pdv_id: pdvId, activo: true, fecha_fin: null, empleado_id: 'sup-1' }];
 }
 
 describe('assignment validation properties', () => {
@@ -33,7 +33,7 @@ describe('assignment validation properties', () => {
         fc.boolean(),
         fc.boolean(),
         (hasAccount, hasGeofence, hasSupervisor, validRange, validQuota) => {
-          const today = '2026-03-16'
+          const today = '2026-03-16';
           const asignacion: AsignacionValidable = {
             cuenta_cliente_id: hasAccount ? 'cliente-1' : null,
             empleado_id: 'emp-1',
@@ -43,8 +43,8 @@ describe('assignment validation properties', () => {
             fecha_fin: validRange ? today : '2026-03-15',
             dias_laborales: 'LUN,MAR,VIE',
             dia_descanso: 'DOM',
-          }
-          const referencia = obtenerReferenciaValidacion(asignacion.fecha_inicio, today)
+          };
+          const referencia = obtenerReferenciaValidacion(asignacion.fecha_inicio, today);
           const validaciones = evaluarValidacionesAsignacion(asignacion, {
             employee: {
               id: 'emp-1',
@@ -67,7 +67,7 @@ describe('assignment validation properties', () => {
             comparableAssignments: [],
             historicalAssignmentsForPdv: [],
             horariosPorPdv: { 'pdv-1': 1 },
-          })
+          });
           const issues = evaluarReglasAsignacion(asignacion, {
             employee: {
               id: 'emp-1',
@@ -90,20 +90,22 @@ describe('assignment validation properties', () => {
             comparableAssignments: [],
             historicalAssignmentsForPdv: [],
             horariosPorPdv: { 'pdv-1': 1 },
-          })
-          const resumen = resumirIssuesAsignacion(issues)
+          });
+          const resumen = resumirIssuesAsignacion(issues);
 
-          expect(validaciones.includes('Sin cuenta cliente')).toBe(!hasAccount)
-          expect(validaciones.includes('PDV sin geocerca')).toBe(!hasGeofence)
-          expect(validaciones.includes('PDV sin supervisor activo')).toBe(!hasSupervisor)
-          expect(validaciones.includes('Vigencia invalida')).toBe(!validRange)
-          expect(resumen.errores.some((issue) => issue.code === 'CUOTA_INVALIDA')).toBe(false)
-          expect(resumen.alertas.some((issue) => issue.code === 'CUOTA_INVALIDA')).toBe(!validQuota)
+          expect(validaciones.includes('Sin cuenta cliente')).toBe(!hasAccount);
+          expect(validaciones.includes('PDV sin geocerca')).toBe(!hasGeofence);
+          expect(validaciones.includes('PDV sin supervisor activo')).toBe(!hasSupervisor);
+          expect(validaciones.includes('Vigencia invalida')).toBe(!validRange);
+          expect(resumen.errores.some((issue) => issue.code === 'CUOTA_INVALIDA')).toBe(false);
+          expect(resumen.alertas.some((issue) => issue.code === 'CUOTA_INVALIDA')).toBe(
+            !validQuota
+          );
         }
       ),
       { numRuns: 100 }
-    )
-  })
+    );
+  });
 
   it('separates alertas from avisos without converting them into blocking errors', () => {
     fc.assert(
@@ -119,7 +121,7 @@ describe('assignment validation properties', () => {
           fecha_fin: '2026-03-16',
           dias_laborales: 'LUN,MAR,VIE',
           dia_descanso: 'DOM',
-        }
+        };
 
         const issues = evaluarReglasAsignacion(asignacion, {
           employee: {
@@ -154,14 +156,16 @@ describe('assignment validation properties', () => {
             },
           ],
           horariosPorPdv: { 'pdv-1': 1 },
-        } satisfies AsignacionValidationContext)
+        } satisfies AsignacionValidationContext);
 
-        const resumen = resumirIssuesAsignacion(issues)
-        expect(resumen.errores).toHaveLength(0)
-        expect(requiereConfirmacionAlertas(issues)).toBe(missingContact)
-        expect(resumen.avisos.some((item) => item.code === 'CAMBIO_SUPERVISOR')).toBe(changeSupervisor)
+        const resumen = resumirIssuesAsignacion(issues);
+        expect(resumen.errores).toHaveLength(0);
+        expect(requiereConfirmacionAlertas(issues)).toBe(missingContact);
+        expect(resumen.avisos.some((item) => item.code === 'CAMBIO_SUPERVISOR')).toBe(
+          changeSupervisor
+        );
       }),
       { numRuns: 100 }
-    )
-  })
-})
+    );
+  });
+});

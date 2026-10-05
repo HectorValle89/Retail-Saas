@@ -10,6 +10,7 @@
 
 Este formulario es una **semilla de contexto**, no una plantilla de relleno.
 Tu trabajo:
+
 1. **Analiza** los puntos de dolor y el "Vibe"
 2. **Infiere** la mejor estructura, colores y tono de voz
 3. **Redacta** textos persuasivos (AIDA/PAS)
@@ -27,6 +28,7 @@ Haz estas preguntas **una por una**, esperando respuesta antes de continuar.
 ---
 
 ### PREGUNTA 1: El Objetivo de Conversión 💰
+
 ```
 ¿Cuál es la ÚNICA acción que queremos que haga el usuario?
 
@@ -41,6 +43,7 @@ D) Venta Directa - Botón de compra
 ---
 
 ### PREGUNTA 2: El Vibe Visual 🎨
+
 ```
 ¿Qué sensación debe transmitir el diseño?
 
@@ -75,6 +78,7 @@ Dame la MUNICIÓN para el copy:
 ---
 
 ### PREGUNTA 4: Información del Negocio 🏢
+
 ```
 Datos para integrar en el diseño:
 
@@ -87,6 +91,7 @@ Datos para integrar en el diseño:
 ---
 
 ### PREGUNTA 5: Recursos Visuales 📸
+
 ```
 ¿Tenemos fotos/imágenes?
 
@@ -97,6 +102,7 @@ B) No - Usa placeholders de alta calidad que encajen con el nicho
 ---
 
 ### PREGUNTA 6: Ruta de la Landing
+
 ```
 ¿Dónde quieres esta landing?
 
@@ -111,14 +117,18 @@ B) Nueva ruta (ej: /landing-[nombre]) - Especifica el nombre
 Una vez tengas todas las respuestas:
 
 ### 1. Diseña la Estructura
+
 Basándote en el Vibe y objetivo, define:
+
 - Secciones de la landing (Hero, Benefits, Social Proof, CTA, etc.)
 - Paleta de colores exacta (hex codes)
 - Tipografía (usando las de Tailwind)
 - Espaciado y jerarquía visual
 
 ### 2. Escribe el Copy
+
 Usando frameworks AIDA o PAS:
+
 - **Headline** que capture atención (usa el DOLOR)
 - **Subheadline** que explique el beneficio
 - **Bullets** de beneficios (no features)
@@ -126,13 +136,16 @@ Usando frameworks AIDA o PAS:
 - **Social proof** si aplica
 
 ### 3. Ejecuta el Código
+
 Crea la landing usando:
+
 - **Next.js** App Router
 - **Tailwind CSS** para estilos
 - **shadcn/ui** para componentes
 - **Framer Motion** para animaciones sutiles (opcional)
 
 ### 4. Valida con Playwright
+
 - Captura screenshot de la landing
 - Verifica que el CTA sea prominente
 - Valida responsiveness (mobile/tablet/desktop)
@@ -181,4 +194,4 @@ Antes de entregar, verifica:
 
 ---
 
-*"Una landing que no convierte es solo una página bonita. Haz que el dinero fluya."*
+_"Una landing que no convierte es solo una página bonita. Haz que el dinero fluya."_

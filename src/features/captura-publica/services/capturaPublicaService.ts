@@ -1,6 +1,11 @@
 import 'server-only';
 
 import { createServiceClient } from '@/lib/supabase/server';
+import {
+  resolveCapturaPublicaAssignments,
+  type CapturaPublicaAssignmentCandidate,
+  type CapturaPublicaAssignmentResolution,
+} from './capturaPublicaAssignment';
 
 type TypedSupabaseClient = ReturnType<typeof createServiceClient>;
 
@@ -32,7 +37,7 @@ export interface CapturaPublicaData {
   empleados: CapturaPublicaOption[];
   productos: CapturaPublicaOption[];
   materiales: CapturaPublicaOption[];
-  asignacionesHoy?: Array<{ pdvId: string; empleadoId: string }>;
+  asignaciones?: CapturaPublicaAssignmentResolution[];
 }
 
 interface CapturaPublicaLinkRow {
@@ -75,32 +80,34 @@ type PdvOptionRow = {
   estatus: string | null;
 };
 
-interface UsuarioEmpleadoRow {
-  empleado_id: string;
-  empleado:
-    | {
-        id: string;
-        nombre_completo: string | null;
-        puesto: string | null;
-        estatus_laboral: string | null;
-      }
-    | Array<{
-        id: string;
-        nombre_completo: string | null;
-        puesto: string | null;
-        estatus_laboral: string | null;
-      }>
-    | null;
-}
+type PdvDetailVigenciaRow = {
+  pdv_id: string;
+  nombre: string | null;
+  estatus: string | null;
+  vigente_desde: string;
+};
 
-type EmpleadoOptionRow = {
+interface AssignmentEmployeeRow {
   id: string;
   nombre_completo: string | null;
   puesto: string | null;
   estatus_laboral: string | null;
-};
+}
 
-interface ProductoRow {
+interface CapturaPublicaAssignmentRow {
+  id: string;
+  empleado_id: string;
+  pdv_id: string;
+  fecha_inicio: string;
+  fecha_fin: string | null;
+  dias_laborales: string | null;
+  tipo: string | null;
+  naturaleza: CapturaPublicaAssignmentCandidate['naturaleza'];
+  prioridad: number | null;
+  empleado: AssignmentEmployeeRow | AssignmentEmployeeRow[] | null;
+}
+
+export interface ProductoRow {
   id: string;
   nombre: string;
   nombre_corto: string | null;
@@ -109,10 +116,11 @@ interface ProductoRow {
   sku: string | null;
 }
 
-interface MaterialRow {
+export interface MaterialRow {
   id: string;
   nombre: string;
   activo: boolean;
+  tipo?: string;
 }
 
 const EMPTY_DATA: CapturaPublicaData = {
@@ -179,64 +187,82 @@ function buildLink(row: CapturaPublicaLinkRow): CapturaPublicaLink {
   };
 }
 
-async function loadPdvs(service: TypedSupabaseClient, link: CapturaPublicaLink) {
-  let query = service
+export async function loadCapturaPublicaPdvsForDate(
+  service: TypedSupabaseClient,
+  link: CapturaPublicaLink,
+  fechaOperativa: string
+) {
+  let relationQuery = service
     .from('cuenta_cliente_pdv')
     .select('pdv_id, pdv:pdv_id(id, nombre, estatus)')
     .eq('cuenta_cliente_id', link.cuentaClienteId)
     .eq('activo', true)
+    .lte('fecha_inicio', fechaOperativa)
+    .or(`fecha_fin.gte.${fechaOperativa},fecha_fin.is.null`)
     .order('pdv_id', { ascending: true })
     .limit(1000);
 
   if (link.pdvIdsPermitidos.length > 0) {
-    query = query.in('pdv_id', link.pdvIdsPermitidos);
+    relationQuery = relationQuery.in('pdv_id', link.pdvIdsPermitidos);
   }
 
-  const { data, error } = await query;
-  if (error) {
-    throw new Error(error.message);
+  let detailQuery = service
+    .from('pdv_detalle_vigencia')
+    .select('pdv_id, nombre, estatus, vigente_desde')
+    .eq('cuenta_cliente_id', link.cuentaClienteId)
+    .lte('vigente_desde', fechaOperativa)
+    .or(`vigente_hasta.gte.${fechaOperativa},vigente_hasta.is.null`)
+    .order('vigente_desde', { ascending: false })
+    .limit(1000);
+
+  if (link.pdvIdsPermitidos.length > 0) {
+    detailQuery = detailQuery.in('pdv_id', link.pdvIdsPermitidos);
   }
 
-  return ((data ?? []) as CuentaClientePdvRow[])
-    .map((row) => first(row.pdv) as PdvOptionRow | null)
-    .filter((pdv): pdv is PdvOptionRow => Boolean(pdv && pdv.estatus === 'ACTIVO'))
+  const [relationResult, detailResult] = await Promise.all([relationQuery, detailQuery]);
+  if (relationResult.error) {
+    throw new Error(relationResult.error.message);
+  }
+  if (detailResult.error) {
+    throw new Error(detailResult.error.message);
+  }
+
+  const effectiveDetails = new Map<string, PdvDetailVigenciaRow>();
+  for (const detail of (detailResult.data ?? []) as PdvDetailVigenciaRow[]) {
+    if (!effectiveDetails.has(detail.pdv_id)) {
+      effectiveDetails.set(detail.pdv_id, detail);
+    }
+  }
+
+  const rawPdvs = ((relationResult.data ?? []) as CuentaClientePdvRow[])
+    .map((row) => {
+      const master = first(row.pdv) as PdvOptionRow | null;
+      const detail = effectiveDetails.get(row.pdv_id);
+      if (detail) {
+        return {
+          id: row.pdv_id,
+          nombre: detail.nombre ?? master?.nombre ?? 'PDV sin nombre',
+          estatus: detail.estatus,
+        } satisfies PdvOptionRow;
+      }
+      return master;
+    })
+    .filter((pdv): pdv is PdvOptionRow =>
+      Boolean(pdv && (pdv.estatus === 'ACTIVO' || pdv.estatus === 'TEMPORAL'))
+    )
     .map((pdv) => ({
       id: pdv.id,
       nombre: pdv.nombre ?? 'PDV sin nombre',
-    }))
-    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
-}
+    }));
 
-async function loadEmpleados(service: TypedSupabaseClient, link: CapturaPublicaLink) {
-  let query = service
-    .from('usuario')
-    .select('empleado_id, empleado:empleado_id(id, nombre_completo, puesto, estatus_laboral)')
-    .eq('cuenta_cliente_id', link.cuentaClienteId)
-    .limit(1000);
-
-  if (link.empleadoIdsPermitidos.length > 0) {
-    query = query.in('empleado_id', link.empleadoIdsPermitidos);
+  const uniqueMap = new Map<string, { id: string; nombre: string }>();
+  for (const item of rawPdvs) {
+    if (!uniqueMap.has(item.id)) {
+      uniqueMap.set(item.id, item);
+    }
   }
 
-  const { data, error } = await query;
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return ((data ?? []) as UsuarioEmpleadoRow[])
-    .map((row) => first(row.empleado) as EmpleadoOptionRow | null)
-    .filter((empleado): empleado is EmpleadoOptionRow =>
-      Boolean(
-        empleado &&
-        (empleado.puesto === 'DERMOCONSEJERO' || empleado.puesto === 'LOVE_IS') &&
-        empleado.estatus_laboral === 'ACTIVO'
-      )
-    )
-    .map((empleado) => ({
-      id: empleado.id,
-      nombre: empleado.nombre_completo ?? 'Dermoconsejera sin nombre',
-    }))
-    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  return Array.from(uniqueMap.values()).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 }
 
 async function loadProductos(service: TypedSupabaseClient, enabled: boolean) {
@@ -255,13 +281,90 @@ async function loadProductos(service: TypedSupabaseClient, enabled: boolean) {
     throw new Error(error.message);
   }
 
-  return ((data ?? []) as ProductoRow[]).map((producto) => ({
+  return ((data ?? []) as ProductoRow[]).map(formatProductoOption);
+}
+
+export function formatProductoOption(producto: ProductoRow): CapturaPublicaOption {
+  return {
     id: producto.id,
-    nombre: producto.sku
-      ? `[${producto.sku}] ${producto.nombre_corto || producto.nombre}`
-      : (producto.nombre_corto || producto.nombre),
+    nombre: producto.sku ? `[${producto.sku}] ${producto.nombre}` : producto.nombre,
     categoria: producto.categoria || 'OTRO',
+  };
+}
+
+export const LISTA_ORDEN_CANJES_ISDIN = [
+  'BOLSA FOTO PLAYA ISDIN  2021',
+  'CANGURERAS NEGRAS ISDIN',
+  'FP PROTECTOR LABIAL HV ISDIN 46',
+  'FP TRANSPARENT SPRAY WS SPF50 250ML',
+  'GORRA ISDIN FOTOPROTECCIÓN',
+  'MCON FP FW MAGIC SIN COLOR SPF50 10 ML',
+  'NECESER ISDINCEUTICS NEGRO 2025',
+  'NECESER PLAYA ISDIN',
+  'PARAGUAS DE BOLSILLO',
+  'PARAGUAS JUMBO',
+  'PORTA TOTTLE FWM 2025',
+  'PORTATOTTLE FWM ALCARAZ 2025',
+  'PORTATOTTLE STICK 2024',
+  'PORTATOTTLE STICK PEDIATRICS 2025',
+  'PROM ACNIBEN FACIAL CLEANSER GEL 50ML',
+  'PROM FP FUSION WATER MAGIC REPAIR SPF50 10 ML',
+  'MAGIC REPAIR FP FW MAGIC REPAIR COLOR SPF50 10 ML',
+  'PROM FP FW MAGIC COL BROZE SPF50 10 ML',
+  'PROM FP FW MAGIC GLOW SPF50 10 ML',
+  'PROM FP FWM COL LIGHT SPF50 10 ML',
+  'PROM FP FWM COL MEDIUM SPF50 10 ML',
+  'TERMO T208 A 1 TINTA',
+  'TOTE BAG ISDIN 2024',
+  'CAPIBARA',
+  'COSMETIQUERAS',
+  'NECESER PLAYA C/AFTERSUN Y MINIS',
+  'MCON FP FUSION WATER MAGIC ALCARAZ SPF50 10 ML',
+  'BEACH BAG FOTO MAGIC 2024',
+];
+
+export function ordenarYFiltrarMateriales(
+  rows: MaterialRow[]
+): Array<{ id: string; nombre: string }> {
+  const filtered = rows.filter((m) => {
+    const name = m.nombre.toUpperCase().replace(/\s+/g, ' ').trim();
+
+    // Si está en la lista permitida explícitamente, se salta todas las exclusiones
+    const isExplicitlyAllowed = LISTA_ORDEN_CANJES_ISDIN.some(
+      (item) => item.toUpperCase().replace(/\s+/g, ' ').trim() === name
+    );
+    if (isExplicitlyAllowed) {
+      return true;
+    }
+
+    // Exclusiones estándar para otros materiales
+    const nameUpper = m.nombre.toUpperCase().trim();
+    if (
+      nameUpper.startsWith('DI ') ||
+      nameUpper.startsWith('D.I ') ||
+      nameUpper.startsWith('D.I. ') ||
+      nameUpper.includes('DOSIS')
+    ) {
+      return false;
+    }
+    if (nameUpper.includes('TESTER')) {
+      return false;
+    }
+    const excludePattern = /\b(2\s*ML|2\s*G|5\s*ML|10\s*ML)\b/i;
+    if (excludePattern.test(nameUpper)) {
+      return false;
+    }
+    return true;
+  });
+
+  const resolved = filtered.map((material) => ({
+    id: material.id,
+    nombre: material.nombre,
   }));
+
+  resolved.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+
+  return resolved;
 }
 
 async function loadMateriales(service: TypedSupabaseClient, link: CapturaPublicaLink) {
@@ -271,67 +374,71 @@ async function loadMateriales(service: TypedSupabaseClient, link: CapturaPublica
 
   const { data, error } = await service
     .from('material_catalogo')
-    .select('id, nombre, activo')
+    .select('id, nombre, activo, tipo')
     .eq('cuenta_cliente_id', link.cuentaClienteId)
     .eq('activo', true)
-    .in('tipo', ['PROMOCIONAL', 'CANJE_PROMOCIONAL'])
-    .order('nombre', { ascending: true })
+    .in('tipo', ['PROMOCIONAL', 'CANJE_PROMOCIONAL', 'DOSIS'])
     .limit(300);
 
   if (error) {
     return [];
   }
 
-  const rows = (data ?? []) as MaterialRow[];
-  const filtered = rows.filter((m) => {
-    const name = m.nombre.toUpperCase().trim();
-    
-    // 1. Excluir Dosis de Inicio (empiezan con "DI " o contienen "DOSIS")
-    if (name.startsWith('DI ') || name.includes('DOSIS')) {
-      return false;
-    }
-    
-    // 2. Excluir Testers (contienen "TESTER")
-    if (name.includes('TESTER')) {
-      return false;
-    }
-    
-    // 3. Excluir todas las de 2ml, 2g, 5ml y 10ml
-    const excludePattern = /\b(2\s*ML|2\s*G|5\s*ML|10\s*ML)\b/i;
-    if (excludePattern.test(name)) {
-      return false;
-    }
-    
-    return true;
-  });
-
-  return filtered.map((material) => ({
-    id: material.id,
-    nombre: material.nombre,
-  }));
+  return ordenarYFiltrarMateriales((data ?? []) as MaterialRow[]);
 }
 
-async function loadAsignacionesHoy(service: TypedSupabaseClient, cuentaClienteId: string) {
-  const todayIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(
-    new Date()
-  );
-  const { data, error } = await service
+export async function loadCapturaPublicaAssignmentsForDate(
+  service: TypedSupabaseClient,
+  link: CapturaPublicaLink,
+  fechaOperativa: string
+) {
+  let query = service
     .from('asignacion')
-    .select('pdv_id, empleado_id')
-    .eq('cuenta_cliente_id', cuentaClienteId)
+    .select(
+      'id, pdv_id, empleado_id, fecha_inicio, fecha_fin, dias_laborales, tipo, naturaleza, prioridad, empleado!asignacion_empleado_id_fkey(id, nombre_completo, puesto, estatus_laboral)'
+    )
+    .eq('cuenta_cliente_id', link.cuentaClienteId)
     .eq('estado_publicacion', 'PUBLICADA')
-    .lte('fecha_inicio', todayIso)
-    .or(`fecha_fin.gte.${todayIso},fecha_fin.is.null`)
+    .lte('fecha_inicio', fechaOperativa)
+    .or(`fecha_fin.gte.${fechaOperativa},fecha_fin.is.null`)
+    .order('fecha_inicio', { ascending: false })
     .limit(1000);
 
-  if (error) {
-    return [];
+  if (link.pdvIdsPermitidos.length > 0) {
+    query = query.in('pdv_id', link.pdvIdsPermitidos);
   }
 
-  return ((data ?? []) as Array<{ pdv_id: string; empleado_id: string }>).map((row) => ({
-    pdvId: row.pdv_id,
-    empleadoId: row.empleado_id,
-  }));
+  if (link.empleadoIdsPermitidos.length > 0) {
+    query = query.in('empleado_id', link.empleadoIdsPermitidos);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const candidates = ((data ?? []) as CapturaPublicaAssignmentRow[]).map((row) => {
+    const employee = first(row.empleado);
+    const position = employee?.puesto?.toUpperCase() ?? '';
+
+    return {
+      id: row.id,
+      empleado_id: row.empleado_id,
+      empleadoNombre: employee?.nombre_completo ?? 'Dermoconsejera sin nombre',
+      empleadoDisponible:
+        employee?.estatus_laboral === 'ACTIVO' &&
+        (position.includes('DERMO') || position.includes('LOVE')),
+      pdv_id: row.pdv_id,
+      fecha_inicio: row.fecha_inicio,
+      fecha_fin: row.fecha_fin,
+      dias_laborales: row.dias_laborales,
+      tipo: row.tipo,
+      naturaleza: row.naturaleza,
+      prioridad: row.prioridad,
+    } satisfies CapturaPublicaAssignmentCandidate;
+  });
+
+  return resolveCapturaPublicaAssignments(candidates, fechaOperativa);
 }
 
 export async function obtenerCapturaPublicaData(
@@ -365,16 +472,32 @@ export async function obtenerCapturaPublicaData(
   }
 
   const link = buildLink(row);
-  const [pdvs, empleados, productos, materiales, asignacionesHoy] = await Promise.all([
-    loadPdvs(service, link),
-    loadEmpleados(service, link),
+  const defaultDate = getCapturaPublicaDefaultDate();
+  const [pdvs, productos, materiales, asignaciones] = await Promise.all([
+    loadCapturaPublicaPdvsForDate(service, link, defaultDate),
     loadProductos(
       service,
       link.accionesHabilitadas.includes('VENTA') || link.accionesHabilitadas.includes('DESABASTO')
     ),
     loadMateriales(service, link),
-    loadAsignacionesHoy(service, link.cuentaClienteId),
+    loadCapturaPublicaAssignmentsForDate(service, link, defaultDate),
   ]);
+  const empleados = Array.from(
+    new Map(
+      asignaciones
+        .filter(
+          (assignment) =>
+            assignment.estado === 'ASIGNADA' && assignment.empleadoId && assignment.empleadoNombre
+        )
+        .map((assignment) => [
+          assignment.empleadoId as string,
+          {
+            id: assignment.empleadoId as string,
+            nombre: assignment.empleadoNombre as string,
+          },
+        ])
+    ).values()
+  ).sort((left, right) => left.nombre.localeCompare(right.nombre, 'es'));
 
   return {
     ok: true,
@@ -383,7 +506,7 @@ export async function obtenerCapturaPublicaData(
     empleados,
     productos,
     materiales,
-    asignacionesHoy,
+    asignaciones,
   };
 }
 

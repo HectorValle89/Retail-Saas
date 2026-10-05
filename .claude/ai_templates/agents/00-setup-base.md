@@ -52,11 +52,11 @@ NEXT_PUBLIC_SITE_NAME=Tu App
 // lib/ai/openrouter.ts
 // NUNCA MODIFICAR - Provider base
 
-import { createOpenRouter } from '@openrouter/ai-sdk-provider'
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 
 export const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY!,
-})
+});
 
 // Modelos disponibles (MODIFICAR segun necesites)
 export const MODELS = {
@@ -71,9 +71,9 @@ export const MODELS = {
 
   // Vision (para analisis de imagenes)
   vision: 'google/gemini-2.0-flash-exp:free',
-} as const
+} as const;
 
-export type ModelKey = keyof typeof MODELS
+export type ModelKey = keyof typeof MODELS;
 ```
 
 ---
@@ -86,13 +86,13 @@ Solo necesario si usaras historial, vision o auth.
 // lib/supabase/client.ts
 // NUNCA MODIFICAR - Cliente browser
 
-import { createBrowserClient } from '@supabase/ssr'
+import { createBrowserClient } from '@supabase/ssr';
 
 export function createClient() {
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  );
 }
 ```
 
@@ -100,11 +100,11 @@ export function createClient() {
 // lib/supabase/server.ts
 // NUNCA MODIFICAR - Cliente server
 
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 
 export async function createClient() {
-  const cookieStore = await cookies()
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -112,20 +112,20 @@ export async function createClient() {
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll()
+          return cookieStore.getAll();
         },
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
-            )
+            );
           } catch {
             // Server Component - ignorar
           }
         },
       },
     }
-  )
+  );
 }
 ```
 
@@ -163,22 +163,25 @@ Crea un endpoint de prueba:
 // app/api/test/route.ts
 // ELIMINAR despues de verificar
 
-import { openrouter, MODELS } from '@/lib/ai/openrouter'
-import { generateText } from 'ai'
+import { openrouter, MODELS } from '@/lib/ai/openrouter';
+import { generateText } from 'ai';
 
 export async function GET() {
   try {
     const { text } = await generateText({
       model: openrouter(MODELS.fast),
       prompt: 'Di "Setup OK" en una palabra',
-    })
+    });
 
-    return Response.json({ status: 'ok', response: text })
+    return Response.json({ status: 'ok', response: text });
   } catch (error) {
-    return Response.json({
-      status: 'error',
-      message: String(error)
-    }, { status: 500 })
+    return Response.json(
+      {
+        status: 'error',
+        message: String(error),
+      },
+      { status: 500 }
+    );
   }
 }
 ```

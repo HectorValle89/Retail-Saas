@@ -1,10 +1,7 @@
-import { redirect } from 'next/navigation'
-import {
-  ActivationAccountForm,
-  ActivationPendingForm,
-} from '@/features/auth/components'
-import { findActiveAuthFlowByUser } from '@/lib/auth/accessFlow'
-import { obtenerActorActual } from '@/lib/auth/session'
+import { redirect } from 'next/navigation';
+import { ActivationAccountForm, ActivationPendingForm } from '@/features/auth/components';
+import { findActiveAuthFlowByUser } from '@/lib/auth/accessFlow';
+import { obtenerActorActual } from '@/lib/auth/session';
 
 function ProgressStep({
   step,
@@ -12,10 +9,10 @@ function ProgressStep({
   active,
   done,
 }: {
-  step: string
-  title: string
-  active?: boolean
-  done?: boolean
+  step: string;
+  title: string;
+  active?: boolean;
+  done?: boolean;
 }) {
   return (
     <div
@@ -27,33 +24,31 @@ function ProgressStep({
             : 'border-slate-200 bg-white text-slate-500'
       }`}
     >
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em]">
-        Paso {step}
-      </p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.2em]">Paso {step}</p>
       <p className="mt-1 font-semibold">{title}</p>
     </div>
-  )
+  );
 }
 
 export default async function ActivacionPage() {
-  const actor = await obtenerActorActual()
+  const actor = await obtenerActorActual();
 
   if (!actor) {
-    redirect('/login')
+    redirect('/login');
   }
 
   if (actor.estadoCuenta === 'PENDIENTE_PRIMER_LOGIN') {
-    redirect('/primer-acceso')
+    redirect('/primer-acceso');
   }
 
   if (actor.estadoCuenta === 'ACTIVA') {
-    redirect(actor.primerAccesoPendiente ? '/primer-acceso' : '/dashboard')
+    redirect(actor.primerAccesoPendiente ? '/primer-acceso' : '/dashboard');
   }
 
-  const flow = await findActiveAuthFlowByUser(actor.usuarioId, 'PRIMER_INGRESO')
+  const flow = await findActiveAuthFlowByUser(actor.usuarioId, 'PRIMER_INGRESO');
 
   if (flow?.estado === 'EMAIL_CONFIRMED_PASSWORD_PENDING') {
-    redirect(`/update-password?flow_id=${encodeURIComponent(flow.id)}&mode=credential-transition`)
+    redirect(`/update-password?flow_id=${encodeURIComponent(flow.id)}&mode=credential-transition`);
   }
 
   return (
@@ -62,12 +57,10 @@ export default async function ActivacionPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
           Activacion guiada
         </p>
-        <h1 className="mt-3 text-3xl font-semibold text-slate-950">
-          Activa tu acceso paso a paso
-        </h1>
+        <h1 className="mt-3 text-3xl font-semibold text-slate-950">Activa tu acceso paso a paso</h1>
         <p className="mt-2 text-slate-600">
-          Vamos a pasar tu cuenta provisional a un acceso definitivo y seguro.
-          Veras siempre tu paso actual y el correo que estamos usando.
+          Vamos a pasar tu cuenta provisional a un acceso definitivo y seguro. Veras siempre tu paso
+          actual y el correo que estamos usando.
         </p>
       </div>
 
@@ -88,7 +81,10 @@ export default async function ActivacionPage() {
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-        Usuario provisional: <span className="font-semibold text-slate-950">{actor.username ?? 'sin username visible'}</span>
+        Usuario provisional:{' '}
+        <span className="font-semibold text-slate-950">
+          {actor.username ?? 'sin username visible'}
+        </span>
       </div>
 
       {actor.estadoCuenta === 'PROVISIONAL' && (
@@ -99,8 +95,8 @@ export default async function ActivacionPage() {
               Registra el correo que usaras para entrar despues
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              En cuanto lo registres, te mandaremos un enlace de confirmacion.
-              Ese correo sera tu acceso definitivo cuando cierres el proceso.
+              En cuanto lo registres, te mandaremos un enlace de confirmacion. Ese correo sera tu
+              acceso definitivo cuando cierres el proceso.
             </p>
           </div>
 
@@ -122,7 +118,9 @@ export default async function ActivacionPage() {
             </p>
           </div>
 
-          <ActivationPendingForm correoPendiente={flow?.correo_pendiente ?? actor.correoElectronico} />
+          <ActivationPendingForm
+            correoPendiente={flow?.correo_pendiente ?? actor.correoElectronico}
+          />
         </div>
       )}
 
@@ -136,10 +134,11 @@ export default async function ActivacionPage() {
               Tu cuenta no puede acceder al sistema
             </h1>
             <p className="text-slate-600">
-              Estado actual: <span className="font-semibold">{actor.estadoCuenta}</span>. Contacta al administrador o a reclutamiento para revision.
+              Estado actual: <span className="font-semibold">{actor.estadoCuenta}</span>. Contacta
+              al administrador o a reclutamiento para revision.
             </p>
           </div>
         )}
     </div>
-  )
+  );
 }

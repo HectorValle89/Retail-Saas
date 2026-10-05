@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   revalidatePathMock,
@@ -16,55 +16,52 @@ const {
   storeOptimizedEvidenceMock: vi.fn(),
   registerVentaWithServiceMock: vi.fn(),
   registerLoveAffiliationWithServiceMock: vi.fn(),
-}))
+}));
 
 vi.mock('next/cache', () => ({
   revalidatePath: revalidatePathMock,
   revalidateTag: vi.fn(),
   unstable_cache: vi.fn((fn) => fn),
-}))
+}));
 
 vi.mock('@/lib/auth/session', () => ({
   requerirPuestosActivos: requerirPuestosActivosMock,
-}))
+}));
 
 vi.mock('@/lib/supabase/server', () => ({
   createServiceClient: createServiceClientMock,
-}))
+}));
 
 vi.mock('@/lib/push/pushFanout', () => ({
   sendOperationalPushNotification: sendOperationalPushNotificationMock,
-}))
+}));
 
 vi.mock('@/lib/files/evidenceStorage', () => ({
   storeOptimizedEvidence: storeOptimizedEvidenceMock,
-}))
+}));
 
 vi.mock('@/lib/files/documentOptimization', () => ({
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES: 12 * 1024 * 1024,
   buildOperationalDocumentUploadLimitMessage: vi.fn(),
   exceedsOperationalDocumentUploadLimit: vi.fn(() => false),
-}))
+}));
 
 vi.mock('@/features/ventas/lib/ventaRegistration', () => ({
   registerVentaWithService: registerVentaWithServiceMock,
-}))
+}));
 
 vi.mock('@/features/love-isdin/lib/loveRegistration', () => ({
   registerLoveAffiliationWithService: registerLoveAffiliationWithServiceMock,
-}))
+}));
 
-import {
-  registrarRegistroExtemporaneo,
-  resolverRegistroExtemporaneo,
-} from './extemporaneoActions'
-import { ESTADO_SOLICITUD_INICIAL } from './state'
+import { registrarRegistroExtemporaneo, resolverRegistroExtemporaneo } from './extemporaneoActions';
+import { ESTADO_SOLICITUD_INICIAL } from './state';
 
 function createRegistroService() {
-  const inserts: Array<Record<string, unknown>> = []
-  const updates: Array<Record<string, unknown>> = []
-  const audits: Array<Record<string, unknown>> = []
-  let duplicateCheckCount = 0
+  const inserts: Array<Record<string, unknown>> = [];
+  const updates: Array<Record<string, unknown>> = [];
+  const audits: Array<Record<string, unknown>> = [];
+  let duplicateCheckCount = 0;
   const registroRow: Record<string, unknown> = {
     id: 'reg-1',
     cuenta_cliente_id: 'cuenta-1',
@@ -96,29 +93,29 @@ function createRegistroService() {
     metadata: {
       gap_dias_retraso: 1,
     },
-  }
+  };
 
-  const tableObjects = new Map<string, any>()
+  const tableObjects = new Map<string, any>();
 
   const service = {
     storage: {
       createBucket() {
-        return Promise.resolve({ error: null })
+        return Promise.resolve({ error: null });
       },
     },
     from(table: string) {
       if (tableObjects.has(table)) {
-        return tableObjects.get(table)
+        return tableObjects.get(table);
       }
 
-      let builder: any = {}
+      let builder: any = {};
       if (table === 'asignacion_diaria_resuelta') {
         builder = {
           select() {
-            return builder
+            return builder;
           },
           eq() {
-            return builder
+            return builder;
           },
           maybeSingle() {
             return Promise.resolve({
@@ -131,19 +128,19 @@ function createRegistroService() {
                 estado_operativo: 'ASIGNADA_PDV',
               },
               error: null,
-            })
+            });
           },
-        }
+        };
       } else if (table === 'asistencia') {
         builder = {
           select() {
-            return builder
+            return builder;
           },
           eq() {
-            return builder
+            return builder;
           },
           order() {
-            return builder
+            return builder;
           },
           limit() {
             return Promise.resolve({
@@ -159,16 +156,16 @@ function createRegistroService() {
                 },
               ],
               error: null,
-            })
+            });
           },
-        }
+        };
       } else if (table === 'producto') {
         builder = {
           select() {
-            return builder
+            return builder;
           },
           eq() {
-            return builder
+            return builder;
           },
           maybeSingle() {
             return Promise.resolve({
@@ -180,16 +177,16 @@ function createRegistroService() {
                 activo: true,
               },
               error: null,
-            })
+            });
           },
-        }
+        };
       } else if (table === 'empleado') {
         builder = {
           select() {
-            return builder
+            return builder;
           },
           eq() {
-            return builder
+            return builder;
           },
           maybeSingle() {
             return Promise.resolve({
@@ -198,22 +195,22 @@ function createRegistroService() {
                 nombre_completo: 'Dermo Uno',
               },
               error: null,
-            })
+            });
           },
-        }
+        };
       } else if (table === 'registro_extemporaneo') {
         builder = {
           select(_columns?: string, options?: { count?: 'exact'; head?: boolean }) {
-            return builder
+            return builder;
           },
           eq() {
-            return builder
+            return builder;
           },
           gte() {
-            return builder
+            return builder;
           },
           lte() {
-            return builder
+            return builder;
           },
           maybeSingle: vi.fn(() =>
             Promise.resolve({
@@ -222,152 +219,152 @@ function createRegistroService() {
             })
           ),
           insert(payload: Record<string, unknown>) {
-            inserts.push(payload)
+            inserts.push(payload);
             return {
               select() {
-                return this
+                return this;
               },
               maybeSingle() {
                 return Promise.resolve({
                   data: { id: 'reg-1' },
                   error: null,
-                })
+                });
               },
-            }
+            };
           },
           update(payload: Record<string, unknown>) {
-            updates.push(payload)
+            updates.push(payload);
             return {
               eq() {
-                return Promise.resolve({ error: null })
+                return Promise.resolve({ error: null });
               },
-            }
+            };
           },
           then(resolve: (value: { data: null; error: null; count: number }) => void) {
             return Promise.resolve({
               data: null,
               error: null,
               count: 1,
-            }).then(resolve)
+            }).then(resolve);
           },
-        }
+        };
       } else if (table === 'audit_log') {
         builder = {
           insert(payload: Record<string, unknown>) {
-            audits.push(payload)
-            return Promise.resolve({ error: null })
+            audits.push(payload);
+            return Promise.resolve({ error: null });
           },
-        }
+        };
       } else {
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       }
 
-      tableObjects.set(table, builder)
-      return builder
+      tableObjects.set(table, builder);
+      return builder;
     },
     rpc() {
       return Promise.resolve({
         data: { touched: true },
         error: null,
-      })
+      });
     },
-  }
+  };
 
-  return { service, inserts, updates, audits, registroRow }
+  return { service, inserts, updates, audits, registroRow };
 }
 
 describe('extemporaneo actions', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-03-31T12:00:00.000Z'))
-    vi.clearAllMocks()
-  })
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-31T12:00:00.000Z'));
+    vi.clearAllMocks();
+  });
 
   it('registra un registro extemporaneo pendiente de aprobacion', async () => {
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-1',
       puesto: 'DERMOCONSEJERO',
       empleadoId: 'emp-1',
-    })
+    });
 
-    const { service, inserts, audits, registroRow } = createRegistroService()
+    const { service, inserts, audits, registroRow } = createRegistroService();
     vi.mocked(service.from('registro_extemporaneo').maybeSingle).mockResolvedValue({
       data: null,
       error: null,
-    })
-    createServiceClientMock.mockReturnValue(service)
+    });
+    createServiceClientMock.mockReturnValue(service);
 
-    const formData = new FormData()
-    formData.set('empleado_id', 'emp-1')
-    formData.set('tipo_registro', 'VENTA')
-    formData.set('fecha_operativa', '2026-03-30')
-    formData.set('motivo', 'Sin señal en el cierre')
-    formData.set('producto_id', 'prod-1')
-    formData.set('venta_total_unidades', '3')
+    const formData = new FormData();
+    formData.set('empleado_id', 'emp-1');
+    formData.set('tipo_registro', 'VENTA');
+    formData.set('fecha_operativa', '2026-03-30');
+    formData.set('motivo', 'Sin señal en el cierre');
+    formData.set('producto_id', 'prod-1');
+    formData.set('venta_total_unidades', '3');
 
-    const result = await registrarRegistroExtemporaneo(ESTADO_SOLICITUD_INICIAL, formData)
+    const result = await registrarRegistroExtemporaneo(ESTADO_SOLICITUD_INICIAL, formData);
 
     expect(result).toMatchObject({
       ok: true,
       message: 'Registro extemporaneo enviado a aprobacion.',
-    })
-    expect(inserts).toHaveLength(1)
+    });
+    expect(inserts).toHaveLength(1);
     expect(inserts[0]).toMatchObject({
       cuenta_cliente_id: 'cuenta-1',
       empleado_id: 'emp-1',
       supervisor_empleado_id: 'sup-1',
       tipo_registro: 'VENTA',
       estatus: 'PENDIENTE_APROBACION',
-    })
+    });
     expect(inserts[0].venta_payload).toMatchObject({
       producto_id: 'prod-1',
       total_unidades: 3,
-    })
-    expect(audits).toHaveLength(1)
+    });
+    expect(audits).toHaveLength(1);
     expect(sendOperationalPushNotificationMock).toHaveBeenCalledWith(
       expect.objectContaining({
         employeeIds: ['sup-1'],
         path: '/solicitudes',
       })
-    )
-  })
+    );
+  });
 
   it('aprueba un registro extemporaneo y consolida la venta', async () => {
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-2',
       puesto: 'SUPERVISOR',
       empleadoId: 'sup-1',
-    })
+    });
 
     registerVentaWithServiceMock.mockResolvedValue({
       id: 'venta-1',
       inserted: true,
       replacedExisting: false,
       context: {},
-    })
+    });
     registerLoveAffiliationWithServiceMock.mockResolvedValue({
       id: 'love-1',
       inserted: true,
       context: {},
-    })
+    });
 
-    const { service, updates, audits, registroRow } = createRegistroService()
+    const { service, updates, audits, registroRow } = createRegistroService();
     vi.mocked(service.from('registro_extemporaneo').maybeSingle).mockResolvedValue({
       data: registroRow,
       error: null,
-    })
-    createServiceClientMock.mockReturnValue(service)
+    });
+    createServiceClientMock.mockReturnValue(service);
 
-    const formData = new FormData()
-    formData.set('registro_extemporaneo_id', 'reg-1')
-    formData.set('decision', 'APROBAR')
+    const formData = new FormData();
+    formData.set('registro_extemporaneo_id', 'reg-1');
+    formData.set('decision', 'APROBAR');
 
-    const result = await resolverRegistroExtemporaneo(ESTADO_SOLICITUD_INICIAL, formData)
+    const result = await resolverRegistroExtemporaneo(ESTADO_SOLICITUD_INICIAL, formData);
 
     expect(result).toMatchObject({
       ok: true,
       message: 'Registro extemporaneo aprobado y consolidado.',
-    })
+    });
     expect(registerVentaWithServiceMock).toHaveBeenCalledWith(
       service,
       expect.objectContaining({
@@ -376,63 +373,63 @@ describe('extemporaneo actions', () => {
         allowOutsideStandardWindow: true,
         origen: 'AJUSTE_ADMIN',
       })
-    )
-    expect(updates).toHaveLength(1)
+    );
+    expect(updates).toHaveLength(1);
     expect(updates[0]).toMatchObject({
       estatus: 'APROBADO',
       venta_registro_id: 'venta-1',
-    })
-    expect(audits).toHaveLength(1)
-  })
+    });
+    expect(audits).toHaveLength(1);
+  });
 
   it('registra carrito extemporaneo de ventas y consolida multiples registros al aprobar', async () => {
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-1',
       puesto: 'DERMOCONSEJERO',
       empleadoId: 'emp-1',
-    })
+    });
 
-    const registro = createRegistroService()
+    const registro = createRegistroService();
     vi.mocked(registro.service.from('registro_extemporaneo').maybeSingle).mockResolvedValue({
       data: null,
       error: null,
-    })
-    createServiceClientMock.mockReturnValue(registro.service)
+    });
+    createServiceClientMock.mockReturnValue(registro.service);
 
-    const formData = new FormData()
-    formData.set('empleado_id', 'emp-1')
-    formData.set('tipo_registro', 'VENTA')
-    formData.set('fecha_operativa', '2026-03-30')
-    formData.set('motivo', 'Captura acumulada por falta de señal')
+    const formData = new FormData();
+    formData.set('empleado_id', 'emp-1');
+    formData.set('tipo_registro', 'VENTA');
+    formData.set('fecha_operativa', '2026-03-30');
+    formData.set('motivo', 'Captura acumulada por falta de señal');
     formData.set(
       'venta_items_json',
       JSON.stringify([
         { productoId: 'prod-1', unidades: 2 },
         { productoId: 'prod-1', unidades: 5 },
       ])
-    )
+    );
 
-    const createResult = await registrarRegistroExtemporaneo(ESTADO_SOLICITUD_INICIAL, formData)
+    const createResult = await registrarRegistroExtemporaneo(ESTADO_SOLICITUD_INICIAL, formData);
 
     expect(createResult).toMatchObject({
       ok: true,
       message: 'Registro extemporaneo enviado a aprobacion.',
-    })
+    });
     expect(registro.inserts[0].venta_payload).toMatchObject({
       items: [
         expect.objectContaining({ producto_id: 'prod-1', total_unidades: 2 }),
         expect.objectContaining({ producto_id: 'prod-1', total_unidades: 5 }),
       ],
-    })
+    });
 
-    registro.registroRow.tipo_registro = 'VENTA'
-    registro.registroRow.venta_payload = registro.inserts[0].venta_payload
+    registro.registroRow.tipo_registro = 'VENTA';
+    registro.registroRow.venta_payload = registro.inserts[0].venta_payload;
 
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-2',
       puesto: 'SUPERVISOR',
       empleadoId: 'sup-1',
-    })
+    });
 
     registerVentaWithServiceMock
       .mockResolvedValueOnce({
@@ -446,37 +443,37 @@ describe('extemporaneo actions', () => {
         inserted: true,
         replacedExisting: false,
         context: {},
-      })
+      });
 
     vi.mocked(registro.service.from('registro_extemporaneo').maybeSingle).mockResolvedValue({
       data: registro.registroRow,
       error: null,
-    })
-    const approveFormData = new FormData()
-    approveFormData.set('registro_extemporaneo_id', 'reg-1')
-    approveFormData.set('decision', 'APROBAR')
+    });
+    const approveFormData = new FormData();
+    approveFormData.set('registro_extemporaneo_id', 'reg-1');
+    approveFormData.set('decision', 'APROBAR');
 
     const approveResult = await resolverRegistroExtemporaneo(
       ESTADO_SOLICITUD_INICIAL,
       approveFormData
-    )
+    );
 
     expect(approveResult).toMatchObject({
       ok: true,
       message: 'Registro extemporaneo aprobado y consolidado.',
-    })
-    expect(registerVentaWithServiceMock).toHaveBeenCalledTimes(2)
+    });
+    expect(registerVentaWithServiceMock).toHaveBeenCalledTimes(2);
     expect(registro.updates.at(-1)).toMatchObject({
       estatus: 'APROBADO',
       venta_registro_id: 'venta-1',
       metadata: expect.objectContaining({
         venta_registro_ids: ['venta-1', 'venta-2'],
       }),
-    })
+    });
     expect(registro.audits.at(-1)).toMatchObject({
       payload: expect.objectContaining({
         venta_registro_ids: ['venta-1', 'venta-2'],
       }),
-    })
-  })
-})
+    });
+  });
+});

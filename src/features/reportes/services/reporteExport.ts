@@ -1,9 +1,9 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ActorActual } from '@/lib/auth/session'
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ActorActual } from '@/lib/auth/session';
 import {
   getMaterializedMonthlyCalendar,
   type MaterializedCalendarDay,
-} from '@/features/asignaciones/services/asignacionMaterializationService'
+} from '@/features/asignaciones/services/asignacionMaterializationService';
 import type {
   Asignacion,
   Asistencia,
@@ -12,12 +12,9 @@ import type {
   CuentaCliente,
   Empleado,
   Pdv,
-} from '@/types/database'
-import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
-import {
-  obtenerPanelReportes,
-  type ReportesPanelData,
-} from './reporteService'
+} from '@/types/database';
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState';
+import { obtenerPanelReportes, type ReportesPanelData } from './reporteService';
 
 export type ExportSectionKey =
   | 'clientes'
@@ -30,42 +27,42 @@ export type ExportSectionKey =
   | 'love'
   | 'nomina'
   | 'calendario_operativo'
-  | 'bitacora'
+  | 'bitacora';
 
-export type ExportFormat = 'csv' | 'xlsx' | 'pdf'
+export type ExportFormat = 'csv' | 'xlsx' | 'pdf';
 
 export interface ReportExportXlsxConfig {
-  leadingRows?: Array<Array<string | number | null>>
-  merges?: string[]
-  freezeCell?: string
-  columnWidths?: number[]
-  footerRows?: Array<Array<string | number | null>>
-  theme?: 'default' | 'operational_calendar'
+  leadingRows?: Array<Array<string | number | null>>;
+  merges?: string[];
+  freezeCell?: string;
+  columnWidths?: number[];
+  footerRows?: Array<Array<string | number | null>>;
+  theme?: 'default' | 'operational_calendar';
   calendar?: {
-    staticColumnCount: number
-    dayColumnCount: number
-    summaryColumnCount: number
-    dayDates: string[]
-  }
+    staticColumnCount: number;
+    dayColumnCount: number;
+    summaryColumnCount: number;
+    dayDates: string[];
+  };
 }
 
 export interface ReportExportSheet {
-  name: string
-  headers: string[]
-  rows: Array<Array<string | number | null>>
-  xlsx?: ReportExportXlsxConfig
+  name: string;
+  headers: string[];
+  rows: Array<Array<string | number | null>>;
+  xlsx?: ReportExportXlsxConfig;
 }
 
 export interface ReportExportPayload {
-  filenameBase: string
-  headers: string[]
-  rows: Array<Array<string | number | null>>
-  sheetName?: string
-  xlsx?: ReportExportXlsxConfig
-  extraSheets?: ReportExportSheet[]
+  filenameBase: string;
+  headers: string[];
+  rows: Array<Array<string | number | null>>;
+  sheetName?: string;
+  xlsx?: ReportExportXlsxConfig;
+  extraSheets?: ReportExportSheet[];
 }
 
-type MaybeMany<T> = T | T[] | null
+type MaybeMany<T> = T | T[] | null;
 
 type ExportAssignmentRow = Pick<
   Asignacion,
@@ -81,23 +78,39 @@ type ExportAssignmentRow = Pick<
   | 'naturaleza'
   | 'prioridad'
   | 'estado_publicacion'
->
+>;
 
-type ExportEmployeeRow = Pick<Empleado, 'id' | 'id_nomina' | 'nombre_completo' | 'puesto' | 'zona'>
-type ExportAttendanceRow = Pick<Asistencia, 'empleado_id' | 'fecha_operacion' | 'estatus' | 'check_in_utc'>
-type ExportCuentaClienteRow = Pick<CuentaCliente, 'id' | 'nombre'>
-type ExportCadenaRow = Pick<Cadena, 'id' | 'nombre'>
+type ExportEmployeeRow = Pick<Empleado, 'id' | 'id_nomina' | 'nombre_completo' | 'puesto' | 'zona'>;
+type ExportAttendanceRow = Pick<
+  Asistencia,
+  'empleado_id' | 'fecha_operacion' | 'estatus' | 'check_in_utc' | 'metadata'
+>;
+type ExportCuentaClienteRow = Pick<CuentaCliente, 'id' | 'nombre'>;
+type ExportCadenaRow = Pick<Cadena, 'id' | 'nombre'>;
 type ExportCiudadRow = Pick<Ciudad, 'id' | 'nombre'> & {
-  estado?: string | null
-}
+  estado?: string | null;
+};
 
-type ExportPdvRow = Pick<Pdv, 'id' | 'nombre' | 'clave_btl' | 'horario_entrada' | 'horario_salida'> & {
-  cadena: MaybeMany<ExportCadenaRow>
-  ciudad: MaybeMany<ExportCiudadRow>
-}
+type ExportPdvRow = Pick<
+  Pdv,
+  'id' | 'nombre' | 'clave_btl' | 'horario_entrada' | 'horario_salida'
+> & {
+  cadena: MaybeMany<ExportCadenaRow>;
+  ciudad: MaybeMany<ExportCiudadRow>;
+};
 
-const WEEKDAY_CODES = ['DOM', 'LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB'] as const
-const WEEKDAY_SHORT_LABELS = ['D', 'L', 'M', 'X', 'J', 'V', 'S'] as const
+type ExportCuotaDcRow = {
+  empleado_id: string;
+  cuota_individual: number | string | null;
+};
+
+type ExportCuotaPdvRow = {
+  pdv_id: string;
+  cuota_mensual: number | string | null;
+};
+
+const WEEKDAY_CODES = ['DOM', 'LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB'] as const;
+const WEEKDAY_SHORT_LABELS = ['D', 'L', 'M', 'X', 'J', 'V', 'S'] as const;
 const CALENDAR_STATIC_HEADERS = [
   'CADENA',
   'ID PDV',
@@ -112,27 +125,29 @@ const CALENDAR_STATIC_HEADERS = [
   'HORARIO',
   'DIAS',
   'DESCANSO',
+  'CUOTA PDV',
+  'CUOTA DC',
   'OBSERVACIONES',
-] as const
+] as const;
 
 function startOfMonth(month: string) {
-  return `${month}-01`
+  return `${month}-01`;
 }
 
 function endOfMonth(month: string) {
-  const date = new Date(`${month}-01T12:00:00Z`)
-  date.setUTCMonth(date.getUTCMonth() + 1, 0)
-  return date.toISOString().slice(0, 10)
+  const date = new Date(`${month}-01T12:00:00Z`);
+  date.setUTCMonth(date.getUTCMonth() + 1, 0);
+  return date.toISOString().slice(0, 10);
 }
 
 function weekdayCodeFromDate(dateIso: string) {
-  const date = new Date(`${dateIso}T12:00:00Z`)
-  return WEEKDAY_CODES[date.getUTCDay()] ?? 'DOM'
+  const date = new Date(`${dateIso}T12:00:00Z`);
+  return WEEKDAY_CODES[date.getUTCDay()] ?? 'DOM';
 }
 
 function weekdayShortFromDate(dateIso: string) {
-  const date = new Date(`${dateIso}T12:00:00Z`)
-  return WEEKDAY_SHORT_LABELS[date.getUTCDay()] ?? 'D'
+  const date = new Date(`${dateIso}T12:00:00Z`);
+  return WEEKDAY_SHORT_LABELS[date.getUTCDay()] ?? 'D';
 }
 
 function getMexicoToday() {
@@ -141,35 +156,35 @@ function getMexicoToday() {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date())
+  }).format(new Date());
 }
 
 function formatMonthTitle(month: string) {
-  const date = new Date(`${month}-01T12:00:00Z`)
+  const date = new Date(`${month}-01T12:00:00Z`);
   return new Intl.DateTimeFormat('es-MX', {
     month: 'long',
     year: 'numeric',
     timeZone: 'UTC',
   })
     .format(date)
-    .toUpperCase()
+    .toUpperCase();
 }
 
 function formatWeekdays(raw: string | null) {
   if (!raw) {
-    return ''
+    return '';
   }
 
   return raw
     .split(',')
     .map((item) => item.trim().toUpperCase())
     .filter(Boolean)
-    .join('-')
+    .join('-');
 }
 
 function normalizeAttendanceHour(value: string | null) {
   if (!value) {
-    return null
+    return null;
   }
 
   return new Intl.DateTimeFormat('es-MX', {
@@ -177,7 +192,7 @@ function normalizeAttendanceHour(value: string | null) {
     minute: '2-digit',
     hour12: false,
     timeZone: 'America/Mexico_City',
-  }).format(new Date(value))
+  }).format(new Date(value));
 }
 
 function chooseReferenceAssignment(rows: ExportAssignmentRow[]) {
@@ -186,55 +201,57 @@ function chooseReferenceAssignment(rows: ExportAssignmentRow[]) {
     COBERTURA_PERMANENTE: 2,
     BASE: 1,
     MOVIMIENTO: 0,
-  }
+  };
 
-  return [...rows].sort((left, right) => {
-    const priorityDiff = (right.prioridad ?? 0) - (left.prioridad ?? 0)
-    if (priorityDiff !== 0) {
-      return priorityDiff
-    }
+  return (
+    [...rows].sort((left, right) => {
+      const priorityDiff = (right.prioridad ?? 0) - (left.prioridad ?? 0);
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
 
-    const natureDiff = (natureRank[right.naturaleza] ?? 0) - (natureRank[left.naturaleza] ?? 0)
-    if (natureDiff !== 0) {
-      return natureDiff
-    }
+      const natureDiff = (natureRank[right.naturaleza] ?? 0) - (natureRank[left.naturaleza] ?? 0);
+      if (natureDiff !== 0) {
+        return natureDiff;
+      }
 
-    return String(right.fecha_inicio).localeCompare(String(left.fecha_inicio))
-  })[0] ?? null
+      return String(right.fecha_inicio).localeCompare(String(left.fecha_inicio));
+    })[0] ?? null
+  );
 }
 
 function deriveMonthlyDcFactor(rows: ExportAssignmentRow[]) {
-  const distinctPdvs = new Set(rows.map((item) => item.pdv_id).filter(Boolean))
-  const pdvCount = distinctPdvs.size
+  const distinctPdvs = new Set(rows.map((item) => item.pdv_id).filter(Boolean));
+  const pdvCount = distinctPdvs.size;
 
   if (pdvCount <= 1) {
-    return 1
+    return 1;
   }
 
-  return Number((1 / pdvCount).toFixed(2))
+  return Number((1 / pdvCount).toFixed(2));
 }
 function buildDayObservationSummary(label: string, dates: string[]) {
   if (dates.length === 0) {
-    return null
+    return null;
   }
 
-  return `${label}: ${dates.map((item) => item.slice(-2)).join(',')}`
+  return `${label}: ${dates.map((item) => item.slice(-2)).join(',')}`;
 }
 
 function buildObservationSummary(input: {
-  descanso: string[]
-  incapacidad: string[]
-  vacaciones: string[]
-  formacion: string[]
-  justificada: string[]
-  falta: string[]
-  cumpleanos: string[]
-  sinAsignacion: string[]
+  descanso: string[];
+  incapacidad: string[];
+  vacaciones: string[];
+  formacion: string[];
+  justificada: string[];
+  falta: string[];
+  cumpleanos: string[];
+  sinAsignacion: string[];
 }) {
   return [
     buildDayObservationSummary('DESC', input.descanso),
-    buildDayObservationSummary('INC', input.incapacidad),
-    buildDayObservationSummary('VAC', input.vacaciones),
+    buildDayObservationSummary('I', input.incapacidad),
+    buildDayObservationSummary('V', input.vacaciones),
     buildDayObservationSummary('FORM', input.formacion),
     buildDayObservationSummary('JUST', input.justificada),
     buildDayObservationSummary('FAL', input.falta),
@@ -242,7 +259,7 @@ function buildObservationSummary(input: {
     buildDayObservationSummary('SIN', input.sinAsignacion),
   ]
     .filter((item): item is string => Boolean(item))
-    .join(' | ')
+    .join(' | ');
 }
 
 function buildOperationalCalendarHeaders(days: string[]) {
@@ -250,27 +267,27 @@ function buildOperationalCalendarHeaders(days: string[]) {
     ...CALENDAR_STATIC_HEADERS,
     ...days.map((date) => String(Number(date.slice(-2)))),
     '# LAB',
-    '# INC',
-    '# VAC',
+    '# I',
+    '# V',
     '# FORM',
     '# JUST',
     '# FAL',
     '# SIN',
-  ]
+  ];
 }
 
 function buildOperationalCalendarLeadingRows(month: string, days: string[]) {
-  const totalColumns = CALENDAR_STATIC_HEADERS.length + days.length + 7
-  const leadingRow = Array.from({ length: totalColumns }, () => '')
-  const weekdayRow = Array.from({ length: totalColumns }, () => '')
-  const staticWidth = CALENDAR_STATIC_HEADERS.length
+  const totalColumns = CALENDAR_STATIC_HEADERS.length + days.length + 7;
+  const leadingRow = Array.from({ length: totalColumns }, () => '');
+  const weekdayRow = Array.from({ length: totalColumns }, () => '');
+  const staticWidth = CALENDAR_STATIC_HEADERS.length;
 
-  leadingRow[staticWidth] = formatMonthTitle(month)
+  leadingRow[staticWidth] = formatMonthTitle(month);
   days.forEach((date, index) => {
-    weekdayRow[staticWidth + index] = weekdayShortFromDate(date)
-  })
+    weekdayRow[staticWidth + index] = weekdayShortFromDate(date);
+  });
 
-  return [leadingRow, weekdayRow]
+  return [leadingRow, weekdayRow];
 }
 
 function buildOperationalCalendarColumnWidths(days: string[]) {
@@ -288,6 +305,8 @@ function buildOperationalCalendarColumnWidths(days: string[]) {
     16,
     14,
     12,
+    14,
+    14,
     40,
     ...days.map(() => 5),
     8,
@@ -297,37 +316,47 @@ function buildOperationalCalendarColumnWidths(days: string[]) {
     8,
     8,
     8,
-  ]
+  ];
 }
 
 function buildOperationalCalendarLegendRows() {
   return [
     [' '],
     ['LEYENDA OPERATIVA'],
-    ['RET', 'Retardo', 'INC', 'Incapacidad aprobada', 'VAC', 'Vacaciones aprobadas', 'FOR', 'Formacion'],
+    [
+      'RET',
+      'Retardo',
+      'I',
+      'Incapacidad aprobada',
+      'V',
+      'Vacaciones aprobadas',
+      'FOR',
+      'Formacion',
+    ],
     ['JUS', 'Falta justificada', 'FAL', 'Falta', 'SIN', 'Sin asignacion', 'DES', 'Descanso'],
-  ]
+  ];
 }
 function parseExpectedCheckInMinutes(day: MaterializedCalendarDay) {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(day.horarioInicio ?? '')
+  const match = /^(\d{1,2}):(\d{2})$/.exec(day.horarioInicio ?? '');
   if (!match) {
-    return null
+    return null;
   }
 
-  return Number(match[1]) * 60 + Number(match[2])
+  return Number(match[1]) * 60 + Number(match[2]);
 }
 
 function buildOperationalCalendarSummarySheet(input: {
-  periodo: string
-  rows: Array<Array<string | number | null>>
-  dayCount: number
-}) : ReportExportSheet {
-  const { periodo, rows, dayCount } = input
-  const totalDc = rows.length
-  const uniqueChains = new Set(rows.map((row) => String(row[0] ?? '')).filter(Boolean)).size
-  const uniquePdvs = new Set(rows.map((row) => String(row[1] ?? '')).filter(Boolean)).size
-  const summaryStart = 14 + dayCount
-  const sumAt = (offset: number) => rows.reduce((acc, row) => acc + Number(row[summaryStart + offset] ?? 0), 0)
+  periodo: string;
+  rows: Array<Array<string | number | null>>;
+  dayCount: number;
+}): ReportExportSheet {
+  const { periodo, rows, dayCount } = input;
+  const totalDc = rows.length;
+  const uniqueChains = new Set(rows.map((row) => String(row[0] ?? '')).filter(Boolean)).size;
+  const uniquePdvs = new Set(rows.map((row) => String(row[1] ?? '')).filter(Boolean)).size;
+  const summaryStart = 14 + dayCount;
+  const sumAt = (offset: number) =>
+    rows.reduce((acc, row) => acc + Number(row[summaryStart + offset] ?? 0), 0);
   const executiveRows: Array<Array<string | number | null>> = [
     ['Mes', formatMonthTitle(periodo)],
     ['Dermoconsejeras visibles', totalDc],
@@ -343,14 +372,14 @@ function buildOperationalCalendarSummarySheet(input: {
     [' ', ' '],
     ['Codigo', 'Significado'],
     ['RET', 'Retardo'],
-    ['INC', 'Incapacidad aprobada'],
-    ['VAC', 'Vacaciones aprobadas'],
+    ['I', 'Incapacidad aprobada'],
+    ['V', 'Vacaciones aprobadas'],
     ['FOR', 'Formacion'],
     ['JUS', 'Falta justificada'],
     ['FAL', 'Falta'],
     ['SIN', 'Sin asignacion'],
     ['DES', 'Descanso'],
-  ]
+  ];
 
   return {
     name: 'resumen',
@@ -360,76 +389,94 @@ function buildOperationalCalendarSummarySheet(input: {
       theme: 'default',
       columnWidths: [28, 34],
     },
-  }
+  };
 }
 
 function parseActualCheckInMinutes(checkInUtc: string | null) {
-  const value = normalizeAttendanceHour(checkInUtc)
-  const match = /^(\d{2}):(\d{2})$/.exec(value ?? '')
+  const value = normalizeAttendanceHour(checkInUtc);
+  const match = /^(\d{2}):(\d{2})$/.exec(value ?? '');
   if (!match) {
-    return null
+    return null;
   }
 
-  return Number(match[1]) * 60 + Number(match[2])
+  return Number(match[1]) * 60 + Number(match[2]);
 }
 
-function isRestLikeDay(day: MaterializedCalendarDay, referenceAssignment: ExportAssignmentRow | null) {
+function isRestLikeDay(
+  day: MaterializedCalendarDay,
+  referenceAssignment: ExportAssignmentRow | null
+) {
   if (day.estadoOperativo !== 'SIN_ASIGNACION' || day.laborable) {
-    return false
+    return false;
   }
 
-  const flags = day.flags && typeof day.flags === 'object' && !Array.isArray(day.flags)
-    ? (day.flags as Record<string, unknown>)
-    : {}
+  const flags =
+    day.flags && typeof day.flags === 'object' && !Array.isArray(day.flags)
+      ? (day.flags as Record<string, unknown>)
+      : {};
 
   if (Boolean(flags.descanso_override ?? flags.descanso_override_id)) {
-    return true
+    return true;
   }
 
-  const descansoCode = String(referenceAssignment?.dia_descanso ?? '').trim().toUpperCase()
-  const weekday = weekdayCodeFromDate(day.fecha)
+  const descansoCode = String(referenceAssignment?.dia_descanso ?? '')
+    .trim()
+    .toUpperCase();
+  const weekday = weekdayCodeFromDate(day.fecha);
   if (descansoCode && weekday === descansoCode) {
-    return true
+    return true;
   }
 
   const diasLaborables = String(referenceAssignment?.dias_laborales ?? '')
     .split(',')
     .map((item) => item.trim().toUpperCase())
-    .filter(Boolean)
+    .filter(Boolean);
 
-  return diasLaborables.length > 0 && !diasLaborables.includes(weekday)
+  return diasLaborables.length > 0 && !diasLaborables.includes(weekday);
 }
 
 function buildCalendarCellCode(input: {
-  day: MaterializedCalendarDay
-  referenceAssignment: ExportAssignmentRow | null
-  attendance: ExportAttendanceRow | null
-  today: string
+  day: MaterializedCalendarDay;
+  referenceAssignment: ExportAssignmentRow | null;
+  attendance: ExportAttendanceRow | null;
+  today: string;
 }) {
-  const { day, referenceAssignment, attendance, today } = input
+  const { day, referenceAssignment, attendance, today } = input;
+
+  if (attendance) {
+    const meta = attendance.metadata && typeof attendance.metadata === 'object'
+      ? (attendance.metadata as Record<string, any>)
+      : {};
+    if (meta.subtipo_captura === 'VACACIONES') {
+      return 'V';
+    }
+    if (meta.subtipo_captura === 'INCAPACIDAD') {
+      return 'I';
+    }
+  }
 
   if (day.estadoOperativo === 'FORMACION') {
-    return 'FOR'
+    return 'FOR';
   }
   if (day.estadoOperativo === 'INCAPACIDAD') {
-    return 'INC'
+    return 'I';
   }
   if (day.estadoOperativo === 'VACACIONES') {
-    return 'VAC'
+    return 'V';
   }
   if (day.estadoOperativo === 'FALTA_JUSTIFICADA') {
-    return 'JUS'
+    return 'JUS';
   }
   if (day.estadoOperativo === 'SIN_ASIGNACION') {
-    return isRestLikeDay(day, referenceAssignment) ? 'DES' : 'SIN'
+    return isRestLikeDay(day, referenceAssignment) ? 'DES' : 'SIN';
   }
 
   if (attendance?.estatus === 'PENDIENTE_VALIDACION') {
-    return 'PEND'
+    return 'PEND';
   }
 
-  const expectedMinutes = parseExpectedCheckInMinutes(day)
-  const actualMinutes = parseActualCheckInMinutes(attendance?.check_in_utc ?? null)
+  const expectedMinutes = parseExpectedCheckInMinutes(day);
+  const actualMinutes = parseActualCheckInMinutes(attendance?.check_in_utc ?? null);
   if (
     attendance &&
     (attendance.estatus === 'VALIDA' || attendance.estatus === 'CERRADA') &&
@@ -437,110 +484,375 @@ function buildCalendarCellCode(input: {
     actualMinutes !== null &&
     actualMinutes - expectedMinutes > 15
   ) {
-    return 'RET'
+    return 'RET';
   }
 
   if (day.fecha < today && !attendance) {
-    return 'FAL'
+    return 'FAL';
   }
 
-  return '1'
+  return '1';
 }
 
 function countCodes(codes: string[], targets: string[]) {
-  const targetSet = new Set(targets)
-  return codes.filter((item) => targetSet.has(item)).length
+  const targetSet = new Set(targets);
+  return codes.filter((item) => targetSet.has(item)).length;
 }
 
 function obtenerPrimero<T>(value: MaybeMany<T>): T | null {
   if (!value) {
-    return null
+    return null;
   }
 
-  return Array.isArray(value) ? value[0] ?? null : value
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
 function toColumnName(index: number) {
-  let value = index
-  let output = ''
+  let value = index;
+  let output = '';
 
   while (value > 0) {
-    const remainder = (value - 1) % 26
-    output = String.fromCharCode(65 + remainder) + output
-    value = Math.floor((value - 1) / 26)
+    const remainder = (value - 1) % 26;
+    output = String.fromCharCode(65 + remainder) + output;
+    value = Math.floor((value - 1) / 26);
   }
 
-  return output
+  return output;
 }
 
 function mapSectionRows(section: ExportSectionKey, data: ReportesPanelData) {
   switch (section) {
     case 'clientes':
-      return data.clientes.map((item) => [item.cuentaCliente, item.identificador, item.jornadasValidas, item.jornadasPendientes, item.ventasConfirmadas, item.montoConfirmado, item.cuotasCumplidas, item.netoNominaEstimado])
+      return data.clientes.map((item) => [
+        item.cuentaCliente,
+        item.identificador,
+        item.jornadasValidas,
+        item.jornadasPendientes,
+        item.ventasConfirmadas,
+        item.montoConfirmado,
+        item.cuotasCumplidas,
+        item.netoNominaEstimado,
+      ]);
     case 'asistencias':
-      return data.asistencias.map((item) => [item.periodo, item.empleado, item.idNomina, item.puesto, item.cuentaCliente, item.pdv, item.jornadasValidas, item.jornadasCerradas, item.jornadasPendientes, item.retardos, item.ausenciasJustificadas, item.faltas, item.totalJornadas])
+      return data.asistencias.map((item) => [
+        item.periodo,
+        item.empleado,
+        item.idNomina,
+        item.puesto,
+        item.cuentaCliente,
+        item.pdv,
+        item.jornadasValidas,
+        item.jornadasCerradas,
+        item.jornadasPendientes,
+        item.retardos,
+        item.ausenciasJustificadas,
+        item.faltas,
+        item.totalJornadas,
+      ]);
     case 'ventas':
-      return data.ventas.map((item) => [item.periodo, item.dc, item.idNomina, item.puesto, item.cuentaCliente, item.pdv, item.producto, item.ventasConfirmadas, item.unidadesConfirmadas, item.montoConfirmado])
+      return data.ventas.map((item) => [
+        item.periodo,
+        item.dc,
+        item.idNomina,
+        item.puesto,
+        item.cuentaCliente,
+        item.pdv,
+        item.producto,
+        item.ventasConfirmadas,
+        item.unidadesConfirmadas,
+        item.montoConfirmado,
+      ]);
     case 'campanas':
-      return data.campanas.map((item) => [item.periodo, item.campana, item.pdv, item.dc, item.estatus, item.avancePorcentaje, item.tareasPendientes, item.evidenciasPendientes])
+      return data.campanas.map((item) => [
+        item.periodo,
+        item.campana,
+        item.pdv,
+        item.dc,
+        item.estatus,
+        item.avancePorcentaje,
+        item.tareasPendientes,
+        item.evidenciasPendientes,
+      ]);
     case 'ranking_ventas':
-      return data.rankingVentas.map((item) => [item.empleado, item.idNomina, item.puesto, item.cuentaCliente, item.ventasConfirmadas, item.unidadesConfirmadas, item.montoConfirmado])
+      return data.rankingVentas.map((item) => [
+        item.empleado,
+        item.idNomina,
+        item.puesto,
+        item.cuentaCliente,
+        item.ventasConfirmadas,
+        item.unidadesConfirmadas,
+        item.montoConfirmado,
+      ]);
     case 'ranking_cuotas':
-      return data.rankingCuotas.map((item) => [item.empleado, item.idNomina, item.puesto, item.cuentaCliente, item.cuotaEstado, item.cumplimiento, item.bonoEstimado, item.jornadasValidas, item.jornadasPendientes, item.retardos, item.ausenciasJustificadas, item.faltas])
+      return data.rankingCuotas.map((item) => [
+        item.empleado,
+        item.idNomina,
+        item.puesto,
+        item.cuentaCliente,
+        item.cuotaEstado,
+        item.cumplimiento,
+        item.bonoEstimado,
+        item.jornadasValidas,
+        item.jornadasPendientes,
+        item.retardos,
+        item.ausenciasJustificadas,
+        item.faltas,
+      ]);
     case 'gastos':
-      return data.gastos.map((item) => [item.periodo, item.zona, item.tipo, item.registros, item.montoSolicitado, item.montoAprobado, item.montoReembolsado])
+      return data.gastos.map((item) => [
+        item.periodo,
+        item.zona,
+        item.tipo,
+        item.registros,
+        item.montoSolicitado,
+        item.montoAprobado,
+        item.montoReembolsado,
+      ]);
     case 'love':
-      return data.love.map((item) => [item.periodo, item.dc, item.pdv, item.afiliaciones, item.validas, item.pendientes, item.duplicadas])
+      return data.love.map((item) => [
+        item.periodo,
+        item.dc,
+        item.pdv,
+        item.afiliaciones,
+        item.validas,
+        item.pendientes,
+        item.duplicadas,
+      ]);
     case 'nomina':
-      return data.nomina.map((item) => [item.periodo, item.empleado, item.idNomina, item.puesto, item.cuentaCliente, item.percepciones, item.deducciones, item.neto, item.jornadasValidas, item.jornadasPendientes, item.retardos, item.ausenciasJustificadas, item.faltas, item.movimientos])
+      return data.nomina.map((item) => [
+        item.periodo,
+        item.empleado,
+        item.idNomina,
+        item.puesto,
+        item.cuentaCliente,
+        item.percepciones,
+        item.deducciones,
+        item.neto,
+        item.jornadasValidas,
+        item.jornadasPendientes,
+        item.retardos,
+        item.ausenciasJustificadas,
+        item.faltas,
+        item.movimientos,
+      ]);
     case 'calendario_operativo':
-      return []
+      return [];
     case 'bitacora':
-      return data.bitacora.map((item) => [item.fecha, item.tabla, item.accion, item.registroId, item.cuentaCliente, item.usuario, item.resumen])
+      return data.bitacora.map((item) => [
+        item.fecha,
+        item.tabla,
+        item.accion,
+        item.registroId,
+        item.cuentaCliente,
+        item.usuario,
+        item.resumen,
+      ]);
   }
 }
 
 function buildSectionHeaders(section: ExportSectionKey) {
   switch (section) {
     case 'clientes':
-      return ['cliente', 'identificador', 'jornadas_validas', 'jornadas_pendientes', 'ventas_confirmadas', 'monto_confirmado', 'cuotas_cumplidas', 'neto_nomina_estimado']
+      return [
+        'cliente',
+        'identificador',
+        'jornadas_validas',
+        'jornadas_pendientes',
+        'ventas_confirmadas',
+        'monto_confirmado',
+        'cuotas_cumplidas',
+        'neto_nomina_estimado',
+      ];
     case 'asistencias':
-      return ['periodo', 'empleado', 'id_nomina', 'puesto', 'cuenta_cliente', 'pdv', 'jornadas_validas', 'jornadas_cerradas', 'jornadas_pendientes', 'retardos', 'ausencias_justificadas', 'faltas', 'total_jornadas']
+      return [
+        'periodo',
+        'empleado',
+        'id_nomina',
+        'puesto',
+        'cuenta_cliente',
+        'pdv',
+        'jornadas_validas',
+        'jornadas_cerradas',
+        'jornadas_pendientes',
+        'retardos',
+        'ausencias_justificadas',
+        'faltas',
+        'total_jornadas',
+      ];
     case 'ventas':
-      return ['periodo', 'dc', 'id_nomina', 'puesto', 'cuenta_cliente', 'pdv', 'producto', 'ventas_confirmadas', 'unidades_confirmadas', 'monto_confirmado']
+      return [
+        'periodo',
+        'dc',
+        'id_nomina',
+        'puesto',
+        'cuenta_cliente',
+        'pdv',
+        'producto',
+        'ventas_confirmadas',
+        'unidades_confirmadas',
+        'monto_confirmado',
+      ];
     case 'campanas':
-      return ['periodo', 'campana', 'pdv', 'dc', 'estatus', 'avance_porcentaje', 'tareas_pendientes', 'evidencias_pendientes']
+      return [
+        'periodo',
+        'campana',
+        'pdv',
+        'dc',
+        'estatus',
+        'avance_porcentaje',
+        'tareas_pendientes',
+        'evidencias_pendientes',
+      ];
     case 'ranking_ventas':
-      return ['empleado', 'id_nomina', 'puesto', 'cuenta_cliente', 'ventas_confirmadas', 'unidades_confirmadas', 'monto_confirmado']
+      return [
+        'empleado',
+        'id_nomina',
+        'puesto',
+        'cuenta_cliente',
+        'ventas_confirmadas',
+        'unidades_confirmadas',
+        'monto_confirmado',
+      ];
     case 'ranking_cuotas':
-      return ['empleado', 'id_nomina', 'puesto', 'cuenta_cliente', 'cuota_estado', 'cumplimiento', 'bono_estimado', 'jornadas_validas', 'jornadas_pendientes', 'retardos', 'ausencias_justificadas', 'faltas']
+      return [
+        'empleado',
+        'id_nomina',
+        'puesto',
+        'cuenta_cliente',
+        'cuota_estado',
+        'cumplimiento',
+        'bono_estimado',
+        'jornadas_validas',
+        'jornadas_pendientes',
+        'retardos',
+        'ausencias_justificadas',
+        'faltas',
+      ];
     case 'gastos':
-      return ['periodo', 'zona', 'tipo', 'registros', 'monto_solicitado', 'monto_aprobado', 'monto_reembolsado']
+      return [
+        'periodo',
+        'zona',
+        'tipo',
+        'registros',
+        'monto_solicitado',
+        'monto_aprobado',
+        'monto_reembolsado',
+      ];
     case 'love':
-      return ['periodo', 'dc', 'pdv', 'afiliaciones', 'validas', 'pendientes', 'duplicadas']
+      return ['periodo', 'dc', 'pdv', 'afiliaciones', 'validas', 'pendientes', 'duplicadas'];
     case 'nomina':
-      return ['periodo', 'empleado', 'id_nomina', 'puesto', 'cuenta_cliente', 'percepciones', 'deducciones', 'neto', 'jornadas_validas', 'jornadas_pendientes', 'retardos', 'ausencias_justificadas', 'faltas', 'movimientos']
+      return [
+        'periodo',
+        'empleado',
+        'id_nomina',
+        'puesto',
+        'cuenta_cliente',
+        'percepciones',
+        'deducciones',
+        'neto',
+        'jornadas_validas',
+        'jornadas_pendientes',
+        'retardos',
+        'ausencias_justificadas',
+        'faltas',
+        'movimientos',
+      ];
     case 'calendario_operativo':
-      return []
+      return [];
     case 'bitacora':
-      return ['fecha', 'tabla', 'accion', 'registro_id', 'cuenta_cliente', 'usuario', 'resumen']
+      return ['fecha', 'tabla', 'accion', 'registro_id', 'cuenta_cliente', 'usuario', 'resumen'];
   }
 }
 
 export function isExportSectionKey(value: string): value is ExportSectionKey {
-  return ['clientes', 'asistencias', 'ventas', 'campanas', 'ranking_ventas', 'ranking_cuotas', 'gastos', 'love', 'nomina', 'calendario_operativo', 'bitacora'].includes(value)
+  return [
+    'clientes',
+    'asistencias',
+    'ventas',
+    'campanas',
+    'ranking_ventas',
+    'ranking_cuotas',
+    'gastos',
+    'love',
+    'nomina',
+    'calendario_operativo',
+    'bitacora',
+  ].includes(value);
 }
 
 export function isExportFormat(value: string): value is ExportFormat {
-  return value === 'csv' || value === 'xlsx' || value === 'pdf'
+  return value === 'csv' || value === 'xlsx' || value === 'pdf';
+}
+
+function buildVacationDcSheet(input: {
+  periodo: string;
+  rows: Array<Array<string | number | null>>;
+  dayCount: number;
+  dayDates: string[];
+}): ReportExportSheet {
+  const { periodo, rows, dayCount, dayDates } = input;
+  const dayStartIndex = CALENDAR_STATIC_HEADERS.length;
+  const vacationIndex = dayStartIndex + dayCount + 2; // Columna '# V'
+
+  const vacationRows = rows.filter((row) => Number(row[vacationIndex] ?? 0) > 0);
+
+  const resultRows = vacationRows.map((row) => {
+    const datesWithVacation: string[] = [];
+    for (let index = 0; index < dayCount; index += 1) {
+      if (row[dayStartIndex + index] === 'V') {
+        const dateIso = dayDates[index];
+        if (dateIso) {
+          datesWithVacation.push(dateIso.slice(-2));
+        }
+      }
+    }
+
+    return [
+      row[0], // CADENA
+      row[1], // ID PDV
+      row[2], // SUCURSAL
+      row[3], // NOMBRE DC
+      row[4], // # DC (factor)
+      row[5], // ROL
+      row[6], // SUPERVISOR
+      row[7], // COORDINADOR
+      row[8], // CIUDAD
+      row[9], // ESTADO
+      Number(row[vacationIndex] ?? 0), // TOTAL DIAS VACACIONES
+      datesWithVacation.join(', '), // FECHAS DE VACACIONES (DIAS)
+    ];
+  });
+
+  return {
+    name: 'vacaciones',
+    headers: [
+      'CADENA',
+      'ID PDV',
+      'SUCURSAL',
+      'NOMBRE DC',
+      '# DC',
+      'ROL',
+      'SUPERVISOR',
+      'COORDINADOR',
+      'CIUDAD',
+      'ESTADO',
+      'TOTAL DIAS VACACIONES',
+      'FECHAS DE VACACIONES (DIAS)',
+    ],
+    rows: resultRows,
+    xlsx: {
+      theme: 'default',
+      columnWidths: [18, 16, 28, 28, 12, 14, 24, 24, 16, 16, 22, 28],
+    },
+  };
 }
 
 async function collectOperationalCalendarExportPayload(
   supabase: SupabaseClient,
   periodo: string
 ): Promise<ReportExportPayload> {
-  const calendar = await getMaterializedMonthlyCalendar({ month: periodo })
-  const headers = buildOperationalCalendarHeaders(calendar.dias)
+  const calendar = await getMaterializedMonthlyCalendar({ month: periodo }, supabase as any);
+  const headers = buildOperationalCalendarHeaders(calendar.dias);
 
   if (calendar.empleados.length === 0) {
     return {
@@ -560,91 +872,144 @@ async function collectOperationalCalendarExportPayload(
         columnWidths: buildOperationalCalendarColumnWidths(calendar.dias),
         footerRows: buildOperationalCalendarLegendRows(),
       },
-      extraSheets: [buildOperationalCalendarSummarySheet({ periodo, rows: [], dayCount: calendar.dias.length })],
-    }
+      extraSheets: [
+        buildOperationalCalendarSummarySheet({ periodo, rows: [], dayCount: calendar.dias.length }),
+        buildVacationDcSheet({ periodo, rows: [], dayCount: calendar.dias.length, dayDates: calendar.dias }),
+      ],
+    };
   }
 
-  const employeeIds = calendar.empleados.map((item) => item.empleadoId)
-  const fechaInicio = startOfMonth(periodo)
-  const fechaFin = endOfMonth(periodo)
+  const employeeIds = calendar.empleados.map((item) => item.empleadoId);
+  const fechaInicio = startOfMonth(periodo);
+  const fechaFin = endOfMonth(periodo);
 
-  const [employeesResult, assignmentsResult, attendancesResult] = await Promise.all([
-    supabase.from('empleado').select('id, id_nomina, nombre_completo, puesto, zona').in('id', employeeIds),
+  const [employeesResult, assignmentsResult, attendancesResult, quotaDcResult] = await Promise.all([
+    supabase
+      .from('empleado')
+      .select('id, id_nomina, nombre_completo, puesto, zona')
+      .in('id', employeeIds),
     supabase
       .from('asignacion')
-      .select('id, empleado_id, pdv_id, cuenta_cliente_id, fecha_inicio, fecha_fin, dias_laborales, dia_descanso, horario_referencia, naturaleza, prioridad, estado_publicacion')
+      .select(
+        'id, empleado_id, pdv_id, cuenta_cliente_id, fecha_inicio, fecha_fin, dias_laborales, dia_descanso, horario_referencia, naturaleza, prioridad, estado_publicacion'
+      )
       .in('empleado_id', employeeIds)
       .eq('estado_publicacion', 'PUBLICADA')
       .lte('fecha_inicio', fechaFin)
       .or(`fecha_fin.is.null,fecha_fin.gte.${fechaInicio}`),
     supabase
       .from('asistencia')
-      .select('empleado_id, fecha_operacion, estatus, check_in_utc')
+      .select('empleado_id, fecha_operacion, estatus, check_in_utc, metadata')
       .in('empleado_id', employeeIds)
       .gte('fecha_operacion', fechaInicio)
       .lte('fecha_operacion', fechaFin),
-  ])
+    supabase
+      .from('cuota_mensual_resumen_dc')
+      .select('empleado_id, cuota_individual')
+      .in('empleado_id', employeeIds)
+      .eq('mes', periodo),
+  ]);
 
   if (employeesResult.error) {
-    throw new Error(employeesResult.error.message)
+    throw new Error(employeesResult.error.message);
   }
   if (assignmentsResult.error) {
-    throw new Error(assignmentsResult.error.message)
+    throw new Error(assignmentsResult.error.message);
   }
   if (attendancesResult.error) {
-    throw new Error(attendancesResult.error.message)
+    throw new Error(attendancesResult.error.message);
+  }
+  if (quotaDcResult.error) {
+    throw new Error(quotaDcResult.error.message);
   }
 
-  const employees = (employeesResult.data ?? []) as ExportEmployeeRow[]
-  const assignments = (assignmentsResult.data ?? []) as ExportAssignmentRow[]
-  const attendances = (attendancesResult.data ?? []) as ExportAttendanceRow[]
+  const employees = (employeesResult.data ?? []) as ExportEmployeeRow[];
+  const assignments = (assignmentsResult.data ?? []) as ExportAssignmentRow[];
+  const attendances = (attendancesResult.data ?? []) as ExportAttendanceRow[];
+  const quotaDcRows = (quotaDcResult.data ?? []) as ExportCuotaDcRow[];
 
-  const referenceAssignmentByEmployee = new Map<string, ExportAssignmentRow | null>()
-  const referencePdvIds = new Set<string>()
-  const referenceCuentaIds = new Set<string>()
+  const referenceAssignmentByEmployee = new Map<string, ExportAssignmentRow | null>();
+  const referencePdvIds = new Set<string>();
+  const referenceCuentaIds = new Set<string>();
 
   for (const empleadoId of employeeIds) {
-    const reference = chooseReferenceAssignment(assignments.filter((item) => item.empleado_id === empleadoId))
-    referenceAssignmentByEmployee.set(empleadoId, reference)
+    const reference = chooseReferenceAssignment(
+      assignments.filter((item) => item.empleado_id === empleadoId)
+    );
+    referenceAssignmentByEmployee.set(empleadoId, reference);
     if (reference?.pdv_id) {
-      referencePdvIds.add(reference.pdv_id)
+      referencePdvIds.add(reference.pdv_id);
     }
     if (reference?.cuenta_cliente_id) {
-      referenceCuentaIds.add(reference.cuenta_cliente_id)
+      referenceCuentaIds.add(reference.cuenta_cliente_id);
     }
   }
 
-  const [pdvsResult, cuentasResult] = await Promise.all([
+  const [pdvsResult, cuentasResult, quotaPdvResult] = await Promise.all([
     referencePdvIds.size > 0
       ? supabase
           .from('pdv')
-          .select('id, nombre, clave_btl, horario_entrada, horario_salida, cadena:cadena_id(id, nombre), ciudad:ciudad_id(id, nombre)')
+          .select(
+            'id, nombre, clave_btl, horario_entrada, horario_salida, cadena:cadena_id(id, nombre), ciudad:ciudad_id(id, nombre)'
+          )
           .in('id', Array.from(referencePdvIds))
       : Promise.resolve({ data: [], error: null }),
     referenceCuentaIds.size > 0
-      ? supabase.from('cuenta_cliente').select('id, nombre').in('id', Array.from(referenceCuentaIds))
+      ? supabase
+          .from('cuenta_cliente')
+          .select('id, nombre')
+          .in('id', Array.from(referenceCuentaIds))
       : Promise.resolve({ data: [], error: null }),
-  ])
+    referencePdvIds.size > 0
+      ? supabase
+          .from('cuota_mensual_resumen_pdv')
+          .select('pdv_id, cuota_mensual')
+          .in('pdv_id', Array.from(referencePdvIds))
+          .eq('mes', periodo)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
 
   if (pdvsResult.error) {
-    throw new Error(pdvsResult.error.message)
+    throw new Error(pdvsResult.error.message);
   }
   if (cuentasResult.error) {
-    throw new Error(cuentasResult.error.message)
+    throw new Error(cuentasResult.error.message);
+  }
+  if (quotaPdvResult.error) {
+    throw new Error(quotaPdvResult.error.message);
   }
 
-  const employeeById = new Map(employees.map((item) => [item.id, item]))
-  const attendanceByEmployeeDate = new Map(attendances.map((item) => [`${item.empleado_id}::${item.fecha_operacion}`, item]))
-  const pdvById = new Map(((pdvsResult.data ?? []) as ExportPdvRow[]).map((item) => [item.id, item]))
-  const cuentaById = new Map(((cuentasResult.data ?? []) as ExportCuentaClienteRow[]).map((item) => [item.id, item.nombre]))
-  const today = getMexicoToday()
+  const employeeById = new Map(employees.map((item) => [item.id, item]));
+  const attendanceByEmployeeDate = new Map(
+    attendances.map((item) => [`${item.empleado_id}::${item.fecha_operacion}`, item])
+  );
+  const pdvById = new Map(
+    ((pdvsResult.data ?? []) as ExportPdvRow[]).map((item) => [item.id, item])
+  );
+  const cuentaById = new Map(
+    ((cuentasResult.data ?? []) as ExportCuentaClienteRow[]).map((item) => [item.id, item.nombre])
+  );
+  const quotaDcByEmployeeId = new Map(
+    quotaDcRows.map((item) => [item.empleado_id, Number(item.cuota_individual ?? 0)])
+  );
+  const quotaPdvById = new Map(
+    ((quotaPdvResult.data ?? []) as ExportCuotaPdvRow[]).map((item) => [
+      item.pdv_id,
+      Number(item.cuota_mensual ?? 0),
+    ])
+  );
+  const today = getMexicoToday();
 
   const rows = calendar.empleados.map((employee) => {
-    const employeeRecord = employeeById.get(employee.empleadoId)
-    const employeeAssignments = assignments.filter((item) => item.empleado_id === employee.empleadoId)
-    const referenceAssignment = referenceAssignmentByEmployee.get(employee.empleadoId) ?? null
-    const referencePdv = referenceAssignment?.pdv_id ? pdvById.get(referenceAssignment.pdv_id) ?? null : null
-    const codes: string[] = []
+    const employeeRecord = employeeById.get(employee.empleadoId);
+    const employeeAssignments = assignments.filter(
+      (item) => item.empleado_id === employee.empleadoId
+    );
+    const referenceAssignment = referenceAssignmentByEmployee.get(employee.empleadoId) ?? null;
+    const referencePdv = referenceAssignment?.pdv_id
+      ? (pdvById.get(referenceAssignment.pdv_id) ?? null)
+      : null;
+    const codes: string[] = [];
     const specialDays = {
       descanso: [] as string[],
       incapacidad: [] as string[],
@@ -654,43 +1019,45 @@ async function collectOperationalCalendarExportPayload(
       falta: [] as string[],
       cumpleanos: [] as string[],
       sinAsignacion: [] as string[],
-    }
+    };
 
     const dayCells = employee.dias.map((day) => {
-      const attendance = attendanceByEmployeeDate.get(`${employee.empleadoId}::${day.fecha}`) ?? null
-      const code = buildCalendarCellCode({ day, referenceAssignment, attendance, today })
-      codes.push(code)
+      const attendance =
+        attendanceByEmployeeDate.get(`${employee.empleadoId}::${day.fecha}`) ?? null;
+      const code = buildCalendarCellCode({ day, referenceAssignment, attendance, today });
+      codes.push(code);
 
       if (code === 'DES') {
-        specialDays.descanso.push(day.fecha)
-      } else if (code === 'INC') {
-        specialDays.incapacidad.push(day.fecha)
-      } else if (code === 'VAC') {
-        specialDays.vacaciones.push(day.fecha)
+        specialDays.descanso.push(day.fecha);
+      } else if (code === 'I') {
+        specialDays.incapacidad.push(day.fecha);
+      } else if (code === 'V') {
+        specialDays.vacaciones.push(day.fecha);
       } else if (code === 'FOR') {
-        specialDays.formacion.push(day.fecha)
+        specialDays.formacion.push(day.fecha);
       } else if (code === 'JUS') {
-        specialDays.justificada.push(day.fecha)
+        specialDays.justificada.push(day.fecha);
       } else if (code === 'FAL') {
-        specialDays.falta.push(day.fecha)
+        specialDays.falta.push(day.fecha);
       } else if (code === 'SIN') {
-        specialDays.sinAsignacion.push(day.fecha)
+        specialDays.sinAsignacion.push(day.fecha);
       }
 
       if (Boolean(day.flags?.cumpleanos)) {
-        specialDays.cumpleanos.push(day.fecha)
+        specialDays.cumpleanos.push(day.fecha);
       }
 
-      return code
-    })
+      return code;
+    });
 
-    const firstDayWithSchedule = employee.dias.find((day) => day.horarioInicio || day.horarioFin)
-    const horario = referenceAssignment?.horario_referencia
-      ?? (referencePdv?.horario_entrada && referencePdv?.horario_salida
+    const firstDayWithSchedule = employee.dias.find((day) => day.horarioInicio || day.horarioFin);
+    const horario =
+      referenceAssignment?.horario_referencia ??
+      (referencePdv?.horario_entrada && referencePdv?.horario_salida
         ? `${referencePdv.horario_entrada} a ${referencePdv.horario_salida}`
         : firstDayWithSchedule
           ? `${firstDayWithSchedule.horarioInicio ?? ''}${firstDayWithSchedule.horarioFin ? ` a ${firstDayWithSchedule.horarioFin}` : ''}`.trim()
-          : '')
+          : '');
 
     return [
       cuentaById.get(referenceAssignment?.cuenta_cliente_id ?? '') ?? 'Sin cuenta',
@@ -702,24 +1069,30 @@ async function collectOperationalCalendarExportPayload(
       employee.supervisorNombre ?? 'Sin supervisor',
       employee.coordinadorNombre ?? 'Sin coordinador',
       obtenerPrimero(referencePdv?.ciudad)?.nombre ?? '',
-      obtenerPrimero(referencePdv?.ciudad)?.estado ?? resolveMexicoStateFromCity(obtenerPrimero(referencePdv?.ciudad)?.nombre ?? null) ?? '',
+      obtenerPrimero(referencePdv?.ciudad)?.estado ??
+        resolveMexicoStateFromCity(obtenerPrimero(referencePdv?.ciudad)?.nombre ?? null) ??
+        '',
       horario,
       formatWeekdays(referenceAssignment?.dias_laborales ?? null),
-      String(referenceAssignment?.dia_descanso ?? '').trim().toUpperCase(),
+      String(referenceAssignment?.dia_descanso ?? '')
+        .trim()
+        .toUpperCase(),
+      quotaPdvById.get(referenceAssignment?.pdv_id ?? '') ?? 0,
+      quotaDcByEmployeeId.get(employee.empleadoId) ?? 0,
       buildObservationSummary(specialDays),
       ...dayCells,
       countCodes(codes, ['1', 'RET', 'PEND']),
-      countCodes(codes, ['INC']),
-      countCodes(codes, ['VAC']),
+      countCodes(codes, ['I']),
+      countCodes(codes, ['V']),
       countCodes(codes, ['FOR']),
       countCodes(codes, ['JUS']),
       countCodes(codes, ['FAL']),
       countCodes(codes, ['SIN']),
-    ]
-  })
-  const staticWidth = CALENDAR_STATIC_HEADERS.length
-  const monthTitleStartColumn = staticWidth + 1
-  const monthTitleEndColumn = staticWidth + Math.max(calendar.dias.length, 1)
+    ];
+  });
+  const staticWidth = CALENDAR_STATIC_HEADERS.length;
+  const monthTitleStartColumn = staticWidth + 1;
+  const monthTitleEndColumn = staticWidth + Math.max(calendar.dias.length, 1);
 
   return {
     filenameBase: `calendario-operativo-${periodo}`,
@@ -728,9 +1101,10 @@ async function collectOperationalCalendarExportPayload(
     sheetName: 'calendario',
     xlsx: {
       leadingRows: buildOperationalCalendarLeadingRows(periodo, calendar.dias),
-      merges: calendar.dias.length > 0
-        ? [`${toColumnName(monthTitleStartColumn)}1:${toColumnName(monthTitleEndColumn)}1`]
-        : [],
+      merges:
+        calendar.dias.length > 0
+          ? [`${toColumnName(monthTitleStartColumn)}1:${toColumnName(monthTitleEndColumn)}1`]
+          : [],
       freezeCell: `${toColumnName(staticWidth + 1)}4`,
       columnWidths: buildOperationalCalendarColumnWidths(calendar.dias),
       theme: 'operational_calendar',
@@ -742,8 +1116,11 @@ async function collectOperationalCalendarExportPayload(
       },
       footerRows: buildOperationalCalendarLegendRows(),
     },
-    extraSheets: [buildOperationalCalendarSummarySheet({ periodo, rows, dayCount: calendar.dias.length })],
-  }
+    extraSheets: [
+      buildOperationalCalendarSummarySheet({ periodo, rows, dayCount: calendar.dias.length }),
+      buildVacationDcSheet({ periodo, rows, dayCount: calendar.dias.length, dayDates: calendar.dias }),
+    ],
+  };
 }
 
 export async function collectReportExportPayload(
@@ -753,36 +1130,40 @@ export async function collectReportExportPayload(
   periodo: string
 ): Promise<ReportExportPayload> {
   if (section === 'calendario_operativo') {
-    return collectOperationalCalendarExportPayload(supabase, periodo)
+    return collectOperationalCalendarExportPayload(supabase, periodo);
   }
 
-  const firstPage = await obtenerPanelReportes(actor, {
-    period: periodo,
-    page: 1,
-    pageSize: 100,
-  }, supabase)
+  const firstPage = await obtenerPanelReportes(
+    actor,
+    {
+      period: periodo,
+      page: 1,
+      pageSize: 100,
+    },
+    supabase
+  );
 
   if (!firstPage.infraestructuraLista) {
-    throw new Error(firstPage.mensajeInfraestructura ?? 'No fue posible preparar la exportacion.')
+    throw new Error(firstPage.mensajeInfraestructura ?? 'No fue posible preparar la exportacion.');
   }
 
-  const rows = [...mapSectionRows(section, firstPage)]
+  const rows = [...mapSectionRows(section, firstPage)];
   for (let page = 2; page <= firstPage.paginacion.totalPages; page += 1) {
-    const chunk = await obtenerPanelReportes(actor, {
-      period: periodo,
-      page,
-      pageSize: 100,
-    }, supabase)
-    rows.push(...mapSectionRows(section, chunk))
+    const chunk = await obtenerPanelReportes(
+      actor,
+      {
+        period: periodo,
+        page,
+        pageSize: 100,
+      },
+      supabase
+    );
+    rows.push(...mapSectionRows(section, chunk));
   }
 
   return {
     filenameBase: `${section}-${firstPage.filtros.periodo}`,
     headers: buildSectionHeaders(section),
     rows,
-  }
+  };
 }
-
-
-
-

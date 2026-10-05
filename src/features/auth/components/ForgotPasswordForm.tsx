@@ -1,27 +1,27 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { resetPassword } from '@/actions/auth'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { useState } from 'react';
+import { resetPassword } from '@/actions/auth';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 export function ForgotPasswordForm() {
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(formData: FormData) {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
 
-    const result = await resetPassword(formData)
+    const result = await resetPassword(formData);
 
     if (result?.error) {
-      setError(result.error)
-      setLoading(false)
+      setError(result.error);
+      setLoading(false);
     } else {
-      setSuccess(true)
-      setLoading(false)
+      setSuccess(true);
+      setLoading(false);
     }
   }
 
@@ -29,16 +29,27 @@ export function ForgotPasswordForm() {
     return (
       <div className="rounded-lg border border-success-500 bg-success-50 p-6 text-center">
         <div className="mb-3">
-          <svg className="mx-auto h-12 w-12 text-success-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          <svg
+            className="mx-auto h-12 w-12 text-success-600"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+            />
           </svg>
         </div>
         <p className="font-medium text-success-700">Revisa tu correo electronico</p>
         <p className="mt-1 text-sm text-success-600">
-          Si tu cuenta ya esta activa, te enviamos un enlace temporal para restablecer tu contrasena.
+          Si tu cuenta ya esta activa, te enviamos un enlace temporal para restablecer tu
+          contrasena.
         </p>
       </div>
-    )
+    );
   }
 
   return (
@@ -63,5 +74,5 @@ export function ForgotPasswordForm() {
         Enviar enlace
       </Button>
     </form>
-  )
+  );
 }

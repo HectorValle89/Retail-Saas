@@ -8,14 +8,14 @@
 
 Un PRP es el **blueprint de una pieza de la fábrica**. Define QUÉ construir antes de escribir una sola línea de código.
 
-| Sección | Propósito | Responsable |
-|---------|-----------|-------------|
-| **Objetivo** | Qué se construye (estado final) | Humano define |
-| **Por Qué** | Valor de negocio | Humano define |
-| **Qué** | Comportamiento + criterios de éxito | Humano + IA |
-| **Contexto** | Docs, referencias, código existente | IA investiga |
-| **Blueprint** | Fases de implementación (sin subtareas) | IA genera |
-| **Aprendizajes** | Self-Annealing - errores y fixes | IA actualiza |
+| Sección          | Propósito                               | Responsable   |
+| ---------------- | --------------------------------------- | ------------- |
+| **Objetivo**     | Qué se construye (estado final)         | Humano define |
+| **Por Qué**      | Valor de negocio                        | Humano define |
+| **Qué**          | Comportamiento + criterios de éxito     | Humano + IA   |
+| **Contexto**     | Docs, referencias, código existente     | IA investiga  |
+| **Blueprint**    | Fases de implementación (sin subtareas) | IA genera     |
+| **Aprendizajes** | Self-Annealing - errores y fixes        | IA actualiza  |
 
 ---
 
@@ -56,8 +56,8 @@ Un PRP es el **blueprint de una pieza de la fábrica**. Define QUÉ construir an
 
 ## Por Qué
 
-| Problema | Solución |
-|----------|----------|
+| Problema            | Solución                        |
+| ------------------- | ------------------------------- |
 | [Dolor del usuario] | [Cómo lo resuelve esta feature] |
 
 **Valor de negocio**: [Impacto medible - conversiones, tiempo, dinero]
@@ -65,11 +65,13 @@ Un PRP es el **blueprint de una pieza de la fábrica**. Define QUÉ construir an
 ## Qué
 
 ### Criterios de Éxito
+
 - [ ] [Criterio medible 1]
 - [ ] [Criterio medible 2]
 - [ ] [Criterio medible 3]
 
 ### Comportamiento Esperado
+
 [Descripción del flujo principal - Happy Path]
 
 ---
@@ -77,18 +79,21 @@ Un PRP es el **blueprint de una pieza de la fábrica**. Define QUÉ construir an
 ## Contexto
 
 ### Referencias
+
 - `src/features/[existente]/` - Patrón a seguir
 - [URL de docs] - API reference
 
 ### Arquitectura Propuesta (Feature-First)
 ```
+
 src/features/[nueva-feature]/
 ├── components/
 ├── hooks/
 ├── services/
 ├── store/
 └── types/
-```
+
+````
 
 ### Modelo de Datos (si aplica)
 ```sql
@@ -100,7 +105,7 @@ CREATE TABLE [tabla] (
 
 -- RLS
 ALTER TABLE [tabla] ENABLE ROW LEVEL SECURITY;
-```
+````
 
 ---
 
@@ -110,16 +115,20 @@ ALTER TABLE [tabla] ENABLE ROW LEVEL SECURITY;
 > siguiendo el bucle agéntico (mapear contexto → generar subtareas → ejecutar)
 
 ### Fase 1: [Nombre]
+
 **Objetivo**: [Qué se logra al completar esta fase]
 **Validación**: [Cómo verificar que está completa]
 
 ### Fase 2: [Nombre]
+
 **Objetivo**: [Qué se logra]
 **Validación**: [Cómo verificar]
 
 ### Fase N: Validación Final
+
 **Objetivo**: Sistema funcionando end-to-end
 **Validación**:
+
 - [ ] `npm run typecheck` pasa
 - [ ] `npm run build` exitoso
 - [ ] Playwright screenshot confirma UI
@@ -133,6 +142,7 @@ ALTER TABLE [tabla] ENABLE ROW LEVEL SECURITY;
 > El conocimiento persiste para futuros PRPs. El mismo error NUNCA ocurre dos veces.
 
 ### [YYYY-MM-DD]: [Título del aprendizaje]
+
 - **Error**: [Qué falló]
 - **Fix**: [Cómo se arregló]
 - **Aplicar en**: [Dónde más aplica este conocimiento]
@@ -155,7 +165,8 @@ ALTER TABLE [tabla] ENABLE ROW LEVEL SECURITY;
 
 ---
 
-*PRP pendiente aprobación. No se ha modificado código.*
+_PRP pendiente aprobación. No se ha modificado código._
+
 ```
 
 ---
@@ -170,3 +181,4 @@ ALTER TABLE [tabla] ENABLE ROW LEVEL SECURITY;
 | Validación | Zod |
 | Estado | Zustand |
 | Testing | Playwright MCP |
+```

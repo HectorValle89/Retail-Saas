@@ -66,6 +66,7 @@ describe('reporteVisitasSupervisoresService', () => {
           },
           comentarios: 'Visita concluida',
           completada_en: '2026-04-07T18:30:00Z',
+          metadata: {},
           pdv: [
             {
               nombre: 'Sucursal Uno',
@@ -94,6 +95,7 @@ describe('reporteVisitasSupervisoresService', () => {
           checklist_calidad: {},
           comentarios: null,
           completada_en: null,
+          metadata: {},
           pdv: [
             {
               nombre: 'Sucursal Uno',
@@ -124,6 +126,7 @@ describe('reporteVisitasSupervisoresService', () => {
           },
           comentarios: 'No debe entrar porque la ruta está en borrador',
           completada_en: '2026-04-08T18:30:00Z',
+          metadata: {},
           pdv: [
             {
               nombre: 'Sucursal Dos',
@@ -192,6 +195,7 @@ describe('reporteVisitasSupervisoresService', () => {
         },
         comentarios: null,
         completada_en: '2026-04-07T18:30:00Z',
+        metadata: {},
         pdv: {
           nombre: 'Sucursal Uno',
           clave_btl: 'BTL-001',
@@ -204,6 +208,7 @@ describe('reporteVisitasSupervisoresService', () => {
     const makeQuery = (response: unknown) => ({
       select: vi.fn().mockReturnThis(),
       gte: vi.fn().mockReturnThis(),
+      lte: vi.fn().mockReturnThis(),
       lt: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),

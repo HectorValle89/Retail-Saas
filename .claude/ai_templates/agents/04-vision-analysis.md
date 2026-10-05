@@ -27,10 +27,10 @@ export const MODELS = {
   // ... otros modelos ...
 
   // Vision (analisis de imagenes)
-  vision: 'google/gemini-2.0-flash-exp:free',  // Gratis, bueno
-  visionPro: 'openai/gpt-4o',                   // Mejor calidad
-  visionClaude: 'anthropic/claude-3-5-sonnet',  // Alternativa
-} as const
+  vision: 'google/gemini-2.0-flash-exp:free', // Gratis, bueno
+  visionPro: 'openai/gpt-4o', // Mejor calidad
+  visionClaude: 'anthropic/claude-3-5-sonnet', // Alternativa
+} as const;
 ```
 
 ---
@@ -41,36 +41,34 @@ export const MODELS = {
 // app/api/chat/route.ts
 // MODIFICAR: Agregar soporte para imagenes
 
-import { openrouter, MODELS } from '@/lib/ai/openrouter'
-import { streamText, convertToModelMessages, type UIMessage } from 'ai'
+import { openrouter, MODELS } from '@/lib/ai/openrouter';
+import { streamText, convertToModelMessages, type UIMessage } from 'ai';
 
 const SYSTEM_PROMPT = `Eres un asistente que puede analizar imagenes.
 Cuando recibas una imagen:
 1. Describe lo que ves
 2. Responde preguntas sobre el contenido
-3. Extrae informacion relevante`
+3. Extrae informacion relevante`;
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json()
+  const { messages }: { messages: UIMessage[] } = await req.json();
 
   // Detectar si hay imagenes en el ultimo mensaje
-  const lastMessage = messages[messages.length - 1]
-  const hasImages = lastMessage?.parts?.some(
-    (part) => part.type === 'image'
-  )
+  const lastMessage = messages[messages.length - 1];
+  const hasImages = lastMessage?.parts?.some((part) => part.type === 'image');
 
   // Usar modelo de vision si hay imagenes
-  const model = hasImages ? MODELS.vision : MODELS.balanced
+  const model = hasImages ? MODELS.vision : MODELS.balanced;
 
-  const modelMessages = convertToModelMessages(messages)
+  const modelMessages = convertToModelMessages(messages);
 
   const result = streamText({
     model: openrouter(model),
     system: SYSTEM_PROMPT,
     messages: modelMessages,
-  })
+  });
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse();
 }
 ```
 
@@ -81,71 +79,71 @@ export async function POST(req: Request) {
 ```typescript
 // features/chat/hooks/useImageUpload.ts
 
-'use client'
+'use client';
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect } from 'react';
 
 interface UploadedImage {
-  id: string
-  file: File
-  preview: string   // URL blob para mostrar
-  base64: string    // Data URL para enviar
+  id: string;
+  file: File;
+  preview: string; // URL blob para mostrar
+  base64: string; // Data URL para enviar
 }
 
 interface UseImageUploadReturn {
-  images: UploadedImage[]
-  isProcessing: boolean
-  hasImages: boolean
-  addImages: (fileList: FileList) => Promise<void>
-  removeImage: (id: string) => void
-  clearImages: () => void
-  getBase64Images: () => string[]
+  images: UploadedImage[];
+  isProcessing: boolean;
+  hasImages: boolean;
+  addImages: (fileList: FileList) => Promise<void>;
+  removeImage: (id: string) => void;
+  clearImages: () => void;
+  getBase64Images: () => string[];
 }
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB por imagen
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB por imagen
 
 export function useImageUpload(): UseImageUploadReturn {
-  const [images, setImages] = useState<UploadedImage[]>([])
-  const [isProcessing, setIsProcessing] = useState(false)
+  const [images, setImages] = useState<UploadedImage[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Limpiar URLs de memoria al desmontar
   useEffect(() => {
     return () => {
-      images.forEach(img => URL.revokeObjectURL(img.preview))
-    }
-  }, [images])
+      images.forEach((img) => URL.revokeObjectURL(img.preview));
+    };
+  }, [images]);
 
   // Convertir File a base64 (data URL)
   const fileToBase64 = useCallback((file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    })
-  }, [])
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }, []);
 
   // Validar archivo
   const validateFile = useCallback((file: File): boolean => {
     if (!file.type.startsWith('image/')) {
-      console.warn(`Archivo rechazado: ${file.name} no es una imagen`)
-      return false
+      console.warn(`Archivo rechazado: ${file.name} no es una imagen`);
+      return false;
     }
     if (file.size > MAX_FILE_SIZE) {
-      console.warn(`Archivo rechazado: ${file.name} excede 10MB`)
-      return false
+      console.warn(`Archivo rechazado: ${file.name} excede 10MB`);
+      return false;
     }
-    return true
-  }, [])
+    return true;
+  }, []);
 
   // Procesar archivos
   const processFiles = useCallback(
     async (files: File[]) => {
-      setIsProcessing(true)
+      setIsProcessing(true);
 
       try {
-        const validFiles = files.filter(validateFile)
-        if (validFiles.length === 0) return
+        const validFiles = files.filter(validateFile);
+        if (validFiles.length === 0) return;
 
         const newImages: UploadedImage[] = await Promise.all(
           validFiles.map(async (file) => ({
@@ -154,74 +152,74 @@ export function useImageUpload(): UseImageUploadReturn {
             preview: URL.createObjectURL(file),
             base64: await fileToBase64(file),
           }))
-        )
+        );
 
-        setImages((prev) => [...prev, ...newImages])
+        setImages((prev) => [...prev, ...newImages]);
       } catch (error) {
-        console.error('Error procesando imagenes:', error)
+        console.error('Error procesando imagenes:', error);
       } finally {
-        setIsProcessing(false)
+        setIsProcessing(false);
       }
     },
     [validateFile, fileToBase64]
-  )
+  );
 
   // Agregar imagenes desde input file
   const addImages = useCallback(
     async (fileList: FileList) => {
-      await processFiles(Array.from(fileList))
+      await processFiles(Array.from(fileList));
     },
     [processFiles]
-  )
+  );
 
   // Remover imagen por ID
   const removeImage = useCallback((id: string) => {
     setImages((prev) => {
-      const img = prev.find((i) => i.id === id)
-      if (img) URL.revokeObjectURL(img.preview)
-      return prev.filter((i) => i.id !== id)
-    })
-  }, [])
+      const img = prev.find((i) => i.id === id);
+      if (img) URL.revokeObjectURL(img.preview);
+      return prev.filter((i) => i.id !== id);
+    });
+  }, []);
 
   // Limpiar todas
   const clearImages = useCallback(() => {
-    images.forEach((img) => URL.revokeObjectURL(img.preview))
-    setImages([])
-  }, [images])
+    images.forEach((img) => URL.revokeObjectURL(img.preview));
+    setImages([]);
+  }, [images]);
 
   // Obtener array de base64
   const getBase64Images = useCallback((): string[] => {
-    return images.map((img) => img.base64)
-  }, [images])
+    return images.map((img) => img.base64);
+  }, [images]);
 
   // ========================================
   // CLIPBOARD PASTE (Cmd+V / Ctrl+V)
   // ========================================
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items
-      if (!items) return
+      const items = e.clipboardData?.items;
+      if (!items) return;
 
-      const files: File[] = []
+      const files: File[] = [];
 
       for (let i = 0; i < items.length; i++) {
-        const item = items[i]
+        const item = items[i];
         if (item.type.startsWith('image/')) {
-          const file = item.getAsFile()
-          if (file) files.push(file)
+          const file = item.getAsFile();
+          if (file) files.push(file);
         }
       }
 
       if (files.length > 0) {
-        e.preventDefault()
-        await processFiles(files)
+        e.preventDefault();
+        await processFiles(files);
       }
-    }
+    };
 
     // Escuchar en document para capturar paste global
-    document.addEventListener('paste', handlePaste)
-    return () => document.removeEventListener('paste', handlePaste)
-  }, [processFiles])
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [processFiles]);
 
   return {
     images,
@@ -231,7 +229,7 @@ export function useImageUpload(): UseImageUploadReturn {
     removeImage,
     clearImages,
     getBase64Images,
-  }
+  };
 }
 ```
 
@@ -466,24 +464,22 @@ Si quieres guardar las imagenes permanentemente:
 ```typescript
 // features/chat/services/storageService.ts
 
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/supabase/client';
 
-const supabase = createClient()
+const supabase = createClient();
 
 export async function uploadImage(file: File): Promise<string> {
-  const fileName = `${Date.now()}-${file.name}`
+  const fileName = `${Date.now()}-${file.name}`;
 
-  const { data, error } = await supabase.storage
-    .from('chat-images')
-    .upload(fileName, file)
+  const { data, error } = await supabase.storage.from('chat-images').upload(fileName, file);
 
-  if (error) throw error
+  if (error) throw error;
 
-  const { data: { publicUrl } } = supabase.storage
-    .from('chat-images')
-    .getPublicUrl(data.path)
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from('chat-images').getPublicUrl(data.path);
 
-  return publicUrl
+  return publicUrl;
 }
 ```
 

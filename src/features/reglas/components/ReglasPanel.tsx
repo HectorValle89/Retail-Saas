@@ -1,22 +1,22 @@
-'use client'
+'use client';
 
-import { useActionState, useCallback, useMemo, type ReactNode } from 'react'
-import { useFormStatus } from 'react-dom'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
-import { Select } from '@/components/ui/select'
-import type { ActorActual } from '@/lib/auth/session'
-import { useScopedWidgetData } from '@/lib/ui-change/client'
-import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
+import { useActionState, useCallback, useMemo, type ReactNode } from 'react';
+import { useFormStatus } from 'react-dom';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
+import { Select } from '@/components/ui/select';
+import type { ActorActual } from '@/lib/auth/session';
+import { useScopedWidgetData } from '@/lib/ui-change/client';
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
 import {
   guardarFlujoAprobacion,
   guardarReglaHorario,
   guardarReglaInventario,
   guardarReglaSupervisor,
-} from '../actions'
-import { ESTADO_REGLA_ADMIN_INICIAL } from '../state'
+} from '../actions';
+import { ESTADO_REGLA_ADMIN_INICIAL } from '../state';
 import {
   type ApprovalFlowDefinition,
   APPROVAL_ACTOR_OPTIONS,
@@ -26,33 +26,33 @@ import {
   SOLICITUD_TIPO_OPTIONS,
   SUPERVISOR_INHERITANCE_RULE_CODE,
   SUPERVISOR_SOURCE_OPTIONS,
-} from '../lib/businessRules'
-import type { ReglasPanelData, ReglaInventarioItem } from '../services/reglaService'
+} from '../lib/businessRules';
+import type { ReglasPanelData, ReglaInventarioItem } from '../services/reglaService';
 
 function buildBooleanOptions(activeLabel = 'Activa', inactiveLabel = 'Inactiva') {
   return [
     { value: 'true', label: activeLabel },
     { value: 'false', label: inactiveLabel },
-  ]
+  ];
 }
 
 function formatSeverityTone(severity: string) {
   switch (severity) {
     case 'ERROR':
-      return 'bg-rose-100 text-rose-700'
+      return 'bg-rose-100 text-rose-700';
     case 'ALERTA':
-      return 'bg-amber-100 text-amber-700'
+      return 'bg-amber-100 text-amber-700';
     default:
-      return 'bg-slate-100 text-slate-700'
+      return 'bg-slate-100 text-slate-700';
   }
 }
 
 function formatRuleStatusTone(active: boolean) {
-  return active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'
+  return active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700';
 }
 
 function joinList(values: readonly string[]) {
-  return values.join(', ')
+  return values.join(', ');
 }
 
 function FieldTextarea({
@@ -62,13 +62,13 @@ function FieldTextarea({
   placeholder,
   rows = 4,
 }: {
-  label: string
-  name: string
-  defaultValue?: string
-  placeholder?: string
-  rows?: number
+  label: string;
+  name: string;
+  defaultValue?: string;
+  placeholder?: string;
+  rows?: number;
 }) {
-  const fieldId = `${name}-${label.toLowerCase().replace(/\s+/g, '-')}`
+  const fieldId = `${name}-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
   return (
     <div className="w-full">
@@ -84,23 +84,25 @@ function FieldTextarea({
         className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-foreground transition-all duration-200 placeholder:text-foreground-muted hover:border-border-dark focus:outline-none focus:ring-2 focus:ring-accent-500"
       />
     </div>
-  )
+  );
 }
 
 function StatusPill({ label, tone }: { label: string; tone: string }) {
-  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${tone}`}>{label}</span>
+  return (
+    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${tone}`}>
+      {label}
+    </span>
+  );
 }
 
 function StateMessage({ state }: { state: { ok: boolean; message: string | null } }) {
   if (!state.message) {
-    return null
+    return null;
   }
 
   return (
-    <p className={`text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
-      {state.message}
-    </p>
-  )
+    <p className={`text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>
+  );
 }
 
 function SubmitActionButton({
@@ -108,17 +110,17 @@ function SubmitActionButton({
   pendingLabel,
   variant = 'primary',
 }: {
-  label: string
-  pendingLabel: string
-  variant?: 'primary' | 'outline' | 'danger'
+  label: string;
+  pendingLabel: string;
+  variant?: 'primary' | 'outline' | 'danger';
 }) {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   return (
     <Button type="submit" size="sm" variant={variant} isLoading={pending}>
       {pending ? pendingLabel : label}
     </Button>
-  )
+  );
 }
 
 function SectionHeader({ title, description }: { title: string; description: string }) {
@@ -127,11 +129,11 @@ function SectionHeader({ title, description }: { title: string; description: str
       <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
       <p className="mt-1 text-sm text-slate-500">{description}</p>
     </div>
-  )
+  );
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return <SharedMetricCard label={label} value={value} />
+  return <SharedMetricCard label={label} value={value} />;
 }
 
 function RuleCard({
@@ -140,10 +142,10 @@ function RuleCard({
   badges,
   children,
 }: {
-  title: string
-  description: string
-  badges?: ReactNode
-  children: ReactNode
+  title: string;
+  description: string;
+  badges?: ReactNode;
+  children: ReactNode;
 }) {
   return (
     <Card className="space-y-5 p-6">
@@ -153,31 +155,31 @@ function RuleCard({
       </div>
       {children}
     </Card>
-  )
+  );
 }
 
 export function ReglasPanel({
   actor,
   data: initialData,
 }: {
-  actor: ActorActual
-  data: ReglasPanelData
+  actor: ActorActual;
+  data: ReglasPanelData;
 }) {
-  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
   const fetcher = useCallback(async (signal: AbortSignal) => {
     const response = await fetch('/api/reglas/panel', {
       cache: 'no-store',
       credentials: 'same-origin',
       signal,
-    })
-    const payload = (await response.json()) as { data?: ReglasPanelData; message?: string }
+    });
+    const payload = (await response.json()) as { data?: ReglasPanelData; message?: string };
 
     if (!response.ok || !payload.data) {
-      throw new Error(payload.message ?? 'No fue posible refrescar el panel de reglas.')
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de reglas.');
     }
 
-    return payload.data
-  }, [])
+    return payload.data;
+  }, []);
 
   const { data } = useScopedWidgetData({
     initialData,
@@ -187,15 +189,15 @@ export function ReglasPanel({
     roleTargets: [actor.puesto],
     fetcher,
     debounceMs: 650,
-  })
+  });
 
   const inventoryOperativeCodes = new Set<string>([
     SUPERVISOR_INHERITANCE_RULE_CODE,
     SCHEDULE_PRIORITY_RULE_CODE,
     ...Object.values(APPROVAL_FLOW_RULE_CODES),
-  ])
+  ]);
 
-  const inventoryExtras = data.inventory.filter((item) => !inventoryOperativeCodes.has(item.code))
+  const inventoryExtras = data.inventory.filter((item) => !inventoryOperativeCodes.has(item.code));
 
   return (
     <div className="space-y-6">
@@ -289,14 +291,11 @@ export function ReglasPanel({
         </div>
       </Card>
     </div>
-  )
+  );
 }
 
 function SupervisorRuleForm({ data }: { data: ReglasPanelData }) {
-  const [state, formAction] = useActionState(
-    guardarReglaSupervisor,
-    ESTADO_REGLA_ADMIN_INICIAL
-  )
+  const [state, formAction] = useActionState(guardarReglaSupervisor, ESTADO_REGLA_ADMIN_INICIAL);
 
   return (
     <RuleCard
@@ -308,7 +307,10 @@ function SupervisorRuleForm({ data }: { data: ReglasPanelData }) {
             label={data.supervisorRule.active ? 'ACTIVA' : 'INACTIVA'}
             tone={formatRuleStatusTone(data.supervisorRule.active)}
           />
-          <StatusPill label={data.supervisorRule.severity} tone={formatSeverityTone(data.supervisorRule.severity)} />
+          <StatusPill
+            label={data.supervisorRule.severity}
+            tone={formatSeverityTone(data.supervisorRule.severity)}
+          />
         </div>
       }
     >
@@ -347,12 +349,12 @@ function SupervisorRuleForm({ data }: { data: ReglasPanelData }) {
         </div>
       </form>
     </RuleCard>
-  )
+  );
 }
 
 function ScheduleRuleForm({ data }: { data: ReglasPanelData }) {
-  const [state, formAction] = useActionState(guardarReglaHorario, ESTADO_REGLA_ADMIN_INICIAL)
-  const fallback = data.scheduleRule.globalFallback
+  const [state, formAction] = useActionState(guardarReglaHorario, ESTADO_REGLA_ADMIN_INICIAL);
+  const fallback = data.scheduleRule.globalFallback;
 
   return (
     <RuleCard
@@ -364,7 +366,10 @@ function ScheduleRuleForm({ data }: { data: ReglasPanelData }) {
             label={data.scheduleRule.active ? 'ACTIVA' : 'INACTIVA'}
             tone={formatRuleStatusTone(data.scheduleRule.active)}
           />
-          <StatusPill label={data.scheduleRule.severity} tone={formatSeverityTone(data.scheduleRule.severity)} />
+          <StatusPill
+            label={data.scheduleRule.severity}
+            tone={formatSeverityTone(data.scheduleRule.severity)}
+          />
         </div>
       }
     >
@@ -423,14 +428,11 @@ function ScheduleRuleForm({ data }: { data: ReglasPanelData }) {
         </div>
       </form>
     </RuleCard>
-  )
+  );
 }
 
 function ApprovalFlowForm({ flow }: { flow: ApprovalFlowDefinition }) {
-  const [state, formAction] = useActionState(
-    guardarFlujoAprobacion,
-    ESTADO_REGLA_ADMIN_INICIAL
-  )
+  const [state, formAction] = useActionState(guardarFlujoAprobacion, ESTADO_REGLA_ADMIN_INICIAL);
 
   return (
     <RuleCard
@@ -484,7 +486,7 @@ function ApprovalFlowForm({ flow }: { flow: ApprovalFlowDefinition }) {
         />
         <div className="space-y-3">
           {[0, 1, 2].map((index) => {
-            const step = flow.steps[index]
+            const step = flow.steps[index];
             return (
               <div
                 key={`${flow.code}-step-${index + 1}`}
@@ -513,11 +515,15 @@ function ApprovalFlowForm({ flow }: { flow: ApprovalFlowDefinition }) {
                   name={`sla_${index + 1}`}
                   type="number"
                   min="0"
-                  defaultValue={step?.slaHours === null || step?.slaHours === undefined ? '' : String(step.slaHours)}
+                  defaultValue={
+                    step?.slaHours === null || step?.slaHours === undefined
+                      ? ''
+                      : String(step.slaHours)
+                  }
                   placeholder="Opcional"
                 />
               </div>
-            )
+            );
           })}
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -526,7 +532,7 @@ function ApprovalFlowForm({ flow }: { flow: ApprovalFlowDefinition }) {
         </div>
       </form>
     </RuleCard>
-  )
+  );
 }
 
 function CreateInventoryRuleForm() {
@@ -534,20 +540,18 @@ function CreateInventoryRuleForm() {
     <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4">
       <p className="text-sm font-semibold text-slate-950">Alta rapida de regla</p>
       <p className="mt-1 text-xs text-slate-500">
-        Utiliza este bloque para registrar reglas adicionales no cubiertas por supervisor, horarios o aprobaciones.
+        Utiliza este bloque para registrar reglas adicionales no cubiertas por supervisor, horarios
+        o aprobaciones.
       </p>
       <div className="mt-4">
         <InventoryRuleForm />
       </div>
     </div>
-  )
+  );
 }
 
 function InventoryRuleForm({ item }: { item?: ReglaInventarioItem }) {
-  const [state, formAction] = useActionState(
-    guardarReglaInventario,
-    ESTADO_REGLA_ADMIN_INICIAL
-  )
+  const [state, formAction] = useActionState(guardarReglaInventario, ESTADO_REGLA_ADMIN_INICIAL);
 
   return (
     <form
@@ -574,7 +578,12 @@ function InventoryRuleForm({ item }: { item?: ReglaInventarioItem }) {
         )}
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Input label="Codigo" name="code" defaultValue={item?.code} placeholder="REGLA_OPERATIVA_X" />
+        <Input
+          label="Codigo"
+          name="code"
+          defaultValue={item?.code}
+          placeholder="REGLA_OPERATIVA_X"
+        />
         <Input label="Modulo" name="module" defaultValue={item?.module} placeholder="operacion" />
         <Select
           label="Severidad"
@@ -630,5 +639,5 @@ function InventoryRuleForm({ item }: { item?: ReglaInventarioItem }) {
         <StateMessage state={state} />
       </div>
     </form>
-  )
+  );
 }

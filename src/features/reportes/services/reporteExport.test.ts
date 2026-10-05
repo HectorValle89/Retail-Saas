@@ -1,103 +1,106 @@
-import { describe, expect, it } from 'vitest'
-import type { ActorActual } from '@/lib/auth/session'
-import { collectReportExportPayload } from './reporteExport'
-import { vi } from 'vitest'
+import { describe, expect, it } from 'vitest';
+import type { ActorActual } from '@/lib/auth/session';
+import { collectReportExportPayload } from './reporteExport';
+import { vi } from 'vitest';
 
 vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
   unstable_cache: vi.fn((fn) => fn),
-}))
+}));
 
 vi.mock('@/lib/supabase/server', () => ({
   createServiceClient: vi.fn(),
-}))
+}));
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+};
 
 function createFakeClient(results: Record<string, QueryResult>) {
   return {
     from(table: string) {
-      const entry = results[table] ?? { data: [], error: null }
+      const entry = results[table] ?? { data: [], error: null };
       const state = {
         filters: [] as Array<{ op: string; column?: string; value?: unknown; expression?: string }>,
-      }
+      };
 
       const applyFilters = () => {
-        const source = Array.isArray(entry.data) ? [...entry.data] : entry.data
+        const source = Array.isArray(entry.data) ? [...entry.data] : entry.data;
         if (!Array.isArray(source)) {
-          return source
+          return source;
         }
 
         return source.filter((row) =>
           state.filters.every((filter) => {
-            const record = row as Record<string, unknown>
+            const record = row as Record<string, unknown>;
             if (filter.op === 'eq') {
-              return record[filter.column!] === filter.value
+              return record[filter.column!] === filter.value;
             }
             if (filter.op === 'in') {
-              return Array.isArray(filter.value) && filter.value.includes(record[filter.column!])
+              return Array.isArray(filter.value) && filter.value.includes(record[filter.column!]);
             }
             if (filter.op === 'gte') {
-              return String(record[filter.column!] ?? '') >= String(filter.value ?? '')
+              return String(record[filter.column!] ?? '') >= String(filter.value ?? '');
             }
             if (filter.op === 'lte') {
-              return String(record[filter.column!] ?? '') <= String(filter.value ?? '')
+              return String(record[filter.column!] ?? '') <= String(filter.value ?? '');
             }
-            if (filter.op === 'or' && filter.expression?.startsWith('fecha_fin.is.null,fecha_fin.gte.')) {
-              const limit = filter.expression.replace('fecha_fin.is.null,fecha_fin.gte.', '')
-              return record.fecha_fin == null || String(record.fecha_fin) >= limit
+            if (
+              filter.op === 'or' &&
+              filter.expression?.startsWith('fecha_fin.is.null,fecha_fin.gte.')
+            ) {
+              const limit = filter.expression.replace('fecha_fin.is.null,fecha_fin.gte.', '');
+              return record.fecha_fin == null || String(record.fecha_fin) >= limit;
             }
-            return true
+            return true;
           })
-        )
-      }
+        );
+      };
 
-      const resolveResult = () => Promise.resolve({ data: applyFilters(), error: entry.error })
+      const resolveResult = () => Promise.resolve({ data: applyFilters(), error: entry.error });
 
       const chain: Record<string, unknown> = {
         select() {
-          return chain
+          return chain;
         },
         eq(column: string, value: unknown) {
-          state.filters.push({ op: 'eq', column, value })
-          return chain
+          state.filters.push({ op: 'eq', column, value });
+          return chain;
         },
         in(column: string, value: unknown[]) {
-          state.filters.push({ op: 'in', column, value })
-          return chain
+          state.filters.push({ op: 'in', column, value });
+          return chain;
         },
         gte(column: string, value: unknown) {
-          state.filters.push({ op: 'gte', column, value })
-          return chain
+          state.filters.push({ op: 'gte', column, value });
+          return chain;
         },
         lte(column: string, value: unknown) {
-          state.filters.push({ op: 'lte', column, value })
-          return chain
+          state.filters.push({ op: 'lte', column, value });
+          return chain;
         },
         or(expression: string) {
-          state.filters.push({ op: 'or', expression })
-          return chain
+          state.filters.push({ op: 'or', expression });
+          return chain;
         },
         order() {
-          return chain
+          return chain;
         },
         then(onFulfilled: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) {
-          return resolveResult().then(onFulfilled, onRejected)
+          return resolveResult().then(onFulfilled, onRejected);
         },
         catch(onRejected: (reason: unknown) => unknown) {
-          return resolveResult().catch(onRejected)
+          return resolveResult().catch(onRejected);
         },
         finally(onFinally: () => void) {
-          return resolveResult().finally(onFinally)
+          return resolveResult().finally(onFinally);
         },
-      }
+      };
 
-      return chain
+      return chain;
     },
-  }
+  };
 }
 
 const actor: ActorActual = {
@@ -111,9 +114,9 @@ const actor: ActorActual = {
   estadoCuenta: 'ACTIVA',
   nombreCompleto: 'Admin Principal',
   puesto: 'ADMINISTRADOR',
-}
+};
 
-import { createServiceClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server';
 
 describe('reporteExport calendario operativo', () => {
   it('arma una matriz mensual con observaciones y encabezado de mes', async () => {
@@ -165,7 +168,13 @@ describe('reporteExport calendario operativo', () => {
       },
       empleado: {
         data: [
-          { id: 'emp-1', id_nomina: 'DC-001', nombre_completo: 'Ana Uno', puesto: 'DERMOCONSEJERO', zona: 'CENTRO' },
+          {
+            id: 'emp-1',
+            id_nomina: 'DC-001',
+            nombre_completo: 'Ana Uno',
+            puesto: 'DERMOCONSEJERO',
+            zona: 'CENTRO',
+          },
           { id: 'sup-1', nombre_completo: 'Supervisor Uno', zona: 'CENTRO' },
           { id: 'coord-1', nombre_completo: 'Coordinador Uno', zona: 'CENTRO' },
         ],
@@ -246,25 +255,42 @@ describe('reporteExport calendario operativo', () => {
         data: [{ id: 'c1', nombre: 'ISDIN Mexico' }],
         error: null,
       },
-    })
+      cuota_mensual_resumen_dc: {
+        data: [{ empleado_id: 'emp-1', mes: '2026-03', cuota_individual: 85000 }],
+        error: null,
+      },
+      cuota_mensual_resumen_pdv: {
+        data: [
+          { pdv_id: 'pdv-1', mes: '2026-03', cuota_mensual: 140000 },
+          { pdv_id: 'pdv-2', mes: '2026-03', cuota_mensual: 170000 },
+        ],
+        error: null,
+      },
+    });
 
-    vi.mocked(createServiceClient).mockReturnValue(client as any)
+    vi.mocked(createServiceClient).mockReturnValue(client as any);
 
-    const payload = await collectReportExportPayload(client as never, actor, 'calendario_operativo', '2026-03')
+    const payload = await collectReportExportPayload(
+      client as never,
+      actor,
+      'calendario_operativo',
+      '2026-03'
+    );
 
-    expect(payload.sheetName).toBe('calendario')
-    expect(payload.headers[0]).toBe('CADENA')
-    expect(payload.headers).toContain('OBSERVACIONES')
-    expect(payload.headers).toContain('31')
-    expect(payload.rows).toHaveLength(1)
-    expect(payload.rows[0][0]).toBe('ISDIN Mexico')
-    expect(payload.rows[0][2]).toBe('Liverpool Santa Fe')
-    expect(payload.rows[0][4]).toBe(0.5)
-    expect(String(payload.rows[0][13])).toContain('VAC')
-    expect(String(payload.rows[0][13])).toContain('CUMP')
-    expect(payload.xlsx?.leadingRows?.[0]?.some((value) => String(value).includes('MARZO'))).toBe(true)
-  })
-})
-
-
-
+    expect(payload.sheetName).toBe('calendario');
+    expect(payload.headers[0]).toBe('CADENA');
+    expect(payload.headers).toContain('OBSERVACIONES');
+    expect(payload.headers).toContain('31');
+    expect(payload.rows).toHaveLength(1);
+    expect(payload.rows[0][0]).toBe('ISDIN Mexico');
+    expect(payload.rows[0][2]).toBe('Liverpool Santa Fe');
+    expect(payload.rows[0][4]).toBe(0.5);
+    expect(payload.rows[0][13]).toBe(170000);
+    expect(payload.rows[0][14]).toBe(85000);
+    expect(String(payload.rows[0][15])).toContain('V:');
+    expect(String(payload.rows[0][15])).toContain('CUMP');
+    expect(payload.xlsx?.leadingRows?.[0]?.some((value) => String(value).includes('MARZO'))).toBe(
+      true
+    );
+  });
+});

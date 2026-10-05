@@ -1,27 +1,38 @@
-'use client'
+'use client';
 
-import { Card } from '@/components/ui/card'
-import type { RankingPublicDcItem, RankingPublicPanelData, RankingPublicPdvItem } from '../services/rankingService'
+import { Card } from '@/components/ui/card';
+import type {
+  RankingPublicDcItem,
+  RankingPublicPanelData,
+  RankingPublicPdvItem,
+} from '../services/rankingService';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-MX', {
     style: 'currency',
     currency: 'MXN',
     maximumFractionDigits: 2,
-  }).format(value)
+  }).format(value);
 }
 
 export function PublicRankingsPanel({ data }: { data: RankingPublicPanelData }) {
   return (
     <div className="space-y-6">
       <Card className="border-slate-200 bg-white">
-        <p className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-700">Muro publico</p>
+        <p className="text-sm font-semibold uppercase tracking-[0.22em] text-sky-700">
+          Muro publico
+        </p>
         <h1 className="mt-2 text-3xl font-semibold text-slate-950">{data.scopeLabel}</h1>
         <p className="mt-2 text-sm text-slate-600">
           {data.rangoEtiqueta}. Vista abierta sin IDs internos, cuentas cliente ni supervisores.
         </p>
         <p className="mt-3 text-xs text-slate-500">
-          Actualizado {data.generatedAt ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(data.generatedAt)) : 'sin timestamp'}
+          Actualizado{' '}
+          {data.generatedAt
+            ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(
+                new Date(data.generatedAt)
+              )
+            : 'sin timestamp'}
         </p>
       </Card>
 
@@ -45,7 +56,7 @@ export function PublicRankingsPanel({ data }: { data: RankingPublicPanelData }) 
         <PublicPdvSection items={data.pdvs} />
       </div>
     </div>
-  )
+  );
 }
 
 function PublicSection({
@@ -56,12 +67,12 @@ function PublicSection({
   renderMeta,
   renderValue,
 }: {
-  title: string
-  description: string
-  emptyMessage: string
-  items: RankingPublicDcItem[]
-  renderMeta: (item: RankingPublicDcItem) => string
-  renderValue: (item: RankingPublicDcItem) => string
+  title: string;
+  description: string;
+  emptyMessage: string;
+  items: RankingPublicDcItem[];
+  renderMeta: (item: RankingPublicDcItem) => string;
+  renderValue: (item: RankingPublicDcItem) => string;
 }) {
   return (
     <Card className="border-slate-200 bg-white">
@@ -72,21 +83,28 @@ function PublicSection({
           <p className="text-sm text-slate-500">{emptyMessage}</p>
         ) : (
           items.map((item) => (
-            <div key={`${title}-${item.posicion}-${item.colaboradora}`} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div
+              key={`${title}-${item.posicion}-${item.colaboradora}`}
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+            >
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">#{item.posicion}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
+                    #{item.posicion}
+                  </p>
                   <p className="mt-2 text-base font-semibold text-slate-950">{item.colaboradora}</p>
                   <p className="mt-1 text-xs text-slate-500">{renderMeta(item)}</p>
                 </div>
-                <p className="text-right text-base font-semibold text-slate-950">{renderValue(item)}</p>
+                <p className="text-right text-base font-semibold text-slate-950">
+                  {renderValue(item)}
+                </p>
               </div>
             </div>
           ))
         )}
       </div>
     </Card>
-  )
+  );
 }
 
 function PublicPdvSection({ items }: { items: RankingPublicPdvItem[] }) {
@@ -99,19 +117,28 @@ function PublicPdvSection({ items }: { items: RankingPublicPdvItem[] }) {
           <p className="text-sm text-slate-500">Sin PDVs publicos visibles.</p>
         ) : (
           items.map((item) => (
-            <div key={item.pdv} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div
+              key={item.pdv}
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+            >
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">#{item.posicion}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
+                    #{item.posicion}
+                  </p>
                   <p className="mt-2 text-base font-semibold text-slate-950">{item.pdv}</p>
-                  <p className="mt-1 text-xs text-slate-500">{item.zona} · {item.ventasConfirmadas} cierres</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {item.zona} · {item.ventasConfirmadas} cierres
+                  </p>
                 </div>
-                <p className="text-right text-base font-semibold text-slate-950">{formatCurrency(item.montoConfirmado)}</p>
+                <p className="text-right text-base font-semibold text-slate-950">
+                  {formatCurrency(item.montoConfirmado)}
+                </p>
               </div>
             </div>
           ))
         )}
       </div>
     </Card>
-  )
+  );
 }

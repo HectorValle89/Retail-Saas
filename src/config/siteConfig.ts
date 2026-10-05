@@ -1,12 +1,12 @@
 export interface SiteConfig {
-  appName: string
-  appDescription: string
-  locale: string
+  appName: string;
+  appDescription: string;
+  locale: string;
   seo: {
-    siteTitle: string
-    defaultDescription: string
-    locale: string
-  }
+    siteTitle: string;
+    defaultDescription: string;
+    locale: string;
+  };
 }
 
 export const siteConfig: SiteConfig = {
@@ -20,4 +20,4 @@ export const siteConfig: SiteConfig = {
       'Operacion retail de ISDIN con control diario, evidencias y seguimiento centralizado.',
     locale: 'es_MX',
   },
-}
+};

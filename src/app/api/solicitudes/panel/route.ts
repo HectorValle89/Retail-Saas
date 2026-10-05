@@ -1,18 +1,18 @@
-import { NextResponse } from 'next/server'
-import { requerirPuestosActivos } from '@/lib/auth/session'
-import { obtenerPanelSolicitudes } from '@/features/solicitudes/services/solicitudService'
+import { NextResponse } from 'next/server';
+import { requerirPuestosActivos } from '@/lib/auth/session';
+import { obtenerPanelSolicitudes } from '@/features/solicitudes/services/solicitudService';
 
 function pickString(value: string | null) {
-  return value?.trim() || undefined
+  return value?.trim() || undefined;
 }
 
 function parsePositiveInt(value: string | null, fallback: number) {
-  const parsed = Number(value)
+  const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback
+    return fallback;
   }
 
-  return Math.floor(parsed)
+  return Math.floor(parsed);
 }
 
 export async function GET(request: Request) {
@@ -24,8 +24,8 @@ export async function GET(request: Request) {
       'COORDINADOR',
       'RECLUTAMIENTO',
       'NOMINA',
-    ])
-    const { searchParams } = new URL(request.url)
+    ]);
+    const { searchParams } = new URL(request.url);
     const data = await obtenerPanelSolicitudes(actor, {
       page: parsePositiveInt(searchParams.get('page'), 1),
       pageSize: parsePositiveInt(searchParams.get('pageSize'), 50),
@@ -37,9 +37,9 @@ export async function GET(request: Request) {
         fechaFin: pickString(searchParams.get('fecha_fin')),
         month: pickString(searchParams.get('month')),
       },
-    })
+    });
 
-    return NextResponse.json({ data })
+    return NextResponse.json({ data });
   } catch (error) {
     return NextResponse.json(
       {
@@ -49,6 +49,6 @@ export async function GET(request: Request) {
             : 'No fue posible refrescar el panel de solicitudes.',
       },
       { status: 500 }
-    )
+    );
   }
 }

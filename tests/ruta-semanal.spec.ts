@@ -1,50 +1,54 @@
-import { expect, test } from '@playwright/test'
-import type { ActorActual } from '../src/lib/auth/session'
-import { getWeekEndIso, getWeekStartIso, sortWeeklyVisits } from '../src/features/rutas/lib/weeklyRoute'
+import { expect, test } from '@playwright/test';
+import type { ActorActual } from '../src/lib/auth/session';
+import {
+  getWeekEndIso,
+  getWeekStartIso,
+  sortWeeklyVisits,
+} from '../src/features/rutas/lib/weeklyRoute';
 import {
   parseRutaSemanalWorkflowMetadata,
   parseRutaVisitaWorkflowMetadata,
-} from '../src/features/rutas/lib/routeWorkflow'
-import { SUPERVISOR_CHECKLIST_ITEMS } from '../src/features/rutas/lib/supervisorVisitChecklist'
-import { obtenerPanelRutaSemanal } from '../src/features/rutas/services/rutaSemanalService'
+} from '../src/features/rutas/lib/routeWorkflow';
+import { SUPERVISOR_CHECKLIST_ITEMS } from '../src/features/rutas/lib/supervisorVisitChecklist';
+import { obtenerPanelRutaSemanal } from '../src/features/rutas/services/rutaSemanalService';
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+};
 
 function createFakeRutaSemanalSupabase(results: Record<string, QueryResult>) {
-  const eqValues = new Map<string, string>()
+  const eqValues = new Map<string, string>();
 
   return {
     from(table: string) {
       return {
         select() {
-          return this
+          return this;
         },
         eq(column: string, value: string) {
-          eqValues.set(`${table}:${column}`, value)
-          return this
+          eqValues.set(`${table}:${column}`, value);
+          return this;
         },
         order() {
-          return this
+          return this;
         },
         limit() {
-          return Promise.resolve(results[table] ?? { data: [], error: null })
+          return Promise.resolve(results[table] ?? { data: [], error: null });
         },
         maybeSingle() {
-          return Promise.resolve(results[table] ?? { data: null, error: null })
+          return Promise.resolve(results[table] ?? { data: null, error: null });
         },
-      }
+      };
     },
     getEqValue(table: string, column: string) {
-      return eqValues.get(`${table}:${column}`) ?? null
+      return eqValues.get(`${table}:${column}`) ?? null;
     },
-  }
+  };
 }
 
-const semanaInicio = getWeekStartIso('2026-03-15')
-const semanaFin = getWeekEndIso(semanaInicio)
+const semanaInicio = getWeekStartIso('2026-03-15');
+const semanaFin = getWeekEndIso(semanaInicio);
 
 const supervisorActor: ActorActual = {
   authUserId: 'auth-1',
@@ -57,7 +61,7 @@ const supervisorActor: ActorActual = {
   estadoCuenta: 'ACTIVA',
   nombreCompleto: 'Ana Supervisor',
   puesto: 'SUPERVISOR',
-}
+};
 
 test('consolida ruta semanal, ordena visitas y expone solo PDVs con asignacion activa publicada', async () => {
   const client = createFakeRutaSemanalSupabase({
@@ -206,22 +210,22 @@ test('consolida ruta semanal, ordena visitas y expone solo PDVs con asignacion a
       ],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelRutaSemanal(client as never, supervisorActor, {
     referenceDate: '2026-03-11',
-  })
+  });
 
-  expect(client.getEqValue('ruta_semanal', 'supervisor_empleado_id')).toBe('emp-super')
-  expect(client.getEqValue('asignacion', 'supervisor_empleado_id')).toBe('emp-super')
-  expect(data.infraestructuraLista).toBe(true)
-  expect(data.puedeEditar).toBe(true)
+  expect(client.getEqValue('ruta_semanal', 'supervisor_empleado_id')).toBe('emp-super');
+  expect(client.getEqValue('asignacion', 'supervisor_empleado_id')).toBe('emp-super');
+  expect(data.infraestructuraLista).toBe(true);
+  expect(data.puedeEditar).toBe(true);
   expect(data.resumen).toMatchObject({
     totalRutas: 1,
     totalVisitas: 2,
     visitasCompletadas: 1,
     pdvsAsignables: 2,
-  })
+  });
   expect(data.rutas[0]).toMatchObject({
     id: 'ruta-1',
     supervisor: 'Ana Supervisor',
@@ -231,8 +235,8 @@ test('consolida ruta semanal, ordena visitas y expone solo PDVs con asignacion a
     totalVisitas: 2,
     approvalState: 'APROBADA',
     expectedMonthlyVisits: 12,
-  })
-  expect(data.rutas[0].visitas.map((item) => item.id)).toEqual(['visita-1', 'visita-2'])
+  });
+  expect(data.rutas[0].visitas.map((item) => item.id)).toEqual(['visita-1', 'visita-2']);
   expect(data.rutas[0].visitas[0]).toMatchObject({
     diaSemana: 1,
     orden: 1,
@@ -242,13 +246,13 @@ test('consolida ruta semanal, ordena visitas y expone solo PDVs con asignacion a
     estatus: 'COMPLETADA',
     checkInAt: '2026-03-11T13:00:00.000Z',
     checkOutAt: '2026-03-11T15:00:00.000Z',
-  })
-  expect(data.rutaSemanaActual?.id).toBe('ruta-1')
-  expect(data.visitasHoy).toHaveLength(1)
-  expect(data.visitasHoy[0]?.id).toBe('visita-2')
-  expect(data.pdvsDisponibles.map((item) => item.id)).toEqual(['pdv-2', 'pdv-1'])
-  expect(data.pdvsDisponibles.every((item) => item.id !== 'pdv-3')).toBe(true)
-})
+  });
+  expect(data.rutaSemanaActual?.id).toBe('ruta-1');
+  expect(data.visitasHoy).toHaveLength(1);
+  expect(data.visitasHoy[0]?.id).toBe('visita-2');
+  expect(data.pdvsDisponibles.map((item) => item.id)).toEqual(['pdv-2', 'pdv-1']);
+  expect(data.pdvsDisponibles.every((item) => item.id !== 'pdv-3')).toBe(true);
+});
 
 test('supervisor puede planear ruta con PDVs heredados aunque no existan asignaciones DC activas', async () => {
   const client = createFakeRutaSemanalSupabase({
@@ -328,13 +332,13 @@ test('supervisor puede planear ruta con PDVs heredados aunque no existan asignac
       data: [],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelRutaSemanal(client as never, supervisorActor, {
     referenceDate: '2026-03-11',
-  })
+  });
 
-  expect(data.pdvsDisponibles).toHaveLength(2)
+  expect(data.pdvsDisponibles).toHaveLength(2);
   expect(data.pdvsDisponibles).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -348,8 +352,8 @@ test('supervisor puede planear ruta con PDVs heredados aunque no existan asignac
         nombre: 'Base Norte 2',
       }),
     ])
-  )
-})
+  );
+});
 
 test('expone vista de solo lectura para coordinacion y filtra por cuenta activa', async () => {
   const client = createFakeRutaSemanalSupabase({
@@ -450,7 +454,7 @@ test('expone vista de solo lectura para coordinacion y filtra por cuenta activa'
       data: [{ pdv_id: 'pdv-1', latitud: 25.671, longitud: -100.31 }],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelRutaSemanal(
     client as never,
@@ -463,14 +467,14 @@ test('expone vista de solo lectura para coordinacion y filtra por cuenta activa'
     {
       referenceDate: '2026-03-15',
     }
-  )
+  );
 
-  expect(client.getEqValue('ruta_semanal', 'supervisor_empleado_id')).toBeNull()
-  expect(data.puedeEditar).toBe(false)
-  expect(data.rutas).toHaveLength(1)
-  expect(data.rutas[0].id).toBe('ruta-1')
-  expect(data.pdvsDisponibles).toEqual([])
-})
+  expect(client.getEqValue('ruta_semanal', 'supervisor_empleado_id')).toBeNull();
+  expect(data.puedeEditar).toBe(false);
+  expect(data.rutas).toHaveLength(1);
+  expect(data.rutas[0].id).toBe('ruta-1');
+  expect(data.pdvsDisponibles).toEqual([]);
+});
 
 test('degrada con mensaje de infraestructura si faltan tablas de ruta', async () => {
   const client = createFakeRutaSemanalSupabase({
@@ -494,16 +498,16 @@ test('degrada con mensaje de infraestructura si faltan tablas de ruta', async ()
       data: [],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelRutaSemanal(client as never, supervisorActor, {
     referenceDate: '2026-03-15',
-  })
+  });
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.mensajeInfraestructura).toContain('ruta_semanal')
-  expect(data.puedeEditar).toBe(true)
-})
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.mensajeInfraestructura).toContain('ruta_semanal');
+  expect(data.puedeEditar).toBe(true);
+});
 
 test('war room respeta cuotas mensuales por PDV cuando existen en metadata', async () => {
   const client = createFakeRutaSemanalSupabase({
@@ -631,7 +635,7 @@ test('war room respeta cuotas mensuales por PDV cuando existen en metadata', asy
       ],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelRutaSemanal(
     client as never,
@@ -644,14 +648,14 @@ test('war room respeta cuotas mensuales por PDV cuando existen en metadata', asy
     {
       referenceDate: '2026-03-15',
     }
-  )
+  );
 
-  expect(data.warRoom.supervisors).toHaveLength(1)
+  expect(data.warRoom.supervisors).toHaveLength(1);
   expect(data.warRoom.supervisors[0]).toMatchObject({
     minimumVisitsPerPdv: 4,
     expectedMonthlyVisits: 8,
     monthlyVisitsCompleted: 1,
-  })
+  });
   expect(data.warRoom.supervisors[0]?.quotaProgress).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -667,8 +671,8 @@ test('war room respeta cuotas mensuales por PDV cuando existen en metadata', asy
         visitasPendientes: 2,
       }),
     ])
-  )
-})
+  );
+});
 
 test('ordena visitas por dia y orden dentro del mismo dia', async () => {
   expect(
@@ -677,8 +681,8 @@ test('ordena visitas por dia y orden dentro del mismo dia', async () => {
       { diaSemana: 1, orden: 3, id: 'c' },
       { diaSemana: 1, orden: 1, id: 'a' },
     ]).map((item) => item.id)
-  ).toEqual(['a', 'c', 'b'])
-})
+  ).toEqual(['a', 'c', 'b']);
+});
 
 test('normaliza solicitudes de cambio de ruta por dia con propuesta nueva o cancelacion total', async () => {
   const dayRequest = parseRutaSemanalWorkflowMetadata({
@@ -696,7 +700,7 @@ test('normaliza solicitudes de cambio de ruta por dia con propuesta nueva o canc
       previousApprovalState: 'APROBADA',
       previousRouteStatus: 'PUBLICADA',
     },
-  })
+  });
 
   expect(dayRequest.changeRequest).toMatchObject({
     status: 'PENDIENTE',
@@ -706,11 +710,11 @@ test('normaliza solicitudes de cambio de ruta por dia con propuesta nueva o canc
     targetDayLabel: 'Jueves',
     previousApprovalState: 'APROBADA',
     previousRouteStatus: 'PUBLICADA',
-  })
+  });
   expect(dayRequest.changeRequest.proposedVisits).toEqual([
     { pdvId: 'pdv-2', order: 1 },
     { pdvId: 'pdv-1', order: 2 },
-  ])
+  ]);
 
   const visitRequest = parseRutaSemanalWorkflowMetadata({
     changeRequest: {
@@ -723,7 +727,7 @@ test('normaliza solicitudes de cambio de ruta por dia con propuesta nueva o canc
       targetDayNumber: 2,
       targetDayLabel: 'Martes',
     },
-  })
+  });
 
   expect(visitRequest.changeRequest).toMatchObject({
     status: 'PENDIENTE',
@@ -733,7 +737,7 @@ test('normaliza solicitudes de cambio de ruta por dia con propuesta nueva o canc
     targetPdvId: 'pdv-1',
     targetDayNumber: 2,
     targetDayLabel: 'Martes',
-  })
+  });
 
   const cancelRequest = parseRutaSemanalWorkflowMetadata({
     changeRequest: {
@@ -744,7 +748,7 @@ test('normaliza solicitudes de cambio de ruta por dia con propuesta nueva o canc
       targetDayLabel: 'Viernes',
       proposedVisits: [],
     },
-  })
+  });
 
   expect(cancelRequest.changeRequest).toMatchObject({
     status: 'PENDIENTE',
@@ -753,25 +757,31 @@ test('normaliza solicitudes de cambio de ruta por dia con propuesta nueva o canc
     targetDayNumber: 5,
     targetDayLabel: 'Viernes',
     proposedVisits: [],
-  })
-})
+  });
+});
 
 test('define checklist opcional de visita con ausencia de DC antes del saludo y campos extendidos', async () => {
-  const keys = SUPERVISOR_CHECKLIST_ITEMS.map((item) => item.key)
+  const keys = SUPERVISOR_CHECKLIST_ITEMS.map((item) => item.key);
 
-  expect(keys).not.toContain('selfie_con_dc')
-  expect(keys).not.toContain('feedback_gerente_registrado')
-  expect(keys.indexOf('dc_no_se_encuentra_en_pdv')).toBe(keys.indexOf('saludo_personalizado_dc') - 1)
+  expect(keys).not.toContain('selfie_con_dc');
+  expect(keys).not.toContain('feedback_gerente_registrado');
+  expect(keys.indexOf('dc_no_se_encuentra_en_pdv')).toBe(
+    keys.indexOf('saludo_personalizado_dc') - 1
+  );
 
-  expect(SUPERVISOR_CHECKLIST_ITEMS.find((item) => item.key === 'horario_dc_registrado')).toMatchObject({
+  expect(
+    SUPERVISOR_CHECKLIST_ITEMS.find((item) => item.key === 'horario_dc_registrado')
+  ).toMatchObject({
     commentKey: 'horario_entrada_dc',
     commentInputType: 'time',
-  })
-  expect(SUPERVISOR_CHECKLIST_ITEMS.find((item) => item.key === 'feedback_dc_solicitada')).toMatchObject({
+  });
+  expect(
+    SUPERVISOR_CHECKLIST_ITEMS.find((item) => item.key === 'feedback_dc_solicitada')
+  ).toMatchObject({
     commentKey: 'feedback_dc_solicitada',
     commentInputType: 'textarea',
-  })
-})
+  });
+});
 
 test('normaliza metadata extendida de visita con estado GPS tecnico, textos y contador LOVE', async () => {
   const metadata = parseRutaVisitaWorkflowMetadata({
@@ -796,15 +806,15 @@ test('normaliza metadata extendida de visita con estado GPS tecnico, textos y co
       observaciones_operativas_registradas: 'Sin faltantes visibles.',
     },
     loveIsdinRecordsCount: 4,
-  })
+  });
 
-  expect(metadata.checkIn.gpsCaptureStatus).toBe('SIN_GPS')
-  expect(metadata.checkOut.gpsCaptureStatus).toBe('OK')
-  expect(metadata.checkOut.distanciaMetros).toBe(24)
+  expect(metadata.checkIn.gpsCaptureStatus).toBe('SIN_GPS');
+  expect(metadata.checkOut.gpsCaptureStatus).toBe('OK');
+  expect(metadata.checkOut.distanciaMetros).toBe(24);
   expect(metadata.checklistComments).toMatchObject({
     feedback_dc_solicitada: 'El gerente reporto buena ejecucion.',
     horario_entrada_dc: '10:15',
     observaciones_operativas_registradas: 'Sin faltantes visibles.',
-  })
-  expect(metadata.loveIsdinRecordsCount).toBe(4)
-})
+  });
+  expect(metadata.loveIsdinRecordsCount).toBe(4);
+});

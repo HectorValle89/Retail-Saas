@@ -1,22 +1,22 @@
-import { expect, test } from '@playwright/test'
-import { obtenerPanelAsistencias } from '../src/features/asistencias/services/asistenciaService'
+import { expect, test } from '@playwright/test';
+import { obtenerPanelAsistencias } from '../src/features/asistencias/services/asistenciaService';
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+};
 
 function createFakeClient(results: Record<string, QueryResult>) {
   return {
     from(table: string) {
-      const entry = results[table] ?? { data: [], error: null }
+      const entry = results[table] ?? { data: [], error: null };
 
       const chain = {
         select(
           _columns?: string,
           options?: {
-            count?: 'exact' | 'planned' | 'estimated'
-            head?: boolean
+            count?: 'exact' | 'planned' | 'estimated';
+            head?: boolean;
           }
         ) {
           if (options?.head) {
@@ -24,46 +24,46 @@ function createFakeClient(results: Record<string, QueryResult>) {
               data: null,
               error: entry.error,
               count: Array.isArray(entry.data) ? entry.data.length : 0,
-            })
+            });
           }
 
-          return chain
+          return chain;
         },
         eq() {
-          return chain
+          return chain;
         },
         in() {
-          return chain
+          return chain;
         },
         not() {
-          return chain
+          return chain;
         },
         gte() {
-          return chain
+          return chain;
         },
         lte() {
-          return chain
+          return chain;
         },
         or() {
-          return chain
+          return chain;
         },
         order() {
-          return chain
+          return chain;
         },
         range() {
-          return Promise.resolve(entry)
+          return Promise.resolve(entry);
         },
         limit() {
-          return Promise.resolve(entry)
+          return Promise.resolve(entry);
         },
         then(resolve: (value: QueryResult) => void) {
-          return Promise.resolve(entry).then(resolve)
+          return Promise.resolve(entry).then(resolve);
         },
-      }
+      };
 
-      return chain
+      return chain;
     },
-  }
+  };
 }
 
 test('marca la asistencia como dia justificado cuando existe solicitud aprobada en el rango', async () => {
@@ -126,22 +126,21 @@ test('marca la asistencia como dia justificado cuando existe solicitud aprobada 
       ],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelAsistencias(client as never)
+  const data = await obtenerPanelAsistencias(client as never);
 
   expect(data.resumen).toMatchObject({
     total: 1,
     justificadas: 1,
-  })
+  });
   expect(data.asistencias[0]).toMatchObject({
     empleado: 'Ana Uno',
     diaJustificado: true,
     solicitudRelacionadaTipo: 'INCAPACIDAD',
     solicitudRelacionadaEstatus: 'REGISTRADA_RH',
-  })
-})
-
+  });
+});
 
 test('marca el dia como justificado cuando existe formacion activa para el colaborador', async () => {
   const client = createFakeClient({
@@ -209,15 +208,15 @@ test('marca el dia como justificado cuando existe formacion activa para el colab
       ],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelAsistencias(client as never)
+  const data = await obtenerPanelAsistencias(client as never);
 
-  expect(data.resumen.justificadas).toBe(1)
+  expect(data.resumen.justificadas).toBe(1);
   expect(data.asistencias[0]).toMatchObject({
     empleado: 'Beto Dos',
     diaJustificado: true,
     solicitudRelacionadaTipo: 'FORMACION',
     solicitudRelacionadaEstatus: 'PROGRAMADA',
-  })
-})
+  });
+});

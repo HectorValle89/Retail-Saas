@@ -1,25 +1,25 @@
-import type { UiChangeTarget } from '@/lib/ui-change/types'
+import type { UiChangeTarget } from '@/lib/ui-change/types';
 
 export type ModuleTagInput = {
-  module: string
-  accountId?: string | null
-  employeeId?: string | null
-  supervisorId?: string | null
-  period?: string | null
-}
+  module: string;
+  accountId?: string | null;
+  employeeId?: string | null;
+  supervisorId?: string | null;
+  period?: string | null;
+};
 
 function normalizePeriod(period?: string | null) {
-  const normalized = period?.trim() ?? ''
+  const normalized = period?.trim() ?? '';
   if (!normalized) {
-    return null
+    return null;
   }
 
-  const isoDateMatch = normalized.match(/^\d{4}-\d{2}-\d{2}/)
+  const isoDateMatch = normalized.match(/^\d{4}-\d{2}-\d{2}/);
   if (isoDateMatch) {
-    return isoDateMatch[0]
+    return isoDateMatch[0];
   }
 
-  return normalized
+  return normalized;
 }
 
 export function buildModuleCacheTags({
@@ -29,26 +29,26 @@ export function buildModuleCacheTags({
   supervisorId,
   period,
 }: ModuleTagInput) {
-  const tags = new Set<string>([`module:${module}`])
+  const tags = new Set<string>([`module:${module}`]);
 
   if (accountId) {
-    tags.add(`module:${module}:cuenta:${accountId}`)
+    tags.add(`module:${module}:cuenta:${accountId}`);
   }
 
   if (employeeId) {
-    tags.add(`module:${module}:empleado:${employeeId}`)
+    tags.add(`module:${module}:empleado:${employeeId}`);
   }
 
   if (supervisorId) {
-    tags.add(`module:${module}:supervisor:${supervisorId}`)
+    tags.add(`module:${module}:supervisor:${supervisorId}`);
   }
 
-  const normalizedPeriod = normalizePeriod(period)
+  const normalizedPeriod = normalizePeriod(period);
   if (normalizedPeriod) {
-    tags.add(`module:${module}:periodo:${normalizedPeriod}`)
+    tags.add(`module:${module}:periodo:${normalizedPeriod}`);
   }
 
-  return Array.from(tags)
+  return Array.from(tags);
 }
 
 export function buildModuleCacheTagsFromUiChangeTarget(target: UiChangeTarget) {
@@ -60,11 +60,11 @@ export function buildModuleCacheTagsFromUiChangeTarget(target: UiChangeTarget) {
       supervisorId: target.supervisorEmpleadoId ?? null,
       period: target.metadata?.periodo as string | null | undefined,
     })
-  )
+  );
 
   if (target.scopeKey.startsWith('periodo:')) {
-    tags.add(`module:${target.module}:${target.scopeKey}`)
+    tags.add(`module:${target.module}:${target.scopeKey}`);
   }
 
-  return Array.from(tags)
+  return Array.from(tags);
 }

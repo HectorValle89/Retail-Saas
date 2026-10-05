@@ -8,25 +8,26 @@
 ## 🎯 Principios Fundamentales
 
 ### Henry Ford
-> *"Pueden tener el coche del color que quieran, siempre que sea negro."*
+
+> _"Pueden tener el coche del color que quieran, siempre que sea negro."_
 
 **Un solo stack perfeccionado.** No das opciones técnicas. Ejecutas el Golden Path.
 
 ### Elon Musk
 
-> *"La máquina que construye la máquina es más importante que el producto."*
+> _"La máquina que construye la máquina es más importante que el producto."_
 
 **El proceso > El producto.** Los comandos y PRPs que construyen el SaaS son más valiosos que el SaaS mismo.
 
-> *"Si no estás fallando, no estás innovando lo suficiente."*
+> _"Si no estás fallando, no estás innovando lo suficiente."_
 
 **Auto-Blindaje.** Cada error es un impacto que refuerza el proceso. Blindamos la fábrica para que el mismo error NUNCA ocurra dos veces.
 
-> *"El mejor proceso es ningún proceso. El segundo mejor es uno que puedas eliminar."*
+> _"El mejor proceso es ningún proceso. El segundo mejor es uno que puedas eliminar."_
 
 **Elimina fricción.** MCPs eliminan el CLI manual. Feature-First elimina la navegación entre carpetas.
 
-> *"Cuestiona cada requisito. Cada requisito debe venir con el nombre de la persona que lo pidió."*
+> _"Cuestiona cada requisito. Cada requisito debe venir con el nombre de la persona que lo pidió."_
 
 **PRPs con dueño.** El humano define el QUÉ. Tú ejecutas el CÓMO. Sin requisitos fantasma.
 
@@ -36,17 +37,17 @@
 
 Piensa en este repositorio como una **fábrica automatizada de software**:
 
-| Componente Tesla | Tu Sistema | Archivo/Herramienta |
-|------------------|------------|---------------------|
-| **Factory OS** | Tu identidad y reglas | `CLAUDE.md` (este archivo) |
-| **Blueprints** | Especificaciones de features | `.claude/PRPs/*.md` |
-| **Control Room** | El humano que aprueba | Tú preguntas, él valida |
-| **Robot Arms** | Tus manos (editar código, DB) | Supabase MCP + Terminal |
-| **Eyes/Cameras** | Tu visión del producto | Playwright MCP |
-| **Quality Control** | Validación automática | Next.js MCP + typecheck |
-| **Assembly Line** | Proceso por fases | `bucle-agentico-blueprint.md` |
-| **Neural Network** | Aprendizaje continuo | Auto-Blindaje |
-| **Asset Library** | Biblioteca de Activos | `.claude/` (Commands, Skills, Agents, Design) |
+| Componente Tesla    | Tu Sistema                    | Archivo/Herramienta                           |
+| ------------------- | ----------------------------- | --------------------------------------------- |
+| **Factory OS**      | Tu identidad y reglas         | `CLAUDE.md` (este archivo)                    |
+| **Blueprints**      | Especificaciones de features  | `.claude/PRPs/*.md`                           |
+| **Control Room**    | El humano que aprueba         | Tú preguntas, él valida                       |
+| **Robot Arms**      | Tus manos (editar código, DB) | Supabase MCP + Terminal                       |
+| **Eyes/Cameras**    | Tu visión del producto        | Playwright MCP                                |
+| **Quality Control** | Validación automática         | Next.js MCP + typecheck                       |
+| **Assembly Line**   | Proceso por fases             | `bucle-agentico-blueprint.md`                 |
+| **Neural Network**  | Aprendizaje continuo          | Auto-Blindaje                                 |
+| **Asset Library**   | Biblioteca de Activos         | `.claude/` (Commands, Skills, Agents, Design) |
 
 **Cuando ejecutas `saas-factory`**, copias toda la **infraestructura de la fábrica** al directorio actual.
 
@@ -54,7 +55,7 @@ Piensa en este repositorio como una **fábrica automatizada de software**:
 
 ## 🧠 V3: El Sistema que se Fortalece Solo (Auto-Blindaje)
 
-> *"Inspirado en el acero del Cybertruck: los errores refuerzan nuestra estructura. Blindamos el proceso para que la falla nunca se repita."*
+> _"Inspirado en el acero del Cybertruck: los errores refuerzan nuestra estructura. Blindamos el proceso para que la falla nunca se repita."_
 
 ### Cómo Funciona
 
@@ -64,16 +65,17 @@ Error ocurre → Se arregla → Se DOCUMENTA → NUNCA ocurre de nuevo
 
 ### Archivos Participantes
 
-| Archivo | Rol en Auto-Blindaje |
-|---------|----------------------|
-| `PRP actual` | Documenta errores específicos de esta feature |
-| `.claude/prompts/*.md` | Errores que aplican a múltiples features |
-| `CLAUDE.md` | Errores críticos que aplican a TODO el proyecto |
+| Archivo                | Rol en Auto-Blindaje                            |
+| ---------------------- | ----------------------------------------------- |
+| `PRP actual`           | Documenta errores específicos de esta feature   |
+| `.claude/prompts/*.md` | Errores que aplican a múltiples features        |
+| `CLAUDE.md`            | Errores críticos que aplican a TODO el proyecto |
 
 ### Formato de Aprendizaje
 
 ```markdown
 ### [YYYY-MM-DD]: [Título corto]
+
 - **Error**: [Qué falló]
 - **Fix**: [Cómo se arregló]
 - **Aplicar en**: [Dónde más aplica]
@@ -85,10 +87,11 @@ Error ocurre → Se arregla → Se DOCUMENTA → NUNCA ocurre de nuevo
 
 No das opciones técnicas. Ejecutas el stack perfeccionado:
 
-| Capa | Tecnología | Por Qué |
-|------|------------|---------|
+| Capa      | Tecnología                         | Por Qué                                               |
+| --------- | ---------------------------------- | ----------------------------------------------------- |
 | Framework | Next.js 16 + React 19 + TypeScript | Full-stack en un solo lugar, Turbopack 70x más rápido |
-| Estilos | Tailwind CSS 3.4 | Utility-first, sin context switching |
+| Estilos   | Tailwind CSS 3.4                   | Utility-first, sin context switching                  |
+
 > **¿Por qué Feature-First?** Colocalización para IA. Todo el contexto de una feature en un solo lugar. No saltas entre 5 carpetas para entender algo.
 
 ```
@@ -120,6 +123,7 @@ src/
 ## 🔌 MCPs: Tus Sentidos y Manos
 
 ### 🧠 Next.js DevTools MCP - Quality Control
+
 Conectado vía `/_next/mcp`. Ve errores build/runtime en tiempo real.
 
 ```
@@ -129,6 +133,7 @@ nextjs_docs → Busca en docs oficiales
 ```
 
 ### 👁️ Playwright MCP - Tus Ojos
+
 Validación visual y testing del navegador.
 
 ```
@@ -138,6 +143,7 @@ playwright_click/fill → Interactúa con elementos
 ```
 
 ### 🖐️ Supabase MCP - Tus Manos (Backend)
+
 Interactúa con PostgreSQL sin CLI.
 
 ```
@@ -159,9 +165,9 @@ Humano: "Necesito X" → Investigas → Generas PRP → Humano aprueba → Ejecu
 
 **Ubicación:** `.claude/PRPs/`
 
-| Archivo | Propósito |
-|---------|-----------|
-| `prp-base.md` | Template base para crear nuevos PRPs |
+| Archivo        | Propósito                                |
+| -------------- | ---------------------------------------- |
+| `prp-base.md`  | Template base para crear nuevos PRPs     |
 | `PRP-XXX-*.md` | PRPs generados para features específicas |
 
 ---
@@ -187,23 +193,27 @@ Ver `.claude/prompts/bucle-agentico-blueprint.md` para el proceso completo:
 ## 📏 Reglas de Código
 
 ### Principios
+
 - **KISS**: Prefiere soluciones simples
 - **YAGNI**: Implementa solo lo necesario
 - **DRY**: Evita duplicación
 - **SOLID**: Una responsabilidad por componente
 
 ### Límites
+
 - Archivos: Máximo 500 líneas
 - Funciones: Máximo 50 líneas
 - Componentes: Una responsabilidad clara
 
 ### Naming
+
 - Variables/Functions: `camelCase`
 - Components: `PascalCase`
 - Constants: `UPPER_SNAKE_CASE`
 - Files/Folders: `kebab-case`
 
 ### TypeScript
+
 - Siempre type hints en function signatures
 - Interfaces para object shapes
 - Types para unions
@@ -232,6 +242,7 @@ export function Button({ children, variant = 'primary', onClick }: Props) {
 ## 🛠️ Comandos
 
 ### Development
+
 ```bash
 npm run dev          # Servidor (auto-detecta puerto 3000-3006)
 npm run build        # Build producción
@@ -240,6 +251,7 @@ npm run lint         # ESLint
 ```
 
 ### Git
+
 ```bash
 npm run commit       # Conventional Commits
 ```
@@ -275,9 +287,11 @@ test('should calculate total with tax', () => {
 ## REGLA DE ORO IRROMPIBLE: Tablas En Español Latino
 
 ### Contexto
+
 Todas las tablas creadas por cualquier agente en este proyecto deben definirse en español latino. Esta regla aplica a Supabase, PostgreSQL y cualquier esquema o migración futura.
 
 ### Reglas Críticas
+
 1. **Tablas nuevas**: Todo nombre de tabla debe escribirse en español latino claro y consistente con el negocio.
 2. **Campos de negocio**: Los nombres de columnas orientadas al dominio también deben ir en español latino, salvo que exista una restricción técnica externa inmodificable.
 3. **Nada en inglés por costumbre**: Quedan prohibidos nombres genéricos en inglés como `users`, `customers`, `orders`, `status` o similares si la tabla o columna es creada por un agente dentro de este proyecto.
@@ -285,10 +299,12 @@ Todas las tablas creadas por cualquier agente en este proyecto deben definirse e
 5. **Excepciones**: Solo se permite conservar nombres en inglés cuando provengan de integraciones externas, librerías o contratos técnicos que no puedan cambiarse. La excepción debe documentarse.
 
 ### Ejemplos
+
 - Correcto: `usuarios`, `citas`, `facturas`, `estado_pago`, `fecha_creacion`
 - Incorrecto: `users`, `appointments`, `invoices`, `payment_status`, `created_at`
 
 ### Implementación Operativa
+
 - Usar la checklist en `supabase/NORMA_TABLAS_ESPANOL_LATINO.md` antes de crear tablas nuevas.
 - Partir de `supabase/PLANTILLA_TABLA_ESPANOL_LATINO.sql` para nuevas migraciones o esquemas.
 
@@ -297,17 +313,20 @@ Todas las tablas creadas por cualquier agente en este proyecto deben definirse e
 ## ❌ No Hacer (Critical)
 
 ### Código
+
 - ❌ Usar `any` en TypeScript
 - ❌ Commits sin tests
 - ❌ Omitir manejo de errores
 - ❌ Hardcodear configuraciones
 
 ### Seguridad
+
 - ❌ Exponer secrets
 - ❌ Loggear información sensible
 - ❌ Saltarse validación de entrada
 
 ### Arquitectura
+
 - ❌ Crear dependencias circulares
 - ❌ Mezclar responsabilidades
 - ❌ Estado global innecesario
@@ -319,13 +338,14 @@ Todas las tablas creadas por cualquier agente en este proyecto deben definirse e
 > Esta sección CRECE con cada error encontrado.
 
 ### 2025-01-09: Usar npm run dev, no next dev
+
 - **Error**: Puerto hardcodeado causa conflictos
 - **Fix**: Siempre usar `npm run dev` (auto-detecta puerto)
 - **Aplicar en**: Todos los proyectos
 
 ---
 
-*Este archivo es el cerebro de la fábrica. Cada error documentado la hace más fuerte.*
+_Este archivo es el cerebro de la fábrica. Cada error documentado la hace más fuerte._
 
 ## Retail Local Skills Policy
 

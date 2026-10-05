@@ -1,33 +1,31 @@
-const fs = require('node:fs')
-const path = require('node:path')
-const { Client } = require('pg')
+const fs = require('node:fs');
+const path = require('node:path');
+const { Client } = require('pg');
 
 function loadDatabaseUrl() {
   if (process.env.DATABASE_URL) {
-    return process.env.DATABASE_URL
+    return process.env.DATABASE_URL;
   }
 
-  const envPath = path.join(__dirname, '..', '.env.local')
-  const raw = fs.readFileSync(envPath, 'utf8')
-  const line = raw
-    .split(/\r?\n/)
-    .find((entry) => entry.startsWith('DATABASE_URL='))
+  const envPath = path.join(__dirname, '..', '.env.local');
+  const raw = fs.readFileSync(envPath, 'utf8');
+  const line = raw.split(/\r?\n/).find((entry) => entry.startsWith('DATABASE_URL='));
 
   if (!line) {
-    throw new Error('DATABASE_URL is required in process.env or .env.local')
+    throw new Error('DATABASE_URL is required in process.env or .env.local');
   }
 
-  return line.slice('DATABASE_URL='.length)
+  return line.slice('DATABASE_URL='.length);
 }
 
 function collectPlanSummary(node, acc = []) {
   if (!node || typeof node !== 'object') {
-    return acc
+    return acc;
   }
 
-  const relation = node['Relation Name'] || null
-  const nodeType = node['Node Type'] || null
-  const indexName = node['Index Name'] || null
+  const relation = node['Relation Name'] || null;
+  const nodeType = node['Node Type'] || null;
+  const indexName = node['Index Name'] || null;
 
   if (relation || nodeType) {
     acc.push({
@@ -36,23 +34,23 @@ function collectPlanSummary(node, acc = []) {
       indexName,
       actualRows: node['Actual Rows'],
       actualTimeMs: node['Actual Total Time'],
-    })
+    });
   }
 
   for (const child of node.Plans || []) {
-    collectPlanSummary(child, acc)
+    collectPlanSummary(child, acc);
   }
 
-  return acc
+  return acc;
 }
 
 function buildNextMonthStart(period) {
-  const [yearRaw, monthRaw] = period.split('-')
-  const year = Number(yearRaw)
-  const month = Number(monthRaw)
-  const nextYear = month === 12 ? year + 1 : year
-  const nextMonth = month === 12 ? 1 : month + 1
-  return `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`
+  const [yearRaw, monthRaw] = period.split('-');
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  return `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
 }
 
 async function resolveSampleParams(client) {
@@ -62,17 +60,17 @@ async function resolveSampleParams(client) {
       (select cuenta_cliente_id::text from asistencia order by fecha_operacion desc nulls last limit 1) as asistencia_account,
       (select supervisor_empleado_id::text from asistencia where supervisor_empleado_id is not null order by fecha_operacion desc nulls last limit 1) as supervisor_id,
       coalesce((select to_char(max(fecha_operacion), 'YYYY-MM') from asistencia), (select to_char(max(fecha_utc), 'YYYY-MM') from venta), to_char(now(), 'YYYY-MM')) as active_period
-  `)
+  `);
 
-  return result.rows[0]
+  return result.rows[0];
 }
 
 async function explainQuery(client, query) {
   const explain = await client.query(
     `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${query.sql}`,
     query.values
-  )
-  const plan = explain.rows[0]['QUERY PLAN'][0]
+  );
+  const plan = explain.rows[0]['QUERY PLAN'][0];
   return {
     name: query.name,
     executionTimeMs: plan['Execution Time'],
@@ -80,22 +78,22 @@ async function explainQuery(client, query) {
     sharedHitBlocks: plan.Plan['Shared Hit Blocks'],
     sharedReadBlocks: plan.Plan['Shared Read Blocks'],
     scans: collectPlanSummary(plan.Plan).filter((item) => item.relation),
-  }
+  };
 }
 
 async function main() {
-  const connectionString = loadDatabaseUrl()
+  const connectionString = loadDatabaseUrl();
   const client = new Client({
     connectionString,
     ssl: { rejectUnauthorized: false },
-  })
+  });
 
-  await client.connect()
+  await client.connect();
 
   try {
-    const params = await resolveSampleParams(client)
-    const monthStart = `${params.active_period}-01`
-    const nextMonthStart = buildNextMonthStart(params.active_period)
+    const params = await resolveSampleParams(client);
+    const monthStart = `${params.active_period}-01`;
+    const nextMonthStart = buildNextMonthStart(params.active_period);
 
     const queries = [
       {
@@ -187,11 +185,11 @@ async function main() {
         `,
         values: [],
       },
-    ]
+    ];
 
-    const summaries = []
+    const summaries = [];
     for (const query of queries) {
-      summaries.push(await explainQuery(client, query))
+      summaries.push(await explainQuery(client, query));
     }
 
     console.log(
@@ -203,13 +201,13 @@ async function main() {
         null,
         2
       )
-    )
+    );
   } finally {
-    await client.end()
+    await client.end();
   }
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error)
-  process.exit(1)
-})
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});

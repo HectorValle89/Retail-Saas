@@ -6,6 +6,7 @@ description: Auditoría WCAG para PWA Mobile-First
 # Accessibility Audit - Beteele PWA
 
 ## Cuando Usar
+
 - Antes de deploy a producción
 - Al crear nuevos componentes UI
 - Rediseño de interfaces
@@ -14,6 +15,7 @@ description: Auditoría WCAG para PWA Mobile-First
 ## Checklist WCAG 2.1 AA
 
 ### Contraste de Color
+
 ```typescript
 // Verificar contraste mínimo 4.5:1 para texto normal
 // 3:1 para texto grande (18pt+)
@@ -30,9 +32,10 @@ description: Auditoría WCAG para PWA Mobile-First
 ```
 
 ### Navegación por Teclado
+
 ```typescript
 // Todos los elementos interactivos deben ser accesibles por Tab
-<button 
+<button
   onClick={handleSubmit}
   onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}  // ✅ Enter key
 >
@@ -41,6 +44,7 @@ description: Auditoría WCAG para PWA Mobile-First
 ```
 
 ### ARIA Labels
+
 ```typescript
 // Componente de cámara necesita labels
 <button aria-label="Capturar foto de asistencia">
@@ -59,6 +63,7 @@ description: Auditoría WCAG para PWA Mobile-First
 ```
 
 ## Tools de Testing
+
 ```bash
 # Lighthouse Accessibility
 npm run build

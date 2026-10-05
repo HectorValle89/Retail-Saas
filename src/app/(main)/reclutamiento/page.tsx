@@ -1,17 +1,17 @@
-import { requerirPuestosActivos } from '@/lib/auth/session'
-import { createServiceClient } from '@/lib/supabase/server'
-import { obtenerDashboardReclutamiento } from '@/features/reclutamiento/services/recruitmentService'
-import { RecruitmentShell } from '@/features/reclutamiento/components/RecruitmentShell'
-import type { Puesto } from '@/types/database'
+import { requerirPuestosActivos } from '@/lib/auth/session';
+import { createServiceClient } from '@/lib/supabase/server';
+import { obtenerDashboardReclutamiento } from '@/features/reclutamiento/services/recruitmentService';
+import { RecruitmentShell } from '@/features/reclutamiento/components/RecruitmentShell';
+import type { Puesto } from '@/types/database';
 
 export const metadata = {
   title: 'Reclutamiento | Beteele One',
-}
+};
 
 export default async function ReclutamientoPage() {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR'])
-  const serviceSupabase = createServiceClient()
-  const data = await obtenerDashboardReclutamiento(actor, serviceSupabase)
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR']);
+  const serviceSupabase = createServiceClient();
+  const data = await obtenerDashboardReclutamiento(actor, serviceSupabase);
 
   return (
     <div className="page-shell max-w-7xl">
@@ -29,10 +29,7 @@ export default async function ReclutamientoPage() {
         </div>
       </header>
 
-      <RecruitmentShell 
-        data={data} 
-        actorPuesto={actor.puesto as Puesto} 
-      />
+      <RecruitmentShell data={data} actorPuesto={actor.puesto as Puesto} />
     </div>
-  )
+  );
 }

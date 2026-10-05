@@ -1,104 +1,99 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { BIOMETRY_PROVIDER_CONFIG_KEY } from '@/features/configuracion/configuracionCatalog'
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { BIOMETRY_PROVIDER_CONFIG_KEY } from '@/features/configuracion/configuracionCatalog';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TypedSupabaseClient = SupabaseClient<any>
+type TypedSupabaseClient = SupabaseClient<any>;
 
-export type AttendanceBiometricProvider = 'local-sharp' | 'disabled'
+export type AttendanceBiometricProvider = 'local-sharp' | 'disabled';
 
 export interface AttendanceBiometricConfig {
-  provider: AttendanceBiometricProvider
-  threshold: number
+  provider: AttendanceBiometricProvider;
+  threshold: number;
 }
 
 export interface AttendanceBiometricReferenceAsset {
-  source: 'empleado_metadata' | 'documento_ine'
-  bucket: string
-  path: string
-  hash: string | null
+  source: 'empleado_metadata' | 'documento_ine';
+  bucket: string;
+  path: string;
+  hash: string | null;
 }
 
 export interface AttendanceBiometricValidationResult {
-  status: 'VALIDA' | 'RECHAZADA' | 'PENDIENTE'
-  provider: AttendanceBiometricProvider
-  score: number | null
-  threshold: number
-  reason:
-    | 'MATCH'
-    | 'MISMATCH'
-    | 'NO_REFERENCE'
-    | 'REFERENCE_DOWNLOAD_FAILED'
-    | 'PROVIDER_DISABLED'
-  reference: AttendanceBiometricReferenceAsset | null
+  status: 'VALIDA' | 'RECHAZADA' | 'PENDIENTE';
+  provider: AttendanceBiometricProvider;
+  score: number | null;
+  threshold: number;
+  reason: 'MATCH' | 'MISMATCH' | 'NO_REFERENCE' | 'REFERENCE_DOWNLOAD_FAILED' | 'PROVIDER_DISABLED';
+  reference: AttendanceBiometricReferenceAsset | null;
 }
 
 interface EmployeeBiometricRow {
-  supervisor_empleado_id: string | null
-  metadata: Record<string, unknown> | null
+  supervisor_empleado_id: string | null;
+  metadata: Record<string, unknown> | null;
 }
 
 interface EmployeeDocumentRow {
-  id: string
-  archivo_hash_id: string
-  tipo_documento: 'INE'
-  estado_documento: 'CARGADO' | 'VALIDADO' | 'OBSERVADO'
-  metadata: Record<string, unknown> | null
-  created_at: string
+  id: string;
+  archivo_hash_id: string;
+  tipo_documento: 'INE';
+  estado_documento: 'CARGADO' | 'VALIDADO' | 'OBSERVADO';
+  metadata: Record<string, unknown> | null;
+  created_at: string;
 }
 
 interface ArchivoHashRow {
-  sha256: string
-  bucket: string
-  ruta_archivo: string
-  miniatura_sha256: string | null
-  miniatura_bucket: string | null
-  miniatura_ruta_archivo: string | null
+  sha256: string;
+  bucket: string;
+  ruta_archivo: string;
+  miniatura_sha256: string | null;
+  miniatura_bucket: string | null;
+  miniatura_ruta_archivo: string | null;
 }
 
 function normalizeMetadata(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {}
+    return {};
   }
 
-  return value as Record<string, unknown>
+  return value as Record<string, unknown>;
 }
 
 function resolveConfigValue(value: unknown, fallback: number) {
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return value
+    return value;
   }
 
   if (typeof value === 'string') {
-    const parsed = Number(value)
+    const parsed = Number(value);
     if (Number.isFinite(parsed)) {
-      return parsed
+      return parsed;
     }
   }
 
   if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const payload = value as Record<string, unknown>
-    const parsed = Number(payload.value ?? payload.numero ?? payload.defaultValue)
+    const payload = value as Record<string, unknown>;
+    const parsed = Number(payload.value ?? payload.numero ?? payload.defaultValue);
     if (Number.isFinite(parsed)) {
-      return parsed
+      return parsed;
     }
   }
 
-  return fallback
+  return fallback;
 }
 
 function resolveProviderValue(value: unknown): AttendanceBiometricProvider {
   if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase()
+    const normalized = value.trim().toLowerCase();
     if (normalized === 'disabled') {
-      return 'disabled'
+      return 'disabled';
     }
   }
 
-  return 'local-sharp'
+  return 'local-sharp';
 }
 
 function clampThreshold(value: number) {
-  return Math.max(0.5, Math.min(0.99, value))
+  return Math.max(0.5, Math.min(0.99, value));
 }
 
 export async function resolveAttendanceBiometricConfig(
@@ -107,24 +102,24 @@ export async function resolveAttendanceBiometricConfig(
   const { data, error } = await service
     .from('configuracion')
     .select('clave, valor')
-    .in('clave', [BIOMETRY_PROVIDER_CONFIG_KEY, 'biometria.umbral_similitud'])
+    .in('clave', [BIOMETRY_PROVIDER_CONFIG_KEY, 'biometria.umbral_similitud']);
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
 
-  const rows = (data ?? []) as Array<{ clave: string; valor: unknown }>
+  const rows = (data ?? []) as Array<{ clave: string; valor: unknown }>;
   const provider = resolveProviderValue(
     rows.find((item) => item.clave === BIOMETRY_PROVIDER_CONFIG_KEY)?.valor
-  )
+  );
   const threshold = clampThreshold(
     resolveConfigValue(
       rows.find((item) => item.clave === 'biometria.umbral_similitud')?.valor,
       0.82
     )
-  )
+  );
 
-  return { provider, threshold }
+  return { provider, threshold };
 }
 
 export async function resolveEmployeeBiometricContext(
@@ -135,31 +130,33 @@ export async function resolveEmployeeBiometricContext(
     .from('empleado')
     .select('supervisor_empleado_id, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (error || !data) {
-    throw new Error(error?.message ?? 'No fue posible recuperar el contexto biometrico del empleado.')
+    throw new Error(
+      error?.message ?? 'No fue posible recuperar el contexto biometrico del empleado.'
+    );
   }
 
-  return data as EmployeeBiometricRow
+  return data as EmployeeBiometricRow;
 }
 
 function resolveMetadataReferenceAsset(
   employeeMetadata: Record<string, unknown>
 ): AttendanceBiometricReferenceAsset | null {
-  const biometricMetadata = normalizeMetadata(employeeMetadata.biometria)
+  const biometricMetadata = normalizeMetadata(employeeMetadata.biometria);
   const asset = normalizeMetadata(
     biometricMetadata.reference_asset ??
       biometricMetadata.referenceAsset ??
       employeeMetadata.biometria_reference_asset
-  )
+  );
 
-  const bucket = typeof asset.bucket === 'string' ? asset.bucket.trim() : ''
-  const path = typeof asset.path === 'string' ? asset.path.trim() : ''
-  const hash = typeof asset.hash === 'string' ? asset.hash.trim() : null
+  const bucket = typeof asset.bucket === 'string' ? asset.bucket.trim() : '';
+  const path = typeof asset.path === 'string' ? asset.path.trim() : '';
+  const hash = typeof asset.hash === 'string' ? asset.hash.trim() : null;
 
   if (!bucket || !path) {
-    return null
+    return null;
   }
 
   return {
@@ -167,7 +164,7 @@ function resolveMetadataReferenceAsset(
     bucket,
     path,
     hash: hash || null,
-  }
+  };
 }
 
 export async function resolveEmployeeBiometricReference(
@@ -175,10 +172,10 @@ export async function resolveEmployeeBiometricReference(
   empleadoId: string,
   employeeMetadata: Record<string, unknown>
 ): Promise<AttendanceBiometricReferenceAsset | null> {
-  const metadataReference = resolveMetadataReferenceAsset(employeeMetadata)
+  const metadataReference = resolveMetadataReferenceAsset(employeeMetadata);
 
   if (metadataReference) {
-    return metadataReference
+    return metadataReference;
   }
 
   const { data: documentRows, error: documentError } = await service
@@ -188,16 +185,16 @@ export async function resolveEmployeeBiometricReference(
     .eq('tipo_documento', 'INE')
     .in('estado_documento', ['VALIDADO', 'CARGADO'])
     .order('created_at', { ascending: false })
-    .limit(1)
+    .limit(1);
 
   if (documentError) {
-    throw new Error(documentError.message)
+    throw new Error(documentError.message);
   }
 
-  const latestDocument = ((documentRows ?? []) as EmployeeDocumentRow[])[0]
+  const latestDocument = ((documentRows ?? []) as EmployeeDocumentRow[])[0];
 
   if (!latestDocument?.archivo_hash_id) {
-    return null
+    return null;
   }
 
   const { data: hashRow, error: hashError } = await service
@@ -206,19 +203,21 @@ export async function resolveEmployeeBiometricReference(
       'sha256, bucket, ruta_archivo, miniatura_sha256, miniatura_bucket, miniatura_ruta_archivo'
     )
     .eq('id', latestDocument.archivo_hash_id)
-    .maybeSingle()
+    .maybeSingle();
 
   if (hashError || !hashRow) {
-    throw new Error(hashError?.message ?? 'No fue posible recuperar el hash del documento de referencia.')
+    throw new Error(
+      hashError?.message ?? 'No fue posible recuperar el hash del documento de referencia.'
+    );
   }
 
-  const asset = hashRow as ArchivoHashRow
-  const bucket = asset.miniatura_bucket ?? asset.bucket
-  const path = asset.miniatura_ruta_archivo ?? asset.ruta_archivo
-  const hash = asset.miniatura_sha256 ?? asset.sha256
+  const asset = hashRow as ArchivoHashRow;
+  const bucket = asset.miniatura_bucket ?? asset.bucket;
+  const path = asset.miniatura_ruta_archivo ?? asset.ruta_archivo;
+  const hash = asset.miniatura_sha256 ?? asset.sha256;
 
   if (!bucket || !path) {
-    return null
+    return null;
   }
 
   return {
@@ -226,53 +225,55 @@ export async function resolveEmployeeBiometricReference(
     bucket,
     path,
     hash,
-  }
+  };
 }
 
 async function downloadStorageAsset(
   service: TypedSupabaseClient,
   asset: AttendanceBiometricReferenceAsset
 ) {
-  const { data, error } = await service.storage.from(asset.bucket).download(asset.path)
+  const { data, error } = await service.storage.from(asset.bucket).download(asset.path);
 
   if (error || !data) {
-    throw new Error(error?.message ?? 'No fue posible descargar el activo biometrico de referencia.')
+    throw new Error(
+      error?.message ?? 'No fue posible descargar el activo biometrico de referencia.'
+    );
   }
 
-  return Buffer.from(await data.arrayBuffer())
+  return Buffer.from(await data.arrayBuffer());
 }
 
 async function buildFingerprint(buffer: Buffer) {
   // Mock para pasar la compilacion en Cloudflare Edge
   // En el futuro, esto se debe mover a una Supabase Edge Function
-  return new Array(256).fill(0)
+  return new Array(256).fill(0);
 }
 
 function cosineSimilarity(left: number[], right: number[]) {
-  const length = Math.min(left.length, right.length)
-  let total = 0
+  const length = Math.min(left.length, right.length);
+  let total = 0;
 
   for (let index = 0; index < length; index += 1) {
-    total += left[index] * right[index]
+    total += left[index] * right[index];
   }
 
-  return total
+  return total;
 }
 
 export async function compareBiometricBuffers({
   selfieBuffer,
   referenceBuffer,
 }: {
-  selfieBuffer: Buffer
-  referenceBuffer: Buffer
+  selfieBuffer: Buffer;
+  referenceBuffer: Buffer;
 }) {
   const [selfieFingerprint, referenceFingerprint] = await Promise.all([
     buildFingerprint(selfieBuffer),
     buildFingerprint(referenceBuffer),
-  ])
+  ]);
 
-  const cosine = cosineSimilarity(selfieFingerprint, referenceFingerprint)
-  return Math.max(0, Math.min(1, (cosine + 1) / 2))
+  const cosine = cosineSimilarity(selfieFingerprint, referenceFingerprint);
+  return Math.max(0, Math.min(1, (cosine + 1) / 2));
 }
 
 export async function validateAttendanceBiometrics({
@@ -280,11 +281,11 @@ export async function validateAttendanceBiometrics({
   empleadoId,
   selfieBuffer,
 }: {
-  service: TypedSupabaseClient
-  empleadoId: string
-  selfieBuffer: Buffer
+  service: TypedSupabaseClient;
+  empleadoId: string;
+  selfieBuffer: Buffer;
 }): Promise<AttendanceBiometricValidationResult> {
-  const config = await resolveAttendanceBiometricConfig(service)
+  const config = await resolveAttendanceBiometricConfig(service);
 
   if (config.provider === 'disabled') {
     return {
@@ -294,15 +295,15 @@ export async function validateAttendanceBiometrics({
       threshold: config.threshold,
       reason: 'PROVIDER_DISABLED',
       reference: null,
-    }
+    };
   }
 
-  const employee = await resolveEmployeeBiometricContext(service, empleadoId)
+  const employee = await resolveEmployeeBiometricContext(service, empleadoId);
   const reference = await resolveEmployeeBiometricReference(
     service,
     empleadoId,
     normalizeMetadata(employee.metadata)
-  )
+  );
 
   if (!reference) {
     return {
@@ -312,15 +313,15 @@ export async function validateAttendanceBiometrics({
       threshold: config.threshold,
       reason: 'NO_REFERENCE',
       reference: null,
-    }
+    };
   }
 
   try {
-    const referenceBuffer = await downloadStorageAsset(service, reference)
+    const referenceBuffer = await downloadStorageAsset(service, reference);
     const score = await compareBiometricBuffers({
       selfieBuffer,
       referenceBuffer,
-    })
+    });
 
     if (score >= config.threshold) {
       return {
@@ -330,7 +331,7 @@ export async function validateAttendanceBiometrics({
         threshold: config.threshold,
         reason: 'MATCH',
         reference,
-      }
+      };
     }
 
     return {
@@ -340,7 +341,7 @@ export async function validateAttendanceBiometrics({
       threshold: config.threshold,
       reason: 'MISMATCH',
       reference,
-    }
+    };
   } catch {
     return {
       status: 'PENDIENTE',
@@ -349,6 +350,6 @@ export async function validateAttendanceBiometrics({
       threshold: config.threshold,
       reason: 'REFERENCE_DOWNLOAD_FAILED',
       reference,
-    }
+    };
   }
 }

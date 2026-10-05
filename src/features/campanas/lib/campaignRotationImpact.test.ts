@@ -1,14 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest';
 import {
   expandCampaignRotationCascadePreview,
   type CampaignRotationImpactPreview,
   type CampaignRotationResolvedDecision,
-} from './campaignRotationImpact'
+} from './campaignRotationImpact';
 
 type QueryResult = {
-  data: unknown[] | null
-  error: { message: string } | null
-}
+  data: unknown[] | null;
+  error: { message: string } | null;
+};
 
 function applyFilters(
   rows: unknown[],
@@ -17,48 +17,50 @@ function applyFilters(
   lteFilters: Array<{ column: string; value: string }>
 ) {
   return rows.filter((row) => {
-    const record = row as Record<string, unknown>
-    const eqOk = eqFilters.every((filter) => record[filter.column] === filter.value)
-    const inOk = inFilters.every((filter) => filter.values.includes(String(record[filter.column] ?? '')))
-    const lteOk = lteFilters.every((filter) => String(record[filter.column] ?? '') <= filter.value)
-    return eqOk && inOk && lteOk
-  })
+    const record = row as Record<string, unknown>;
+    const eqOk = eqFilters.every((filter) => record[filter.column] === filter.value);
+    const inOk = inFilters.every((filter) =>
+      filter.values.includes(String(record[filter.column] ?? ''))
+    );
+    const lteOk = lteFilters.every((filter) => String(record[filter.column] ?? '') <= filter.value);
+    return eqOk && inOk && lteOk;
+  });
 }
 
 function createFakeSupabase(results: Record<string, QueryResult>) {
   return {
     from(table: string) {
-      const eqFilters: Array<{ column: string; value: unknown }> = []
-      const inFilters: Array<{ column: string; values: string[] }> = []
-      const lteFilters: Array<{ column: string; value: string }> = []
+      const eqFilters: Array<{ column: string; value: unknown }> = [];
+      const inFilters: Array<{ column: string; values: string[] }> = [];
+      const lteFilters: Array<{ column: string; value: string }> = [];
 
       const builder = {
         select() {
-          return builder
+          return builder;
         },
         eq(column: string, value: unknown) {
-          eqFilters.push({ column, value })
-          return builder
+          eqFilters.push({ column, value });
+          return builder;
         },
         in(column: string, values: string[]) {
-          inFilters.push({ column, values })
-          return builder
+          inFilters.push({ column, values });
+          return builder;
         },
         lte(column: string, value: string) {
-          lteFilters.push({ column, value })
-          return builder
+          lteFilters.push({ column, value });
+          return builder;
         },
         or() {
-          return builder
+          return builder;
         },
         limit() {
-          return builder
+          return builder;
         },
         then(resolve: (value: QueryResult) => unknown, reject?: (reason: unknown) => unknown) {
           try {
-            const result = results[table] ?? { data: [], error: null }
+            const result = results[table] ?? { data: [], error: null };
             if (result.error || !Array.isArray(result.data)) {
-              return Promise.resolve(resolve(result))
+              return Promise.resolve(resolve(result));
             }
 
             return Promise.resolve(
@@ -66,20 +68,20 @@ function createFakeSupabase(results: Record<string, QueryResult>) {
                 data: applyFilters(result.data, eqFilters, inFilters, lteFilters),
                 error: null,
               })
-            )
+            );
           } catch (error) {
             if (reject) {
-              return Promise.resolve(reject(error))
+              return Promise.resolve(reject(error));
             }
 
-            throw error
+            throw error;
           }
         },
-      }
+      };
 
-      return builder
+      return builder;
     },
-  }
+  };
 }
 
 describe('campaignRotationImpact cascade preview', () => {
@@ -128,7 +130,7 @@ describe('campaignRotationImpact cascade preview', () => {
           selectedEmployeeId: null,
         },
       ],
-    }
+    };
 
     const decisions: CampaignRotationResolvedDecision[] = [
       {
@@ -137,7 +139,7 @@ describe('campaignRotationImpact cascade preview', () => {
         empleadoId: 'dc-cobertura',
         node: preview.nodes[0]!,
       },
-    ]
+    ];
 
     const supabase = createFakeSupabase({
       pdv_rotacion_maestra: {
@@ -165,9 +167,24 @@ describe('campaignRotationImpact cascade preview', () => {
       },
       pdv: {
         data: [
-          { id: 'pdv-rot-a', clave_btl: 'BTL-ROT-A', nombre: 'PDV Rotativo A', cadena_id: 'cadena-1' },
-          { id: 'pdv-rot-b', clave_btl: 'BTL-ROT-B', nombre: 'PDV Rotativo B', cadena_id: 'cadena-1' },
-          { id: 'pdv-impactado', clave_btl: 'BTL-IMP-001', nombre: 'PDV Impactado', cadena_id: 'cadena-1' },
+          {
+            id: 'pdv-rot-a',
+            clave_btl: 'BTL-ROT-A',
+            nombre: 'PDV Rotativo A',
+            cadena_id: 'cadena-1',
+          },
+          {
+            id: 'pdv-rot-b',
+            clave_btl: 'BTL-ROT-B',
+            nombre: 'PDV Rotativo B',
+            cadena_id: 'cadena-1',
+          },
+          {
+            id: 'pdv-impactado',
+            clave_btl: 'BTL-IMP-001',
+            nombre: 'PDV Impactado',
+            cadena_id: 'cadena-1',
+          },
         ],
         error: null,
       },
@@ -229,7 +246,7 @@ describe('campaignRotationImpact cascade preview', () => {
         ],
         error: null,
       },
-    })
+    });
 
     const expanded = await expandCampaignRotationCascadePreview(supabase as never, {
       accountId: 'account-1',
@@ -237,12 +254,12 @@ describe('campaignRotationImpact cascade preview', () => {
       fechaFin: '2026-04-10',
       preview,
       decisions,
-    })
+    });
 
-    expect(expanded.nodes).toHaveLength(2)
-    expect(expanded.nodes[0]?.selectedDecision).toBe('ASIGNAR')
-    expect(expanded.nodes[0]?.selectedEmployeeId).toBe('dc-cobertura')
-    expect(expanded.nodes[1]?.nodeId).toBe('pdv-rot-a')
-    expect(expanded.nodes[1]?.grupoRotacionCodigo).toBe('ROT-CASCADA-001')
-  })
-})
+    expect(expanded.nodes).toHaveLength(2);
+    expect(expanded.nodes[0]?.selectedDecision).toBe('ASIGNAR');
+    expect(expanded.nodes[0]?.selectedEmployeeId).toBe('dc-cobertura');
+    expect(expanded.nodes[1]?.nodeId).toBe('pdv-rot-a');
+    expect(expanded.nodes[1]?.grupoRotacionCodigo).toBe('ROT-CASCADA-001');
+  });
+});

@@ -1,18 +1,18 @@
-'use client'
+'use client';
 
-import { useActionState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { useFormStatus } from 'react-dom'
-import { actualizarEstadoPublicacionAsignacion } from '../actions'
-import { ESTADO_ASIGNACION_INICIAL } from '../state'
+import { useActionState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useFormStatus } from 'react-dom';
+import { actualizarEstadoPublicacionAsignacion } from '../actions';
+import { ESTADO_ASIGNACION_INICIAL } from '../state';
 
 interface AsignacionEstadoControlsProps {
-  asignacionId: string
-  estadoPublicacion: string
-  bloqueada: boolean
-  puedeGestionar: boolean
-  alertasCount: number
-  requiereConfirmacionAlertas: boolean
+  asignacionId: string;
+  estadoPublicacion: string;
+  bloqueada: boolean;
+  puedeGestionar: boolean;
+  alertasCount: number;
+  requiereConfirmacionAlertas: boolean;
 }
 
 export function AsignacionEstadoControls({
@@ -26,33 +26,33 @@ export function AsignacionEstadoControls({
   const [state, formAction] = useActionState(
     actualizarEstadoPublicacionAsignacion,
     ESTADO_ASIGNACION_INICIAL
-  )
-  const router = useRouter()
+  );
+  const router = useRouter();
 
   useEffect(() => {
     if (!state.ok) {
-      return
+      return;
     }
 
     if (state.redirectTo) {
-      router.replace(state.redirectTo)
-      return
+      router.replace(state.redirectTo);
+      return;
     }
 
-    router.refresh()
-  }, [router, state.ok, state.redirectTo])
+    router.refresh();
+  }, [router, state.ok, state.redirectTo]);
 
   if (!puedeGestionar) {
-    return <p className="text-xs text-slate-400">Solo lectura</p>
+    return <p className="text-xs text-slate-400">Solo lectura</p>;
   }
 
   if (estadoPublicacion === 'BORRADOR' && bloqueada) {
-    return <p className="text-xs text-amber-700">Corrige validaciones para publicar</p>
+    return <p className="text-xs text-amber-700">Corrige validaciones para publicar</p>;
   }
 
-  const estadoDestino = estadoPublicacion === 'PUBLICADA' ? 'BORRADOR' : 'PUBLICADA'
+  const estadoDestino = estadoPublicacion === 'PUBLICADA' ? 'BORRADOR' : 'PUBLICADA';
   const showAlertConfirmation =
-    estadoDestino === 'PUBLICADA' && requiereConfirmacionAlertas && alertasCount > 0
+    estadoDestino === 'PUBLICADA' && requiereConfirmacionAlertas && alertasCount > 0;
 
   return (
     <form action={formAction} className="space-y-2">
@@ -66,9 +66,7 @@ export function AsignacionEstadoControls({
             value="true"
             className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-700"
           />
-          <span>
-            Confirmo publicar con {alertasCount} alerta(alertas) no bloqueante(s).
-          </span>
+          <span>Confirmo publicar con {alertasCount} alerta(alertas) no bloqueante(s).</span>
         </label>
       )}
       <SubmitButton estadoDestino={estadoDestino} />
@@ -78,11 +76,11 @@ export function AsignacionEstadoControls({
         </p>
       )}
     </form>
-  )
+  );
 }
 
 function SubmitButton({ estadoDestino }: { estadoDestino: 'BORRADOR' | 'PUBLICADA' }) {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   return (
     <button
@@ -94,11 +92,7 @@ function SubmitButton({ estadoDestino }: { estadoDestino: 'BORRADOR' | 'PUBLICAD
           : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
       }`}
     >
-      {pending
-        ? 'Guardando...'
-        : estadoDestino === 'PUBLICADA'
-          ? 'Publicar'
-          : 'Volver a borrador'}
+      {pending ? 'Guardando...' : estadoDestino === 'PUBLICADA' ? 'Publicar' : 'Volver a borrador'}
     </button>
-  )
+  );
 }

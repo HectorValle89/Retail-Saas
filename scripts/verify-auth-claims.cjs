@@ -68,7 +68,8 @@ async function main() {
 
   for (const usuario of usuarios) {
     const authUserId = usuario.auth_user_id;
-    const { data: authUser, error: authUserError } = await supabase.auth.admin.getUserById(authUserId);
+    const { data: authUser, error: authUserError } =
+      await supabase.auth.admin.getUserById(authUserId);
 
     if (authUserError || !authUser?.user) {
       throw authUserError ?? new Error(`Unable to load auth user ${authUserId}`);
@@ -76,7 +77,9 @@ async function main() {
 
     const appMetadata = authUser.user.app_metadata ?? {};
     const claims = appMetadata.claims ?? {};
-    const puesto = Array.isArray(usuario.empleado) ? usuario.empleado[0]?.puesto ?? null : usuario.empleado?.puesto ?? null;
+    const puesto = Array.isArray(usuario.empleado)
+      ? (usuario.empleado[0]?.puesto ?? null)
+      : (usuario.empleado?.puesto ?? null);
 
     const item = {
       authUserId,

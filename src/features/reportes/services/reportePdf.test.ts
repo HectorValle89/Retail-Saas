@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { buildReportPdf } from './reportePdf'
+import { describe, expect, it } from 'vitest';
+import { buildReportPdf } from './reportePdf';
 
 describe('buildReportPdf', () => {
   it('genera un PDF valido para exportacion de reportes con branding be te ele', async () => {
@@ -10,10 +10,10 @@ describe('buildReportPdf', () => {
         ['2026-03', 'Ana Uno', 'Fusion Water', 1800],
         ['2026-03', 'Ana Dos', 'Fotoprotector', 950],
       ],
-    })
+    });
 
-    const output = Buffer.from(bytes)
-    expect(output.subarray(0, 5).toString('utf8')).toBe('%PDF-')
-    expect(output.length).toBeGreaterThan(1000)
-  })
-})
+    const output = Buffer.from(bytes);
+    expect(output.subarray(0, 5).toString('utf8')).toBe('%PDF-');
+    expect(output.length).toBeGreaterThan(1000);
+  });
+});

@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest';
 import {
   markSupervisorNotificationAsRead,
   mergeSupervisorNotificationsSummary,
-} from './supervisorNotifications'
+} from './supervisorNotifications';
 
 describe('mergeSupervisorNotificationsSummary', () => {
   it('keeps the existing items when the refresh payload only contains counts', () => {
@@ -25,7 +25,7 @@ describe('mergeSupervisorNotificationsSummary', () => {
         unreadCount: 1,
         items: [],
       }
-    )
+    );
 
     expect(merged).toEqual({
       unreadCount: 1,
@@ -40,9 +40,9 @@ describe('mergeSupervisorNotificationsSummary', () => {
           remitente: 'Sistema',
         },
       ],
-    })
-  })
-})
+    });
+  });
+});
 
 describe('markSupervisorNotificationAsRead', () => {
   it('marks the matching notification as read and decrements unread count once', () => {
@@ -71,7 +71,7 @@ describe('markSupervisorNotificationAsRead', () => {
         ],
       },
       'n-1'
-    )
+    );
 
     expect(updated).toEqual({
       unreadCount: 1,
@@ -95,6 +95,6 @@ describe('markSupervisorNotificationAsRead', () => {
           remitente: 'Sistema',
         },
       ],
-    })
-  })
-})
+    });
+  });
+});

@@ -1,25 +1,25 @@
-import { revalidateTag } from 'next/cache'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { buildModuleCacheTagsFromUiChangeTarget } from '@/lib/cache/moduleTags'
-import { createServiceClient } from '@/lib/supabase/server'
-import type { UiChangeTarget, UiChangeVersionRow } from '@/lib/ui-change/types'
+import { revalidateTag } from 'next/cache';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { buildModuleCacheTagsFromUiChangeTarget } from '@/lib/cache/moduleTags';
+import { createServiceClient } from '@/lib/supabase/server';
+import type { UiChangeTarget, UiChangeVersionRow } from '@/lib/ui-change/types';
 
-type TypedSupabaseClient = SupabaseClient<any>
-type UiChangePersistenceMode = 'unknown' | 'rpc' | 'table' | 'synthetic'
+type TypedSupabaseClient = SupabaseClient<any>;
+type UiChangePersistenceMode = 'unknown' | 'rpc' | 'table' | 'synthetic';
 
-let uiChangePersistenceMode: UiChangePersistenceMode = 'unknown'
+let uiChangePersistenceMode: UiChangePersistenceMode = 'unknown';
 
 function isMissingTouchUiChangeVersionFunction(message?: string | null) {
-  const normalized = message?.toLowerCase() ?? ''
+  const normalized = message?.toLowerCase() ?? '';
   return (
     normalized.includes('could not find the function public.touch_ui_change_version') ||
     normalized.includes('function public.touch_ui_change_version') ||
     normalized.includes('touch_ui_change_version')
-  )
+  );
 }
 
 function isMissingUiChangeVersionStorage(message?: string | null) {
-  const normalized = message?.toLowerCase() ?? ''
+  const normalized = message?.toLowerCase() ?? '';
   return (
     normalized.includes("could not find the table 'public.ui_change_version'") ||
     normalized.includes("relation 'public.ui_change_version' does not exist") ||
@@ -28,11 +28,11 @@ function isMissingUiChangeVersionStorage(message?: string | null) {
     normalized.includes("could not find the table 'ui_change_version'") ||
     normalized.includes("relation 'ui_change_version' does not exist") ||
     normalized.includes('relation "ui_change_version" does not exist')
-  )
+  );
 }
 
 function buildSyntheticUiChangeVersionRow(target: UiChangeTarget): UiChangeVersionRow {
-  const now = new Date().toISOString()
+  const now = new Date().toISOString();
 
   return {
     id: `ui-change-degraded:${target.module}:${target.surface}:${target.scopeKey}:${Date.now()}`,
@@ -48,18 +48,15 @@ function buildSyntheticUiChangeVersionRow(target: UiChangeTarget): UiChangeVersi
     metadata: target.metadata ?? {},
     updated_at: now,
     created_at: now,
-  }
+  };
 }
 
-async function touchUiChangeVersionFallback(
-  service: TypedSupabaseClient,
-  target: UiChangeTarget
-) {
+async function touchUiChangeVersionFallback(service: TypedSupabaseClient, target: UiChangeTarget) {
   if (uiChangePersistenceMode === 'synthetic') {
-    return buildSyntheticUiChangeVersionRow(target)
+    return buildSyntheticUiChangeVersionRow(target);
   }
 
-  const normalizedRoleTarget = target.roleTarget ?? 'ALL'
+  const normalizedRoleTarget = target.roleTarget ?? 'ALL';
   const { data: existingRow, error: selectError } = await service
     .from('ui_change_version')
     .select('*')
@@ -67,18 +64,18 @@ async function touchUiChangeVersionFallback(
     .eq('surface', target.surface)
     .eq('scope_key', target.scopeKey)
     .eq('role_target', normalizedRoleTarget)
-    .maybeSingle()
+    .maybeSingle();
 
   if (selectError) {
     if (isMissingUiChangeVersionStorage(selectError.message)) {
-      uiChangePersistenceMode = 'synthetic'
-      return buildSyntheticUiChangeVersionRow(target)
+      uiChangePersistenceMode = 'synthetic';
+      return buildSyntheticUiChangeVersionRow(target);
     }
-    throw new Error(selectError.message)
+    throw new Error(selectError.message);
   }
 
   const nextVersion =
-    existingRow && typeof existingRow.version === 'number' ? existingRow.version + 1 : 1
+    existingRow && typeof existingRow.version === 'number' ? existingRow.version + 1 : 1;
   const payload = {
     cuenta_cliente_id: target.cuentaClienteId ?? null,
     module: target.module,
@@ -91,7 +88,7 @@ async function touchUiChangeVersionFallback(
     last_event_type: target.eventType,
     metadata: target.metadata ?? {},
     updated_at: new Date().toISOString(),
-  }
+  };
 
   const { data: row, error: upsertError } = await service
     .from('ui_change_version')
@@ -99,34 +96,31 @@ async function touchUiChangeVersionFallback(
       onConflict: 'module,surface,scope_key,role_target',
     })
     .select('*')
-    .maybeSingle()
+    .maybeSingle();
 
   if (upsertError) {
     if (isMissingUiChangeVersionStorage(upsertError.message)) {
-      uiChangePersistenceMode = 'synthetic'
-      return buildSyntheticUiChangeVersionRow(target)
+      uiChangePersistenceMode = 'synthetic';
+      return buildSyntheticUiChangeVersionRow(target);
     }
-    throw new Error(upsertError.message)
+    throw new Error(upsertError.message);
   }
 
   if (!row) {
-    throw new Error('No fue posible actualizar ui_change_version.')
+    throw new Error('No fue posible actualizar ui_change_version.');
   }
 
-  uiChangePersistenceMode = 'table'
-  return row as UiChangeVersionRow
+  uiChangePersistenceMode = 'table';
+  return row as UiChangeVersionRow;
 }
 
-async function touchUiChangeVersion(
-  service: TypedSupabaseClient,
-  target: UiChangeTarget
-) {
+async function touchUiChangeVersion(service: TypedSupabaseClient, target: UiChangeTarget) {
   if (uiChangePersistenceMode === 'synthetic') {
-    return buildSyntheticUiChangeVersionRow(target)
+    return buildSyntheticUiChangeVersionRow(target);
   }
 
   if (uiChangePersistenceMode === 'table') {
-    return touchUiChangeVersionFallback(service, target)
+    return touchUiChangeVersionFallback(service, target);
   }
 
   const { data, error } = await service.rpc('touch_ui_change_version', {
@@ -139,54 +133,54 @@ async function touchUiChangeVersion(
     p_supervisor_empleado_id: target.supervisorEmpleadoId ?? null,
     p_last_event_type: target.eventType,
     p_metadata: target.metadata ?? {},
-  })
+  });
 
   if (error) {
     if (isMissingTouchUiChangeVersionFunction(error.message)) {
-      uiChangePersistenceMode = 'table'
-      return touchUiChangeVersionFallback(service, target)
+      uiChangePersistenceMode = 'table';
+      return touchUiChangeVersionFallback(service, target);
     }
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
 
-  uiChangePersistenceMode = 'rpc'
-  return data as UiChangeVersionRow
+  uiChangePersistenceMode = 'rpc';
+  return data as UiChangeVersionRow;
 }
 
 function normalizeRouteWeekStart(value?: string | null) {
-  const normalized = value?.trim() ?? ''
+  const normalized = value?.trim() ?? '';
 
   if (!normalized) {
-    return null
+    return null;
   }
 
-  return normalized.slice(0, 10)
+  return normalized.slice(0, 10);
 }
 
 export async function publishUiChange(
   target: UiChangeTarget,
   options?: {
-    service?: TypedSupabaseClient
-    revalidateTags?: boolean
+    service?: TypedSupabaseClient;
+    revalidateTags?: boolean;
   }
 ) {
-  const [row] = await publishUiChanges([target], options)
-  return row
+  const [row] = await publishUiChanges([target], options);
+  return row;
 }
 
 export async function publishUiChanges(
   targets: UiChangeTarget[],
   options?: {
-    service?: TypedSupabaseClient
-    revalidateTags?: boolean
+    service?: TypedSupabaseClient;
+    revalidateTags?: boolean;
   }
 ) {
   if (targets.length === 0) {
-    return []
+    return [];
   }
 
-  const service = options?.service ?? (createServiceClient() as TypedSupabaseClient)
-  const [firstTarget, ...remainingTargets] = targets
+  const service = options?.service ?? (createServiceClient() as TypedSupabaseClient);
+  const [firstTarget, ...remainingTargets] = targets;
   const rows: UiChangeVersionRow[] = [
     await touchUiChangeVersion(service, {
       ...firstTarget,
@@ -196,11 +190,13 @@ export async function publishUiChanges(
         firstTarget.scopeKey.startsWith('periodo:')
           ? {
               ...(firstTarget.metadata ?? {}),
-              periodo: normalizeRouteWeekStart(firstTarget.metadata?.periodo as string | null | undefined),
+              periodo: normalizeRouteWeekStart(
+                firstTarget.metadata?.periodo as string | null | undefined
+              ),
             }
-          : firstTarget.metadata ?? null,
+          : (firstTarget.metadata ?? null),
     }),
-  ]
+  ];
 
   if (remainingTargets.length > 0) {
     const remainingRows = await Promise.all(
@@ -213,28 +209,30 @@ export async function publishUiChanges(
             target.scopeKey.startsWith('periodo:')
               ? {
                   ...(target.metadata ?? {}),
-                  periodo: normalizeRouteWeekStart(target.metadata?.periodo as string | null | undefined),
+                  periodo: normalizeRouteWeekStart(
+                    target.metadata?.periodo as string | null | undefined
+                  ),
                 }
-              : target.metadata ?? null,
+              : (target.metadata ?? null),
         })
       )
-    )
-    rows.push(...remainingRows)
+    );
+    rows.push(...remainingRows);
   }
 
   if (options?.revalidateTags !== false) {
-    const tags = new Set<string>()
+    const tags = new Set<string>();
 
     for (const target of targets) {
       for (const tag of buildModuleCacheTagsFromUiChangeTarget(target)) {
-        tags.add(tag)
+        tags.add(tag);
       }
     }
 
     for (const tag of tags) {
-      revalidateTag(tag, 'max')
+      revalidateTag(tag, 'max');
     }
   }
 
-  return rows
+  return rows;
 }

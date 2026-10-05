@@ -1,22 +1,24 @@
-import type { MaterialDistributionPreview } from './lib/materialDistributionImport'
-import type { MaterialDistributionGeminiAnalysis } from './lib/materialDistributionGemini'
+import type { MaterialDistributionPreview } from './lib/materialDistributionImport';
+import type { MaterialDistributionGeminiAnalysis } from './lib/materialDistributionGemini';
 
 export interface MaterialActionState {
-  ok: boolean
-  message: string | null
+  ok: boolean;
+  message: string | null;
+  metadata?: any;
 }
 
 export interface MaterialImportActionState extends MaterialActionState {
-  loteId: string | null
-  preview: MaterialDistributionPreview | null
-  geminiAnalysis: MaterialDistributionGeminiAnalysis | null
-  cuentaClienteId: string | null
+  loteId: string | null;
+  preview: MaterialDistributionPreview | null;
+  geminiAnalysis: MaterialDistributionGeminiAnalysis | null;
+  cuentaClienteId: string | null;
+  tipoDispersion?: string | null;
 }
 
 export const ESTADO_MATERIAL_INICIAL: MaterialActionState = {
   ok: false,
   message: null,
-}
+};
 
 export const ESTADO_MATERIAL_IMPORTACION_INICIAL: MaterialImportActionState = {
   ok: false,
@@ -25,4 +27,5 @@ export const ESTADO_MATERIAL_IMPORTACION_INICIAL: MaterialImportActionState = {
   preview: null,
   geminiAnalysis: null,
   cuentaClienteId: null,
-}
+  tipoDispersion: null,
+};

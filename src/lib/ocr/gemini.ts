@@ -1,7 +1,7 @@
-const GEMINI_MODEL = process.env.GEMINI_OCR_MODEL?.trim() || 'gemini-2.5-flash-lite'
+const GEMINI_MODEL = process.env.GEMINI_OCR_MODEL?.trim() || 'gemini-2.5-flash-lite';
 
-export type OcrProvider = 'gemini'
-export type ConfiguredOcrProvider = 'disabled' | 'gemini' | 'codex' | 'antigravity'
+export type OcrProvider = 'gemini';
+export type ConfiguredOcrProvider = 'disabled' | 'gemini' | 'codex' | 'antigravity';
 export type GeminiOcrStatus =
   | 'ok'
   | 'needs_review'
@@ -9,103 +9,101 @@ export type GeminiOcrStatus =
   | 'error'
   | 'ocr_no_configurado'
   | 'unsupported_provider'
-  | 'gemini_missing_api_key'
+  | 'gemini_missing_api_key';
 
 export interface GeminiOcrExtractionResult {
-  provider: OcrProvider | null
-  model: string | null
-  status: GeminiOcrStatus
-  documentTypeExpected: string | null
-  documentTypeDetected: string | null
-  employeeName: string | null
-  curp: string | null
-  rfc: string | null
-  nss: string | null
-  address: string | null
-  postalCode: string | null
-  phoneNumber: string | null
-  email: string | null
-  birthDate: string | null
-  employmentStartDate: string | null
-  age: number | null
-  yearsWorking: number | null
-  sex: string | null
-  maritalStatus: string | null
-  originPlace: string | null
-  dailyBaseSalary: number | null
-  addressSourceDocumentType: string | null
-  employer: string | null
-  position: string | null
-  documentNumber: string | null
-  keyDates: string[]
-  extractedText: string | null
-  confidenceSummary: string | null
-  mismatchHints: string[]
-  observations: string[]
-  errorMessage: string | null
-  extractedAt: string | null
+  provider: OcrProvider | null;
+  model: string | null;
+  status: GeminiOcrStatus;
+  documentTypeExpected: string | null;
+  documentTypeDetected: string | null;
+  employeeName: string | null;
+  curp: string | null;
+  rfc: string | null;
+  nss: string | null;
+  address: string | null;
+  postalCode: string | null;
+  phoneNumber: string | null;
+  email: string | null;
+  birthDate: string | null;
+  employmentStartDate: string | null;
+  age: number | null;
+  yearsWorking: number | null;
+  sex: string | null;
+  maritalStatus: string | null;
+  originPlace: string | null;
+  dailyBaseSalary: number | null;
+  addressSourceDocumentType: string | null;
+  employer: string | null;
+  position: string | null;
+  documentNumber: string | null;
+  keyDates: string[];
+  extractedText: string | null;
+  confidenceSummary: string | null;
+  mismatchHints: string[];
+  observations: string[];
+  errorMessage: string | null;
+  extractedAt: string | null;
   usage: {
-    promptTokenCount: number | null
-    candidatesTokenCount: number | null
-    totalTokenCount: number | null
-  } | null
+    promptTokenCount: number | null;
+    candidatesTokenCount: number | null;
+    totalTokenCount: number | null;
+  } | null;
 }
 
 interface GeminiExtractionInput {
-  apiKey: string
-  buffer: Buffer
-  mimeType: string
-  fileName: string
-  expectedDocumentType: string
-  employeeName?: string | null
-  model?: string
-  fetchImpl?: typeof fetch
+  apiKey: string;
+  buffer: Buffer;
+  mimeType: string;
+  fileName: string;
+  expectedDocumentType: string;
+  employeeName?: string | null;
+  model?: string;
+  fetchImpl?: typeof fetch;
 }
 
 interface GeminiApiResponse {
   candidates?: Array<{
     content?: {
       parts?: Array<{
-        text?: string
-      }>
-    }
-  }>
+        text?: string;
+      }>;
+    };
+  }>;
   usageMetadata?: {
-    promptTokenCount?: number
-    candidatesTokenCount?: number
-    totalTokenCount?: number
-  }
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
   usage_metadata?: {
-    prompt_token_count?: number
-    candidates_token_count?: number
-    total_token_count?: number
-  }
+    prompt_token_count?: number;
+    candidates_token_count?: number;
+    total_token_count?: number;
+  };
   error?: {
-    message?: string
-  }
+    message?: string;
+  };
 }
 
 interface ConfiguredOcrInput {
-  buffer: Buffer
-  mimeType: string
-  fileName: string
-  expectedDocumentType: string
-  employeeName?: string | null
-  providerOverride?: string | null
-  modelOverride?: string | null
+  buffer: Buffer;
+  mimeType: string;
+  fileName: string;
+  expectedDocumentType: string;
+  employeeName?: string | null;
+  providerOverride?: string | null;
+  modelOverride?: string | null;
 }
 
 export interface ResolvedOcrConfiguration {
-  provider: ConfiguredOcrProvider | null
-  model: string | null
-  available: boolean
-  status: 'disabled' | 'ready' | 'gemini_missing_api_key' | 'unsupported_provider'
-  geminiApiKeyConfigured: boolean
+  provider: ConfiguredOcrProvider | null;
+  model: string | null;
+  available: boolean;
+  status: 'disabled' | 'ready' | 'gemini_missing_api_key' | 'unsupported_provider';
+  geminiApiKeyConfigured: boolean;
 }
 
-function buildBaseResult(
-  overrides: Partial<GeminiOcrExtractionResult>
-): GeminiOcrExtractionResult {
+function buildBaseResult(overrides: Partial<GeminiOcrExtractionResult>): GeminiOcrExtractionResult {
   return {
     provider: 'gemini',
     model: GEMINI_MODEL,
@@ -141,102 +139,121 @@ function buildBaseResult(
     extractedAt: new Date().toISOString(),
     usage: null,
     ...overrides,
-  }
+  };
 }
 
 function normalizeIdentifier(value: unknown) {
-  const normalized = String(value ?? '').trim().toUpperCase().replace(/\s+/g, '')
-  return normalized || null
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '');
+  return normalized || null;
 }
 
 function normalizeText(value: unknown) {
-  const normalized = String(value ?? '').trim()
-  return normalized || null
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
 }
 
 function translateGeminiNarrative(value: string | null) {
   if (!value) {
-    return null
+    return null;
   }
 
-  let translated = value.trim()
+  let translated = value.trim();
 
   const replacements: Array<[RegExp, string]> = [
-    [/The document is mostly legible, but there are inconsistencies in personal data and employment history\./gi, 'El documento es mayormente legible, pero hay inconsistencias en los datos personales y en el historial laboral.'],
+    [
+      /The document is mostly legible, but there are inconsistencies in personal data and employment history\./gi,
+      'El documento es mayormente legible, pero hay inconsistencias en los datos personales y en el historial laboral.',
+    ],
     [/The document is mostly legible\./gi, 'El documento es mayormente legible.'],
-    [/The document is legible and the key fields are clear\./gi, 'El documento es legible y los campos clave son claros.'],
+    [
+      /The document is legible and the key fields are clear\./gi,
+      'El documento es legible y los campos clave son claros.',
+    ],
     [/The document is legible\./gi, 'El documento es legible.'],
-    [/Multiple addresses are present, and the sex on the INE mismatches other documents\./gi, 'Hay multiples domicilios y el sexo que aparece en la INE no coincide con otros documentos.'],
+    [
+      /Multiple addresses are present, and the sex on the INE mismatches other documents\./gi,
+      'Hay multiples domicilios y el sexo que aparece en la INE no coincide con otros documentos.',
+    ],
     [/Multiple addresses are present\./gi, 'Hay multiples domicilios en el expediente.'],
-    [/Employment start date and daily base salary are not clearly defined\./gi, 'La fecha de ingreso y el SBC diario no estan claramente definidos.'],
-    [/Employment start date is not clearly defined\./gi, 'La fecha de ingreso no esta claramente definida.'],
+    [
+      /Employment start date and daily base salary are not clearly defined\./gi,
+      'La fecha de ingreso y el SBC diario no estan claramente definidos.',
+    ],
+    [
+      /Employment start date is not clearly defined\./gi,
+      'La fecha de ingreso no esta claramente definida.',
+    ],
     [/Daily base salary is not clearly defined\./gi, 'El SBC diario no esta claramente definido.'],
     [/Personal data/gi, 'datos personales'],
     [/employment history/gi, 'historial laboral'],
     [/daily base salary/gi, 'SBC diario'],
     [/employment start date/gi, 'fecha de ingreso'],
     [/Multiple addresses/gi, 'Multiples domicilios'],
-    [/The sex on the INE mismatches other documents/gi, 'El sexo que aparece en la INE no coincide con otros documentos'],
-  ]
+    [
+      /The sex on the INE mismatches other documents/gi,
+      'El sexo que aparece en la INE no coincide con otros documentos',
+    ],
+  ];
 
   for (const [pattern, replacement] of replacements) {
-    translated = translated.replace(pattern, replacement)
+    translated = translated.replace(pattern, replacement);
   }
 
-  return translated
+  return translated;
 }
 
 function normalizeStringArray(value: unknown) {
   if (!Array.isArray(value)) {
-    return []
+    return [];
   }
 
-  return value
-    .map((item) => normalizeText(item))
-    .filter((item): item is string => Boolean(item))
+  return value.map((item) => normalizeText(item)).filter((item): item is string => Boolean(item));
 }
 
 function normalizeNumber(value: unknown) {
   if (value === null || value === undefined || value === '') {
-    return null
+    return null;
   }
 
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return value
+    return value;
   }
 
-  const parsed = Number(String(value).replace(/[^0-9.-]+/g, ''))
-  return Number.isFinite(parsed) ? parsed : null
+  const parsed = Number(String(value).replace(/[^0-9.-]+/g, ''));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function normalizeIsoDate(value: unknown) {
-  const normalized = normalizeText(value)
+  const normalized = normalizeText(value);
   if (!normalized) {
-    return null
+    return null;
   }
 
-  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
 }
 
 function extractJsonCandidate(rawText: string) {
-  const trimmed = rawText.trim()
+  const trimmed = rawText.trim();
 
   if (!trimmed) {
-    throw new Error('Gemini no devolvio contenido OCR.')
+    throw new Error('Gemini no devolvio contenido OCR.');
   }
 
-  const fenced = trimmed.match(/```json\s*([\s\S]*?)```/i)
+  const fenced = trimmed.match(/```json\s*([\s\S]*?)```/i);
   if (fenced?.[1]) {
-    return fenced[1].trim()
+    return fenced[1].trim();
   }
 
-  const jsonStart = trimmed.indexOf('{')
-  const jsonEnd = trimmed.lastIndexOf('}')
+  const jsonStart = trimmed.indexOf('{');
+  const jsonEnd = trimmed.lastIndexOf('}');
   if (jsonStart >= 0 && jsonEnd > jsonStart) {
-    return trimmed.slice(jsonStart, jsonEnd + 1)
+    return trimmed.slice(jsonStart, jsonEnd + 1);
   }
 
-  return trimmed
+  return trimmed;
 }
 
 function buildPrompt(expectedDocumentType: string, employeeName?: string | null) {
@@ -304,7 +321,7 @@ function buildPrompt(expectedDocumentType: string, employeeName?: string | null)
       null,
       2
     ),
-  ].join('\n')
+  ].join('\n');
 }
 
 function normalizeGeminiResult(
@@ -313,11 +330,11 @@ function normalizeGeminiResult(
   model: string,
   usage: GeminiOcrExtractionResult['usage']
 ) {
-  const statusRaw = normalizeText(payload.status)?.toLowerCase() ?? 'needs_review'
+  const statusRaw = normalizeText(payload.status)?.toLowerCase() ?? 'needs_review';
   const status: GeminiOcrStatus =
     statusRaw === 'ok' || statusRaw === 'needs_review' || statusRaw === 'unreadable'
       ? statusRaw
-      : 'needs_review'
+      : 'needs_review';
 
   return buildBaseResult({
     provider: 'gemini',
@@ -348,10 +365,14 @@ function normalizeGeminiResult(
     keyDates: normalizeStringArray(payload.keyDates),
     extractedText: normalizeText(payload.extractedText),
     confidenceSummary: translateGeminiNarrative(normalizeText(payload.confidenceSummary)),
-    mismatchHints: normalizeStringArray(payload.mismatchHints).map((item) => translateGeminiNarrative(item) ?? item),
-    observations: normalizeStringArray(payload.observations).map((item) => translateGeminiNarrative(item) ?? item),
+    mismatchHints: normalizeStringArray(payload.mismatchHints).map(
+      (item) => translateGeminiNarrative(item) ?? item
+    ),
+    observations: normalizeStringArray(payload.observations).map(
+      (item) => translateGeminiNarrative(item) ?? item
+    ),
     usage,
-  })
+  });
 }
 
 export async function extractDocumentWithGemini({
@@ -386,7 +407,7 @@ export async function extractDocumentWithGemini({
         thinkingBudget: 0,
       },
     },
-  }
+  };
 
   const response = await fetchImpl(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -398,9 +419,9 @@ export async function extractDocumentWithGemini({
       },
       body: JSON.stringify(body),
     }
-  )
+  );
 
-  const responseJson = (await response.json()) as GeminiApiResponse
+  const responseJson = (await response.json()) as GeminiApiResponse;
 
   if (!response.ok) {
     return buildBaseResult({
@@ -411,31 +432,33 @@ export async function extractDocumentWithGemini({
       errorMessage:
         responseJson?.error?.message ?? `Gemini devolvio HTTP ${response.status} para ${fileName}.`,
       usage: null,
-    })
+    });
   }
 
   const rawText = String(
     responseJson?.candidates?.[0]?.content?.parts
       ?.map((part: { text?: string }) => part?.text ?? '')
       .join('') ?? ''
-  ).trim()
+  ).trim();
 
-  const usageCamel = responseJson?.usageMetadata
-  const usageSnake = responseJson?.usage_metadata
-  const usageSummary = usageCamel || usageSnake
-    ? {
-        promptTokenCount:
-          Number(usageCamel?.promptTokenCount ?? usageSnake?.prompt_token_count ?? 0) || null,
-        candidatesTokenCount:
-          Number(usageCamel?.candidatesTokenCount ?? usageSnake?.candidates_token_count ?? 0) || null,
-        totalTokenCount:
-          Number(usageCamel?.totalTokenCount ?? usageSnake?.total_token_count ?? 0) || null,
-      }
-    : null
+  const usageCamel = responseJson?.usageMetadata;
+  const usageSnake = responseJson?.usage_metadata;
+  const usageSummary =
+    usageCamel || usageSnake
+      ? {
+          promptTokenCount:
+            Number(usageCamel?.promptTokenCount ?? usageSnake?.prompt_token_count ?? 0) || null,
+          candidatesTokenCount:
+            Number(usageCamel?.candidatesTokenCount ?? usageSnake?.candidates_token_count ?? 0) ||
+            null,
+          totalTokenCount:
+            Number(usageCamel?.totalTokenCount ?? usageSnake?.total_token_count ?? 0) || null,
+        }
+      : null;
 
   try {
-    const payload = JSON.parse(extractJsonCandidate(rawText)) as Record<string, unknown>
-    return normalizeGeminiResult(payload, expectedDocumentType, model, usageSummary)
+    const payload = JSON.parse(extractJsonCandidate(rawText)) as Record<string, unknown>;
+    return normalizeGeminiResult(payload, expectedDocumentType, model, usageSummary);
   } catch (error) {
     return buildBaseResult({
       provider: 'gemini',
@@ -444,9 +467,11 @@ export async function extractDocumentWithGemini({
       documentTypeExpected: expectedDocumentType,
       extractedText: rawText || null,
       errorMessage:
-        error instanceof Error ? error.message : 'No fue posible interpretar la respuesta JSON de Gemini.',
+        error instanceof Error
+          ? error.message
+          : 'No fue posible interpretar la respuesta JSON de Gemini.',
       usage: usageSummary,
-    })
+    });
   }
 }
 
@@ -462,8 +487,8 @@ export async function performConfiguredDocumentOcr({
   const resolved = resolveConfiguredOcrConfiguration({
     providerOverride,
     modelOverride,
-  })
-  const provider = resolved.provider
+  });
+  const provider = resolved.provider;
 
   if (!provider) {
     return {
@@ -475,7 +500,7 @@ export async function performConfiguredDocumentOcr({
         documentTypeExpected: expectedDocumentType,
         extractedAt: null,
       }),
-    }
+    };
   }
 
   if (provider !== 'gemini') {
@@ -488,10 +513,10 @@ export async function performConfiguredDocumentOcr({
         documentTypeExpected: expectedDocumentType,
         errorMessage: `OCR_PROVIDER=${provider} todavia no esta implementado.`,
       }),
-    }
+    };
   }
 
-  const apiKey = process.env.GEMINI_API_KEY?.trim()
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     return {
       provider,
@@ -502,7 +527,7 @@ export async function performConfiguredDocumentOcr({
         documentTypeExpected: expectedDocumentType,
         errorMessage: 'Falta GEMINI_API_KEY en el entorno del servidor.',
       }),
-    }
+    };
   }
 
   try {
@@ -514,12 +539,12 @@ export async function performConfiguredDocumentOcr({
       expectedDocumentType,
       employeeName,
       model: resolved.model ?? GEMINI_MODEL,
-    })
+    });
 
     return {
       provider,
       result,
-    }
+    };
   } catch (error) {
     return {
       provider,
@@ -531,42 +556,44 @@ export async function performConfiguredDocumentOcr({
         errorMessage:
           error instanceof Error ? error.message : 'Fallo inesperado al consultar Gemini OCR.',
       }),
-    }
+    };
   }
 }
 
 export function isConfiguredOcrAvailable() {
-  return resolveConfiguredOcrConfiguration().available
+  return resolveConfiguredOcrConfiguration().available;
 }
 
-function normalizeConfiguredProvider(value: string | null | undefined): ConfiguredOcrProvider | null {
-  const normalized = String(value ?? '').trim().toLowerCase()
+function normalizeConfiguredProvider(
+  value: string | null | undefined
+): ConfiguredOcrProvider | null {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
 
   if (!normalized || normalized === 'disabled') {
-    return null
+    return null;
   }
 
-  if (
-    normalized === 'gemini' ||
-    normalized === 'codex' ||
-    normalized === 'antigravity'
-  ) {
-    return normalized
+  if (normalized === 'gemini' || normalized === 'codex' || normalized === 'antigravity') {
+    return normalized;
   }
 
-  return null
+  return null;
 }
 
 export function resolveConfiguredOcrConfiguration(options?: {
-  providerOverride?: string | null
-  modelOverride?: string | null
+  providerOverride?: string | null;
+  modelOverride?: string | null;
 }): ResolvedOcrConfiguration {
   const provider = normalizeConfiguredProvider(
     options?.providerOverride ?? process.env.OCR_PROVIDER?.trim() ?? null
-  )
-  const geminiApiKeyConfigured = Boolean(process.env.GEMINI_API_KEY?.trim())
+  );
+  const geminiApiKeyConfigured = Boolean(process.env.GEMINI_API_KEY?.trim());
   const model =
-    String(options?.modelOverride ?? '').trim() || process.env.GEMINI_OCR_MODEL?.trim() || GEMINI_MODEL
+    String(options?.modelOverride ?? '').trim() ||
+    process.env.GEMINI_OCR_MODEL?.trim() ||
+    GEMINI_MODEL;
 
   if (!provider) {
     return {
@@ -575,7 +602,7 @@ export function resolveConfiguredOcrConfiguration(options?: {
       available: false,
       status: 'disabled',
       geminiApiKeyConfigured,
-    }
+    };
   }
 
   if (provider !== 'gemini') {
@@ -585,7 +612,7 @@ export function resolveConfiguredOcrConfiguration(options?: {
       available: false,
       status: 'unsupported_provider',
       geminiApiKeyConfigured,
-    }
+    };
   }
 
   if (!geminiApiKeyConfigured) {
@@ -595,7 +622,7 @@ export function resolveConfiguredOcrConfiguration(options?: {
       available: false,
       status: 'gemini_missing_api_key',
       geminiApiKeyConfigured,
-    }
+    };
   }
 
   return {
@@ -604,5 +631,5 @@ export function resolveConfiguredOcrConfiguration(options?: {
     available: true,
     status: 'ready',
     geminiApiKeyConfigured,
-  }
+  };
 }

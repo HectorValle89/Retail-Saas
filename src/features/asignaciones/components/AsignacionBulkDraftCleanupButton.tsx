@@ -1,39 +1,39 @@
-'use client'
+'use client';
 
-import { useActionState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { useFormStatus } from 'react-dom'
-import { limpiarTodosLosBorradoresAsignaciones } from '../actions'
-import { ESTADO_ASIGNACION_INICIAL } from '../state'
+import { useActionState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useFormStatus } from 'react-dom';
+import { limpiarTodosLosBorradoresAsignaciones } from '../actions';
+import { ESTADO_ASIGNACION_INICIAL } from '../state';
 
 export function AsignacionBulkDraftCleanupButton({
   total,
   puedeGestionar,
 }: {
-  total: number
-  puedeGestionar: boolean
+  total: number;
+  puedeGestionar: boolean;
 }) {
   const [state, formAction] = useActionState(
     limpiarTodosLosBorradoresAsignaciones,
     ESTADO_ASIGNACION_INICIAL
-  )
-  const router = useRouter()
+  );
+  const router = useRouter();
 
   useEffect(() => {
     if (!state.ok) {
-      return
+      return;
     }
 
     if (state.redirectTo) {
-      router.replace(state.redirectTo)
-      return
+      router.replace(state.redirectTo);
+      return;
     }
 
-    router.refresh()
-  }, [router, state.ok, state.redirectTo])
+    router.refresh();
+  }, [router, state.ok, state.redirectTo]);
 
   if (!puedeGestionar) {
-    return null
+    return null;
   }
 
   return (
@@ -42,12 +42,16 @@ export function AsignacionBulkDraftCleanupButton({
       className="space-y-2"
       onSubmit={(event) => {
         if (total <= 0) {
-          event.preventDefault()
-          return
+          event.preventDefault();
+          return;
         }
 
-        if (!window.confirm(`Se eliminaran ${total} borrador(es) de la cuenta activa. Esta accion no se puede deshacer. Deseas continuar?`)) {
-          event.preventDefault()
+        if (
+          !window.confirm(
+            `Se eliminaran ${total} borrador(es) de la cuenta activa. Esta accion no se puede deshacer. Deseas continuar?`
+          )
+        ) {
+          event.preventDefault();
         }
       }}
     >
@@ -58,11 +62,11 @@ export function AsignacionBulkDraftCleanupButton({
         </p>
       ) : null}
     </form>
-  )
+  );
 }
 
 function SubmitButton({ disabled, total }: { disabled: boolean; total: number }) {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   return (
     <button
@@ -72,5 +76,5 @@ function SubmitButton({ disabled, total }: { disabled: boolean; total: number })
     >
       {pending ? 'Limpiando...' : `Limpiar borrador (${total})`}
     </button>
-  )
+  );
 }

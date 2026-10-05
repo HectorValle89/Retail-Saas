@@ -1,67 +1,69 @@
-const fs = require('node:fs')
-const path = require('node:path')
-const { Client } = require('pg')
+const fs = require('node:fs');
+const path = require('node:path');
+const { Client } = require('pg');
 
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) {
-    return
+    return;
   }
 
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/)
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
   for (const line of lines) {
-    const trimmed = line.trim()
+    const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) {
-      continue
+      continue;
     }
 
-    const separatorIndex = trimmed.indexOf('=')
+    const separatorIndex = trimmed.indexOf('=');
     if (separatorIndex === -1) {
-      continue
+      continue;
     }
 
-    const key = trimmed.slice(0, separatorIndex).trim()
-    const value = trimmed.slice(separatorIndex + 1).trim()
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
 
     if (!process.env[key]) {
-      process.env[key] = value
+      process.env[key] = value;
     }
   }
 }
 
 function requireEnv(name) {
-  const value = process.env[name] ?? null
+  const value = process.env[name] ?? null;
   if (!value) {
-    throw new Error(`Missing required env var: ${name}`)
+    throw new Error(`Missing required env var: ${name}`);
   }
 
-  return value
+  return value;
 }
 
 function toIso(date) {
-  return date.toISOString()
+  return date.toISOString();
 }
 
 function buildDefaultWorkflowMetadata(existingMetadata, pdvIds, nowIso) {
-  const source = existingMetadata && typeof existingMetadata === 'object' ? existingMetadata : {}
-  const approval = source.approval && typeof source.approval === 'object' ? source.approval : {}
+  const source = existingMetadata && typeof existingMetadata === 'object' ? existingMetadata : {};
+  const approval = source.approval && typeof source.approval === 'object' ? source.approval : {};
   const changeRequest =
-    source.changeRequest && typeof source.changeRequest === 'object' ? source.changeRequest : {}
+    source.changeRequest && typeof source.changeRequest === 'object' ? source.changeRequest : {};
   const pdvMonthlyQuotas =
     source.pdvMonthlyQuotas && typeof source.pdvMonthlyQuotas === 'object'
       ? { ...source.pdvMonthlyQuotas }
-      : {}
+      : {};
 
   for (const pdvId of pdvIds) {
     if (!Number.isFinite(Number(pdvMonthlyQuotas[pdvId]))) {
-      pdvMonthlyQuotas[pdvId] = 1
+      pdvMonthlyQuotas[pdvId] = 1;
     }
   }
 
   return {
-    expectedMonthlyVisits:
-      Number.isFinite(Number(source.expectedMonthlyVisits)) ? Number(source.expectedMonthlyVisits) : pdvIds.length,
-    minimumVisitsPerPdv:
-      Number.isFinite(Number(source.minimumVisitsPerPdv)) ? Number(source.minimumVisitsPerPdv) : 1,
+    expectedMonthlyVisits: Number.isFinite(Number(source.expectedMonthlyVisits))
+      ? Number(source.expectedMonthlyVisits)
+      : pdvIds.length,
+    minimumVisitsPerPdv: Number.isFinite(Number(source.minimumVisitsPerPdv))
+      ? Number(source.minimumVisitsPerPdv)
+      : 1,
     pdvMonthlyQuotas,
     approval: {
       state: 'APROBADA',
@@ -80,7 +82,7 @@ function buildDefaultWorkflowMetadata(existingMetadata, pdvIds, nowIso) {
       resolvedAt: changeRequest.resolvedAt ?? null,
       resolvedByUsuarioId: changeRequest.resolvedByUsuarioId ?? null,
     },
-  }
+  };
 }
 
 function buildEmptyChecklist() {
@@ -100,7 +102,7 @@ function buildEmptyChecklist() {
     pronunciacion_reforzada: false,
     feedback_dc_recibida: false,
     cierre_profesional: false,
-  }
+  };
 }
 
 async function fetchSupervisorsAndPdvs(client, emails) {
@@ -124,32 +126,30 @@ async function fetchSupervisorsAndPdvs(client, emails) {
      and ccp.activo = true
     where e.correo_electronico = any($1::text[])
     order by e.correo_electronico asc, p.nombre asc
-  `
+  `;
 
-  const { rows } = await client.query(query, [emails])
-  const grouped = new Map()
+  const { rows } = await client.query(query, [emails]);
+  const grouped = new Map();
 
   for (const row of rows) {
-    const current =
-      grouped.get(row.supervisor_id) ??
-      {
-        supervisorId: row.supervisor_id,
-        supervisorNombre: row.supervisor_nombre,
-        supervisorCorreo: row.supervisor_correo,
-        cuentaClienteId: row.cuenta_cliente_id,
-        pdvs: [],
-      }
+    const current = grouped.get(row.supervisor_id) ?? {
+      supervisorId: row.supervisor_id,
+      supervisorNombre: row.supervisor_nombre,
+      supervisorCorreo: row.supervisor_correo,
+      cuentaClienteId: row.cuenta_cliente_id,
+      pdvs: [],
+    };
 
     current.pdvs.push({
       id: row.pdv_id,
       nombre: row.pdv_nombre,
       claveBtl: row.clave_btl,
-    })
+    });
 
-    grouped.set(row.supervisor_id, current)
+    grouped.set(row.supervisor_id, current);
   }
 
-  return Array.from(grouped.values())
+  return Array.from(grouped.values());
 }
 
 async function upsertRouteForSupervisor(client, supervisor, weekStart, nowIso) {
@@ -163,10 +163,14 @@ async function upsertRouteForSupervisor(client, supervisor, weekStart, nowIso) {
       limit 1
     `,
     [supervisor.supervisorId, weekStart]
-  )
+  );
 
-  const pdvIds = supervisor.pdvs.map((pdv) => pdv.id)
-  const metadata = buildDefaultWorkflowMetadata(existingRoute.rows[0]?.metadata ?? null, pdvIds, nowIso)
+  const pdvIds = supervisor.pdvs.map((pdv) => pdv.id);
+  const metadata = buildDefaultWorkflowMetadata(
+    existingRoute.rows[0]?.metadata ?? null,
+    pdvIds,
+    nowIso
+  );
 
   if (existingRoute.rows[0]) {
     const { rows } = await client.query(
@@ -187,9 +191,9 @@ async function upsertRouteForSupervisor(client, supervisor, weekStart, nowIso) {
         'Ruta test publicada para checklist de visita.',
         JSON.stringify(metadata),
       ]
-    )
+    );
 
-    return rows[0].id
+    return rows[0].id;
   }
 
   const { rows } = await client.query(
@@ -212,9 +216,9 @@ async function upsertRouteForSupervisor(client, supervisor, weekStart, nowIso) {
       'Ruta test publicada para checklist de visita.',
       JSON.stringify(metadata),
     ]
-  )
+  );
 
-  return rows[0].id
+  return rows[0].id;
 }
 
 async function replacePlannedVisits(client, routeId, supervisor, dayNumbers) {
@@ -226,14 +230,14 @@ async function replacePlannedVisits(client, routeId, supervisor, dayNumbers) {
         and dia_semana = any($2::smallint[])
     `,
     [routeId, dayNumbers]
-  )
+  );
 
-  const lockedVisits = existingVisits.rows.filter((row) => row.estatus !== 'PLANIFICADA')
+  const lockedVisits = existingVisits.rows.filter((row) => row.estatus !== 'PLANIFICADA');
   if (lockedVisits.length > 0) {
-    const blockedDays = [...new Set(lockedVisits.map((row) => row.dia_semana))].join(', ')
+    const blockedDays = [...new Set(lockedVisits.map((row) => row.dia_semana))].join(', ');
     throw new Error(
       `No se pudo regenerar la ruta del supervisor ${supervisor.supervisorCorreo} porque ya hay visitas no planificadas en los dias ${blockedDays}.`
-    )
+    );
   }
 
   await client.query(
@@ -243,13 +247,13 @@ async function replacePlannedVisits(client, routeId, supervisor, dayNumbers) {
         and dia_semana = any($2::smallint[])
     `,
     [routeId, dayNumbers]
-  )
+  );
 
-  const checklist = buildEmptyChecklist()
+  const checklist = buildEmptyChecklist();
 
   for (let index = 0; index < dayNumbers.length; index += 1) {
-    const day = dayNumbers[index]
-    const pdv = supervisor.pdvs[index % supervisor.pdvs.length]
+    const day = dayNumbers[index];
+    const pdv = supervisor.pdvs[index % supervisor.pdvs.length];
 
     await client.query(
       `
@@ -276,66 +280,68 @@ async function replacePlannedVisits(client, routeId, supervisor, dayNumbers) {
         day,
         JSON.stringify(checklist),
       ]
-    )
+    );
   }
 }
 
 async function main() {
-  loadEnvFile(path.resolve('.env.local'))
+  loadEnvFile(path.resolve('.env.local'));
 
-  const databaseUrl = requireEnv('DATABASE_URL')
+  const databaseUrl = requireEnv('DATABASE_URL');
   const client = new Client({
     connectionString: databaseUrl,
     ssl: { rejectUnauthorized: false },
-  })
+  });
 
-  const weekStart = '2026-03-23'
-  const plannedDays = [3, 4, 5, 6, 7]
+  const weekStart = '2026-03-23';
+  const plannedDays = [3, 4, 5, 6, 7];
   const supervisorEmails = [
     'test_supervisor_01@fieldforce.test',
     'test_supervisor_02@fieldforce.test',
     'test_supervisor_03@fieldforce.test',
-  ]
+  ];
 
-  await client.connect()
+  await client.connect();
 
   try {
-    const supervisors = await fetchSupervisorsAndPdvs(client, supervisorEmails)
+    const supervisors = await fetchSupervisorsAndPdvs(client, supervisorEmails);
 
     if (supervisors.length !== supervisorEmails.length) {
-      const found = new Set(supervisors.map((item) => item.supervisorCorreo))
-      const missing = supervisorEmails.filter((email) => !found.has(email))
-      throw new Error(`No se encontraron todos los supervisores test. Faltan: ${missing.join(', ')}`)
+      const found = new Set(supervisors.map((item) => item.supervisorCorreo));
+      const missing = supervisorEmails.filter((email) => !found.has(email));
+      throw new Error(
+        `No se encontraron todos los supervisores test. Faltan: ${missing.join(', ')}`
+      );
     }
 
-    const nowIso = toIso(new Date())
-    const summary = []
+    const nowIso = toIso(new Date());
+    const summary = [];
 
-    await client.query('begin')
+    await client.query('begin');
 
     for (const supervisor of supervisors) {
-      const routeId = await upsertRouteForSupervisor(client, supervisor, weekStart, nowIso)
-      await replacePlannedVisits(client, routeId, supervisor, plannedDays)
+      const routeId = await upsertRouteForSupervisor(client, supervisor, weekStart, nowIso);
+      await replacePlannedVisits(client, routeId, supervisor, plannedDays);
 
       summary.push({
         supervisor: supervisor.supervisorCorreo,
         routeId,
         pdvs: supervisor.pdvs.map((pdv) => pdv.nombre),
         plannedDays,
-      })
+      });
     }
 
-    await client.query('commit')
-    console.log(JSON.stringify({ ok: true, weekStart, summary }, null, 2))
+    await client.query('commit');
+    console.log(JSON.stringify({ ok: true, weekStart, summary }, null, 2));
   } catch (error) {
-    await client.query('rollback')
-    throw error
+    await client.query('rollback');
+    throw error;
   } finally {
-    await client.end()
+    await client.end();
   }
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error)
-  process.exit(1)
-})
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});

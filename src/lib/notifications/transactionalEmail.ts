@@ -1,54 +1,56 @@
-import 'server-only'
+import 'server-only';
 
-import { Resend } from 'resend'
-import { readRuntimeEnv } from '@/lib/runtime/env'
+import { Resend } from 'resend';
+import { readRuntimeEnv } from '@/lib/runtime/env';
 
-const ENABLED_VALUES = new Set(['1', 'true', 'yes', 'on', 'enabled'])
-const TRANSACTIONAL_EMAIL_OVERRIDE_TO = 'TRANSACTIONAL_EMAIL_OVERRIDE_TO'
+const ENABLED_VALUES = new Set(['1', 'true', 'yes', 'on', 'enabled']);
+const TRANSACTIONAL_EMAIL_OVERRIDE_TO = 'TRANSACTIONAL_EMAIL_OVERRIDE_TO';
 
 interface TransactionalEmailRecipient {
-  email: string
-  name?: string
+  email: string;
+  name?: string;
 }
 
 interface TransactionalEmailInput {
-  to: TransactionalEmailRecipient
-  subject: string
-  text?: string
-  html?: string
-  attachments?: Record<string, string>
-  headers?: Record<string, string>
-  variables?: Record<string, string | number | boolean | null>
+  to: TransactionalEmailRecipient;
+  subject: string;
+  text?: string;
+  html?: string;
+  attachments?: Record<string, string>;
+  headers?: Record<string, string>;
+  variables?: Record<string, string | number | boolean | null>;
 }
 
 interface ResolvedTransactionalRecipient {
-  email: string
-  name: string
-  originalEmail: string
-  originalName: string
-  routedToOverride: boolean
-  overrideEmail: string | null
+  email: string;
+  name: string;
+  originalEmail: string;
+  originalName: string;
+  routedToOverride: boolean;
+  overrideEmail: string | null;
 }
 
 function normalizeEmail(value: string | null | undefined) {
-  const normalized = value?.trim().toLowerCase() ?? ''
-  return normalized || null
+  const normalized = value?.trim().toLowerCase() ?? '';
+  return normalized || null;
 }
 
 function normalizeRecipientName(value: string | null | undefined, fallback: string) {
-  const normalized = value?.trim() ?? ''
-  return normalized || fallback
+  const normalized = value?.trim() ?? '';
+  return normalized || fallback;
 }
 
-function resolveTransactionalRecipient(input: TransactionalEmailInput): ResolvedTransactionalRecipient {
-  const originalEmail = normalizeEmail(input.to.email)
+function resolveTransactionalRecipient(
+  input: TransactionalEmailInput
+): ResolvedTransactionalRecipient {
+  const originalEmail = normalizeEmail(input.to.email);
 
   if (!originalEmail) {
-    throw new Error('El destinatario del email transaccional no es valido.')
+    throw new Error('El destinatario del email transaccional no es valido.');
   }
 
-  const originalName = normalizeRecipientName(input.to.name, originalEmail)
-  const overrideEmail = normalizeEmail(readRuntimeEnv(TRANSACTIONAL_EMAIL_OVERRIDE_TO))
+  const originalName = normalizeRecipientName(input.to.name, originalEmail);
+  const overrideEmail = normalizeEmail(readRuntimeEnv(TRANSACTIONAL_EMAIL_OVERRIDE_TO));
 
   if (overrideEmail && overrideEmail !== originalEmail) {
     return {
@@ -58,7 +60,7 @@ function resolveTransactionalRecipient(input: TransactionalEmailInput): Resolved
       originalName,
       routedToOverride: true,
       overrideEmail,
-    }
+    };
   }
 
   return {
@@ -68,52 +70,56 @@ function resolveTransactionalRecipient(input: TransactionalEmailInput): Resolved
     originalName,
     routedToOverride: false,
     overrideEmail: null,
-  }
+  };
 }
 
 function mergeCustomHeaders(
   headers: Record<string, string> | undefined,
   extraHeaders: Array<{ name: string; value: string }>
 ) {
-  const normalizedHeaders = new Map<string, string>()
+  const normalizedHeaders = new Map<string, string>();
 
   for (const [name, value] of Object.entries(headers ?? {})) {
-    normalizedHeaders.set(name, value)
+    normalizedHeaders.set(name, value);
   }
 
   for (const header of extraHeaders) {
-    normalizedHeaders.set(header.name, header.value)
+    normalizedHeaders.set(header.name, header.value);
   }
 
-  return Array.from(normalizedHeaders.entries()).map(([name, value]) => ({ name, value }))
+  return Array.from(normalizedHeaders.entries()).map(([name, value]) => ({ name, value }));
 }
 
 export function canSendTransactionalEmail() {
   const emailNotificationsEnabled = readRuntimeEnv('EMAIL_NOTIFICATIONS_ENABLED')
     ?.trim()
-    .toLowerCase()
+    .toLowerCase();
 
   if (!emailNotificationsEnabled || !ENABLED_VALUES.has(emailNotificationsEnabled)) {
-    return false
+    return false;
   }
 
-  return Boolean(readRuntimeEnv('RESEND_API_KEY')?.trim() && readRuntimeEnv('USUARIOS_FROM_EMAIL')?.trim())
+  return Boolean(
+    readRuntimeEnv('RESEND_API_KEY')?.trim() && readRuntimeEnv('USUARIOS_FROM_EMAIL')?.trim()
+  );
 }
 
 export async function sendTransactionalEmail(input: TransactionalEmailInput) {
-  const fromEmail = readRuntimeEnv('USUARIOS_FROM_EMAIL')?.trim()
-  const apiKey = readRuntimeEnv('RESEND_API_KEY')?.trim()
-  const resolvedRecipient = resolveTransactionalRecipient(input)
+  const fromEmail = readRuntimeEnv('USUARIOS_FROM_EMAIL')?.trim();
+  const apiKey = readRuntimeEnv('RESEND_API_KEY')?.trim();
+  const resolvedRecipient = resolveTransactionalRecipient(input);
 
   if (!apiKey || !fromEmail) {
-    throw new Error('El canal de email con Resend no esta configurado (falta API Key o email origen).')
+    throw new Error(
+      'El canal de email con Resend no esta configurado (falta API Key o email origen).'
+    );
   }
 
-  const resend = new Resend(apiKey)
+  const resend = new Resend(apiKey);
 
   const messageHeaders = Object.fromEntries(
     mergeCustomHeaders(input.headers, []).map((header) => [header.name, header.value])
-  )
+  );
 
   if (resolvedRecipient.routedToOverride) {
     Object.assign(
@@ -125,11 +131,11 @@ export async function sendTransactionalEmail(input: TransactionalEmailInput) {
           { name: 'X-Test-Recipient', value: resolvedRecipient.email },
         ]).map((header) => [header.name, header.value])
       )
-    )
+    );
   }
 
   if (input.variables && Object.keys(input.variables).length > 0) {
-    messageHeaders['X-Template-Variables'] = JSON.stringify(input.variables)
+    messageHeaders['X-Template-Variables'] = JSON.stringify(input.variables);
   }
 
   const { error } = await resend.emails.send({
@@ -145,9 +151,9 @@ export async function sendTransactionalEmail(input: TransactionalEmailInput) {
           content,
         }))
       : undefined,
-  })
+  });
 
   if (error) {
-    throw new Error(`Error de Resend: ${error.message}`)
+    throw new Error(`Error de Resend: ${error.message}`);
   }
 }

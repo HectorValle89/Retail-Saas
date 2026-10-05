@@ -1,19 +1,19 @@
-import 'server-only'
+import 'server-only';
 
-import { canSendTransactionalEmail, sendTransactionalEmail } from './transactionalEmail'
-import { renderEmailShell } from './emailShell'
+import { canSendTransactionalEmail, sendTransactionalEmail } from './transactionalEmail';
+import { renderEmailShell } from './emailShell';
 
 export interface WorkflowTransitionEmailRecipient {
-  email: string
-  name: string
+  email: string;
+  name: string;
 }
 
 export interface WorkflowTransitionEmailInput {
-  recipients: WorkflowTransitionEmailRecipient[]
-  subject: string
-  body: string
-  ctaLabel?: string
-  ctaUrl?: string | null
+  recipients: WorkflowTransitionEmailRecipient[];
+  subject: string;
+  body: string;
+  ctaLabel?: string;
+  ctaUrl?: string | null;
 }
 
 function escapeHtml(value: string) {
@@ -22,27 +22,27 @@ function escapeHtml(value: string) {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
+    .replaceAll("'", '&#39;');
 }
 
 function buildEmailText(body: string, ctaLabel?: string, ctaUrl?: string | null) {
-  const lines = [body]
+  const lines = [body];
 
   if (ctaUrl) {
-    lines.push('', `${ctaLabel ?? 'Abrir en Beteele One'}: ${ctaUrl}`)
+    lines.push('', `${ctaLabel ?? 'Abrir en Beteele One'}: ${ctaUrl}`);
   }
 
-  return lines.join('\n')
+  return lines.join('\n');
 }
 
 function buildEmailHtml(subject: string, body: string, ctaLabel?: string, ctaUrl?: string | null) {
-  const contentHtml = `<p style="white-space: pre-wrap;">${escapeHtml(body)}</p>`
-  return renderEmailShell(subject, contentHtml, ctaLabel, ctaUrl)
+  const contentHtml = `<p style="white-space: pre-wrap;">${escapeHtml(body)}</p>`;
+  return renderEmailShell(subject, contentHtml, ctaLabel, ctaUrl);
 }
 
 export async function sendWorkflowTransitionEmail(input: WorkflowTransitionEmailInput) {
   if (!canSendTransactionalEmail()) {
-    return
+    return;
   }
 
   const uniqueRecipients = Array.from(
@@ -55,14 +55,14 @@ export async function sendWorkflowTransitionEmail(input: WorkflowTransitionEmail
         .filter((recipient) => Boolean(recipient.email))
         .map((recipient) => [recipient.email, recipient] as const)
     ).values()
-  )
+  );
 
   if (uniqueRecipients.length === 0) {
-    return
+    return;
   }
 
-  const text = buildEmailText(input.body, input.ctaLabel, input.ctaUrl)
-  const html = buildEmailHtml(input.subject, input.body, input.ctaLabel, input.ctaUrl)
+  const text = buildEmailText(input.body, input.ctaLabel, input.ctaUrl);
+  const html = buildEmailHtml(input.subject, input.body, input.ctaLabel, input.ctaUrl);
 
   await Promise.allSettled(
     uniqueRecipients.map((recipient) =>
@@ -76,5 +76,5 @@ export async function sendWorkflowTransitionEmail(input: WorkflowTransitionEmail
         html,
       })
     )
-  )
+  );
 }

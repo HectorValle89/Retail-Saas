@@ -1,14 +1,14 @@
-import 'server-only'
+import 'server-only';
 
-import type { ActorActual } from '@/lib/auth/session'
+import type { ActorActual } from '@/lib/auth/session';
 import {
   type AccountScopeData,
   type AccountScopeOption,
   getSingleTenantScopeData,
-} from '@/lib/tenant/accountScope'
-import { isSingleTenantBackendEnabled } from '@/lib/tenant/singleTenant'
-import { createServiceClient } from '@/lib/supabase/server'
-import type { CuentaCliente } from '@/types/database'
+} from '@/lib/tenant/accountScope';
+import { isSingleTenantBackendEnabled } from '@/lib/tenant/singleTenant';
+import { createServiceClient } from '@/lib/supabase/server';
+import type { CuentaCliente } from '@/types/database';
 
 function buildDisabledScope(currentAccountId: string | null): AccountScopeData {
   return {
@@ -16,50 +16,48 @@ function buildDisabledScope(currentAccountId: string | null): AccountScopeData {
     currentAccountId,
     currentAccountLabel: currentAccountId ? 'Cuenta seleccionada' : 'Vista global',
     options: [],
-  }
+  };
 }
 
 function buildAdminScope(
   currentAccountId: string | null,
   options: AccountScopeOption[]
 ): AccountScopeData {
-  const current = options.find((item) => item.id === currentAccountId) ?? null
+  const current = options.find((item) => item.id === currentAccountId) ?? null;
 
   return {
     enabled: true,
     currentAccountId: current?.id ?? null,
     currentAccountLabel: current?.nombre ?? 'Vista global',
     options,
-  }
+  };
 }
 
-export async function obtenerAccountScopeData(
-  actor: ActorActual
-): Promise<AccountScopeData> {
+export async function obtenerAccountScopeData(actor: ActorActual): Promise<AccountScopeData> {
   if (isSingleTenantBackendEnabled()) {
-    return getSingleTenantScopeData()
+    return getSingleTenantScopeData();
   }
 
   if (actor.puesto !== 'ADMINISTRADOR') {
-    return buildDisabledScope(actor.cuentaClienteId)
+    return buildDisabledScope(actor.cuentaClienteId);
   }
 
-  let supabase
+  let supabase;
 
   try {
-    supabase = createServiceClient()
+    supabase = createServiceClient();
   } catch {
-    return buildDisabledScope(actor.cuentaClienteId)
+    return buildDisabledScope(actor.cuentaClienteId);
   }
 
   const { data, error } = await supabase
     .from('cuenta_cliente')
     .select('id, identificador, nombre, activa')
     .eq('activa', true)
-    .order('nombre', { ascending: true })
+    .order('nombre', { ascending: true });
 
   if (error) {
-    return buildDisabledScope(actor.cuentaClienteId)
+    return buildDisabledScope(actor.cuentaClienteId);
   }
 
   const options = ((data ?? []) as CuentaCliente[]).map((cuenta) => ({
@@ -67,7 +65,7 @@ export async function obtenerAccountScopeData(
     identificador: cuenta.identificador,
     nombre: cuenta.nombre,
     activa: cuenta.activa,
-  }))
+  }));
 
-  return buildAdminScope(actor.cuentaClienteId, options)
+  return buildAdminScope(actor.cuentaClienteId, options);
 }

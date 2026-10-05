@@ -1,13 +1,16 @@
-import { expect, test } from 'vitest'
-import * as XLSX from 'xlsx'
-import { parseAssignmentCatalogWorkbook } from './assignmentCatalogImport'
-import { buildAssignmentCatalogTemplateWorkbook } from './assignmentCatalogTemplate'
-import { parseDiasLaborales } from './assignmentPlanning'
+import { expect, test } from 'vitest';
+import * as XLSX from 'xlsx';
+import { parseAssignmentCatalogWorkbook } from './assignmentCatalogImport';
+import { buildAssignmentCatalogTemplateWorkbook } from './assignmentCatalogTemplate';
+import { parseDiasLaborales } from './assignmentPlanning';
 
 test('la plantilla oficial del catalogo maestro expone solo los encabezados esperados', () => {
-  const workbook = XLSX.read(buildAssignmentCatalogTemplateWorkbook(), { type: 'buffer', cellDates: true })
-  const sheet = workbook.Sheets[workbook.SheetNames[0]]
-  const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: '' }) as string[][]
+  const workbook = XLSX.read(buildAssignmentCatalogTemplateWorkbook(), {
+    type: 'buffer',
+    cellDates: true,
+  });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: '' }) as string[][];
 
   expect(rows[0]).toEqual([
     'BTL CVE',
@@ -18,11 +21,11 @@ test('la plantilla oficial del catalogo maestro expone solo los encabezados espe
     'DÍAS laborales',
     'DESCANSO',
     'fecha de inicio',
-  ])
-})
+  ]);
+});
 
 test('parsea el catalogo maestro inicial de asignaciones y deduplica filas repetidas', () => {
-  const workbook = XLSX.utils.book_new()
+  const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet([
     {
       'BTL CVE': 'BTL-001',
@@ -58,14 +61,14 @@ test('parsea el catalogo maestro inicial de asignaciones y deduplica filas repet
       'BTL CVE': '',
       IDNOM: '999',
     },
-  ])
+  ]);
 
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Asignaciones')
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
-  const result = parseAssignmentCatalogWorkbook(buffer)
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Asignaciones');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  const result = parseAssignmentCatalogWorkbook(buffer);
 
-  expect(result.skippedRows).toBe(2)
-  expect(result.issues.map((item) => item.code)).toEqual(['FILA_DUPLICADA', 'FILA_SIN_BTL'])
+  expect(result.skippedRows).toBe(2);
+  expect(result.issues.map((item) => item.code)).toEqual(['FILA_DUPLICADA', 'FILA_SIN_BTL']);
   expect(result.rows).toEqual([
     {
       rowNumber: 3,
@@ -97,18 +100,25 @@ test('parsea el catalogo maestro inicial de asignaciones y deduplica filas repet
       fechaInicio: '2026-04-10',
       observaciones: null,
     },
-  ])
-})
+  ]);
+});
 
 test('acepta la nomenclatura compacta y rangos envolventes para dias laborales', () => {
-  expect(parseDiasLaborales('L-M-X-J-V-S').dias).toEqual(['LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB'])
-  expect(parseDiasLaborales('JUE-MAR').dias).toEqual(['LUN', 'MAR', 'JUE', 'VIE', 'SAB', 'DOM'])
-  expect(parseDiasLaborales('LUN-MIER-VIER').dias).toEqual(['LUN', 'MIE', 'VIE'])
-  expect(parseDiasLaborales('M-J-S').dias).toEqual(['MAR', 'JUE', 'SAB'])
-})
+  expect(parseDiasLaborales('L-M-X-J-V-S').dias).toEqual([
+    'LUN',
+    'MAR',
+    'MIE',
+    'JUE',
+    'VIE',
+    'SAB',
+  ]);
+  expect(parseDiasLaborales('JUE-MAR').dias).toEqual(['LUN', 'MAR', 'JUE', 'VIE', 'SAB', 'DOM']);
+  expect(parseDiasLaborales('LUN-MIER-VIER').dias).toEqual(['LUN', 'MIE', 'VIE']);
+  expect(parseDiasLaborales('M-J-S').dias).toEqual(['MAR', 'JUE', 'SAB']);
+});
 
 test('prioriza empleado_id para deduplicar filas aunque existan aliases legacy', () => {
-  const workbook = XLSX.utils.book_new()
+  const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet([
     {
       'BTL CVE': 'BTL-777',
@@ -123,25 +133,25 @@ test('prioriza empleado_id para deduplicar filas aunque existan aliases legacy',
       IDNOM: 'LEG-2',
       OBSERVACIONES: 'Ultima captura',
     },
-  ])
+  ]);
 
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Asignaciones')
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
-  const result = parseAssignmentCatalogWorkbook(buffer)
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Asignaciones');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  const result = parseAssignmentCatalogWorkbook(buffer);
 
-  expect(result.skippedRows).toBe(1)
-  expect(result.issues.map((item) => item.code)).toEqual(['FILA_DUPLICADA'])
+  expect(result.skippedRows).toBe(1);
+  expect(result.issues.map((item) => item.code)).toEqual(['FILA_DUPLICADA']);
   expect(result.rows[0]).toMatchObject({
     claveBtl: 'BTL-777',
     empleadoId: 'emp-777',
     username: 'dc_alias_dos',
     idNomina: 'LEG-2',
     observaciones: 'Ultima captura',
-  })
-})
+  });
+});
 
 test('reporta dias y descansos invalidos del catalogo maestro', () => {
-  const workbook = XLSX.utils.book_new()
+  const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet([
     {
       'BTL CVE': 'BTL-003',
@@ -149,14 +159,14 @@ test('reporta dias y descansos invalidos del catalogo maestro', () => {
       'DÍAS laborales': 'L-Q-Z',
       DESCANSO: 'Q',
     },
-  ])
+  ]);
 
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Asignaciones')
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
-  const result = parseAssignmentCatalogWorkbook(buffer)
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Asignaciones');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  const result = parseAssignmentCatalogWorkbook(buffer);
 
   expect(result.issues.map((item) => item.code)).toEqual([
     'DIAS_LABORALES_INVALIDOS',
     'DESCANSO_INVALIDO',
-  ])
-})
+  ]);
+});

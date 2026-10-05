@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test';
 import {
   evaluarReglasAsignacion,
   evaluarValidacionesAsignacion,
@@ -8,15 +8,15 @@ import {
   type AsignacionValidable,
   type AsignacionValidationContext,
   type SupervisorAsignacionRow,
-} from '../src/features/asignaciones/lib/assignmentValidation'
+} from '../src/features/asignaciones/lib/assignmentValidation';
 
 function createDeterministicRandom(seed: number) {
-  let state = seed >>> 0
+  let state = seed >>> 0;
 
   return () => {
-    state = (state * 1103515245 + 12345) >>> 0
-    return state / 0xffffffff
-  }
+    state = (state * 1103515245 + 12345) >>> 0;
+    return state / 0xffffffff;
+  };
 }
 
 function buildSupervisores(
@@ -25,10 +25,10 @@ function buildSupervisores(
   activo: boolean
 ): SupervisorAsignacionRow[] {
   if (!activo) {
-    return [{ pdv_id: pdvId, activo: false, fecha_fin: referencia }]
+    return [{ pdv_id: pdvId, activo: false, fecha_fin: referencia }];
   }
 
-  return [{ pdv_id: pdvId, activo: true, fecha_fin: null, empleado_id: 'sup-1' }]
+  return [{ pdv_id: pdvId, activo: true, fecha_fin: null, empleado_id: 'sup-1' }];
 }
 
 test('evalua reglas bloqueantes y conserva etiquetas legadas de validacion', () => {
@@ -41,7 +41,7 @@ test('evalua reglas bloqueantes y conserva etiquetas legadas de validacion', () 
     fecha_fin: '2026-03-14',
     dias_laborales: 'LUN,LUN,XXX',
     dia_descanso: 'LUN',
-  }
+  };
 
   const context: AsignacionValidationContext = {
     employee: {
@@ -76,10 +76,10 @@ test('evalua reglas bloqueantes y conserva etiquetas legadas de validacion', () 
     ],
     historicalAssignmentsForPdv: [],
     horariosPorPdv: { 'pdv-1': 0 },
-  }
+  };
 
-  const issues = evaluarReglasAsignacion(asignacion, context)
-  const blockingLabels = evaluarValidacionesAsignacion(asignacion, context)
+  const issues = evaluarReglasAsignacion(asignacion, context);
+  const blockingLabels = evaluarValidacionesAsignacion(asignacion, context);
 
   expect(blockingLabels).toEqual([
     'Sin cuenta cliente',
@@ -93,13 +93,13 @@ test('evalua reglas bloqueantes y conserva etiquetas legadas de validacion', () 
     'Vigencia invalida',
     'Doble asignacion obligatoria',
     'Cuota invalida',
-  ])
-  expect(issues.some((issue) => issue.code === 'DC_SIN_CONTACTO')).toBe(true)
-  expect(issues.some((issue) => issue.code === 'GEOCERCA_FUERA_DE_RANGO')).toBe(true)
-  expect(issues.some((issue) => issue.code === 'PDV_SIN_HORARIOS_SAN_PABLO')).toBe(true)
-  expect(issues.some((issue) => issue.code === 'PRIMERA_ASIGNACION_PDV')).toBe(true)
-  expect(requiereConfirmacionAlertas(issues)).toBe(true)
-})
+  ]);
+  expect(issues.some((issue) => issue.code === 'DC_SIN_CONTACTO')).toBe(true);
+  expect(issues.some((issue) => issue.code === 'GEOCERCA_FUERA_DE_RANGO')).toBe(true);
+  expect(issues.some((issue) => issue.code === 'PDV_SIN_HORARIOS_SAN_PABLO')).toBe(true);
+  expect(issues.some((issue) => issue.code === 'PRIMERA_ASIGNACION_PDV')).toBe(true);
+  expect(requiereConfirmacionAlertas(issues)).toBe(true);
+});
 
 test('separa errores, alertas y avisos sin bloquear guardado por issues no criticos', () => {
   const asignacion: AsignacionValidable = {
@@ -114,7 +114,7 @@ test('separa errores, alertas y avisos sin bloquear guardado por issues no criti
     dias_laborales: 'LUN,MAR,MIE,JUE,VIE,SAB,DOM',
     dia_descanso: null,
     horario_referencia: null,
-  }
+  };
 
   const issues = evaluarReglasAsignacion(asignacion, {
     employee: {
@@ -180,40 +180,35 @@ test('separa errores, alertas y avisos sin bloquear guardado por issues no criti
       },
     ],
     horariosPorPdv: { 'pdv-1': 0 },
-  })
+  });
 
-  const resumen = resumirIssuesAsignacion(issues)
+  const resumen = resumirIssuesAsignacion(issues);
 
-  expect(resumen.errores).toHaveLength(0)
+  expect(resumen.errores).toHaveLength(0);
   expect(resumen.alertas.map((item) => item.code)).toEqual([
     'DC_SIN_CONTACTO',
     'GEOCERCA_FUERA_DE_RANGO',
     'ROTATIVA_SOBRECARGADA',
     'SIN_DESCANSO_SEMANAL',
     'PDV_SIN_HORARIOS_SAN_PABLO',
-  ])
-  expect(resumen.avisos.map((item) => item.code)).toEqual(['CAMBIO_SUPERVISOR'])
-  expect(requiereConfirmacionAlertas(issues)).toBe(true)
-  expect(requiereConfirmacionAlertas(resumen.avisos)).toBe(false)
-})
+  ]);
+  expect(resumen.avisos.map((item) => item.code)).toEqual(['CAMBIO_SUPERVISOR']);
+  expect(requiereConfirmacionAlertas(issues)).toBe(true);
+  expect(requiereConfirmacionAlertas(resumen.avisos)).toBe(false);
+});
 
 test('mantiene invariantes de validacion bloqueante en 250 escenarios pseudoaleatorios', () => {
-  const random = createDeterministicRandom(14145500)
-  const today = new Date().toISOString().slice(0, 10)
+  const random = createDeterministicRandom(14145500);
+  const today = new Date().toISOString().slice(0, 10);
 
   for (let index = 0; index < 250; index += 1) {
-    const pdvId = `pdv-${index}`
-    const fechaInicio = random() > 0.5 ? today : '2026-12-31'
-    const fechaFin =
-      random() > 0.5
-        ? null
-        : random() > 0.5
-          ? fechaInicio
-          : '2026-01-01'
-    const cuentaClienteId = random() > 0.35 ? `cliente-${index}` : null
-    const tieneGeocerca = random() > 0.4
-    const supervisorActivo = random() > 0.45
-    const referencia = obtenerReferenciaValidacion(fechaInicio, today)
+    const pdvId = `pdv-${index}`;
+    const fechaInicio = random() > 0.5 ? today : '2026-12-31';
+    const fechaFin = random() > 0.5 ? null : random() > 0.5 ? fechaInicio : '2026-01-01';
+    const cuentaClienteId = random() > 0.35 ? `cliente-${index}` : null;
+    const tieneGeocerca = random() > 0.4;
+    const supervisorActivo = random() > 0.45;
+    const referencia = obtenerReferenciaValidacion(fechaInicio, today);
 
     const validaciones = evaluarValidacionesAsignacion(
       {
@@ -249,15 +244,17 @@ test('mantiene invariantes de validacion bloqueante en 250 escenarios pseudoalea
         historicalAssignmentsForPdv: [],
         horariosPorPdv: { [pdvId]: 1 },
       }
-    )
+    );
 
-    expect(validaciones.includes('Sin cuenta cliente'), `iteracion ${index}`).toBe(!cuentaClienteId)
-    expect(validaciones.includes('PDV sin geocerca'), `iteracion ${index}`).toBe(!tieneGeocerca)
+    expect(validaciones.includes('Sin cuenta cliente'), `iteracion ${index}`).toBe(
+      !cuentaClienteId
+    );
+    expect(validaciones.includes('PDV sin geocerca'), `iteracion ${index}`).toBe(!tieneGeocerca);
     expect(validaciones.includes('PDV sin supervisor activo'), `iteracion ${index}`).toBe(
       !supervisorActivo
-    )
+    );
     expect(validaciones.includes('Vigencia invalida'), `iteracion ${index}`).toBe(
       Boolean(fechaFin && fechaFin < fechaInicio)
-    )
+    );
   }
-})
+});

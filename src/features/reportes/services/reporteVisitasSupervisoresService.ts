@@ -8,6 +8,7 @@ import { createServiceClient } from '@/lib/supabase/server';
 import type { Empleado, Pdv, RutaSemanal, RutaSemanalVisita } from '@/types/database';
 
 import { buildMonthRange } from './reporteVisitasOperativasService';
+import { parseRutaVisitaWorkflowMetadata } from '@/features/rutas/lib/routeWorkflow';
 
 type MaybeMany<T> = T | T[] | null;
 
@@ -42,6 +43,7 @@ type RutaVisitasSupervisoresVisitRow = Pick<
   | 'checklist_calidad'
   | 'comentarios'
   | 'completada_en'
+  | 'metadata'
 > & {
   pdv: MaybeMany<RutaVisitaPdvRelacion>;
 };
@@ -90,10 +92,16 @@ export interface VisitasSupervisoresItem {
   checklistTotal: number;
   comentarios: string | null;
   completadaEn: string | null;
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  checklistCalidad: Record<string, boolean>;
+  checklistComments: Record<string, string>;
 }
 
 export interface VisitasSupervisoresData {
-  periodo: string;
+  periodo?: string;
+  fechaInicio?: string;
+  fechaFin?: string;
   estadoFiltro: VisitasSupervisoresEstadoFiltro;
   limit: number;
   infraestructuraLista: boolean;
@@ -105,6 +113,8 @@ export interface VisitasSupervisoresData {
 
 interface ObtenerVisitasSupervisoresOptions {
   periodo?: string;
+  fechaInicio?: string;
+  fechaFin?: string;
   supervisorEmpleadoId?: string;
   estadoFiltro?: string;
   limit?: number;
@@ -117,7 +127,7 @@ function normalizeLimit(value?: number) {
     return 25;
   }
 
-  return Math.min(100, Math.max(10, Math.floor(value)));
+  return Math.min(10000, Math.max(10, Math.floor(value)));
 }
 
 function normalizeEstadoFiltro(value?: string | null): VisitasSupervisoresEstadoFiltro {
@@ -137,13 +147,17 @@ function obtenerPrimero<T>(value: MaybeMany<T>) {
 }
 
 function buildDefaultResponse(
-  periodo: string,
+  periodo: string | undefined,
+  fechaInicio: string | undefined,
+  fechaFin: string | undefined,
   estadoFiltro: VisitasSupervisoresEstadoFiltro,
   limit: number,
   message?: string
 ): VisitasSupervisoresData {
   return {
     periodo,
+    fechaInicio,
+    fechaFin,
     estadoFiltro,
     limit,
     infraestructuraLista: message == null,
@@ -171,9 +185,12 @@ function buildCacheKey(
     empleadoId: actor.empleadoId,
     puesto: actor.puesto,
     periodo: options.periodo ?? null,
+    fechaInicio: options.fechaInicio ?? null,
+    fechaFin: options.fechaFin ?? null,
     supervisorEmpleadoId: options.supervisorEmpleadoId ?? null,
     estadoFiltro: normalizeEstadoFiltro(options.estadoFiltro),
     limit: normalizeLimit(options.limit),
+    v: 3,
   });
 }
 
@@ -186,7 +203,7 @@ function buildCacheTags(
     accountId: actor.cuentaClienteId ?? null,
     employeeId: actor.empleadoId,
     supervisorId: options.supervisorEmpleadoId ?? null,
-    period: options.periodo ?? null,
+    period: options.periodo ?? options.fechaInicio ?? null,
   });
 }
 
@@ -346,7 +363,9 @@ export function buildVisitasSupervisoresDetalle(
   routesRaw: RutaVisitasSupervisoresRouteRow[],
   visitsRaw: RutaVisitasSupervisoresVisitRow[],
   options: {
-    periodo: string;
+    periodo?: string;
+    fechaInicio?: string;
+    fechaFin?: string;
     estadoFiltro: VisitasSupervisoresEstadoFiltro;
     limit: number;
   }
@@ -361,8 +380,6 @@ export function buildVisitasSupervisoresDetalle(
     routeMap.set(route.id, route);
   }
 
-  const monthRange = buildMonthRange(options.periodo);
-
   const filteredVisits = visitsRaw.flatMap((visit) => {
     const route = routeMap.get(visit.ruta_semanal_id);
     if (!route) {
@@ -374,12 +391,24 @@ export function buildVisitasSupervisoresDetalle(
     const checklist = getChecklistProgress(visit.checklist_calidad);
     const fechaOperacion = formatOperationDate(route.semana_inicio, visit.dia_semana);
 
-    // Excluir visitas cuya fecha de operacion caiga fuera del mes seleccionado.
-    // Esto ocurre cuando una ruta semanal cruza el limite de mes (ej. ruta del 27/abr
-    // con dia_semana=5 genera fechaOperacion=01/may, que no debe aparecer en Abril).
-    if (fechaOperacion < monthRange.startDate || fechaOperacion >= monthRange.endDateExclusive) {
-      return [];
+    if (options.fechaInicio && options.fechaFin) {
+      if (fechaOperacion < options.fechaInicio || fechaOperacion > options.fechaFin) {
+        return [];
+      }
+    } else {
+      const monthRange = buildMonthRange(options.periodo);
+      if (fechaOperacion < monthRange.startDate || fechaOperacion >= monthRange.endDateExclusive) {
+        return [];
+      }
     }
+
+    const checkInMetadata = (visit.metadata as any)?.checkIn;
+    const checkInAt = checkInMetadata?.at ? String(checkInMetadata.at) : null;
+    const checkOutAt = visit.completada_en;
+
+    const visitWorkflow = parseRutaVisitaWorkflowMetadata(visit.metadata);
+    const checklistCalidad = (visit.checklist_calidad ?? {}) as Record<string, boolean>;
+    const checklistComments = visitWorkflow.checklistComments ?? {};
 
     const item = {
       routeId: route.id,
@@ -405,6 +434,10 @@ export function buildVisitasSupervisoresDetalle(
       checklistTotal: checklist.total,
       comentarios: visit.comentarios,
       completadaEn: visit.completada_en,
+      checkInAt,
+      checkOutAt,
+      checklistCalidad,
+      checklistComments,
     } satisfies VisitasSupervisoresItem;
 
     return [item];
@@ -512,6 +545,8 @@ export function buildVisitasSupervisoresDetalle(
 
   return {
     periodo: options.periodo,
+    fechaInicio: options.fechaInicio,
+    fechaFin: options.fechaFin,
     estadoFiltro: options.estadoFiltro,
     limit: options.limit,
     infraestructuraLista: true,
@@ -613,9 +648,27 @@ async function obtenerVisitasSupervisoresUncached(
   supabase: SupabaseClient,
   options: ObtenerVisitasSupervisoresOptions = {}
 ): Promise<VisitasSupervisoresData> {
-  const range = buildMonthRange(options.periodo);
   const estadoFiltro = normalizeEstadoFiltro(options.estadoFiltro);
   const limit = normalizeLimit(options.limit);
+
+  let startDate: string;
+  let fechaFinParaQuery: string;
+
+  if (options.fechaInicio && options.fechaFin) {
+    startDate = options.fechaInicio;
+    fechaFinParaQuery = options.fechaFin;
+  } else {
+    const range = buildMonthRange(options.periodo);
+    startDate = range.startDate;
+    const endDate = new Date(new Date(`${range.endDateExclusive}T12:00:00Z`).getTime() - 24 * 60 * 60 * 1000);
+    fechaFinParaQuery = endDate.toISOString().slice(0, 10);
+  }
+
+  const searchStartDate = new Date(
+    new Date(`${startDate}T12:00:00Z`).getTime() - 6 * 24 * 60 * 60 * 1000
+  )
+    .toISOString()
+    .slice(0, 10);
 
   let routesQuery = supabase
     .from('ruta_semanal')
@@ -629,10 +682,10 @@ async function obtenerVisitasSupervisoresUncached(
       supervisor:supervisor_empleado_id(id_nomina, nombre_completo, puesto)
     `
     )
-    .gte('semana_inicio', range.startDate)
-    .lt('semana_inicio', range.endDateExclusive)
+    .gte('semana_inicio', searchStartDate)
+    .lte('semana_inicio', fechaFinParaQuery)
     .order('semana_inicio', { ascending: true })
-    .limit(800);
+    .limit(1200);
 
   if (actor.cuentaClienteId) {
     routesQuery = routesQuery.eq('cuenta_cliente_id', actor.cuentaClienteId);
@@ -644,13 +697,13 @@ async function obtenerVisitasSupervisoresUncached(
 
   const { data: routesData, error: routesError } = await routesQuery;
   if (routesError) {
-    return buildDefaultResponse(range.periodo, estadoFiltro, limit, routesError.message);
+    return buildDefaultResponse(options.periodo, options.fechaInicio, options.fechaFin, estadoFiltro, limit, routesError.message);
   }
 
   const routesRaw = (routesData ?? []) as RutaVisitasSupervisoresRouteRow[];
   const routeIds = routesRaw.map((item) => item.id);
   if (routeIds.length === 0) {
-    return buildDefaultResponse(range.periodo, estadoFiltro, limit);
+    return buildDefaultResponse(options.periodo, options.fechaInicio, options.fechaFin, estadoFiltro, limit);
   }
 
   const visitsSelectWithThumbnails = `
@@ -673,6 +726,7 @@ async function obtenerVisitasSupervisoresUncached(
       checklist_calidad,
       comentarios,
       completada_en,
+      metadata,
       pdv:pdv_id(nombre, clave_btl, zona)
     `;
   const visitsSelectBase = `
@@ -691,6 +745,7 @@ async function obtenerVisitasSupervisoresUncached(
       checklist_calidad,
       comentarios,
       completada_en,
+      metadata,
       pdv:pdv_id(nombre, clave_btl, zona)
     `;
 
@@ -709,7 +764,7 @@ async function obtenerVisitasSupervisoresUncached(
   }
 
   if (visitsError) {
-    return buildDefaultResponse(range.periodo, estadoFiltro, limit, visitsError.message);
+    return buildDefaultResponse(options.periodo, options.fechaInicio, options.fechaFin, estadoFiltro, limit, visitsError.message);
   }
 
   const rawVisits = ((visitsData ?? []) as Partial<RutaVisitasSupervisoresVisitRow>[]).map(
@@ -722,7 +777,9 @@ async function obtenerVisitasSupervisoresUncached(
     })
   ) as RutaVisitasSupervisoresVisitRow[];
   const baseData = buildVisitasSupervisoresDetalle(routesRaw, rawVisits, {
-    periodo: range.periodo,
+    periodo: options.periodo,
+    fechaInicio: options.fechaInicio,
+    fechaFin: options.fechaFin,
     estadoFiltro,
     limit,
   });
@@ -731,6 +788,9 @@ async function obtenerVisitasSupervisoresUncached(
 
   return {
     ...hydratedData,
+    periodo: options.periodo ?? `${startDate.slice(0, 7)}`,
+    fechaInicio: options.fechaInicio,
+    fechaFin: options.fechaFin,
     infraestructuraLista: infraestructuraMessage == null,
     mensajeInfraestructura: infraestructuraMessage,
   };

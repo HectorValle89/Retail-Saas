@@ -4,22 +4,22 @@ const path = require('node:path');
 
 function loadEnvFile(filePath, { override = false } = {}) {
   if (!fs.existsSync(filePath)) {
-    return
+    return;
   }
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/)
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
   for (const line of lines) {
-    const trimmed = line.trim()
+    const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) {
-      continue
+      continue;
     }
-    const separatorIndex = trimmed.indexOf('=')
+    const separatorIndex = trimmed.indexOf('=');
     if (separatorIndex === -1) {
-      continue
+      continue;
     }
-    const key = trimmed.slice(0, separatorIndex).trim()
-    const value = trimmed.slice(separatorIndex + 1).trim()
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
     if (override || !process.env[key]) {
-      process.env[key] = value
+      process.env[key] = value;
     }
   }
 }
@@ -54,7 +54,7 @@ async function run() {
     '20260415190000_rpc_transaccional_operativo.sql',
     '20260415194500_rpc_conteo_y_entrega.sql',
     '20260415200000_rpc_asistencia_dc_v3.sql',
-    '20260415201500_rpc_rutas_supervisor_v2.sql'
+    '20260415201500_rpc_rutas_supervisor_v2.sql',
   ];
 
   for (const migration of migrationsToApply) {
@@ -66,29 +66,35 @@ async function run() {
 
     console.log(`Aplicando migracion: ${migration}...`);
     const sql = fs.readFileSync(filePath, 'utf8');
-    
-    // We try to execute the SQL directly via Postgres REST if we have the proxy, 
+
+    // We try to execute the SQL directly via Postgres REST if we have the proxy,
     // or we can use the service role to run it if we have a helper.
-    // But usually we apply migrations via CLI. 
-    // Since I'm an agent, I'll try to use the 'postgresql' tool if available, 
+    // But usually we apply migrations via CLI.
+    // Since I'm an agent, I'll try to use the 'postgresql' tool if available,
     // or I'll just tell Hector he needs to apply them.
-    
+
     // WAIT! I have a 'run_command' tool. I can check if 'supabase' CLI is available.
   }
 }
 
-console.log('--- REGLA DE ORO: No puedo aplicar migraciones a DB remota sin Supabase CLI configurado. ---');
-console.log('Sin embargo, puedo intentar crear la funcion especifica via RPC if "execute_sql_internal" existe.');
+console.log(
+  '--- REGLA DE ORO: No puedo aplicar migraciones a DB remota sin Supabase CLI configurado. ---'
+);
+console.log(
+  'Sin embargo, puedo intentar crear la funcion especifica via RPC if "execute_sql_internal" existe.'
+);
 
 // Let's check if the function exists first by trying to call it with dummy data.
 async function checkFunction() {
-    const { error } = await supabase.rpc('rpc_registrar_accion_ruta_supervisor', { p_datos: {} });
-    if (error && error.message.includes('Could not find the function')) {
-        console.log('CONFIRMADO: La funcion rpc_registrar_accion_ruta_supervisor NO existe en la base de datos.');
-        return false;
-    }
-    console.log('La funcion parece existir (o dio un error distinto al de "no encontrada").');
-    return true;
+  const { error } = await supabase.rpc('rpc_registrar_accion_ruta_supervisor', { p_datos: {} });
+  if (error && error.message.includes('Could not find the function')) {
+    console.log(
+      'CONFIRMADO: La funcion rpc_registrar_accion_ruta_supervisor NO existe en la base de datos.'
+    );
+    return false;
+  }
+  console.log('La funcion parece existir (o dio un error distinto al de "no encontrada").');
+  return true;
 }
 
 checkFunction();

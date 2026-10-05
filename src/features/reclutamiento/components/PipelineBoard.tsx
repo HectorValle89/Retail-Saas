@@ -1,16 +1,15 @@
-import { type ReactNode, useRef } from 'react'
-import type { EmpleadoListadoItem } from '@/features/empleados/services/empleadoService'
-import { StatusPill } from '@/components/ui/status-pill'
+import { useRef } from 'react';
+import type { EmpleadoListadoItem } from '@/features/empleados/services/empleadoService';
+import { StatusPill } from '@/components/ui/status-pill';
 
 export interface PipelineBoardItem<TStage extends string> {
-  id: string
-  stageKey: TStage
-  title: string
-  line1: string
-  line2: string
-  empleado: EmpleadoListadoItem
+  id: string;
+  stageKey: TStage;
+  title: string;
+  line1: string;
+  line2: string;
+  empleado: EmpleadoListadoItem;
 }
-
 
 export function ScrollablePipelineBoard<TStage extends string>({
   title,
@@ -21,25 +20,25 @@ export function ScrollablePipelineBoard<TStage extends string>({
   onOpen,
   emptyFooterLabel,
 }: {
-  title: string
-  subtitle: string
-  stageOrder: TStage[]
-  items: Array<PipelineBoardItem<TStage>>
-  getStageMeta: (stageKey: TStage) => { label: string; description: string; tone: string }
-  onOpen: (empleado: EmpleadoListadoItem) => void
-  emptyFooterLabel: string
+  title: string;
+  subtitle: string;
+  stageOrder: TStage[];
+  items: Array<PipelineBoardItem<TStage>>;
+  getStageMeta: (stageKey: TStage) => { label: string; description: string; tone: string };
+  onOpen: (empleado: EmpleadoListadoItem) => void;
+  emptyFooterLabel: string;
 }) {
-  const boardScrollRef = useRef<HTMLDivElement | null>(null)
+  const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const boardDragRef = useRef({
     active: false,
     moved: false,
     startX: 0,
     scrollLeft: 0,
-  })
+  });
 
   function handleBoardMouseDown(event: React.MouseEvent<HTMLDivElement>) {
     if (!boardScrollRef.current) {
-      return
+      return;
     }
 
     boardDragRef.current = {
@@ -47,34 +46,34 @@ export function ScrollablePipelineBoard<TStage extends string>({
       moved: false,
       startX: event.clientX,
       scrollLeft: boardScrollRef.current.scrollLeft,
-    }
+    };
   }
 
   function handleBoardMouseMove(event: React.MouseEvent<HTMLDivElement>) {
     if (!boardDragRef.current.active || !boardScrollRef.current) {
-      return
+      return;
     }
 
-    const delta = event.clientX - boardDragRef.current.startX
+    const delta = event.clientX - boardDragRef.current.startX;
     if (Math.abs(delta) > 4) {
-      boardDragRef.current.moved = true
+      boardDragRef.current.moved = true;
     }
 
-    boardScrollRef.current.scrollLeft = boardDragRef.current.scrollLeft - delta
+    boardScrollRef.current.scrollLeft = boardDragRef.current.scrollLeft - delta;
   }
 
   function stopBoardDrag() {
-    boardDragRef.current.active = false
+    boardDragRef.current.active = false;
   }
 
   function handleBoardClickCapture(event: React.MouseEvent<HTMLDivElement>) {
     if (!boardDragRef.current.moved) {
-      return
+      return;
     }
 
-    event.preventDefault()
-    event.stopPropagation()
-    boardDragRef.current.moved = false
+    event.preventDefault();
+    event.stopPropagation();
+    boardDragRef.current.moved = false;
   }
 
   return (
@@ -95,8 +94,8 @@ export function ScrollablePipelineBoard<TStage extends string>({
       >
         <div className="flex min-w-max gap-4">
           {stageOrder.map((stageKey) => {
-            const stageMeta = getStageMeta(stageKey)
-            const stageItems = items.filter((item) => item.stageKey === stageKey)
+            const stageMeta = getStageMeta(stageKey);
+            const stageItems = items.filter((item) => item.stageKey === stageKey);
 
             return (
               <div
@@ -137,10 +136,10 @@ export function ScrollablePipelineBoard<TStage extends string>({
                   )}
                 </div>
               </div>
-            )
+            );
           })}
         </div>
       </div>
     </div>
-  )
+  );
 }

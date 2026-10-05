@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties } from 'react';
 
 export type ModuleThemeKey =
   | 'dashboard'
@@ -26,16 +26,17 @@ export type ModuleThemeKey =
   | 'clientes'
   | 'reclutamiento'
   | 'offline'
-  | 'default'
+  | 'evidencias-entregas'
+  | 'default';
 
 export interface ModuleTheme {
-  key: ModuleThemeKey
-  primary: string
-  hover: string
-  softBg: string
-  border: string
-  shadow: string
-  text: string
+  key: ModuleThemeKey;
+  primary: string;
+  hover: string;
+  softBg: string;
+  border: string;
+  shadow: string;
+  text: string;
 }
 
 const moduleBaseColors: Record<ModuleThemeKey, string> = {
@@ -64,52 +65,57 @@ const moduleBaseColors: Record<ModuleThemeKey, string> = {
   clientes: '#9AA6B2',
   reclutamiento: '#7986CB',
   offline: '#94A3B8',
+  'evidencias-entregas': '#38BDF8',
   default: '#2CB67D',
-}
+};
 
 function normalizeHex(hex: string) {
-  const value = hex.trim().replace('#', '')
+  const value = hex.trim().replace('#', '');
   if (value.length === 3) {
     return value
       .split('')
       .map((char) => `${char}${char}`)
-      .join('')
+      .join('');
   }
 
-  return value
+  return value;
 }
 
 function hexToRgb(hex: string) {
-  const normalized = normalizeHex(hex)
-  const value = Number.parseInt(normalized, 16)
+  const normalized = normalizeHex(hex);
+  const value = Number.parseInt(normalized, 16);
 
   return {
     r: (value >> 16) & 255,
     g: (value >> 8) & 255,
     b: value & 255,
-  }
+  };
 }
 
 function clampChannel(value: number) {
-  return Math.max(0, Math.min(255, Math.round(value)))
+  return Math.max(0, Math.min(255, Math.round(value)));
 }
 
 function darken(hex: string, percentage: number) {
-  const { r, g, b } = hexToRgb(hex)
-  const factor = 1 - percentage
+  const { r, g, b } = hexToRgb(hex);
+  const factor = 1 - percentage;
 
   return `#${[r, g, b]
-    .map((channel) => clampChannel(channel * factor).toString(16).padStart(2, '0'))
-    .join('')}`
+    .map((channel) =>
+      clampChannel(channel * factor)
+        .toString(16)
+        .padStart(2, '0')
+    )
+    .join('')}`;
 }
 
 function rgba(hex: string, alpha: number) {
-  const { r, g, b } = hexToRgb(hex)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 export function getModuleTheme(key: ModuleThemeKey): ModuleTheme {
-  const primary = moduleBaseColors[key] ?? moduleBaseColors.default
+  const primary = moduleBaseColors[key] ?? moduleBaseColors.default;
 
   return {
     key,
@@ -119,36 +125,36 @@ export function getModuleTheme(key: ModuleThemeKey): ModuleTheme {
     border: rgba(primary, 0.18),
     shadow: rgba(primary, 0.08),
     text: darken(primary, 0.32),
-  }
+  };
 }
 
 export function resolveModuleThemeKey(pathname: string): ModuleThemeKey {
-  if (pathname === '/' || pathname.startsWith('/dashboard')) return 'dashboard'
-  if (pathname.startsWith('/pdvs')) return 'pdvs'
-  if (pathname.startsWith('/empleados')) return 'empleados'
-  if (pathname.startsWith('/nomina') || pathname.startsWith('/mi-nomina')) return 'nomina'
-  if (pathname.startsWith('/asignaciones')) return 'asignaciones'
-  if (pathname.startsWith('/campanas')) return 'campanas'
-  if (pathname.startsWith('/materiales')) return 'materiales'
-  if (pathname.startsWith('/gastos')) return 'gastos'
-  if (pathname.startsWith('/formaciones')) return 'formaciones'
-  if (pathname.startsWith('/ruta-semanal')) return 'ruta-semanal'
-  if (pathname.startsWith('/asistencias')) return 'asistencias'
-  if (pathname.startsWith('/solicitudes')) return 'solicitudes'
-  if (pathname.startsWith('/reportes')) return 'reportes'
-  if (pathname.startsWith('/mensajes')) return 'mensajes'
-  if (pathname.startsWith('/configuracion')) return 'configuracion'
-  if (pathname.startsWith('/reglas')) return 'reglas'
-  if (pathname.startsWith('/bitacora')) return 'bitacora'
-  if (pathname.startsWith('/admin/users')) return 'usuarios'
-  if (pathname.startsWith('/ranking')) return 'ranking'
-  if (pathname.startsWith('/ranking-publico')) return 'ranking'
-  if (pathname.startsWith('/ventas')) return 'ventas'
-  if (pathname.startsWith('/love-isdin')) return 'love-isdin'
-  if (pathname.startsWith('/clientes')) return 'clientes'
-  if (pathname.startsWith('/reclutamiento')) return 'reclutamiento'
-  if (pathname.startsWith('/offline')) return 'offline'
-  return 'default'
+  if (pathname === '/' || pathname.startsWith('/dashboard')) return 'dashboard';
+  if (pathname.startsWith('/pdvs')) return 'pdvs';
+  if (pathname.startsWith('/empleados')) return 'empleados';
+  if (pathname.startsWith('/nomina') || pathname.startsWith('/mi-nomina')) return 'nomina';
+  if (pathname.startsWith('/asignaciones')) return 'asignaciones';
+  if (pathname.startsWith('/campanas')) return 'campanas';
+  if (pathname.startsWith('/materiales')) return 'materiales';
+  if (pathname.startsWith('/gastos')) return 'gastos';
+  if (pathname.startsWith('/formaciones')) return 'formaciones';
+  if (pathname.startsWith('/ruta-semanal')) return 'ruta-semanal';
+  if (pathname.startsWith('/asistencias')) return 'asistencias';
+  if (pathname.startsWith('/solicitudes')) return 'solicitudes';
+  if (pathname.startsWith('/reportes')) return 'reportes';
+  if (pathname.startsWith('/mensajes')) return 'mensajes';
+  if (pathname.startsWith('/configuracion')) return 'configuracion';
+  if (pathname.startsWith('/reglas')) return 'reglas';
+  if (pathname.startsWith('/bitacora')) return 'bitacora';
+  if (pathname.startsWith('/admin/users')) return 'usuarios';
+  if (pathname.startsWith('/ranking')) return 'ranking';
+  if (pathname.startsWith('/ranking-publico')) return 'ranking';
+  if (pathname.startsWith('/ventas')) return 'ventas';
+  if (pathname.startsWith('/love-isdin')) return 'love-isdin';
+  if (pathname.startsWith('/clientes')) return 'clientes';
+  if (pathname.startsWith('/reclutamiento')) return 'reclutamiento';
+  if (pathname.startsWith('/offline')) return 'offline';
+  return 'default';
 }
 
 export function moduleThemeToStyle(theme: ModuleTheme): CSSProperties {
@@ -160,5 +166,5 @@ export function moduleThemeToStyle(theme: ModuleTheme): CSSProperties {
     '--module-shadow': theme.shadow,
     '--module-text': theme.text,
     '--module-focus-ring': rgba(theme.primary, 0.16),
-  } as CSSProperties
+  } as CSSProperties;
 }

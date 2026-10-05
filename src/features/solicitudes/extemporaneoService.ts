@@ -1,120 +1,123 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { CuentaCliente, Empleado, Pdv, Puesto, RegistroExtemporaneo } from '@/types/database'
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { CuentaCliente, Empleado, Pdv, Puesto, RegistroExtemporaneo } from '@/types/database';
 
-type MaybeMany<T> = T | T[] | null
+type MaybeMany<T> = T | T[] | null;
 
-type CuentaClienteRelacion = Pick<CuentaCliente, 'id' | 'nombre'>
-type EmpleadoRelacion = Pick<Empleado, 'id' | 'nombre_completo' | 'puesto'>
-type PdvRelacion = Pick<Pdv, 'id' | 'nombre' | 'clave_btl'>
+type CuentaClienteRelacion = Pick<CuentaCliente, 'id' | 'nombre'>;
+type EmpleadoRelacion = Pick<Empleado, 'id' | 'nombre_completo' | 'puesto'>;
+type PdvRelacion = Pick<Pdv, 'id' | 'nombre' | 'clave_btl'>;
 
-interface RegistroExtemporaneoQueryRow
-  extends Pick<
-    RegistroExtemporaneo,
-    | 'id'
-    | 'cuenta_cliente_id'
-    | 'empleado_id'
-    | 'supervisor_empleado_id'
-    | 'pdv_id'
-    | 'fecha_operativa'
-    | 'fecha_registro_utc'
-    | 'tipo_registro'
-    | 'estatus'
-    | 'motivo'
-    | 'motivo_rechazo'
-    | 'evidencia_url'
-    | 'evidencia_hash'
-    | 'evidencia_thumbnail_url'
-    | 'evidencia_thumbnail_hash'
-    | 'venta_payload'
-    | 'love_payload'
-    | 'venta_registro_id'
-    | 'love_registro_id'
-    | 'metadata'
-  > {
-  cuenta_cliente: MaybeMany<CuentaClienteRelacion>
-  empleado: MaybeMany<EmpleadoRelacion>
-  supervisor: MaybeMany<EmpleadoRelacion>
-  pdv: MaybeMany<PdvRelacion>
+interface RegistroExtemporaneoQueryRow extends Pick<
+  RegistroExtemporaneo,
+  | 'id'
+  | 'cuenta_cliente_id'
+  | 'empleado_id'
+  | 'supervisor_empleado_id'
+  | 'pdv_id'
+  | 'fecha_operativa'
+  | 'fecha_registro_utc'
+  | 'tipo_registro'
+  | 'estatus'
+  | 'motivo'
+  | 'motivo_rechazo'
+  | 'evidencia_url'
+  | 'evidencia_hash'
+  | 'evidencia_thumbnail_url'
+  | 'evidencia_thumbnail_hash'
+  | 'venta_payload'
+  | 'love_payload'
+  | 'venta_registro_id'
+  | 'love_registro_id'
+  | 'metadata'
+> {
+  cuenta_cliente: MaybeMany<CuentaClienteRelacion>;
+  empleado: MaybeMany<EmpleadoRelacion>;
+  supervisor: MaybeMany<EmpleadoRelacion>;
+  pdv: MaybeMany<PdvRelacion>;
 }
 
 export interface RegistroExtemporaneoResumen {
-  total: number
-  pendientes: number
-  aprobados: number
-  rechazados: number
+  total: number;
+  pendientes: number;
+  aprobados: number;
+  rechazados: number;
 }
 
 export interface RegistroExtemporaneoListadoItem {
-  id: string
-  cuentaClienteId: string
-  cuentaCliente: string | null
-  empleadoId: string
-  empleado: string
-  supervisorId: string | null
-  supervisor: string | null
-  pdvId: string
-  pdv: string | null
-  pdvClaveBtl: string | null
-  fechaOperativa: string
-  fechaRegistroUtc: string
-  tipoRegistro: RegistroExtemporaneo['tipo_registro']
-  estatus: RegistroExtemporaneo['estatus']
-  motivo: string
-  motivoRechazo: string | null
-  evidenciaUrl: string | null
-  evidenciaHash: string | null
-  evidenciaThumbnailUrl: string | null
-  evidenciaThumbnailHash: string | null
-  ventaPayload: Record<string, unknown>
-  lovePayload: Record<string, unknown>
-  recurrenciaMes: number
-  gapDiasRetraso: number
-  requiereAccionActor: boolean
+  id: string;
+  cuentaClienteId: string;
+  cuentaCliente: string | null;
+  empleadoId: string;
+  empleado: string;
+  supervisorId: string | null;
+  supervisor: string | null;
+  pdvId: string;
+  pdv: string | null;
+  pdvClaveBtl: string | null;
+  fechaOperativa: string;
+  fechaRegistroUtc: string;
+  tipoRegistro: RegistroExtemporaneo['tipo_registro'];
+  estatus: RegistroExtemporaneo['estatus'];
+  motivo: string;
+  motivoRechazo: string | null;
+  evidenciaUrl: string | null;
+  evidenciaHash: string | null;
+  evidenciaThumbnailUrl: string | null;
+  evidenciaThumbnailHash: string | null;
+  ventaPayload: Record<string, unknown>;
+  lovePayload: Record<string, unknown>;
+  recurrenciaMes: number;
+  gapDiasRetraso: number;
+  requiereAccionActor: boolean;
 }
 
 const getFirst = <T>(value: MaybeMany<T>): T | null => {
   if (!value) {
-    return null
+    return null;
   }
 
-  return Array.isArray(value) ? value[0] ?? null : value
-}
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+};
 
 function normalizeMetadata(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {}
+    return {};
   }
 
-  return value as Record<string, unknown>
+  return value as Record<string, unknown>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TypedSupabaseClient = SupabaseClient<any>
+type TypedSupabaseClient = SupabaseClient<any>;
 
 function getMonthRange(date: string) {
-  const [yearRaw, monthRaw] = date.split('-')
-  const year = Number(yearRaw)
-  const monthIndex = Number(monthRaw) - 1
+  const [yearRaw, monthRaw] = date.split('-');
+  const year = Number(yearRaw);
+  const monthIndex = Number(monthRaw) - 1;
   return {
     start: new Date(Date.UTC(year, monthIndex, 1)).toISOString().slice(0, 10),
     end: new Date(Date.UTC(year, monthIndex + 1, 0)).toISOString().slice(0, 10),
-  }
+  };
 }
 
-function canActorResolve(actorPuesto: Puesto | null, actorEmpleadoId: string | null | undefined, row: RegistroExtemporaneoQueryRow) {
+function canActorResolve(
+  actorPuesto: Puesto | null,
+  actorEmpleadoId: string | null | undefined,
+  row: RegistroExtemporaneoQueryRow
+) {
   if (row.estatus !== 'PENDIENTE_APROBACION') {
-    return false
+    return false;
   }
 
   if (actorPuesto === 'ADMINISTRADOR') {
-    return true
+    return true;
   }
 
   if (actorPuesto === 'SUPERVISOR' && actorEmpleadoId) {
-    return row.supervisor_empleado_id === actorEmpleadoId
+    return row.supervisor_empleado_id === actorEmpleadoId;
   }
 
-  return false
+  return false;
 }
 
 function mapItem(
@@ -123,7 +126,7 @@ function mapItem(
   actorEmpleadoId: string | null | undefined,
   recurrenceByEmployee: Map<string, number>
 ): RegistroExtemporaneoListadoItem {
-  const metadata = normalizeMetadata(row.metadata)
+  const metadata = normalizeMetadata(row.metadata);
   return {
     id: row.id,
     cuentaClienteId: row.cuenta_cliente_id,
@@ -147,10 +150,11 @@ function mapItem(
     evidenciaThumbnailHash: row.evidencia_thumbnail_hash,
     ventaPayload: normalizeMetadata(row.venta_payload),
     lovePayload: normalizeMetadata(row.love_payload),
-    recurrenciaMes: recurrenceByEmployee.get(row.empleado_id) ?? Number(metadata.recurrencia_mes ?? 0),
+    recurrenciaMes:
+      recurrenceByEmployee.get(row.empleado_id) ?? Number(metadata.recurrencia_mes ?? 0),
     gapDiasRetraso: Number(metadata.gap_dias_retraso ?? 0),
     requiereAccionActor: canActorResolve(actorPuesto, actorEmpleadoId, row),
-  }
+  };
 }
 
 export async function obtenerRegistrosExtemporaneosPanel(
@@ -160,19 +164,20 @@ export async function obtenerRegistrosExtemporaneosPanel(
     actorEmpleadoId,
     tiposRegistro,
   }: {
-    actorPuesto?: Puesto | null
-    actorEmpleadoId?: string | null
-    tiposRegistro?: RegistroExtemporaneo['tipo_registro'][]
+    actorPuesto?: Puesto | null;
+    actorEmpleadoId?: string | null;
+    tiposRegistro?: RegistroExtemporaneo['tipo_registro'][];
   }
 ): Promise<{
-  infraestructuraLista: boolean
-  mensajeInfraestructura?: string
-  resumen: RegistroExtemporaneoResumen
-  registros: RegistroExtemporaneoListadoItem[]
+  infraestructuraLista: boolean;
+  mensajeInfraestructura?: string;
+  resumen: RegistroExtemporaneoResumen;
+  registros: RegistroExtemporaneoListadoItem[];
 }> {
   let query = client
     .from('registro_extemporaneo')
-    .select(`
+    .select(
+      `
       id,
       cuenta_cliente_id,
       empleado_id,
@@ -197,15 +202,16 @@ export async function obtenerRegistrosExtemporaneosPanel(
       empleado:empleado_id(id, nombre_completo, puesto),
       supervisor:supervisor_empleado_id(id, nombre_completo, puesto),
       pdv:pdv_id(id, nombre, clave_btl)
-    `)
+    `
+    )
     .order('fecha_operativa', { ascending: false })
-    .limit(100)
+    .limit(100);
 
   if (tiposRegistro && tiposRegistro.length > 0) {
-    query = query.in('tipo_registro', tiposRegistro)
+    query = query.in('tipo_registro', tiposRegistro);
   }
 
-  const result = await query
+  const result = await query;
 
   if (result.error) {
     return {
@@ -218,30 +224,39 @@ export async function obtenerRegistrosExtemporaneosPanel(
         rechazados: 0,
       },
       registros: [],
-    }
+    };
   }
 
-  const rows = (result.data ?? []) as RegistroExtemporaneoQueryRow[]
-  const recurrenceByEmployee = new Map<string, number>()
-  const employeeIds = Array.from(new Set(rows.map((row) => row.empleado_id))).filter(Boolean)
+  const rows = (result.data ?? []) as RegistroExtemporaneoQueryRow[];
+  const recurrenceByEmployee = new Map<string, number>();
+  const employeeIds = Array.from(new Set(rows.map((row) => row.empleado_id))).filter(Boolean);
 
   if (employeeIds.length > 0) {
-    const currentMonthStart = getMonthRange(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date())).start
-    const currentMonthEnd = getMonthRange(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date())).end
+    const currentMonthStart = getMonthRange(
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date())
+    ).start;
+    const currentMonthEnd = getMonthRange(
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date())
+    ).end;
     const recurrenceResult = await client
       .from('registro_extemporaneo')
       .select('empleado_id, fecha_operativa')
       .in('empleado_id', employeeIds)
       .gte('fecha_operativa', currentMonthStart)
-      .lte('fecha_operativa', currentMonthEnd)
+      .lte('fecha_operativa', currentMonthEnd);
 
-    const recurrenceRows = (recurrenceResult.data ?? []) as Array<{ empleado_id: string }>
+    const recurrenceRows = (recurrenceResult.data ?? []) as Array<{ empleado_id: string }>;
     for (const row of recurrenceRows) {
-      recurrenceByEmployee.set(row.empleado_id, (recurrenceByEmployee.get(row.empleado_id) ?? 0) + 1)
+      recurrenceByEmployee.set(
+        row.empleado_id,
+        (recurrenceByEmployee.get(row.empleado_id) ?? 0) + 1
+      );
     }
   }
 
-  const registros = rows.map((row) => mapItem(row, actorPuesto ?? null, actorEmpleadoId, recurrenceByEmployee))
+  const registros = rows.map((row) =>
+    mapItem(row, actorPuesto ?? null, actorEmpleadoId, recurrenceByEmployee)
+  );
 
   return {
     infraestructuraLista: true,
@@ -252,5 +267,5 @@ export async function obtenerRegistrosExtemporaneosPanel(
       rechazados: registros.filter((item) => item.estatus === 'RECHAZADO').length,
     },
     registros,
-  }
+  };
 }

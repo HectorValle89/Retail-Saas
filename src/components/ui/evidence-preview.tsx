@@ -1,27 +1,27 @@
-'use client'
+'use client';
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useId, useState } from 'react'
-import { lockBodyScroll } from '@/lib/ui/bodyScrollLock'
+import { useEffect, useId, useState } from 'react';
+import { lockBodyScroll } from '@/lib/ui/bodyScrollLock';
 
 function getFileExtension(url: string | null) {
   if (!url) {
-    return null
+    return null;
   }
 
   try {
-    const parsedUrl = new URL(url)
-    const segments = parsedUrl.pathname.split('/')
-    const lastSegment = segments[segments.length - 1] ?? ''
-    return lastSegment.split('.').pop()?.toLowerCase() ?? null
+    const parsedUrl = new URL(url);
+    const segments = parsedUrl.pathname.split('/');
+    const lastSegment = segments[segments.length - 1] ?? '';
+    return lastSegment.split('.').pop()?.toLowerCase() ?? null;
   } catch {
-    const sanitizedUrl = url.split('?')[0] ?? url
-    return sanitizedUrl.split('.').pop()?.toLowerCase() ?? null
+    const sanitizedUrl = url.split('?')[0] ?? url;
+    return sanitizedUrl.split('.').pop()?.toLowerCase() ?? null;
   }
 }
 
 function isImageExtension(extension: string | null) {
-  return extension === 'jpg' || extension === 'jpeg' || extension === 'png' || extension === 'webp'
+  return extension === 'jpg' || extension === 'jpeg' || extension === 'png' || extension === 'webp';
 }
 
 function isHeavyDocument(extension: string | null) {
@@ -34,14 +34,14 @@ function isHeavyDocument(extension: string | null) {
     extension === 'ppt' ||
     extension === 'pptx' ||
     extension === 'zip'
-  )
+  );
 }
 
 interface EvidencePreviewProps {
-  url: string | null
-  label: string
-  hash?: string | null
-  emptyLabel?: string
+  url: string | null;
+  label: string;
+  hash?: string | null;
+  emptyLabel?: string;
 }
 
 export function EvidencePreview({
@@ -50,22 +50,22 @@ export function EvidencePreview({
   hash,
   emptyLabel = 'Sin evidencia',
 }: EvidencePreviewProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const dialogId = useId()
-  const extension = getFileExtension(url)
-  const isImage = isImageExtension(extension)
-  const isHeavy = isHeavyDocument(extension)
+  const [isOpen, setIsOpen] = useState(false);
+  const dialogId = useId();
+  const extension = getFileExtension(url);
+  const isImage = isImageExtension(extension);
+  const isHeavy = isHeavyDocument(extension);
 
   useEffect(() => {
     if (!isOpen) {
-      return
+      return;
     }
 
-    return lockBodyScroll()
-  }, [isOpen])
+    return lockBodyScroll();
+  }, [isOpen]);
 
   if (!url) {
-    return <span className="text-xs text-slate-400">{emptyLabel}</span>
+    return <span className="text-xs text-slate-400">{emptyLabel}</span>;
   }
 
   return (
@@ -146,7 +146,8 @@ export function EvidencePreview({
                 <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
                   <p className="font-medium text-slate-900">Documento disponible</p>
                   <p className="mt-2">
-                    Este tipo de archivo no genera miniatura ligera en tabla. Abre el original desde el boton superior.
+                    Este tipo de archivo no genera miniatura ligera en tabla. Abre el original desde
+                    el boton superior.
                   </p>
                 </div>
               )}
@@ -155,5 +156,5 @@ export function EvidencePreview({
         </div>
       )}
     </>
-  )
+  );
 }

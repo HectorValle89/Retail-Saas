@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { requerirActorActivo } from '@/lib/auth/session';
 import { publishUiChanges } from '@/lib/ui-change/server';
 import {
@@ -30,7 +31,6 @@ import {
   parseRutaSemanalWorkflowMetadata,
   parseRutaVisitaWorkflowMetadata,
   serializeRutaSemanalWorkflowMetadata,
-  serializeRutaVisitaWorkflowMetadata,
   type RutaApprovalState,
   type RutaChangeRequestType,
 } from './lib/routeWorkflow';
@@ -50,19 +50,33 @@ import {
 } from '@/lib/storage/directR2Server';
 import {
   notificarRutaEnviada,
+  notificarRutaMensualEnviada,
   notificarRutaAprobada,
   notificarRutaRechazada,
   notificarCambioRutaSolicitado,
   notificarCambioRutaResuelto,
   notificarAgendaEventoCreado,
   notificarAgendaEventoResuelto,
+  notificarRutasMesGestionadas,
+  notificarRutaMensualCambiosSolicitados,
 } from '@/lib/notifications/workflows/rutaSemanalEmail';
 import { isRouteDuplicateError } from './lib/routeSaveErrors';
 import {
   buildWeeklyRouteVisitSyncPlan,
   type RouteWeeklyPlanDraftVisit,
-  type RouteWeeklyPlanExistingVisit,
 } from './lib/routeWeeklyPlan';
+import { normalizeQuotaMonthStart } from './lib/recurringVisitQuotas';
+import {
+  normalizeRutaMesManagementMonth,
+  normalizeRutaMesManagementSummary,
+  type RutaMesManagementAction,
+  type RutaMesManagementSummary,
+} from './lib/monthlyRouteManagement';
+import { calcularDistanciaMetros } from '@/features/asistencias/lib/attendanceCapture';
+import {
+  normalizeMonthlyRouteSubmission,
+  normalizeMonthlyRouteSubmissionResult,
+} from './lib/monthlyRouteSubmission';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TypedSupabaseClient = SupabaseClient<any>;
@@ -216,6 +230,60 @@ async function publishRutaSemanalUiChanges(
         supervisorScopes,
         managerScopes,
         modules: ['solicitudes'],
+      })
+    );
+  }
+
+  await publishUiChanges(targets, { service });
+}
+
+async function publishRutaMensualUiChanges(
+  actor: Awaited<ReturnType<typeof requerirActorActivo>>,
+  service: TypedSupabaseClient,
+  {
+    cuentaClienteId,
+    supervisorIds,
+    eventType,
+    monthStart,
+  }: {
+    cuentaClienteId: string;
+    supervisorIds: string[];
+    eventType: string;
+    monthStart: string;
+  }
+) {
+  const metadata = {
+    periodo: monthStart,
+    month: monthStart.slice(0, 7),
+  };
+  const targets = buildRutaScopedTargets({
+    eventType,
+    cuentaClienteId,
+    empleadoId: actor.empleadoId,
+    supervisorEmpleadoId: null,
+    metadata,
+    supervisorScopes: [],
+    managerScopes: compactUiScopes([
+      buildUiChangeScope('cuenta', cuentaClienteId),
+      buildUiChangeScope('periodo', monthStart),
+    ]),
+    modules: ['ruta-semanal'],
+  });
+
+  for (const supervisorId of supervisorIds) {
+    targets.push(
+      ...buildRutaScopedTargets({
+        eventType,
+        cuentaClienteId,
+        empleadoId: supervisorId,
+        supervisorEmpleadoId: supervisorId,
+        metadata,
+        supervisorScopes: compactUiScopes([
+          buildUiChangeScope('empleado', supervisorId),
+          buildUiChangeScope('supervisor', supervisorId),
+        ]),
+        managerScopes: [],
+        modules: ['ruta-semanal'],
       })
     );
   }
@@ -592,11 +660,31 @@ type AsignacionQuotaBaseRow = {
   supervisor_empleado_id: string;
 };
 
+function isEffectiveOnDate(
+  row: { fecha_inicio: string; fecha_fin: string | null },
+  dateIso: string
+) {
+  return (
+    row.fecha_inicio.slice(0, 10) <= dateIso &&
+    (!row.fecha_fin || row.fecha_fin.slice(0, 10) >= dateIso)
+  );
+}
+
 async function requerirCoordinadorRuta() {
   const actor = await requerirActorActivo();
 
   if (actor.puesto !== 'COORDINADOR' && actor.puesto !== 'ADMINISTRADOR') {
-    throw new Error('Solo COORDINADOR o ADMINISTRADOR pueden revisar rutas.');
+    throw new Error('Solo COORDINADOR o ADMINISTRADOR puede aprobar o resolver rutas.');
+  }
+
+  return actor;
+}
+
+async function requerirGestorCuotasRuta() {
+  const actor = await requerirActorActivo();
+
+  if (actor.puesto !== 'COORDINADOR' && actor.puesto !== 'ADMINISTRADOR') {
+    throw new Error('Solo ADMINISTRADOR o COORDINADOR puede gestionar cuotas de visitas.');
   }
 
   return actor;
@@ -1158,7 +1246,6 @@ export async function guardarPlaneacionRutaSemanalCanvas(
     const semanaInicio = normalizeWeekStart(String(formData.get('semana_inicio') ?? '').trim());
     const rawPlan = String(formData.get('route_plan_json') ?? '[]').trim();
     const visits = parseRouteCanvasPayload(rawPlan);
-    const semanaFin = getWeekEndIso(semanaInicio);
     const editableWeekStart = getWeekStartIso();
 
     if (semanaInicio < editableWeekStart) {
@@ -1232,74 +1319,50 @@ export async function guardarPlaneacionRutaSemanalCanvas(
       return buildState({ message: supervisorPdvsError.message });
     }
 
-    const activeAssignments = new Map<
-      string,
-      {
-        id: string;
-        cuenta_cliente_id: string;
-      }
-    >();
-
-    for (const assignment of asignaciones ?? []) {
-      if (
-        assignment.estado_publicacion === 'PUBLICADA' &&
-        isAssignmentActiveForWeek(assignment, semanaInicio, semanaFin) &&
-        assignment.cuenta_cliente_id &&
-        !activeAssignments.has(assignment.pdv_id)
-      ) {
-        activeAssignments.set(assignment.pdv_id, {
-          id: assignment.id,
-          cuenta_cliente_id: assignment.cuenta_cliente_id,
-        });
-      }
-    }
-
-    const supervisorOwnedPdvs = new Set(
-      (supervisorPdvs ?? [])
-        .filter((relation) => relation.activo)
-        .filter((relation) => {
-          const relationStart = relation.fecha_inicio.slice(0, 10);
-          const relationEnd = relation.fecha_fin ? relation.fecha_fin.slice(0, 10) : null;
-          const normalizedWeekStart = semanaInicio.slice(0, 10);
-          const normalizedWeekEnd = semanaFin.slice(0, 10);
-
-          if (relationStart > normalizedWeekEnd) {
-            return false;
-          }
-
-          if (relationEnd && relationEnd < normalizedWeekStart) {
-            return false;
-          }
-
-          return true;
-        })
-        .map((relation) => relation.pdv_id)
-    );
-
-    const missingPdv = pdvIds.find(
-      (pdvId) => !activeAssignments.has(pdvId) && !supervisorOwnedPdvs.has(pdvId)
-    );
-    if (missingPdv) {
+    const findAssignmentForDate = (pdvId: string, dateIso: string) =>
+      (asignaciones ?? []).find(
+        (assignment) =>
+          assignment.pdv_id === pdvId &&
+          assignment.estado_publicacion === 'PUBLICADA' &&
+          Boolean(assignment.cuenta_cliente_id) &&
+          isEffectiveOnDate(assignment, dateIso)
+      ) ?? null;
+    const isSupervisorOwnerOnDate = (pdvId: string, dateIso: string) =>
+      (supervisorPdvs ?? []).some(
+        (relation) =>
+          relation.pdv_id === pdvId && relation.activo && isEffectiveOnDate(relation, dateIso)
+      );
+    const invalidVisit = visits.find((visit) => {
+      const operationDate = getWeekDateIso(semanaInicio, visit.day);
+      return (
+        !findAssignmentForDate(visit.pdvId, operationDate) &&
+        !isSupervisorOwnerOnDate(visit.pdvId, operationDate)
+      );
+    });
+    if (invalidVisit) {
       const { data: pdvData } = await supabase
         .from('pdv')
         .select('nombre, clave_btl')
-        .eq('id', missingPdv)
+        .eq('id', invalidVisit.pdvId)
         .maybeSingle();
 
       const pdvLabel = pdvData
         ? `"${pdvData.nombre}" (${pdvData.clave_btl})`
-        : `con ID ${missingPdv}`;
+        : `con ID ${invalidVisit.pdvId}`;
+      const invalidDate = getWeekDateIso(semanaInicio, invalidVisit.day);
 
       return buildState({
-        message: `El punto de venta ${pdvLabel} ya no pertenece al supervisor para esta semana. Por favor, retíralo de tu borrador e intenta de nuevo.`,
+        message: `El punto de venta ${pdvLabel} no pertenece al supervisor el ${invalidDate}. Retíralo de ese día o cambia la fecha de la visita.`,
       });
     }
 
+    const firstVisitDate = visits[0] ? getWeekDateIso(semanaInicio, visits[0].day) : null;
+    const firstVisitAssignment =
+      visits[0] && firstVisitDate ? findAssignmentForDate(visits[0].pdvId, firstVisitDate) : null;
     const cuentaClienteId =
       rutaExistente?.cuenta_cliente_id ??
-      (visits[0]
-        ? (activeAssignments.get(visits[0].pdvId)?.cuenta_cliente_id ?? actor.cuentaClienteId)
-        : actor.cuentaClienteId);
+      firstVisitAssignment?.cuenta_cliente_id ??
+      actor.cuentaClienteId;
 
     if (!cuentaClienteId) {
       return buildState({
@@ -1436,9 +1499,10 @@ export async function guardarPlaneacionRutaSemanalCanvas(
       const dayItems = (visits ?? []).filter((v) => v.day === day);
 
       for (const visit of dayItems) {
-        const assignment = activeAssignments.get(visit.pdvId);
+        const operationDate = getWeekDateIso(semanaInicio, day);
+        const assignment = findAssignmentForDate(visit.pdvId, operationDate);
 
-        if (!assignment && !supervisorOwnedPdvs.has(visit.pdvId)) {
+        if (!assignment && !isSupervisorOwnerOnDate(visit.pdvId, operationDate)) {
           continue;
         }
 
@@ -1463,7 +1527,7 @@ export async function guardarPlaneacionRutaSemanalCanvas(
     if (insertVisits.length > 0) {
       const { error: insertError } = await supabase.from('ruta_semanal_visita').upsert(
         insertVisits.map((v) => {
-          const assignment = activeAssignments.get(v.pdvId);
+          const assignment = findAssignmentForDate(v.pdvId, getWeekDateIso(semanaInicio, v.day));
 
           return {
             ruta_semanal_id: rutaId,
@@ -1542,42 +1606,106 @@ export async function guardarPlaneacionRutaMensualCanvas(
   formData: FormData
 ): Promise<RutaActionState> {
   try {
-    const rawMonthPlans = String(formData.get('month_plans_json') ?? '').trim();
-    if (!rawMonthPlans) {
-      return guardarPlaneacionRutaSemanalCanvas(_prevState, formData);
+    const actor = await requerirSupervisorRutaEditable();
+    const planningMonth = String(formData.get('planning_month') ?? '').trim();
+    const rawPlan = String(formData.get('month_plan_json') ?? '').trim();
+    const expectedRevisionRaw = String(formData.get('expected_revision') ?? '').trim();
+
+    if (!actor.cuentaClienteId) {
+      return buildState({ message: 'Tu sesión no tiene una cuenta cliente para enviar la ruta.' });
+    }
+    if (!rawPlan) {
+      return buildState({ message: 'Agrega al menos una visita antes de enviar la ruta mensual.' });
     }
 
-    let parsedPlans: Record<string, unknown> = {};
-    try {
-      parsedPlans = JSON.parse(rawMonthPlans);
-    } catch {
-      return buildState({ message: 'El formato de planificación mensual no es válido.' });
+    const visits = normalizeMonthlyRouteSubmission(rawPlan, planningMonth);
+    if (visits.length === 0) {
+      return buildState({ message: 'Agrega al menos una visita antes de enviar la ruta mensual.' });
     }
 
-    const weekEntries = Object.entries(parsedPlans);
-    if (weekEntries.length === 0) {
-      return buildState({ ok: true, message: 'No hay semanas que guardar en el mes de planificación.' });
+    const expectedRevision = expectedRevisionRaw ? Number(expectedRevisionRaw) : null;
+    if (
+      expectedRevision !== null &&
+      (!Number.isInteger(expectedRevision) || expectedRevision < 1)
+    ) {
+      return buildState({ message: 'La revisión mensual enviada no es válida.' });
     }
 
-    let savedWeeksCount = 0;
-    for (const [weekStart, rawVisits] of weekEntries) {
-      const singleWeekFormData = new FormData();
-      singleWeekFormData.set('semana_inicio', weekStart);
-      singleWeekFormData.set('route_plan_json', JSON.stringify(rawVisits));
+    const service = createServiceClient() as TypedSupabaseClient;
+    const { data, error } = await service.rpc('rpc_guardar_ruta_mensual', {
+      p_cuenta_cliente_id: actor.cuentaClienteId,
+      p_supervisor_empleado_id: actor.empleadoId,
+      p_mes: `${planningMonth}-01`,
+      p_usuario_id: actor.usuarioId,
+      p_visitas: visits,
+      p_revision_esperada: expectedRevision,
+    });
 
-      const result = await guardarPlaneacionRutaSemanalCanvas(_prevState, singleWeekFormData);
-      if (result.ok) {
-        savedWeeksCount += 1;
-      }
+    if (error) {
+      const knownMessages: Array<[string, string]> = [
+        [
+          'RUTA_MENSUAL_CAMBIO_CONCURRENTE',
+          'La ruta cambió desde que abriste el mes. Actualiza la pantalla y vuelve a revisar antes de enviar.',
+        ],
+        [
+          'RUTA_MENSUAL_FECHA_PROTEGIDA',
+          'El mes contiene un día aprobado, iniciado o con visitas ejecutadas. Ese día debe liberarse desde coordinación antes de modificarlo.',
+        ],
+        [
+          'RUTA_MENSUAL_PDV_FUERA_ALCANCE',
+          'Una tienda dejó de pertenecer a tu cartera en la fecha seleccionada. Actualiza el catálogo y revisa los días marcados.',
+        ],
+        [
+          'RUTA_MENSUAL_FECHA_NO_EDITABLE',
+          'La ruta contiene una fecha pasada o fuera del mes seleccionado.',
+        ],
+        ['RUTA_MENSUAL_SIN_VISITAS', 'Agrega al menos una visita antes de enviar la ruta mensual.'],
+      ];
+      const known = knownMessages.find(([code]) => error.message.includes(code));
+      return buildState({
+        message: known?.[1] ?? error.message ?? 'No fue posible enviar la ruta mensual.',
+      });
     }
 
+    const summary = normalizeMonthlyRouteSubmissionResult(data);
+    if (!summary.ok || !summary.submissionId) {
+      return buildState({ message: 'La base no confirmó el envío completo de la ruta mensual.' });
+    }
+
+    await publishRutaMensualUiChanges(actor, service, {
+      cuentaClienteId: actor.cuentaClienteId,
+      supervisorIds: [actor.empleadoId],
+      eventType: 'ruta_mensual_enviada_coordinacion',
+      monthStart: `${planningMonth}-01`,
+    });
+
+    const notificationResult = await Promise.allSettled([
+      notificarRutaMensualEnviada(service, {
+        supervisorNombre: actor.nombreCompleto,
+        supervisorId: actor.empleadoId,
+        month: planningMonth,
+        cuentaClienteId: actor.cuentaClienteId,
+        totalVisitas: summary.visits,
+        totalDias: summary.plannedDays,
+      }),
+    ]);
+    if (notificationResult[0]?.status === 'rejected') {
+      console.error(
+        '[Ruta] No fue posible notificar el envío mensual:',
+        notificationResult[0].reason
+      );
+    }
+
+    revalidatePath('/ruta-semanal');
+    revalidatePath('/operacion-supervisores');
     return buildState({
       ok: true,
-      message: `Mes de planificación guardado exitosamente (${savedWeeksCount} semanas procesadas).`,
+      message: `Ruta de ${planningMonth} enviada completa: ${summary.visits} visitas en ${summary.plannedDays} días.`,
     });
   } catch (error) {
     return buildState({
-      message: error instanceof Error ? error.message : 'No fue posible guardar la planificación mensual.',
+      message:
+        error instanceof Error ? error.message : 'No fue posible enviar la planificación mensual.',
     });
   }
 }
@@ -1759,6 +1887,112 @@ export async function completarVisitaRutaSemanal(
   }
 }
 
+export async function guardarCuotasVisitasSupervisor(
+  _prevState: RutaActionState,
+  formData: FormData
+): Promise<RutaActionState> {
+  try {
+    const actor = await requerirGestorCuotasRuta();
+    const service = createServiceClient() as TypedSupabaseClient;
+    const supervisorEmpleadoId = String(formData.get('supervisor_empleado_id') ?? '').trim();
+    const cuentaClienteId = String(formData.get('cuenta_cliente_id') ?? '').trim();
+    const quotaEffectiveMonth = normalizeQuotaMonthStart(
+      String(formData.get('quota_effective_month') ?? '').trim()
+    );
+    const quotaEntries = Array.from(formData.entries())
+      .filter(([key]) => key.startsWith('pdv_quota_'))
+      .map(([key, value]) => {
+        const pdvId = key.slice('pdv_quota_'.length).trim();
+        const parsed = Number(String(value ?? '').trim());
+
+        if (!pdvId) {
+          throw new Error('Se encontró una cuota de PDV sin identificador.');
+        }
+
+        if (!Number.isInteger(parsed) || parsed < 0 || parsed > 999) {
+          throw new Error('Cada cuota debe ser un entero entre 0 y 999 visitas mensuales.');
+        }
+
+        return [pdvId, parsed] as const;
+      });
+
+    if (!supervisorEmpleadoId || !cuentaClienteId) {
+      return buildState({ message: 'La cuenta y el supervisor son obligatorios.' });
+    }
+
+    if (actor.cuentaClienteId && actor.cuentaClienteId !== cuentaClienteId) {
+      return buildState({ message: 'No puedes modificar cuotas de otra cuenta cliente.' });
+    }
+
+    if (quotaEntries.length === 0) {
+      return buildState({ message: 'Selecciona al menos una tienda para guardar cuotas.' });
+    }
+
+    const requestedQuotas = Object.fromEntries(quotaEntries);
+    const { data, error } = await service.rpc('guardar_ruta_cuotas_supervisor', {
+      p_cuenta_cliente_id: cuentaClienteId,
+      p_supervisor_empleado_id: supervisorEmpleadoId,
+      p_vigente_desde: quotaEffectiveMonth,
+      p_cuotas: requestedQuotas,
+      p_usuario_id: actor.usuarioId,
+    });
+
+    if (error) {
+      return buildState({ message: error.message });
+    }
+
+    const savedQuotas =
+      data && typeof data === 'object' && !Array.isArray(data)
+        ? Object.fromEntries(
+            Object.entries(data as Record<string, unknown>).map(([pdvId, value]) => [
+              pdvId,
+              Number(value),
+            ])
+          )
+        : requestedQuotas;
+
+    await registrarEventoAudit(service, {
+      tabla: 'ruta_cuota_supervisor_pdv',
+      registroId: supervisorEmpleadoId,
+      cuentaClienteId,
+      usuarioId: actor.usuarioId,
+      payload: {
+        evento: 'ruta_cuotas_recurrentes_actualizadas',
+        supervisor_empleado_id: supervisorEmpleadoId,
+        vigente_desde: quotaEffectiveMonth,
+        pdv_monthly_quotas: savedQuotas,
+      },
+    });
+
+    await publishRutaSemanalUiChanges(actor, service, {
+      cuentaClienteId,
+      supervisorEmpleadoId,
+      eventType: 'ruta_cuotas_recurrentes_actualizadas',
+      weekStart: quotaEffectiveMonth,
+    });
+
+    revalidatePath('/operacion-supervisores');
+    revalidatePath('/ruta-semanal');
+
+    const effectiveMonthLabel = new Intl.DateTimeFormat('es-MX', {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'America/Mexico_City',
+    }).format(new Date(`${quotaEffectiveMonth}T12:00:00-06:00`));
+
+    return buildState({
+      ok: true,
+      message: `Cuotas guardadas desde ${effectiveMonthLabel}. Seguirán vigentes hasta que registres un nuevo cambio.`,
+      savedPdvMonthlyQuotas: savedQuotas,
+      savedQuotaEffectiveMonth: quotaEffectiveMonth,
+    });
+  } catch (error) {
+    return buildState({
+      message: error instanceof Error ? error.message : 'No fue posible guardar las cuotas.',
+    });
+  }
+}
+
 export async function actualizarControlRutaSemanal(
   _prevState: RutaActionState,
   formData: FormData
@@ -1933,6 +2167,7 @@ export async function actualizarControlRutaSemanal(
     }
 
     const hasSpecificPdvQuotas = quotaEntries.length > 0;
+    const quotaUpdateRequested = hasSpecificPdvQuotas || minimumVisitsPerPdvRaw !== '';
     const pdvQuotaMap = new Map(quotaEntries);
     const pdvMonthlyQuotas = Object.fromEntries(
       Array.from(pdvIds).map((pdvId) => [
@@ -2058,9 +2293,11 @@ export async function actualizarControlRutaSemanal(
     }
 
     const metadata = parseRutaSemanalWorkflowMetadata(ruta.metadata);
-    metadata.minimumVisitsPerPdv = minimumVisitsPerPdv;
-    metadata.expectedMonthlyVisits = expectedMonthlyVisits;
-    metadata.pdvMonthlyQuotas = pdvMonthlyQuotas;
+    if (quotaUpdateRequested) {
+      metadata.minimumVisitsPerPdv = minimumVisitsPerPdv;
+      metadata.expectedMonthlyVisits = expectedMonthlyVisits;
+      metadata.pdvMonthlyQuotas = pdvMonthlyQuotas;
+    }
 
     if (approvalState) {
       metadata.approval = {
@@ -2158,6 +2395,68 @@ export async function actualizarControlRutaSemanal(
         semana: targetWeekStart,
         nota: approvalNote ?? 'Tu ruta requiere cambios para ser aprobada.',
       });
+    }
+
+    // Sincronizar estado con el envio mensual si pertenece a uno
+    try {
+      const { data: enlaceMensual } = await service
+        .from('ruta_mensual_envio_semana')
+        .select('ruta_mensual_envio_id')
+        .eq('ruta_semanal_id', resolvedRutaId)
+        .maybeSingle();
+
+      const rawMeta =
+        ruta && typeof ruta.metadata === 'object' && ruta.metadata !== null
+          ? (ruta.metadata as Record<string, unknown>)
+          : {};
+      const monthlySubObj =
+        rawMeta.monthlySubmission && typeof rawMeta.monthlySubmission === 'object'
+          ? (rawMeta.monthlySubmission as Record<string, unknown>)
+          : null;
+      const rawMonthlyId = enlaceMensual?.ruta_mensual_envio_id ?? monthlySubObj?.id;
+      const monthlySubmissionId =
+        typeof rawMonthlyId === 'string' && rawMonthlyId.trim() ? rawMonthlyId.trim() : null;
+
+      if (monthlySubmissionId) {
+        if (metadata.approval.state === 'CAMBIOS_SOLICITADOS') {
+          await service
+            .from('ruta_mensual_envio')
+            .update({
+              estado: 'CAMBIOS_SOLICITADOS',
+              revisado_en: new Date().toISOString(),
+              revisado_por_usuario_id: actor.usuarioId,
+            })
+            .eq('id', monthlySubmissionId);
+        } else if (metadata.approval.state === 'APROBADA') {
+          const { data: semanasEnvio } = await service
+            .from('ruta_mensual_envio_semana')
+            .select('ruta_semanal_id, ruta_semanal(id, estatus, metadata)')
+            .eq('ruta_mensual_envio_id', monthlySubmissionId);
+
+          const todasAprobadas = (semanasEnvio ?? []).every((item) => {
+            const linked = Array.isArray(item.ruta_semanal)
+              ? item.ruta_semanal[0]
+              : item.ruta_semanal;
+            if (!linked) return false;
+            if (linked.id === resolvedRutaId) return true;
+            const linkedMeta = parseRutaSemanalWorkflowMetadata(linked.metadata);
+            return linkedMeta.approval.state === 'APROBADA';
+          });
+
+          if (todasAprobadas && (semanasEnvio?.length ?? 0) > 0) {
+            await service
+              .from('ruta_mensual_envio')
+              .update({
+                estado: 'APROBADA',
+                revisado_en: new Date().toISOString(),
+                revisado_por_usuario_id: actor.usuarioId,
+              })
+              .eq('id', monthlySubmissionId);
+          }
+        }
+      }
+    } catch (syncError) {
+      console.warn('[Ruta] Error sincronizando estado mensual:', syncError);
     }
 
     return buildState({
@@ -2587,6 +2886,10 @@ export async function registrarEventoAgendaRutaSemanal(
       formData.get('displaced_visit_ids_json'),
       'Las visitas desplazadas'
     );
+    const latitud = normalizeFloat(formData.get('latitud'));
+    const longitud = normalizeFloat(formData.get('longitud'));
+    let distanciaMetros = normalizeFloat(formData.get('distancia_metros'));
+    let gpsState = normalizeGpsState(formData.get('estado_gps'));
 
     if (!rutaId) {
       return buildState({ message: 'La ruta es obligatoria.' });
@@ -2610,6 +2913,41 @@ export async function registrarEventoAgendaRutaSemanal(
           'Cuando el evento sobrepone parcialmente la ruta debes indicar las visitas desplazadas.',
       });
     }
+
+    // Si tenemos coordenadas y PDV, evaluar geocerca con exactitud
+    if (latitud !== null && longitud !== null && pdvId) {
+      const { data: geoPdv } = await supabase
+        .from('geocerca_pdv')
+        .select('latitud, longitud, radio_tolerancia_metros')
+        .eq('pdv_id', pdvId)
+        .maybeSingle();
+
+      if (geoPdv && geoPdv.latitud !== null && geoPdv.longitud !== null) {
+        distanciaMetros = calcularDistanciaMetros(
+          latitud,
+          longitud,
+          Number(geoPdv.latitud),
+          Number(geoPdv.longitud)
+        );
+        const radio = Number(geoPdv.radio_tolerancia_metros ?? 150);
+        gpsState = distanciaMetros <= radio ? 'DENTRO_GEOCERCA' : 'FUERA_GEOCERCA';
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const hasLocation = latitud !== null && longitud !== null;
+    const initialCheckIn = {
+      at: hasLocation ? nowIso : null,
+      latitud,
+      longitud,
+      distanciaMetros,
+      gpsState: gpsState ?? (hasLocation ? 'SIN_GPS' : null),
+      selfieUrl: null,
+      selfieHash: null,
+      evidenciaUrl: null,
+      evidenciaHash: null,
+      comments: descripcion,
+    };
 
     const { data: ruta, error: routeError } = await supabase
       .from('ruta_semanal')
@@ -2706,6 +3044,7 @@ export async function registrarEventoAgendaRutaSemanal(
             source_type: tipoEvento,
             operation_date: fechaOperacion,
             source_title: titulo,
+            checkIn: initialCheckIn,
           },
         })
         .select('id')
@@ -2742,18 +3081,7 @@ export async function registrarEventoAgendaRutaSemanal(
     const metadata = serializeRutaAgendaEventMetadata({
       displacedVisitIds,
       approvalNote: null,
-      checkIn: {
-        at: null,
-        latitud: null,
-        longitud: null,
-        distanciaMetros: null,
-        gpsState: null,
-        selfieUrl: null,
-        selfieHash: null,
-        evidenciaUrl: null,
-        evidenciaHash: null,
-        comments: null,
-      },
+      checkIn: initialCheckIn,
       checkOut: {
         at: null,
         latitud: null,
@@ -2786,6 +3114,7 @@ export async function registrarEventoAgendaRutaSemanal(
         sede,
         hora_inicio: horaInicio,
         hora_fin: horaFin,
+        check_in_en: initialCheckIn.at,
         metadata,
         created_by_usuario_id: actor.usuarioId,
       })
@@ -3096,6 +3425,15 @@ export async function registrarInicioVisitaRutaSemanal(
       );
     }
 
+    // Sincronizar con evento de agenda si esta visita proviene de un evento
+    await service
+      .from('ruta_agenda_evento')
+      .update({
+        check_in_en: checkInPayload.at,
+        selfie_url: selfieUpload.archivo.url,
+      })
+      .eq('ruta_semanal_visita_id', visitaId);
+
     await publishRutaSemanalUiChanges(actor, service, {
       cuentaClienteId: visita.cuenta_cliente_id,
       pdvId: visita.pdv_id,
@@ -3265,6 +3603,16 @@ export async function registrarSalidaVisitaRutaSemanal(
     if (rpcError || !rpcResult?.ok) {
       throw new Error(rpcError?.message ?? 'No fue posible cerrar la visita mediante RPC.');
     }
+
+    // Sincronizar con evento de agenda si esta visita proviene de un evento
+    await service
+      .from('ruta_agenda_evento')
+      .update({
+        estatus_ejecucion: 'COMPLETADO',
+        check_out_en: checkOutPayload.at,
+        evidencia_url: evidenciaUpload?.archivo.url ?? null,
+      })
+      .eq('ruta_semanal_visita_id', visitaId);
 
     await publishRutaSemanalUiChanges(actor, service, {
       cuentaClienteId: visita.cuenta_cliente_id,
@@ -3446,7 +3794,7 @@ export async function registrarEvidenciaEventoAgendaRutaSemanal(
     const { data: agendaEvento, error: eventError } = await supabase
       .from('ruta_agenda_evento')
       .select(
-        'id, cuenta_cliente_id, ruta_semanal_id, supervisor_empleado_id, pdv_id, fecha_operacion, metadata'
+        'id, cuenta_cliente_id, ruta_semanal_id, ruta_semanal_visita_id, supervisor_empleado_id, pdv_id, fecha_operacion, metadata'
       )
       .eq('id', agendaEventoId)
       .maybeSingle();
@@ -3473,6 +3821,27 @@ export async function registrarEvidenciaEventoAgendaRutaSemanal(
       return buildState({ message: 'El evento no pertenece al supervisor autenticado.' });
     }
 
+    let finalDistanciaMetros = distanciaMetros;
+    let finalGpsState = gpsState;
+    if (latitud !== null && longitud !== null && agendaEvento.pdv_id) {
+      const { data: geoPdv } = await supabase
+        .from('geocerca_pdv')
+        .select('latitud, longitud, radio_tolerancia_metros')
+        .eq('pdv_id', agendaEvento.pdv_id)
+        .maybeSingle();
+
+      if (geoPdv && geoPdv.latitud !== null && geoPdv.longitud !== null) {
+        finalDistanciaMetros = calcularDistanciaMetros(
+          latitud,
+          longitud,
+          Number(geoPdv.latitud),
+          Number(geoPdv.longitud)
+        );
+        const radio = Number(geoPdv.radio_tolerancia_metros ?? 150);
+        finalGpsState = finalDistanciaMetros <= radio ? 'DENTRO_GEOCERCA' : 'FUERA_GEOCERCA';
+      }
+    }
+
     const selfieUpload = await uploadRutaEvidence(service, {
       actorUsuarioId: actor.usuarioId,
       actorAuthUserId: actor.authUserId,
@@ -3490,8 +3859,8 @@ export async function registrarEvidenciaEventoAgendaRutaSemanal(
       at: capturedAt,
       latitud,
       longitud,
-      distanciaMetros,
-      gpsState,
+      distanciaMetros: finalDistanciaMetros,
+      gpsState: finalGpsState,
       selfieUrl: selfieUpload.archivo.url,
       selfieHash: selfieUpload.archivo.hash,
       selfieThumbnailUrl: selfieUpload.miniatura?.url ?? null,
@@ -3525,6 +3894,22 @@ export async function registrarEvidenciaEventoAgendaRutaSemanal(
       return buildState({ message: updateError.message });
     }
 
+    if (agendaEvento.ruta_semanal_visita_id) {
+      await service
+        .from('ruta_semanal_visita')
+        .update({
+          estatus: 'COMPLETADA',
+          completada_en: capturedAt,
+          selfie_url: selfieUpload.archivo.url,
+          comentarios: comments,
+          metadata: {
+            checkIn: evidencePayload,
+            checkOut: evidencePayload,
+          },
+        })
+        .eq('id', agendaEvento.ruta_semanal_visita_id);
+    }
+
     await registrarEventoAudit(supabase, {
       tabla: 'ruta_agenda_evento',
       registroId: agendaEventoId,
@@ -3533,7 +3918,7 @@ export async function registrarEvidenciaEventoAgendaRutaSemanal(
       payload: {
         evento: 'ruta_agenda_evento_evidencia_unica',
         fecha_operacion: agendaEvento.fecha_operacion,
-        estado_gps: gpsState,
+        estado_gps: finalGpsState,
       },
     });
 
@@ -3592,7 +3977,7 @@ export async function registrarSalidaEventoAgendaRutaSemanal(
     const { data: agendaEvento, error: eventError } = await supabase
       .from('ruta_agenda_evento')
       .select(
-        'id, cuenta_cliente_id, ruta_semanal_id, supervisor_empleado_id, pdv_id, fecha_operacion, metadata'
+        'id, cuenta_cliente_id, ruta_semanal_id, ruta_semanal_visita_id, supervisor_empleado_id, pdv_id, fecha_operacion, metadata'
       )
       .eq('id', agendaEventoId)
       .maybeSingle();
@@ -3609,6 +3994,27 @@ export async function registrarSalidaEventoAgendaRutaSemanal(
 
     if (agendaEvento.supervisor_empleado_id !== actor.empleadoId) {
       return buildState({ message: 'El evento no pertenece al supervisor autenticado.' });
+    }
+
+    let finalDistanciaMetros = distanciaMetros;
+    let finalGpsState = gpsState;
+    if (latitud !== null && longitud !== null && agendaEvento.pdv_id) {
+      const { data: geoPdv } = await supabase
+        .from('geocerca_pdv')
+        .select('latitud, longitud, radio_tolerancia_metros')
+        .eq('pdv_id', agendaEvento.pdv_id)
+        .maybeSingle();
+
+      if (geoPdv && geoPdv.latitud !== null && geoPdv.longitud !== null) {
+        finalDistanciaMetros = calcularDistanciaMetros(
+          latitud,
+          longitud,
+          Number(geoPdv.latitud),
+          Number(geoPdv.longitud)
+        );
+        const radio = Number(geoPdv.radio_tolerancia_metros ?? 150);
+        finalGpsState = finalDistanciaMetros <= radio ? 'DENTRO_GEOCERCA' : 'FUERA_GEOCERCA';
+      }
     }
 
     const metadata = parseRutaAgendaEventMetadata(agendaEvento.metadata);
@@ -3639,8 +4045,8 @@ export async function registrarSalidaEventoAgendaRutaSemanal(
       at: new Date().toISOString(),
       latitud,
       longitud,
-      distanciaMetros,
-      gpsState,
+      distanciaMetros: finalDistanciaMetros,
+      gpsState: finalGpsState,
       selfieUrl: selfieUpload.archivo.url,
       selfieHash: selfieUpload.archivo.hash,
       selfieThumbnailUrl: selfieUpload.miniatura?.url ?? null,
@@ -3684,6 +4090,23 @@ export async function registrarSalidaEventoAgendaRutaSemanal(
       );
     }
 
+    if (agendaEvento.ruta_semanal_visita_id) {
+      await service
+        .from('ruta_semanal_visita')
+        .update({
+          estatus: 'COMPLETADA',
+          completada_en: checkOutPayload.at,
+          selfie_url: selfieUpload.archivo.url,
+          evidencia_url: evidenciaUpload?.archivo.url ?? null,
+          comentarios: comments,
+          metadata: {
+            checkIn: metadata.checkIn,
+            checkOut: checkOutPayload,
+          },
+        })
+        .eq('id', agendaEvento.ruta_semanal_visita_id);
+    }
+
     await publishRutaSemanalUiChanges(actor, supabase, {
       cuentaClienteId: agendaEvento.cuenta_cliente_id,
       supervisorEmpleadoId: agendaEvento.supervisor_empleado_id,
@@ -3709,104 +4132,339 @@ export async function registrarSalidaEventoAgendaRutaSemanal(
   }
 }
 
-export async function aprobarRutasMesCompleto(
-  monthIso: string
-): Promise<{ ok: boolean; message: string; approvedCount: number }> {
+function buildRutaMesManagementError(
+  action: RutaMesManagementAction,
+  month: string,
+  message: string
+): RutaMesManagementSummary {
+  return {
+    ...normalizeRutaMesManagementSummary({
+      ok: false,
+      accion: action,
+      mes: month,
+      ejecutado: false,
+    }),
+    ok: false,
+    message,
+  };
+}
+
+async function gestionarRutasMes(
+  action: RutaMesManagementAction,
+  monthIso: string,
+  execute: boolean,
+  expectedEligibleCount?: number,
+  supervisorIds?: string[] | null
+): Promise<RutaMesManagementSummary> {
+  const month = normalizeRutaMesManagementMonth(monthIso);
+
   try {
     const actor = await requerirCoordinadorRuta();
-    const service = createServiceClient() as TypedSupabaseClient;
-    
-    const [yearStr, monthStr] = monthIso.split('-');
-    const lastDay = new Date(parseInt(yearStr), parseInt(monthStr), 0).getDate();
-    const startDate = `${monthIso}-01`;
-    const endDate = `${monthIso}-${lastDay}`;
+    const cuentaClienteId = actor.cuentaClienteId;
 
-    const { data: rutas, error } = await service
-      .from('ruta_semanal')
-      .select('id, cuenta_cliente_id, supervisor_empleado_id, semana_inicio, estatus, metadata')
-      .gte('semana_inicio', startDate)
-      .lte('semana_inicio', endDate);
+    if (!cuentaClienteId) {
+      return buildRutaMesManagementError(
+        action,
+        month,
+        'Tu sesión no tiene una cuenta cliente para gestionar rutas mensuales.'
+      );
+    }
+
+    const service = createServiceClient() as TypedSupabaseClient;
+    const { data, error } = await service.rpc('rpc_gestionar_rutas_mes', {
+      p_cuenta_cliente_id: cuentaClienteId,
+      p_mes: `${month}-01`,
+      p_accion: action,
+      p_usuario_id: actor.usuarioId,
+      p_ejecutar: execute,
+      p_elegibles_esperados: expectedEligibleCount ?? null,
+      p_supervisor_empleado_ids:
+        supervisorIds && supervisorIds.length > 0 ? supervisorIds : null,
+    });
 
     if (error) {
+      if (error.message.includes('RUTA_MES_CAMBIO_CONCURRENTE')) {
+        return buildRutaMesManagementError(
+          action,
+          month,
+          'Las rutas cambiaron después de la previsualización. Revisa nuevamente antes de confirmar.'
+        );
+      }
       throw new Error(error.message);
     }
 
-    if (!rutas || rutas.length === 0) {
-      return { ok: true, message: 'No se encontraron rutas en este mes.', approvedCount: 0 };
+    const summary = normalizeRutaMesManagementSummary(data);
+    if (!execute || !summary.executed || summary.affectedCount === 0) {
+      return summary;
     }
 
-    let approvedCount = 0;
-    
-    for (const ruta of rutas) {
-      let isCambiosSolicitados = false;
-      let parsedMetadata: any = {};
-      
-      try {
-        parsedMetadata = parseRutaSemanalWorkflowMetadata(ruta.metadata);
-        if (parsedMetadata?.approval?.state === 'CAMBIOS_SOLICITADOS') {
-           isCambiosSolicitados = true;
-        }
-      } catch (e) {
-        // Ignorar si la metadata es inválida
-      }
+    const eventType = action === 'LIBERAR' ? 'ruta_mes_liberado' : 'ruta_mes_aprobado';
+    await publishRutaMensualUiChanges(actor, service, {
+      cuentaClienteId,
+      supervisorIds: summary.supervisorIds,
+      eventType,
+      monthStart: `${month}-01`,
+    });
 
-      const isEnviada = ruta.estatus === 'ENVIADA';
-      const isBorradorPendiente = ruta.estatus === 'BORRADOR' && parsedMetadata?.approval?.state === 'PENDIENTE_COORDINACION';
+    const notificationResult = await Promise.allSettled([
+      notificarRutasMesGestionadas(service, {
+        supervisorIds: summary.supervisorIds,
+        actorNombre: actor.nombreCompleto,
+        month,
+        action,
+        cuentaClienteId,
+      }),
+    ]);
+    if (notificationResult[0]?.status === 'rejected') {
+      console.error(
+        '[Ruta] No fue posible notificar la gestión mensual:',
+        notificationResult[0].reason
+      );
+    }
 
-      if (isEnviada || isCambiosSolicitados || isBorradorPendiente) {
-        parsedMetadata.approval = {
-          ...(parsedMetadata.approval || {}),
-          state: 'APROBADA',
-          note: 'Aprobación automática masiva del mes',
-          reviewedAt: new Date().toISOString(),
-          reviewedByUsuarioId: actor.usuarioId,
+    revalidatePath('/ruta-semanal');
+    revalidatePath('/operacion-supervisores');
+    return summary;
+  } catch (error) {
+    return buildRutaMesManagementError(
+      action,
+      month,
+      error instanceof Error ? error.message : 'No fue posible gestionar las rutas del mes.'
+    );
+  }
+}
+
+export async function previsualizarGestionRutasMes(
+  action: RutaMesManagementAction,
+  monthIso: string,
+  supervisorIds?: string[] | null
+) {
+  return gestionarRutasMes(action, monthIso, false, undefined, supervisorIds);
+}
+
+export async function ejecutarGestionRutasMes(
+  action: RutaMesManagementAction,
+  monthIso: string,
+  expectedEligibleCount: number,
+  supervisorIds?: string[] | null
+) {
+  return gestionarRutasMes(action, monthIso, true, expectedEligibleCount, supervisorIds);
+}
+
+export async function aprobarRutasMesCompleto(
+  monthIso: string
+): Promise<{ ok: boolean; message: string; approvedCount: number }> {
+  const result = await ejecutarGestionRutasMes('APROBAR', monthIso, 0);
+  return {
+    ok: result.ok,
+    message: result.message,
+    approvedCount: result.affectedCount,
+  };
+}
+
+export async function aprobarRutaSupervisorMesDirecto(
+  supervisorEmpleadoId: string,
+  monthIso: string,
+  approvalNote?: string
+): Promise<{ ok: boolean; message: string }> {
+  const month = normalizeRutaMesManagementMonth(monthIso);
+  try {
+    const actor = await requerirCoordinadorRuta();
+    const cuentaClienteId = actor.cuentaClienteId;
+    if (!cuentaClienteId) {
+      return { ok: false, message: 'Tu sesión no tiene una cuenta cliente asignada.' };
+    }
+    const service = createServiceClient() as TypedSupabaseClient;
+
+    // 1. Intentar aprobación mensual vía RPC
+    const preview = await previsualizarGestionRutasMes('APROBAR', month, [supervisorEmpleadoId]);
+    if (preview.ok && preview.eligibleCount > 0) {
+      await ejecutarGestionRutasMes('APROBAR', month, preview.eligibleCount, [supervisorEmpleadoId]);
+    }
+
+    // 2. Garantizar que todas las rutas semanales del supervisor en ese mes se marquen como APROBADAS y PUBLICADAS
+    const monthStart = `${month}-01`;
+    const [y, m] = month.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const monthEnd = `${month}-${String(lastDay).padStart(2, '0')}`;
+
+    const { data: rutasSem } = await service
+      .from('ruta_semanal')
+      .select('id, metadata')
+      .eq('supervisor_empleado_id', supervisorEmpleadoId)
+      .gte('semana_inicio', monthStart)
+      .lte('semana_inicio', monthEnd);
+
+    if (rutasSem && rutasSem.length > 0) {
+      const nowIso = new Date().toISOString();
+      for (const r of rutasSem) {
+        const currentMeta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
+        const currentApproval = (currentMeta.approval && typeof currentMeta.approval === 'object' ? currentMeta.approval : {}) as Record<string, unknown>;
+        const updatedMeta = {
+          ...currentMeta,
+          approval: {
+            ...currentApproval,
+            state: 'APROBADA',
+            reviewedAt: nowIso,
+            reviewedByUsuarioId: actor.usuarioId,
+            note: approvalNote ?? currentApproval.note ?? null,
+          },
         };
-
-        const { error: updateError } = await service
+        await service
           .from('ruta_semanal')
           .update({
             estatus: 'PUBLICADA',
-            metadata: serializeRutaSemanalWorkflowMetadata(parsedMetadata),
-            updated_by_usuario_id: actor.usuarioId,
-            updated_at: new Date().toISOString(),
+            metadata: updatedMeta,
+            updated_at: nowIso,
           })
-          .eq('id', ruta.id);
-
-        if (!updateError) {
-          approvedCount++;
-
-          await registrarEventoAudit(service, {
-            tabla: 'ruta_semanal',
-            registroId: ruta.id,
-            cuentaClienteId: ruta.cuenta_cliente_id,
-            usuarioId: actor.usuarioId,
-            payload: {
-              evento: 'ruta_control_actualizado',
-              approval_state: 'APROBADA',
-              approval_note: 'Aprobación automática masiva del mes',
-              contexto: 'aprobar_mes_completo'
-            },
-          });
-
-          await publishRutaSemanalUiChanges(actor, service, {
-            cuentaClienteId: ruta.cuenta_cliente_id,
-            supervisorEmpleadoId: ruta.supervisor_empleado_id,
-            routeId: ruta.id,
-            eventType: 'ruta_control_actualizado',
-            weekStart: ruta.semana_inicio,
-          });
-
-          await notificarRutaAprobada(service, {
-            supervisorId: ruta.supervisor_empleado_id,
-            coordinadorNombre: actor.nombreCompleto,
-            semana: ruta.semana_inicio,
-          });
-        }
+          .eq('id', r.id);
       }
     }
 
-    return { ok: true, message: `Se aprobaron ${approvedCount} rutas correctamente.`, approvedCount };
-  } catch (err: any) {
-    return { ok: false, message: err.message || 'Error al aprobar rutas del mes.', approvedCount: 0 };
+    revalidatePath('/ruta-semanal');
+    revalidatePath('/operacion-supervisores');
+
+    return {
+      ok: true,
+      message: 'Ruta mensual del supervisor aprobada con éxito.',
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : 'No fue posible aprobar la ruta mensual.',
+    };
+  }
+}
+
+export async function solicitarCambiosRutaSupervisorMesDirecto(
+  supervisorEmpleadoId: string,
+  monthIso: string,
+  approvalNote: string
+): Promise<{ ok: boolean; message: string }> {
+  const month = normalizeRutaMesManagementMonth(monthIso);
+  try {
+    const actor = await requerirCoordinadorRuta();
+    const cuentaClienteId = actor.cuentaClienteId;
+    if (!cuentaClienteId) {
+      return { ok: false, message: 'Tu sesión no tiene una cuenta cliente asignada.' };
+    }
+    const service = createServiceClient() as TypedSupabaseClient;
+    const nowIso = new Date().toISOString();
+    const monthStart = `${month}-01`;
+    const [y, m] = month.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const monthEnd = `${month}-${String(lastDay).padStart(2, '0')}`;
+
+    // 1. Actualizar directamente el envío mensual (ruta_mensual_envio) a CAMBIOS_SOLICITADOS
+    const { data: envios } = await service
+      .from('ruta_mensual_envio')
+      .select('id, metadata, estado')
+      .eq('supervisor_empleado_id', supervisorEmpleadoId)
+      .eq('periodo', monthStart);
+
+    if (envios && envios.length > 0) {
+      for (const e of envios) {
+        const currentMeta = (e.metadata && typeof e.metadata === 'object' ? e.metadata : {}) as Record<string, unknown>;
+        const updatedMeta = {
+          ...currentMeta,
+          nota: approvalNote,
+          reviewedAt: nowIso,
+          reviewedByUsuarioId: actor.usuarioId,
+          lastAction: 'CAMBIOS_SOLICITADOS',
+        };
+        await service
+          .from('ruta_mensual_envio')
+          .update({
+            estado: 'CAMBIOS_SOLICITADOS',
+            revisado_en: nowIso,
+            revisado_por_usuario_id: actor.usuarioId,
+            metadata: updatedMeta,
+            updated_at: nowIso,
+          })
+          .eq('id', e.id);
+      }
+    }
+
+    // 2. Garantizar que todas las rutas semanales del supervisor en el mes se marquen con CAMBIOS_SOLICITADOS y BORRADOR
+    const { data: rutasSem } = await service
+      .from('ruta_semanal')
+      .select('id, metadata')
+      .eq('supervisor_empleado_id', supervisorEmpleadoId)
+      .gte('semana_inicio', monthStart)
+      .lte('semana_inicio', monthEnd);
+
+    if (rutasSem && rutasSem.length > 0) {
+      for (const r of rutasSem) {
+        const currentMeta = (r.metadata && typeof r.metadata === 'object' ? r.metadata : {}) as Record<string, unknown>;
+        const currentApproval = (currentMeta.approval && typeof currentMeta.approval === 'object' ? currentMeta.approval : {}) as Record<string, unknown>;
+        const updatedMeta = {
+          ...currentMeta,
+          approval: {
+            ...currentApproval,
+            state: 'CAMBIOS_SOLICITADOS',
+            reviewedAt: nowIso,
+            reviewedByUsuarioId: actor.usuarioId,
+            note: approvalNote,
+          },
+        };
+        await service
+          .from('ruta_semanal')
+          .update({
+            estatus: 'BORRADOR',
+            metadata: updatedMeta,
+            updated_at: nowIso,
+          })
+          .eq('id', r.id);
+      }
+    }
+
+    // 3. Registrar en audit_log para trazabilidad
+    await service.from('audit_log').insert({
+      tabla: 'ruta_mensual_envio',
+      registro_id: envios?.[0]?.id ?? supervisorEmpleadoId,
+      accion: 'EVENTO',
+      payload: {
+        evento: 'ruta_mes_cambios_solicitados',
+        mes: month,
+        nota: approvalNote,
+        supervisor_empleado_id: supervisorEmpleadoId,
+      },
+      usuario_id: actor.usuarioId,
+      cuenta_cliente_id: cuentaClienteId,
+    });
+
+    // 4. Publicar cambios UI en tiempo real
+    await publishRutaMensualUiChanges(actor, service, {
+      cuentaClienteId,
+      supervisorIds: [supervisorEmpleadoId],
+      eventType: 'ruta_mes_liberado',
+      monthStart,
+    });
+
+    // 5. Notificar al supervisor en su aplicación (mensaje interno y push)
+    try {
+      await notificarRutaMensualCambiosSolicitados(service, {
+        supervisorId: supervisorEmpleadoId,
+        actorNombre: actor.nombreCompleto,
+        month,
+        nota: approvalNote,
+        cuentaClienteId,
+      });
+    } catch (notifErr) {
+      console.error('[Ruta] Error notificando al supervisor sobre cambios:', notifErr);
+    }
+
+    revalidatePath('/ruta-semanal');
+    revalidatePath('/operacion-supervisores');
+
+    return {
+      ok: true,
+      message: 'Se han solicitado cambios al supervisor y se le envió la notificación con tus observaciones.',
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : 'No fue posible solicitar cambios.',
+    };
   }
 }

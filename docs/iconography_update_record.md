@@ -6,6 +6,7 @@
 - **Referencia Utilizada:** Skill `saas-premium-iconography-architect` y la imagen de referencia.
 
 ## Cambios Realizados
+
 - Ubicado el proveedor principal de iconografía para estos módulos operativos: `src/components/ui/premium-icons.tsx` (componente `PremiumLineIcon`).
 - Se reemplazaron los archivos genéricos SVG por versiones detalladas que encajan en un contenedor `squircle` usando técnica `monoline`, tal cual requiere la skill y se mostró en la imagen:
   1. `calendar` (Calendario)
@@ -20,5 +21,6 @@
 - Ningún otro documento fue modificado, omitiendo expresamente `README.md` y `AGENT_HISTORY.md` como se estipuló.
 
 ## Principios Aplicados
+
 - Diseño "Apple-like", limpios con puntas redondeadas y uniones suaves, evitando sombras, colores neones o decoraciones ruidosas.
 - Completamente codificado usando UTF-8.

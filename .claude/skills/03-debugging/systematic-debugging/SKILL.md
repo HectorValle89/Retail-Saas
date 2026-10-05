@@ -6,9 +6,11 @@ description: Framework estructurado para resolver bugs antes de proponer fixes
 # Systematic Debugging - Beteele SAAS
 
 ## Overview
+
 Metodología sistemática de debugging ANTES de hacer cualquier fix manual.
 
 ## Cuando Usar
+
 - **SIEMPRE** antes de proponer un fix
 - Errores de runtime (ej. "Maximum update depth exceeded")
 - Bugs de lógica (cuotas incorrectas, asistencias mal calculadas)
@@ -18,14 +20,16 @@ Metodología sistemática de debugging ANTES de hacer cualquier fix manual.
 ## Proceso de 5 Pasos
 
 ### 1️⃣ REPRODUCIR
+
 Crea un caso de prueba mínimo que reproduzca el bug consistentemente.
 
 **Ejemplo: "Maximum update depth exceeded" en Matriz**
+
 ```typescript
 // Componente problemático
 function AttendanceMatrix() {
   const [daysInMonth, setDaysInMonth] = useState<Date[]>([]);
-  
+
   useEffect(() => {
     // ❌ BUG: Recalcula en cada render → loop infinito
     setDaysInMonth(generateDaysForMonth(currentMonth));
@@ -34,14 +38,17 @@ function AttendanceMatrix() {
 ```
 
 ### 2️⃣ AISLAR
+
 Identifica la causa raíz eliminando variables.
 
 **Preguntas:**
+
 - ¿El bug ocurre sin datos reales? (usar mock)
 - ¿Ocurre en componente aislado? (crear sandbox)
 - ¿Desaparece al eliminar cierta dependencia?
 
 **Experimento:**
+
 ```typescript
 // Test aislado
 useEffect(() => {
@@ -54,14 +61,17 @@ useEffect(() => {
 ```
 
 ### 3️⃣ HIPÓTESIS
+
 Formula hipótesis basadas en evidencia.
 
 **Hipótesis para Matriz:**
+
 1. ✅ `currentMonth` es objeto que cambia referencia → re-trigger de effect
 2. ❌ `generateDaysForMonth()` lanza error
 3. ❌ Estado de `daysInMonth` corrompe DOM
 
 **Validar:**
+
 ```typescript
 // Verificar cambio de referencia
 useEffect(() => {
@@ -72,9 +82,11 @@ useEffect(() => {
 ```
 
 ### 4️⃣ FIX CON TEST
+
 Implementa fix y valida con test automatizado.
 
 **Fix:**
+
 ```typescript
 function AttendanceMatrix() {
   // Memoizar para evitar cambio de referencia
@@ -82,22 +94,23 @@ function AttendanceMatrix() {
     () => generateDaysForMonth(currentMonth.year, currentMonth.month),
     [currentMonth.year, currentMonth.month]
   );
-  
+
   // Ya no necesita useEffect
 }
 ```
 
 **Test de regresión:**
+
 ```typescript
 test('no debe causar loop infinito al cambiar mes', async () => {
   const { rerender } = render(<AttendanceMatrix initialMonth={1} />);
-  
+
   const renderCount = jest.fn();
   jest.spyOn(console, 'log').mockImplementation(renderCount);
-  
+
   // Cambiar mes
   rerender(<AttendanceMatrix initialMonth={2} />);
-  
+
   // Debe renderizar solo 2 veces (inicial + update)
   await waitFor(() => {
     expect(renderCount).toHaveBeenCalledTimes(2);
@@ -106,6 +119,7 @@ test('no debe causar loop infinito al cambiar mes', async () => {
 ```
 
 ### 5️⃣ DOCUMENTAR
+
 Registra el bug, causa raíz y fix en ADR o changelog.
 
 ```markdown
@@ -113,10 +127,10 @@ Registra el bug, causa raíz y fix en ADR o changelog.
 
 **Síntoma:** "Maximum update depth exceeded" al cargar matriz
 
-**Causa Raíz:** Hook `useEffect` dependía de `currentMonth` (objeto), 
+**Causa Raíz:** Hook `useEffect` dependía de `currentMonth` (objeto),
 que cambiaba referencia en cada render, causando re-ejecución infinita.
 
-**Fix:** Memoizar `daysInMonth` con `useMemo` dependiendo de primitivos 
+**Fix:** Memoizar `daysInMonth` con `useMemo` dependiendo de primitivos
 (`year`, `month`) en lugar del objeto completo.
 
 **Test:** `attendance-matrix.test.ts` - previene regresión
@@ -125,6 +139,7 @@ que cambiaba referencia en cada render, causando re-ejecución infinita.
 ## Casos de Uso en Beteele
 
 ### Bug: Cuota Diaria Incorrecta
+
 ```
 1. REPRODUCIR: DC con 30 días laborales muestra cuota de 1000 (esperado 1200)
 2. AISLAR: ¿Días laborales incorrectos? → Verificar `diasRealesBloque`
@@ -134,6 +149,7 @@ que cambiaba referencia en cada render, causando re-ejecución infinita.
 ```
 
 ### Bug: Sincronización Duplicada
+
 ```
 1. REPRODUCIR: Al reconectar, registros se duplican en PocketBase
 2. AISLAR: ¿Problem de IndexedDB o API? → Logs de cola de sync
@@ -156,6 +172,7 @@ npm run dev -- --inspect
 ```
 
 ## Checklist Pre-Fix
+
 - [ ] ¿Puedo reproducir el bug consistentemente?
 - [ ] ¿Tengo logs/evidencia de la causa raíz?
 - [ ] ¿He formulado al menos 2 hipótesis?
@@ -164,6 +181,7 @@ npm run dev -- --inspect
 - [ ] ¿He documentado en ADR/changelog?
 
 ## Anti-Patrones (NO HACER)
+
 ❌ "Probar y ver qué pasa" sin hipótesis
 ❌ Hacer fix sin test de regresión
 ❌ Ignorar warnings de console

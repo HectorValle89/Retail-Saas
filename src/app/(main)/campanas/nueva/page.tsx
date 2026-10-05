@@ -1,19 +1,19 @@
-import { Card } from '@/components/ui/card'
-import { requerirPuestosActivos } from '@/lib/auth/session'
-import { readRequestAccountScope } from '@/lib/tenant/accountScope'
-import { CampanaEditorCard } from '@/features/campanas/components/CampanasPanel'
-import { obtenerPanelCampanas } from '@/features/campanas/services/campanaService'
+import { Card } from '@/components/ui/card';
+import { requerirPuestosActivos } from '@/lib/auth/session';
+import { readRequestAccountScope } from '@/lib/tenant/accountScope';
+import { CampanaEditorCard } from '@/features/campanas/components/CampanasPanel';
+import { obtenerPanelCampanas } from '@/features/campanas/services/campanaService';
 
 export const metadata = {
   title: 'Nueva campana | Field Force Platform',
-}
+};
 
 export default async function NuevaCampanaPage() {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'VENTAS'])
-  const accountScope = await readRequestAccountScope()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'VENTAS']);
+  const accountScope = await readRequestAccountScope();
   const data = await obtenerPanelCampanas(actor, {
     scopeAccountId: accountScope.accountId,
-  })
+  });
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -27,8 +27,9 @@ export default async function NuevaCampanaPage() {
               Nuevo borrador
             </h1>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              Esta superficie solo existe para crear una campaña nueva. La publicación y la edición de campañas
-              existentes se controlan desde operación y desde la ficha individual de cada campaña.
+              Esta superficie solo existe para crear una campaña nueva. La publicación y la edición
+              de campañas existentes se controlan desde operación y desde la ficha individual de
+              cada campaña.
             </p>
           </div>
           <a
@@ -47,5 +48,5 @@ export default async function NuevaCampanaPage() {
         </Card>
       ) : null}
     </div>
-  )
+  );
 }

@@ -1,15 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requerirActorActivo } from '@/lib/auth/session'
-import { obtenerPanelDashboard } from '@/features/dashboard/services/dashboardService'
+import { NextRequest, NextResponse } from 'next/server';
+import { requerirActorActivo } from '@/lib/auth/session';
+import { obtenerPanelDashboard } from '@/features/dashboard/services/dashboardService';
 
 function pickString(value: string | null) {
-  return value?.trim() || undefined
+  return value?.trim() || undefined;
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const actor = await requerirActorActivo()
-    const { searchParams } = request.nextUrl
+    const actor = await requerirActorActivo();
+    const { searchParams } = request.nextUrl;
 
     const data = await obtenerPanelDashboard(actor, {
       period: pickString(searchParams.get('periodo')),
@@ -22,9 +22,9 @@ export async function GET(request: NextRequest) {
       reachStoreType: pickString(searchParams.get('reachStoreType')),
       includeDermoSecondaryData: actor.puesto !== 'DERMOCONSEJERO',
       includeSupervisorSecondaryData: false,
-    })
+    });
 
-    return NextResponse.json({ data })
+    return NextResponse.json({ data });
   } catch (error) {
     return NextResponse.json(
       {
@@ -34,6 +34,6 @@ export async function GET(request: NextRequest) {
             : 'No fue posible refrescar el panel del dashboard.',
       },
       { status: 500 }
-    )
+    );
   }
 }

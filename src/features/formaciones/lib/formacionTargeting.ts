@@ -1,127 +1,127 @@
-import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState';
 
 export interface FormacionTargetingMetadata {
-  targetingMode: 'LEGACY_PARTICIPANTS' | 'PDV_SCOPE' | 'SUPERVISOR_SCOPE'
-  eventType: 'FORMACION' | 'ISDINIZACION'
-  modality: 'PRESENCIAL' | 'EN_LINEA'
-  stateNames: string[]
-  supervisorIds: string[]
-  coordinatorIds: string[]
-  pdvIds: string[]
-  operationDate: string | null
-  scheduleStart: string | null
-  scheduleEnd: string | null
-  primarySupervisorId: string | null
-  primaryCoordinatorId: string | null
-  supervisorName: string | null
-  coordinatorName: string | null
-  expectedDcCount: number
-  expectedSupervisorCount: number
-  expectedCoordinatorCount: number
-  expectedStoreCount: number
-  locationAddress: string | null
-  locationLatitude: number | null
-  locationLongitude: number | null
-  locationRadiusMeters: number | null
-  supervisorPdvConfirmation: FormacionSupervisorPdvConfirmationMetadata
-  pdvSupervisorConfirmations: FormacionPdvSupervisorConfirmationItem[]
-  notificationPlan: FormacionNotificationPlanMetadata
+  targetingMode: 'LEGACY_PARTICIPANTS' | 'PDV_SCOPE' | 'SUPERVISOR_SCOPE';
+  eventType: 'FORMACION' | 'ISDINIZACION';
+  modality: 'PRESENCIAL' | 'EN_LINEA';
+  stateNames: string[];
+  supervisorIds: string[];
+  coordinatorIds: string[];
+  pdvIds: string[];
+  operationDate: string | null;
+  scheduleStart: string | null;
+  scheduleEnd: string | null;
+  primarySupervisorId: string | null;
+  primaryCoordinatorId: string | null;
+  supervisorName: string | null;
+  coordinatorName: string | null;
+  expectedDcCount: number;
+  expectedSupervisorCount: number;
+  expectedCoordinatorCount: number;
+  expectedStoreCount: number;
+  locationAddress: string | null;
+  locationLatitude: number | null;
+  locationLongitude: number | null;
+  locationRadiusMeters: number | null;
+  supervisorPdvConfirmation: FormacionSupervisorPdvConfirmationMetadata;
+  pdvSupervisorConfirmations: FormacionPdvSupervisorConfirmationItem[];
+  notificationPlan: FormacionNotificationPlanMetadata;
 }
 
 export interface FormacionSupervisorPdvConfirmationMetadata {
-  required: boolean
-  confirmed: boolean
-  confirmedAt: string | null
-  confirmedByEmployeeId: string | null
-  contactName: string | null
-  contactRole: string | null
-  notes: string | null
+  required: boolean;
+  confirmed: boolean;
+  confirmedAt: string | null;
+  confirmedByEmployeeId: string | null;
+  contactName: string | null;
+  contactRole: string | null;
+  notes: string | null;
 }
 
 export interface FormacionPdvSupervisorConfirmationItem {
-  pdvId: string
-  pdvName: string | null
-  confirmed: boolean
-  confirmedAt: string | null
-  confirmedByEmployeeId: string | null
-  contactName: string | null
-  contactRole: string | null
-  notes: string | null
+  pdvId: string;
+  pdvName: string | null;
+  confirmed: boolean;
+  confirmedAt: string | null;
+  confirmedByEmployeeId: string | null;
+  contactName: string | null;
+  contactRole: string | null;
+  notes: string | null;
 }
 
 export interface FormacionReminderPlanItem {
-  key: 'DAY_MINUS_3' | 'DAY_MINUS_2' | 'DAY_MINUS_1'
-  label: string
-  offsetDays: number
-  scheduledFor: string | null
-  sentAt: string | null
-  status: 'PENDIENTE' | 'ENVIADO' | 'OMITIDO' | 'NO_APLICA'
-  recipientScope: 'DCS_Y_SUPERVISORES'
+  key: 'DAY_MINUS_3' | 'DAY_MINUS_2' | 'DAY_MINUS_1';
+  label: string;
+  offsetDays: number;
+  scheduledFor: string | null;
+  sentAt: string | null;
+  status: 'PENDIENTE' | 'ENVIADO' | 'OMITIDO' | 'NO_APLICA';
+  recipientScope: 'DCS_Y_SUPERVISORES';
 }
 
 export interface FormacionNotificationPlanMetadata {
-  initialNotificationSentAt: string | null
-  lastNotificationSentAt: string | null
-  recipientEmployeeIds: string[]
-  reminders: FormacionReminderPlanItem[]
+  initialNotificationSentAt: string | null;
+  lastNotificationSentAt: string | null;
+  recipientEmployeeIds: string[];
+  reminders: FormacionReminderPlanItem[];
 }
 
 export interface FormacionLegacyParticipant {
-  empleadoId: string | null
-  nombre: string
-  puesto: string | null
-  zona: string | null
-  rol: string | null
-  notificado: boolean
-  confirmado: boolean
-  estado: string
+  empleadoId: string | null;
+  nombre: string;
+  puesto: string | null;
+  zona: string | null;
+  rol: string | null;
+  notificado: boolean;
+  confirmado: boolean;
+  estado: string;
 }
 
 export interface FormacionMatchContext {
-  empleadoId: string
-  puesto: string | null
-  pdvId?: string | null
+  empleadoId: string;
+  puesto: string | null;
+  pdvId?: string | null;
 }
 
 export interface FormacionAttendanceMetadata {
-  originPdvId: string | null
-  originPdvName: string | null
-  attendanceMode: 'PRESENCIAL' | 'EN_LINEA' | null
-  checkInUtc: string | null
-  checkOutUtc: string | null
-  checkInEvidenceUrl: string | null
-  checkOutEvidenceUrl: string | null
-  checkInEvidenceHash: string | null
-  checkOutEvidenceHash: string | null
-  checkInGeofenceStatus: 'SIN_VALIDAR' | 'DENTRO' | 'FUERA'
-  checkOutGeofenceStatus: 'SIN_VALIDAR' | 'DENTRO' | 'FUERA'
-  checkInLatitude: number | null
-  checkInLongitude: number | null
-  checkOutLatitude: number | null
-  checkOutLongitude: number | null
-  checkInDistanceMeters: number | null
-  checkOutDistanceMeters: number | null
+  originPdvId: string | null;
+  originPdvName: string | null;
+  attendanceMode: 'PRESENCIAL' | 'EN_LINEA' | null;
+  checkInUtc: string | null;
+  checkOutUtc: string | null;
+  checkInEvidenceUrl: string | null;
+  checkOutEvidenceUrl: string | null;
+  checkInEvidenceHash: string | null;
+  checkOutEvidenceHash: string | null;
+  checkInGeofenceStatus: 'SIN_VALIDAR' | 'DENTRO' | 'FUERA';
+  checkOutGeofenceStatus: 'SIN_VALIDAR' | 'DENTRO' | 'FUERA';
+  checkInLatitude: number | null;
+  checkInLongitude: number | null;
+  checkOutLatitude: number | null;
+  checkOutLongitude: number | null;
+  checkInDistanceMeters: number | null;
+  checkOutDistanceMeters: number | null;
 }
 
 export interface FormacionScopePdv {
-  id: string
-  claveBtl: string
-  nombre: string
-  ciudad: string | null
-  zona: string | null
-  estado: string | null
-  supervisorId: string | null
-  supervisorNombre: string | null
+  id: string;
+  claveBtl: string;
+  nombre: string;
+  ciudad: string | null;
+  zona: string | null;
+  estado: string | null;
+  supervisorId: string | null;
+  supervisorNombre: string | null;
 }
 
 function uniqueStrings(values: string[]) {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort((left, right) =>
-    left.localeCompare(right, 'es-MX')
-  )
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort(
+    (left, right) => left.localeCompare(right, 'es-MX')
+  );
 }
 
 function normalizeReminderStatus(value: unknown): FormacionReminderPlanItem['status'] {
-  return value === 'ENVIADO' || value === 'OMITIDO' || value === 'NO_APLICA' ? value : 'PENDIENTE'
+  return value === 'ENVIADO' || value === 'OMITIDO' || value === 'NO_APLICA' ? value : 'PENDIENTE';
 }
 
 function buildEmptySupervisorConfirmation(): FormacionSupervisorPdvConfirmationMetadata {
@@ -133,7 +133,7 @@ function buildEmptySupervisorConfirmation(): FormacionSupervisorPdvConfirmationM
     contactName: null,
     contactRole: null,
     notes: null,
-  }
+  };
 }
 
 function buildEmptyNotificationPlan(): FormacionNotificationPlanMetadata {
@@ -142,21 +142,17 @@ function buildEmptyNotificationPlan(): FormacionNotificationPlanMetadata {
     lastNotificationSentAt: null,
     recipientEmployeeIds: [],
     reminders: [],
-  }
+  };
 }
 
 function normalizePdvSupervisorConfirmationItem(
   raw: Record<string, unknown>
 ): FormacionPdvSupervisorConfirmationItem | null {
   const pdvId =
-    typeof raw.pdv_id === 'string'
-      ? raw.pdv_id
-      : typeof raw.pdvId === 'string'
-        ? raw.pdvId
-        : null
+    typeof raw.pdv_id === 'string' ? raw.pdv_id : typeof raw.pdvId === 'string' ? raw.pdvId : null;
 
   if (!pdvId) {
-    return null
+    return null;
   }
 
   return {
@@ -193,7 +189,7 @@ function normalizePdvSupervisorConfirmationItem(
           ? raw.contactRole
           : null,
     notes: typeof raw.notes === 'string' ? raw.notes : null,
-  }
+  };
 }
 
 export function normalizeFormacionLegacyParticipant(
@@ -208,17 +204,20 @@ export function normalizeFormacionLegacyParticipant(
     notificado: Boolean(raw.notificado),
     confirmado: Boolean(raw.confirmado),
     estado: typeof raw.estado === 'string' ? raw.estado : 'PENDIENTE',
-  }
+  };
 }
 
 export function parseFormacionLegacyParticipants(value: unknown) {
   if (!Array.isArray(value)) {
-    return [] as FormacionLegacyParticipant[]
+    return [] as FormacionLegacyParticipant[];
   }
 
   return value
-    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
-    .map((item) => normalizeFormacionLegacyParticipant(item))
+    .filter(
+      (item): item is Record<string, unknown> =>
+        Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+    )
+    .map((item) => normalizeFormacionLegacyParticipant(item));
 }
 
 export function normalizeFormacionTargetingMetadata(value: unknown): FormacionTargetingMetadata {
@@ -249,49 +248,60 @@ export function normalizeFormacionTargetingMetadata(value: unknown): FormacionTa
       supervisorPdvConfirmation: buildEmptySupervisorConfirmation(),
       pdvSupervisorConfirmations: [],
       notificationPlan: buildEmptyNotificationPlan(),
-    }
+    };
   }
 
-  const raw = value as Record<string, unknown>
+  const raw = value as Record<string, unknown>;
   const targetingMode =
     raw.targeting_mode === 'SUPERVISOR_SCOPE'
       ? 'SUPERVISOR_SCOPE'
       : raw.targeting_mode === 'PDV_SCOPE'
         ? 'PDV_SCOPE'
-        : 'LEGACY_PARTICIPANTS'
+        : 'LEGACY_PARTICIPANTS';
   const stateNames = Array.isArray(raw.state_names)
     ? uniqueStrings(raw.state_names.map((item) => String(item ?? '')))
-    : []
+    : [];
   const supervisorIds = Array.isArray(raw.supervisor_ids)
     ? uniqueStrings(raw.supervisor_ids.map((item) => String(item ?? '')))
-    : []
+    : [];
   const coordinatorIds = Array.isArray(raw.coordinator_ids)
     ? uniqueStrings(raw.coordinator_ids.map((item) => String(item ?? '')))
-    : []
+    : [];
   const pdvIds = Array.isArray(raw.pdv_ids)
     ? uniqueStrings(raw.pdv_ids.map((item) => String(item ?? '')))
-    : []
+    : [];
   const rawSupervisorConfirmation =
     raw.supervisor_pdv_confirmation &&
     typeof raw.supervisor_pdv_confirmation === 'object' &&
     !Array.isArray(raw.supervisor_pdv_confirmation)
       ? (raw.supervisor_pdv_confirmation as Record<string, unknown>)
-      : null
+      : null;
   const rawNotificationPlan =
-    raw.notification_plan && typeof raw.notification_plan === 'object' && !Array.isArray(raw.notification_plan)
+    raw.notification_plan &&
+    typeof raw.notification_plan === 'object' &&
+    !Array.isArray(raw.notification_plan)
       ? (raw.notification_plan as Record<string, unknown>)
-      : null
+      : null;
   const pdvSupervisorConfirmations = Array.isArray(raw.pdv_supervisor_confirmations)
     ? raw.pdv_supervisor_confirmations
-        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+        .filter(
+          (item): item is Record<string, unknown> =>
+            Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+        )
         .map((item) => normalizePdvSupervisorConfirmationItem(item))
         .filter((item): item is FormacionPdvSupervisorConfirmationItem => Boolean(item))
-    : []
+    : [];
   const reminders = Array.isArray(rawNotificationPlan?.reminders)
     ? rawNotificationPlan.reminders
-        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+        .filter(
+          (item): item is Record<string, unknown> =>
+            Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+        )
         .map<FormacionReminderPlanItem>((item) => ({
-          key: item.key === 'DAY_MINUS_3' || item.key === 'DAY_MINUS_2' || item.key === 'DAY_MINUS_1' ? item.key : 'DAY_MINUS_1',
+          key:
+            item.key === 'DAY_MINUS_3' || item.key === 'DAY_MINUS_2' || item.key === 'DAY_MINUS_1'
+              ? item.key
+              : 'DAY_MINUS_1',
           label: typeof item.label === 'string' ? item.label : 'Recordatorio',
           offsetDays: Number.isFinite(Number(item.offset_days)) ? Number(item.offset_days) : 1,
           scheduledFor:
@@ -301,11 +311,15 @@ export function normalizeFormacionTargetingMetadata(value: unknown): FormacionTa
                 ? item.scheduledFor
                 : null,
           sentAt:
-            typeof item.sent_at === 'string' ? item.sent_at : typeof item.sentAt === 'string' ? item.sentAt : null,
+            typeof item.sent_at === 'string'
+              ? item.sent_at
+              : typeof item.sentAt === 'string'
+                ? item.sentAt
+                : null,
           status: normalizeReminderStatus(item.status),
           recipientScope: 'DCS_Y_SUPERVISORES',
         }))
-    : []
+    : [];
 
   return {
     targetingMode,
@@ -318,8 +332,10 @@ export function normalizeFormacionTargetingMetadata(value: unknown): FormacionTa
     operationDate: typeof raw.operation_date === 'string' ? raw.operation_date : null,
     scheduleStart: typeof raw.schedule_start === 'string' ? raw.schedule_start : null,
     scheduleEnd: typeof raw.schedule_end === 'string' ? raw.schedule_end : null,
-    primarySupervisorId: typeof raw.primary_supervisor_id === 'string' ? raw.primary_supervisor_id : null,
-    primaryCoordinatorId: typeof raw.primary_coordinator_id === 'string' ? raw.primary_coordinator_id : null,
+    primarySupervisorId:
+      typeof raw.primary_supervisor_id === 'string' ? raw.primary_supervisor_id : null,
+    primaryCoordinatorId:
+      typeof raw.primary_coordinator_id === 'string' ? raw.primary_coordinator_id : null,
     supervisorName: typeof raw.supervisor_name === 'string' ? raw.supervisor_name : null,
     coordinatorName: typeof raw.coordinator_name === 'string' ? raw.coordinator_name : null,
     expectedDcCount: Number(raw.expected_dc_count) || 0,
@@ -327,9 +343,15 @@ export function normalizeFormacionTargetingMetadata(value: unknown): FormacionTa
     expectedCoordinatorCount: Number(raw.expected_coordinator_count) || 0,
     expectedStoreCount: Number(raw.expected_store_count) || 0,
     locationAddress: typeof raw.location_address === 'string' ? raw.location_address : null,
-    locationLatitude: Number.isFinite(Number(raw.location_latitude)) ? Number(raw.location_latitude) : null,
-    locationLongitude: Number.isFinite(Number(raw.location_longitude)) ? Number(raw.location_longitude) : null,
-    locationRadiusMeters: Number.isFinite(Number(raw.location_radius_meters)) ? Number(raw.location_radius_meters) : null,
+    locationLatitude: Number.isFinite(Number(raw.location_latitude))
+      ? Number(raw.location_latitude)
+      : null,
+    locationLongitude: Number.isFinite(Number(raw.location_longitude))
+      ? Number(raw.location_longitude)
+      : null,
+    locationRadiusMeters: Number.isFinite(Number(raw.location_radius_meters))
+      ? Number(raw.location_radius_meters)
+      : null,
     supervisorPdvConfirmation: rawSupervisorConfirmation
       ? {
           required: rawSupervisorConfirmation.required !== false,
@@ -358,7 +380,10 @@ export function normalizeFormacionTargetingMetadata(value: unknown): FormacionTa
               : typeof rawSupervisorConfirmation.contactRole === 'string'
                 ? rawSupervisorConfirmation.contactRole
                 : null,
-          notes: typeof rawSupervisorConfirmation.notes === 'string' ? rawSupervisorConfirmation.notes : null,
+          notes:
+            typeof rawSupervisorConfirmation.notes === 'string'
+              ? rawSupervisorConfirmation.notes
+              : null,
         }
       : buildEmptySupervisorConfirmation(),
     pdvSupervisorConfirmations,
@@ -377,43 +402,49 @@ export function normalizeFormacionTargetingMetadata(value: unknown): FormacionTa
                 ? rawNotificationPlan.lastNotificationSentAt
                 : null,
           recipientEmployeeIds: Array.isArray(rawNotificationPlan.recipient_employee_ids)
-            ? uniqueStrings(rawNotificationPlan.recipient_employee_ids.map((item) => String(item ?? '')))
+            ? uniqueStrings(
+                rawNotificationPlan.recipient_employee_ids.map((item) => String(item ?? ''))
+              )
             : Array.isArray(rawNotificationPlan.recipientEmployeeIds)
-              ? uniqueStrings(rawNotificationPlan.recipientEmployeeIds.map((item) => String(item ?? '')))
+              ? uniqueStrings(
+                  rawNotificationPlan.recipientEmployeeIds.map((item) => String(item ?? ''))
+                )
               : [],
           reminders,
         }
       : buildEmptyNotificationPlan(),
-  }
+  };
 }
 
 export function buildFormacionTargetingMetadata(input: {
-  eventType?: 'FORMACION' | 'ISDINIZACION'
-  modality?: 'PRESENCIAL' | 'EN_LINEA'
-  stateNames: string[]
-  supervisorIds: string[]
-  coordinatorIds: string[]
-  pdvIds: string[]
-  operationDate?: string | null
-  scheduleStart?: string | null
-  scheduleEnd?: string | null
-  primarySupervisorId?: string | null
-  primaryCoordinatorId?: string | null
-  supervisorName?: string | null
-  coordinatorName?: string | null
-  expectedDcCount?: number
-  expectedSupervisorCount?: number
-  expectedCoordinatorCount?: number
-  expectedStoreCount?: number
-  locationAddress?: string | null
-  locationLatitude?: number | null
-  locationLongitude?: number | null
-  locationRadiusMeters?: number | null
-  supervisorPdvConfirmation?: Partial<FormacionSupervisorPdvConfirmationMetadata> | null
-  pdvSupervisorConfirmations?: Array<Partial<FormacionPdvSupervisorConfirmationItem> & { pdvId: string }> | null
-  notificationPlan?: Partial<FormacionNotificationPlanMetadata> | null
+  eventType?: 'FORMACION' | 'ISDINIZACION';
+  modality?: 'PRESENCIAL' | 'EN_LINEA';
+  stateNames: string[];
+  supervisorIds: string[];
+  coordinatorIds: string[];
+  pdvIds: string[];
+  operationDate?: string | null;
+  scheduleStart?: string | null;
+  scheduleEnd?: string | null;
+  primarySupervisorId?: string | null;
+  primaryCoordinatorId?: string | null;
+  supervisorName?: string | null;
+  coordinatorName?: string | null;
+  expectedDcCount?: number;
+  expectedSupervisorCount?: number;
+  expectedCoordinatorCount?: number;
+  expectedStoreCount?: number;
+  locationAddress?: string | null;
+  locationLatitude?: number | null;
+  locationLongitude?: number | null;
+  locationRadiusMeters?: number | null;
+  supervisorPdvConfirmation?: Partial<FormacionSupervisorPdvConfirmationMetadata> | null;
+  pdvSupervisorConfirmations?: Array<
+    Partial<FormacionPdvSupervisorConfirmationItem> & { pdvId: string }
+  > | null;
+  notificationPlan?: Partial<FormacionNotificationPlanMetadata> | null;
 }) {
-  const notificationPlan = input.notificationPlan ?? null
+  const notificationPlan = input.notificationPlan ?? null;
   return {
     targeting_mode: input.primarySupervisorId ? 'SUPERVISOR_SCOPE' : 'PDV_SCOPE',
     event_type: input.eventType ?? 'FORMACION',
@@ -465,49 +496,49 @@ export function buildFormacionTargetingMetadata(input: {
         recipient_scope: item.recipientScope,
       })),
     },
-  }
+  };
 }
 
 export function resolveFormacionPdvState(input: {
-  ciudadNombre?: string | null
-  ciudadEstado?: string | null
+  ciudadNombre?: string | null;
+  ciudadEstado?: string | null;
 }) {
-  const ciudadEstado = String(input.ciudadEstado ?? '').trim()
+  const ciudadEstado = String(input.ciudadEstado ?? '').trim();
   if (ciudadEstado) {
-    return ciudadEstado
+    return ciudadEstado;
   }
 
-  const ciudadNombre = String(input.ciudadNombre ?? '').trim()
+  const ciudadNombre = String(input.ciudadNombre ?? '').trim();
   if (!ciudadNombre) {
-    return null
+    return null;
   }
 
-  return resolveMexicoStateFromCity(ciudadNombre)
+  return resolveMexicoStateFromCity(ciudadNombre);
 }
 
 export function formacionTargetsEmployee(
   input: {
-    participantes: unknown
-    metadata: unknown
+    participantes: unknown;
+    metadata: unknown;
   },
   context: FormacionMatchContext
 ) {
-  const legacyParticipants = parseFormacionLegacyParticipants(input.participantes)
+  const legacyParticipants = parseFormacionLegacyParticipants(input.participantes);
   if (legacyParticipants.some((participant) => participant.empleadoId === context.empleadoId)) {
-    return true
+    return true;
   }
 
-  const targeting = normalizeFormacionTargetingMetadata(input.metadata)
+  const targeting = normalizeFormacionTargetingMetadata(input.metadata);
   if (targeting.supervisorIds.includes(context.empleadoId)) {
-    return true
+    return true;
   }
 
   if (targeting.coordinatorIds.includes(context.empleadoId)) {
-    return true
+    return true;
   }
 
   if (targeting.targetingMode !== 'PDV_SCOPE' && targeting.targetingMode !== 'SUPERVISOR_SCOPE') {
-    return false
+    return false;
   }
 
   if (
@@ -515,19 +546,19 @@ export function formacionTargetsEmployee(
     targeting.pdvIds.includes(context.pdvId) &&
     (context.puesto === null || context.puesto === 'DERMOCONSEJERO')
   ) {
-    return true
+    return true;
   }
 
-  return false
+  return false;
 }
 
 function normalizeGeoStatus(value: unknown): FormacionAttendanceMetadata['checkInGeofenceStatus'] {
-  return value === 'DENTRO' || value === 'FUERA' ? value : 'SIN_VALIDAR'
+  return value === 'DENTRO' || value === 'FUERA' ? value : 'SIN_VALIDAR';
 }
 
 function normalizeNullableNumber(value: unknown) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function normalizeFormacionAttendanceMetadata(value: unknown): FormacionAttendanceMetadata {
@@ -550,20 +581,29 @@ export function normalizeFormacionAttendanceMetadata(value: unknown): FormacionA
       checkOutLongitude: null,
       checkInDistanceMeters: null,
       checkOutDistanceMeters: null,
-    }
+    };
   }
 
-  const raw = value as Record<string, unknown>
+  const raw = value as Record<string, unknown>;
   return {
     originPdvId: typeof raw.origin_pdv_id === 'string' ? raw.origin_pdv_id : null,
     originPdvName: typeof raw.origin_pdv_name === 'string' ? raw.origin_pdv_name : null,
-    attendanceMode: raw.attendance_mode === 'EN_LINEA' ? 'EN_LINEA' : raw.attendance_mode === 'PRESENCIAL' ? 'PRESENCIAL' : null,
+    attendanceMode:
+      raw.attendance_mode === 'EN_LINEA'
+        ? 'EN_LINEA'
+        : raw.attendance_mode === 'PRESENCIAL'
+          ? 'PRESENCIAL'
+          : null,
     checkInUtc: typeof raw.check_in_utc === 'string' ? raw.check_in_utc : null,
     checkOutUtc: typeof raw.check_out_utc === 'string' ? raw.check_out_utc : null,
-    checkInEvidenceUrl: typeof raw.check_in_evidence_url === 'string' ? raw.check_in_evidence_url : null,
-    checkOutEvidenceUrl: typeof raw.check_out_evidence_url === 'string' ? raw.check_out_evidence_url : null,
-    checkInEvidenceHash: typeof raw.check_in_evidence_hash === 'string' ? raw.check_in_evidence_hash : null,
-    checkOutEvidenceHash: typeof raw.check_out_evidence_hash === 'string' ? raw.check_out_evidence_hash : null,
+    checkInEvidenceUrl:
+      typeof raw.check_in_evidence_url === 'string' ? raw.check_in_evidence_url : null,
+    checkOutEvidenceUrl:
+      typeof raw.check_out_evidence_url === 'string' ? raw.check_out_evidence_url : null,
+    checkInEvidenceHash:
+      typeof raw.check_in_evidence_hash === 'string' ? raw.check_in_evidence_hash : null,
+    checkOutEvidenceHash:
+      typeof raw.check_out_evidence_hash === 'string' ? raw.check_out_evidence_hash : null,
     checkInGeofenceStatus: normalizeGeoStatus(raw.check_in_geofence_status),
     checkOutGeofenceStatus: normalizeGeoStatus(raw.check_out_geofence_status),
     checkInLatitude: normalizeNullableNumber(raw.check_in_latitude),
@@ -572,5 +612,5 @@ export function normalizeFormacionAttendanceMetadata(value: unknown): FormacionA
     checkOutLongitude: normalizeNullableNumber(raw.check_out_longitude),
     checkInDistanceMeters: normalizeNullableNumber(raw.check_in_distance_meters),
     checkOutDistanceMeters: normalizeNullableNumber(raw.check_out_distance_meters),
-  }
+  };
 }

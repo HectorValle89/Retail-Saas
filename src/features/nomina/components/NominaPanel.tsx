@@ -1,13 +1,13 @@
-'use client'
+'use client';
 
-import { useState, type ReactNode } from 'react'
-import { Card } from '@/components/ui/card'
-import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
-import { ModalPanel } from '@/components/ui/modal-panel'
-import type { NominaPanelData } from '../services/nominaService'
-import { CreatePeriodoNominaForm } from './CreatePeriodoNominaForm'
-import { LedgerManualNominaForm } from './LedgerManualNominaForm'
-import { PeriodoNominaControls } from './PeriodoNominaControls'
+import { useState } from 'react';
+import { Card } from '@/components/ui/card';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
+import { ModalPanel } from '@/components/ui/modal-panel';
+import type { NominaPanelData } from '../services/nominaService';
+import { CreatePeriodoNominaForm } from './CreatePeriodoNominaForm';
+import { LedgerManualNominaForm } from './LedgerManualNominaForm';
+import { PeriodoNominaControls } from './PeriodoNominaControls';
 import {
   CancelarAltaForm,
   CerrarBajaEmpleadoNominaForm,
@@ -18,39 +18,39 @@ import {
   InfoRow,
   ReadOnlyWorkflowCard,
   StatusPill as WorkflowStatusPill,
-} from '@/features/empleados/components/EmpleadosPanel'
+} from '@/features/empleados/components/EmpleadosPanel';
 import {
   normalizePayrollInboxKey,
   type PayrollInboxLaneKey,
-} from '@/features/empleados/lib/workflowInbox'
+} from '@/features/empleados/lib/workflowInbox';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-MX', {
     style: 'currency',
     currency: 'MXN',
     maximumFractionDigits: 2,
-  }).format(value)
+  }).format(value);
 }
 
 function formatDate(value: string | null) {
   if (!value) {
-    return 'Sin fecha'
+    return 'Sin fecha';
   }
 
   return new Intl.DateTimeFormat('es-MX', {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
-  }).format(new Date(value))
+  }).format(new Date(value));
 }
 
 function resolveExportPeriod(clave: string | null) {
   if (!clave) {
-    return null
+    return null;
   }
 
-  const match = clave.match(/\d{4}-\d{2}/)
-  return match ? match[0] : null
+  const match = clave.match(/\d{4}-\d{2}/);
+  return match ? match[0] : null;
 }
 
 function buildNominaExportHref(periodo: string, format: 'csv' | 'xlsx') {
@@ -58,27 +58,32 @@ function buildNominaExportHref(periodo: string, format: 'csv' | 'xlsx') {
     section: 'nomina',
     periodo,
     format,
-  })
+  });
 
-  return `/api/reportes/export?${params.toString()}`
+  return `/api/reportes/export?${params.toString()}`;
 }
 
 export function NominaPanel({
   data,
   initialInbox = 'ALL',
 }: {
-  data: NominaPanelData
-  initialInbox?: string
+  data: NominaPanelData;
+  initialInbox?: string;
 }) {
-  const exportablePeriod = resolveExportPeriod(data.periodoExportableClave ?? data.resumen.periodoAbierto)
+  const exportablePeriod = resolveExportPeriod(
+    data.periodoExportableClave ?? data.resumen.periodoAbierto
+  );
   const [inboxFilter, setInboxFilter] = useState<PayrollInboxLaneKey | 'ALL'>(
     normalizePayrollInboxKey(initialInbox)
-  )
-  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null)
+  );
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const visibleInbox =
-    inboxFilter === 'ALL' ? data.payrollInbox : data.payrollInbox.filter((lane) => lane.key === inboxFilter)
+    inboxFilter === 'ALL'
+      ? data.payrollInbox
+      : data.payrollInbox.filter((lane) => lane.key === inboxFilter);
   const selectedTicket =
-    data.payrollInbox.flatMap((lane) => lane.items).find((item) => item.id === selectedTicketId) ?? null
+    data.payrollInbox.flatMap((lane) => lane.items).find((item) => item.id === selectedTicketId) ??
+    null;
 
   return (
     <div className="space-y-6">
@@ -102,7 +107,10 @@ export function NominaPanel({
         <MetricCard label="Colaboradores" value={String(data.resumen.colaboradores)} />
         <MetricCard label="Percepciones" value={formatCurrency(data.resumen.percepciones)} />
         <MetricCard label="Deducciones" value={formatCurrency(data.resumen.deducciones)} />
-        <MetricCard label="Reembolsos gasto" value={formatCurrency(data.resumen.reembolsosGastos)} />
+        <MetricCard
+          label="Reembolsos gasto"
+          value={formatCurrency(data.resumen.reembolsosGastos)}
+        />
         <MetricCard label="Neto estimado" value={formatCurrency(data.resumen.netoEstimado)} />
       </div>
 
@@ -110,13 +118,20 @@ export function NominaPanel({
         <div>
           <h2 className="text-lg font-semibold text-slate-950">Generacion y dispersion</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Genera periodos en borrador, apruebalos antes de dispersion y exporta la nomina bancaria desde aqui.
+            Genera periodos en borrador, apruebalos antes de dispersion y exporta la nomina bancaria
+            desde aqui.
           </p>
         </div>
         <CreatePeriodoNominaForm />
         <div className="flex flex-wrap gap-3">
-          <ExportLink href={exportablePeriod ? buildNominaExportHref(exportablePeriod, 'csv') : null} label="Exportar CSV" />
-          <ExportLink href={exportablePeriod ? buildNominaExportHref(exportablePeriod, 'xlsx') : null} label="Exportar XLSX" />
+          <ExportLink
+            href={exportablePeriod ? buildNominaExportHref(exportablePeriod, 'csv') : null}
+            label="Exportar CSV"
+          />
+          <ExportLink
+            href={exportablePeriod ? buildNominaExportHref(exportablePeriod, 'xlsx') : null}
+            label="Exportar XLSX"
+          />
         </div>
       </Card>
 
@@ -124,7 +139,8 @@ export function NominaPanel({
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-950">Periodos de nomina</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Historial de periodos con ciclo borrador → aprobado → dispersado y corte operativo visible.
+            Historial de periodos con ciclo borrador → aprobado → dispersado y corte operativo
+            visible.
           </p>
         </div>
 
@@ -183,7 +199,8 @@ export function NominaPanel({
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-950">Pre-nomina del periodo activo</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Consolidado por colaborador con jornadas, ventas confirmadas, cuota comercial y efecto estimado en percepciones netas.
+            Consolidado por colaborador con jornadas, ventas confirmadas, cuota comercial y efecto
+            estimado en percepciones netas.
           </p>
         </div>
 
@@ -210,17 +227,24 @@ export function NominaPanel({
                 </tr>
               ) : (
                 data.preNomina.map((item) => (
-                  <tr key={`${item.empleadoId}-${item.cuentaClienteId ?? 'sin-cuenta'}`} className="border-t border-slate-100 align-top">
+                  <tr
+                    key={`${item.empleadoId}-${item.cuentaClienteId ?? 'sin-cuenta'}`}
+                    className="border-t border-slate-100 align-top"
+                  >
                     <td className="px-6 py-4 text-slate-600">
                       <div className="font-medium text-slate-900">{item.empleado}</div>
                       <div className="mt-1 text-xs text-slate-400">
                         {item.idNomina ?? 'Sin nomina'} / {item.puesto ?? 'Sin puesto'}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-slate-600">{item.cuentaCliente ?? 'Sin cliente'}</td>
+                    <td className="px-6 py-4 text-slate-600">
+                      {item.cuentaCliente ?? 'Sin cliente'}
+                    </td>
                     <td className="px-6 py-4 text-slate-600">
                       <div>{item.jornadasValidadas} validadas</div>
-                      <div className="mt-1 text-xs text-slate-400">{item.jornadasPendientes} pendientes</div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {item.jornadasPendientes} pendientes
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-slate-600">
                       <div>{item.ventasConfirmadas} confirmadas</div>
@@ -232,7 +256,9 @@ export function NominaPanel({
                       </div>
                     </td>
                     <td className="px-6 py-4 text-slate-600">
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{item.cuotaEstado ?? 'SIN CUOTA'}</span>
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                        {item.cuotaEstado ?? 'SIN CUOTA'}
+                      </span>
                       <div className="mt-2 text-xs text-slate-500">
                         {item.objetivoMonto > 0
                           ? `${item.cumplimiento.toFixed(2)}% de ${formatCurrency(item.objetivoMonto)}`
@@ -244,15 +270,23 @@ export function NominaPanel({
                     </td>
                     <td className="px-6 py-4 text-slate-600">
                       <div>{item.retardos} retardos</div>
-                      <div className="mt-1 text-xs text-violet-700">{item.ausenciasJustificadas} justificadas</div>
+                      <div className="mt-1 text-xs text-violet-700">
+                        {item.ausenciasJustificadas} justificadas
+                      </div>
                       <div className="mt-1 text-xs text-rose-700">{item.faltas} faltas</div>
-                      <div className="mt-1 text-xs text-slate-400">{item.faltasAdministrativas} administrativas</div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {item.faltasAdministrativas} administrativas
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-slate-600">
                       <div>Percepciones: {formatCurrency(item.percepciones + item.ajustes)}</div>
-                      <div className="mt-1 text-xs text-rose-700">Deducciones: {formatCurrency(item.deducciones)}</div>
+                      <div className="mt-1 text-xs text-rose-700">
+                        Deducciones: {formatCurrency(item.deducciones)}
+                      </div>
                     </td>
-                    <td className="px-6 py-4 font-semibold text-slate-900">{formatCurrency(item.netoEstimado)}</td>
+                    <td className="px-6 py-4 font-semibold text-slate-900">
+                      {formatCurrency(item.netoEstimado)}
+                    </td>
                   </tr>
                 ))
               )}
@@ -271,9 +305,9 @@ export function NominaPanel({
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
               <p className="font-semibold">Suspendido hasta definir el motor de cuotas</p>
               <p className="mt-2">
-                Por ahora las cuotas no se editaran ni se calcularan dentro de este modulo.
-                Nomina trabajara con un reporte mensual de piezas vendidas por dermoconsejera y
-                por PDV para calcular bonos fuera de la plataforma.
+                Por ahora las cuotas no se editaran ni se calcularan dentro de este modulo. Nomina
+                trabajara con un reporte mensual de piezas vendidas por dermoconsejera y por PDV
+                para calcular bonos fuera de la plataforma.
               </p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
@@ -316,7 +350,9 @@ export function NominaPanel({
                     data.ledger.map((item) => (
                       <tr key={item.id} className="border-t border-slate-100 align-top">
                         <td className="px-6 py-4 text-slate-600">
-                          <span className={`rounded-full px-3 py-1 text-xs font-medium ${item.tipoMovimiento === 'DEDUCCION' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-medium ${item.tipoMovimiento === 'DEDUCCION' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}
+                          >
                             {item.tipoMovimiento}
                           </span>
                           <div className="mt-2 font-medium text-slate-900">{item.concepto}</div>
@@ -328,7 +364,9 @@ export function NominaPanel({
                               Referencia: {item.referenciaTabla} {item.referenciaId ?? 'sin id'}
                             </div>
                           )}
-                          {item.notas && <div className="mt-1 text-xs text-slate-500">{item.notas}</div>}
+                          {item.notas && (
+                            <div className="mt-1 text-xs text-slate-500">{item.notas}</div>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-slate-600">
                           <div className="font-medium text-slate-900">{item.empleado}</div>
@@ -336,7 +374,9 @@ export function NominaPanel({
                             {item.idNomina ?? 'Sin nomina'} / {item.cuentaCliente ?? 'Sin cliente'}
                           </div>
                         </td>
-                        <td className={`px-6 py-4 font-medium ${item.tipoMovimiento === 'DEDUCCION' ? 'text-rose-700' : 'text-emerald-700'}`}>
+                        <td
+                          className={`px-6 py-4 font-medium ${item.tipoMovimiento === 'DEDUCCION' ? 'text-rose-700' : 'text-emerald-700'}`}
+                        >
                           {item.tipoMovimiento === 'DEDUCCION' ? '-' : '+'}
                           {formatCurrency(item.monto)}
                         </td>
@@ -361,9 +401,11 @@ export function NominaPanel({
         </div>
       </div>
 
-      {selectedTicket ? <PayrollTicketModal item={selectedTicket} onClose={() => setSelectedTicketId(null)} /> : null}
+      {selectedTicket ? (
+        <PayrollTicketModal item={selectedTicket} onClose={() => setSelectedTicketId(null)} />
+      ) : null}
     </div>
-  )
+  );
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
@@ -375,7 +417,7 @@ function MetricCard({ label, value }: { label: string; value: string }) {
       labelClassName="text-xs leading-4 text-center"
       valueClassName="w-full truncate text-[1.1rem] leading-tight tracking-[-0.02em] text-center sm:text-[1.25rem]"
     />
-  )
+  );
 }
 
 function PayrollInboxBoard({
@@ -384,20 +426,22 @@ function PayrollInboxBoard({
   onFilterChange,
   onOpen,
 }: {
-  lanes: NominaPanelData['payrollInbox']
-  activeFilter: PayrollInboxLaneKey | 'ALL'
-  onFilterChange: (value: PayrollInboxLaneKey | 'ALL') => void
-  onOpen: (item: NominaPanelData['payrollInbox'][number]['items'][number]) => void
+  lanes: NominaPanelData['payrollInbox'];
+  activeFilter: PayrollInboxLaneKey | 'ALL';
+  onFilterChange: (value: PayrollInboxLaneKey | 'ALL') => void;
+  onOpen: (item: NominaPanelData['payrollInbox'][number]['items'][number]) => void;
 }) {
   const [selectedLaneKey, setSelectedLaneKey] = useState<PayrollInboxLaneKey | null>(
     activeFilter !== 'ALL' ? activeFilter : null
-  )
-  const totalItems = lanes.reduce((total, lane) => total + lane.items.length, 0)
-  const selectedLane = selectedLaneKey ? lanes.find((lane) => lane.key === selectedLaneKey) ?? null : null
+  );
+  const totalItems = lanes.reduce((total, lane) => total + lane.items.length, 0);
+  const selectedLane = selectedLaneKey
+    ? (lanes.find((lane) => lane.key === selectedLaneKey) ?? null)
+    : null;
 
   function openLane(laneKey: PayrollInboxLaneKey) {
-    setSelectedLaneKey(laneKey)
-    onFilterChange(laneKey)
+    setSelectedLaneKey(laneKey);
+    onFilterChange(laneKey);
   }
 
   return (
@@ -406,7 +450,8 @@ function PayrollInboxBoard({
         <div>
           <h2 className="text-lg font-semibold text-slate-950">Bandeja de Nomina</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Altas pendientes, bajas pendientes, bajas devueltas y devoluciones de altas recibidas desde Reclutamiento.
+            Altas pendientes, bajas pendientes, bajas devueltas y devoluciones de altas recibidas
+            desde Reclutamiento.
           </p>
         </div>
         <span className="inline-flex items-center justify-center rounded-full bg-[var(--module-primary)] px-4 py-2 text-sm font-semibold text-white">
@@ -443,33 +488,33 @@ function PayrollInboxBoard({
         <PayrollLaneModal
           lane={selectedLane}
           onClose={() => {
-            setSelectedLaneKey(null)
-            onFilterChange('ALL')
+            setSelectedLaneKey(null);
+            onFilterChange('ALL');
           }}
           onOpen={onOpen}
         />
       ) : null}
     </Card>
-  )
+  );
 }
 
 function PayrollTicketModal({
   item,
   onClose,
 }: {
-  item: NominaPanelData['payrollInbox'][number]['items'][number]
-  onClose: () => void
+  item: NominaPanelData['payrollInbox'][number]['items'][number];
+  onClose: () => void;
 }) {
-  const employee = item.employee
-  const [cancelModalOpen, setCancelModalOpen] = useState(false)
-  const canCancelAlta = item.movementType === 'ALTA' && (
-    item.stage === 'EN_GESTION' ||
-    item.stage === 'ONBOARDING' ||
-    item.stage === 'PENDIENTE_IMSS_NOMINA' ||
-    item.stage === 'EN_FLUJO_IMSS' ||
-    item.stage === 'RECLUTAMIENTO_CORRECCION_ALTA' ||
-    item.stage === 'PENDIENTE_ACCESO_ADMIN'
-  )
+  const employee = item.employee;
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const canCancelAlta =
+    item.movementType === 'ALTA' &&
+    (item.stage === 'EN_GESTION' ||
+      item.stage === 'ONBOARDING' ||
+      item.stage === 'PENDIENTE_IMSS_NOMINA' ||
+      item.stage === 'EN_FLUJO_IMSS' ||
+      item.stage === 'RECLUTAMIENTO_CORRECCION_ALTA' ||
+      item.stage === 'PENDIENTE_ACCESO_ADMIN');
 
   return (
     <ModalPanel
@@ -499,71 +544,74 @@ function PayrollTicketModal({
         ) : null}
 
         <div className="grid gap-4 xl:grid-cols-2">
-        <DetailCard title="Resumen" description="Ticket recibido desde Reclutamiento.">
-          <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-2">
-            <InfoRow label="NSS" value={employee.nss ?? 'Sin NSS'} />
-            <InfoRow label="CURP" value={employee.curp ?? 'Sin CURP'} />
-            <InfoRow label="Puesto" value={employee.puesto.replace(/_/g, ' ')} />
-            <InfoRow label="Zona" value={employee.zona ?? 'Sin zona'} />
-            <InfoRow label="Fecha alta" value={formatDate(employee.fechaAlta)} />
-            <InfoRow label="Fecha baja" value={formatDate(employee.fechaBaja)} />
-          </div>
-          {item.lastObservation ? (
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              {item.lastObservation}
+          <DetailCard title="Resumen" description="Ticket recibido desde Reclutamiento.">
+            <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-2">
+              <InfoRow label="NSS" value={employee.nss ?? 'Sin NSS'} />
+              <InfoRow label="CURP" value={employee.curp ?? 'Sin CURP'} />
+              <InfoRow label="Puesto" value={employee.puesto.replace(/_/g, ' ')} />
+              <InfoRow label="Zona" value={employee.zona ?? 'Sin zona'} />
+              <InfoRow label="Fecha alta" value={formatDate(employee.fechaAlta)} />
+              <InfoRow label="Fecha baja" value={formatDate(employee.fechaBaja)} />
             </div>
-          ) : null}
-        </DetailCard>
+            {item.lastObservation ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                {item.lastObservation}
+              </div>
+            ) : null}
+          </DetailCard>
 
-        <DetailCard title="Acciones de Nomina" description="Solo herramientas de IMSS y cierre institucional.">
-          {item.movementType === 'BAJA' ? (
-            item.stage === 'PENDIENTE_BAJA_IMSS' ? (
-              <CerrarBajaEmpleadoNominaForm empleado={employee} />
-            ) : (
+          <DetailCard
+            title="Acciones de Nomina"
+            description="Solo herramientas de IMSS y cierre institucional."
+          >
+            {item.movementType === 'BAJA' ? (
+              item.stage === 'PENDIENTE_BAJA_IMSS' ? (
+                <CerrarBajaEmpleadoNominaForm empleado={employee} />
+              ) : (
+                <ReadOnlyWorkflowCard
+                  lines={[
+                    `workflow: ${employee.workflowStage ?? 'sin etapa'}`,
+                    `estado IMSS: ${employee.imssEstado}`,
+                    `observacion: ${item.lastObservation ?? 'sin observaciones'}`,
+                  ]}
+                />
+              )
+            ) : item.stage === 'ONBOARDING' ||
+              item.stage === 'PENDIENTE_ACCESO_ADMIN' ||
+              item.stage === 'ALTA_IMSS_CERRADA' ? (
               <ReadOnlyWorkflowCard
                 lines={[
-                  `workflow: ${employee.workflowStage ?? 'sin etapa'}`,
+                  item.stage === 'ALTA_IMSS_CERRADA' ? 'Alta finalizada.' : 'Alta IMSS cerrada.',
+                  item.stage === 'ALTA_IMSS_CERRADA'
+                    ? 'Administracion ya genero el acceso provisional y el caso quedo cerrado.'
+                    : 'El expediente ya fue entregado a Administracion para crear usuario, password y QR.',
                   `estado IMSS: ${employee.imssEstado}`,
-                  `observacion: ${item.lastObservation ?? 'sin observaciones'}`,
                 ]}
               />
-            )
-          ) : item.stage === 'ONBOARDING' || item.stage === 'PENDIENTE_ACCESO_ADMIN' || item.stage === 'ALTA_IMSS_CERRADA' ? (
-            <ReadOnlyWorkflowCard
-              lines={[
-                item.stage === 'ALTA_IMSS_CERRADA'
-                  ? 'Alta finalizada.'
-                  : 'Alta IMSS cerrada.',
-                item.stage === 'ALTA_IMSS_CERRADA'
-                  ? 'Administracion ya genero el acceso provisional y el caso quedo cerrado.'
-                  : 'El expediente ya fue entregado a Administracion para crear usuario, password y QR.',
-                `estado IMSS: ${employee.imssEstado}`,
-              ]}
-            />
-          ) : (
-            <ImssEstadoForm empleado={employee} />
-          )}
-        </DetailCard>
-
-        <DetailCard
-          title={item.movementType === 'BAJA' ? 'Soporte institucional' : 'Carga IMSS'}
-          description={
-            item.movementType === 'BAJA'
-              ? 'Nomina puede adjuntar o revisar el comprobante oficial de baja.'
-              : 'Aqui se revisa el expediente recibido y se carga el PDF de alta IMSS.'
-          }
-        >
-          <DocumentoUploadForm empleado={employee} actorPuesto="NOMINA" />
-        </DetailCard>
-
-        <div className="xl:col-span-2">
-          <DetailCard
-            title="Documentos"
-            description="Expediente previo, soportes corregidos y comprobantes institucionales."
-          >
-            <DocumentosList documentos={employee.documentos as never} />
+            ) : (
+              <ImssEstadoForm empleado={employee} />
+            )}
           </DetailCard>
-        </div>
+
+          <DetailCard
+            title={item.movementType === 'BAJA' ? 'Soporte institucional' : 'Carga IMSS'}
+            description={
+              item.movementType === 'BAJA'
+                ? 'Nomina puede adjuntar o revisar el comprobante oficial de baja.'
+                : 'Aqui se revisa el expediente recibido y se carga el PDF de alta IMSS.'
+            }
+          >
+            <DocumentoUploadForm empleado={employee} actorPuesto="NOMINA" />
+          </DetailCard>
+
+          <div className="xl:col-span-2">
+            <DetailCard
+              title="Documentos"
+              description="Expediente previo, soportes corregidos y comprobantes institucionales."
+            >
+              <DocumentosList documentos={employee.documentos as never} />
+            </DetailCard>
+          </div>
         </div>
       </div>
 
@@ -579,31 +627,7 @@ function PayrollTicketModal({
         </ModalPanel>
       ) : null}
     </ModalPanel>
-  )
-}
-
-function InboxFilterChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
-        active
-          ? 'bg-[var(--module-primary)] text-white'
-          : 'bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50'
-      }`}
-    >
-      {children}
-    </button>
-  )
+  );
 }
 
 function ExportLink({ href, label }: { href: string | null; label: string }) {
@@ -612,22 +636,25 @@ function ExportLink({ href, label }: { href: string | null; label: string }) {
       <span className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-400">
         {label}
       </span>
-    )
+    );
   }
 
   return (
-    <a href={href} className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+    <a
+      href={href}
+      className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+    >
       {label}
     </a>
-  )
+  );
 }
 
 function PayrollLaneRow({
   item,
   onOpen,
 }: {
-  item: NominaPanelData['payrollInbox'][number]['items'][number]
-  onOpen: (item: NominaPanelData['payrollInbox'][number]['items'][number]) => void
+  item: NominaPanelData['payrollInbox'][number]['items'][number];
+  onOpen: (item: NominaPanelData['payrollInbox'][number]['items'][number]) => void;
 }) {
   return (
     <div className="rounded-[20px] border border-slate-200 bg-white p-4">
@@ -640,28 +667,42 @@ function PayrollLaneRow({
               </span>
               <WorkflowStatusPill
                 label={item.statusLabel}
-                className={item.movementType === 'BAJA' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}
+                className={
+                  item.movementType === 'BAJA'
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-emerald-100 text-emerald-700'
+                }
               />
             </div>
-            <p className="mt-3 text-sm font-semibold text-slate-950">{item.employeeSummary.nombreCompleto}</p>
+            <p className="mt-3 text-sm font-semibold text-slate-950">
+              {item.employeeSummary.nombreCompleto}
+            </p>
             <p className="mt-1 text-xs text-slate-500">
               {item.employeeSummary.nss ?? item.employeeSummary.curp ?? 'Sin NSS/CURP'}
             </p>
           </div>
 
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Puesto</p>
-            <p className="mt-2 text-sm text-slate-700">{item.employeeSummary.puesto.replace(/_/g, ' ')}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+              Puesto
+            </p>
+            <p className="mt-2 text-sm text-slate-700">
+              {item.employeeSummary.puesto.replace(/_/g, ' ')}
+            </p>
           </div>
 
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Documentos</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+              Documentos
+            </p>
             <p className="mt-2 text-sm text-slate-700">{item.documentsSummary}</p>
           </div>
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-3 xl:max-w-[340px]">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Observacion</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Observacion
+          </p>
           <p className="text-sm leading-6 text-slate-600">
             {item.lastObservation ?? 'Sin observaciones registradas.'}
           </p>
@@ -678,7 +719,7 @@ function PayrollLaneRow({
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function PayrollLaneModal({
@@ -686,9 +727,9 @@ function PayrollLaneModal({
   onClose,
   onOpen,
 }: {
-  lane: NominaPanelData['payrollInbox'][number]
-  onClose: () => void
-  onOpen: (item: NominaPanelData['payrollInbox'][number]['items'][number]) => void
+  lane: NominaPanelData['payrollInbox'][number];
+  onClose: () => void;
+  onOpen: (item: NominaPanelData['payrollInbox'][number]['items'][number]) => void;
 }) {
   return (
     <ModalPanel
@@ -709,15 +750,15 @@ function PayrollLaneModal({
               key={item.id}
               item={item}
               onOpen={(nextItem) => {
-                onClose()
-                onOpen(nextItem)
+                onClose();
+                onOpen(nextItem);
               }}
             />
           ))
         )}
       </div>
     </ModalPanel>
-  )
+  );
 }
 
 function StatusPill({ estado }: { estado: 'BORRADOR' | 'APROBADO' | 'DISPERSADO' }) {
@@ -726,7 +767,7 @@ function StatusPill({ estado }: { estado: 'BORRADOR' | 'APROBADO' | 'DISPERSADO'
       ? 'bg-amber-100 text-amber-800'
       : estado === 'APROBADO'
         ? 'bg-sky-100 text-sky-800'
-        : 'bg-emerald-100 text-emerald-800'
+        : 'bg-emerald-100 text-emerald-800';
 
-  return <span className={`rounded-full px-3 py-1 text-xs font-medium ${styles}`}>{estado}</span>
+  return <span className={`rounded-full px-3 py-1 text-xs font-medium ${styles}`}>{estado}</span>;
 }

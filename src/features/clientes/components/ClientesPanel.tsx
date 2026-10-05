@@ -1,35 +1,35 @@
-'use client'
+'use client';
 
-import { Card } from '@/components/ui/card'
-import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
-import type { ActorActual } from '@/lib/auth/session'
-import { useCallback, useMemo } from 'react'
-import { useScopedWidgetData } from '@/lib/ui-change/client'
-import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
-import type { ClientesPanelData } from '../services/clienteService'
+import { Card } from '@/components/ui/card';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
+import type { ActorActual } from '@/lib/auth/session';
+import { useCallback, useMemo } from 'react';
+import { useScopedWidgetData } from '@/lib/ui-change/client';
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
+import type { ClientesPanelData } from '../services/clienteService';
 
 export function ClientesPanel({
   actor,
   data: initialData,
 }: {
-  actor: ActorActual
-  data: ClientesPanelData
+  actor: ActorActual;
+  data: ClientesPanelData;
 }) {
-  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
   const fetcher = useCallback(async (signal: AbortSignal) => {
     const response = await fetch('/api/clientes/panel', {
       cache: 'no-store',
       credentials: 'same-origin',
       signal,
-    })
-    const payload = (await response.json()) as { data?: ClientesPanelData; message?: string }
+    });
+    const payload = (await response.json()) as { data?: ClientesPanelData; message?: string };
 
     if (!response.ok || !payload.data) {
-      throw new Error(payload.message ?? 'No fue posible refrescar el panel de clientes.')
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de clientes.');
     }
 
-    return payload.data
-  }, [])
+    return payload.data;
+  }, []);
 
   const { data } = useScopedWidgetData({
     initialData,
@@ -39,7 +39,7 @@ export function ClientesPanel({
     roleTargets: [actor.puesto],
     fetcher,
     debounceMs: 650,
-  })
+  });
 
   return (
     <div className="space-y-6">
@@ -94,7 +94,10 @@ export function ClientesPanel({
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <StatusPill active={cuenta.activa} label={cuenta.activa ? 'ACTIVA' : 'INACTIVA'} />
+                      <StatusPill
+                        active={cuenta.activa}
+                        label={cuenta.activa ? 'ACTIVA' : 'INACTIVA'}
+                      />
                     </td>
                     <td className="px-6 py-4 text-slate-600">{cuenta.pdvsActivos}</td>
                     <td className="px-6 py-4 text-slate-600">{cuenta.pdvsHistoricos}</td>
@@ -104,7 +107,9 @@ export function ClientesPanel({
                         {cuenta.timezone ?? 'Sin timezone'}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-slate-600">{cuenta.ultimoCambio ?? 'Sin movimientos'}</td>
+                    <td className="px-6 py-4 text-slate-600">
+                      {cuenta.ultimoCambio ?? 'Sin movimientos'}
+                    </td>
                   </tr>
                 ))
               )}
@@ -117,7 +122,8 @@ export function ClientesPanel({
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-950">Historial reciente de PDVs</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Trazabilidad de asignacion de PDVs a clientes para auditoria operativa y cambios de cartera.
+            Trazabilidad de asignacion de PDVs a clientes para auditoria operativa y cambios de
+            cartera.
           </p>
         </div>
 
@@ -148,7 +154,9 @@ export function ClientesPanel({
                       <div className="font-medium text-slate-900">{movimiento.pdvClaveBtl}</div>
                       <div className="mt-1 text-xs text-slate-400">{movimiento.pdvNombre}</div>
                     </td>
-                    <td className="px-6 py-4 text-slate-600">{movimiento.cadena ?? 'Sin cadena'}</td>
+                    <td className="px-6 py-4 text-slate-600">
+                      {movimiento.cadena ?? 'Sin cadena'}
+                    </td>
                     <td className="px-6 py-4 text-slate-600">{movimiento.zona ?? 'Sin zona'}</td>
                     <td className="px-6 py-4 text-slate-600">
                       {movimiento.fechaInicio}
@@ -168,11 +176,11 @@ export function ClientesPanel({
         </div>
       </Card>
     </div>
-  )
+  );
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return <SharedMetricCard label={label} value={value} />
+  return <SharedMetricCard label={label} value={value} />;
 }
 
 function StatusPill({ active, label }: { active: boolean; label: string }) {
@@ -184,5 +192,5 @@ function StatusPill({ active, label }: { active: boolean; label: string }) {
     >
       {label}
     </span>
-  )
+  );
 }

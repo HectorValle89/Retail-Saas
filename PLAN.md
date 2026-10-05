@@ -1,16 +1,19 @@
 # Actualización silenciosa de asignaciones por cambio de tienda
 
 ## Summary
+
 El comportamiento correcto no debe depender de que la DC o el supervisor abran la app justo cuando el administrador cambia la asignación.  
 La solución es un esquema de **publicación nocturna en servidor + sync diferencial automático en el dispositivo**.
 
 En la práctica:
+
 - el administrador cambia la asignación hoy;
 - el backend publica la versión efectiva para mañana a las 00:00;
 - cuando la DC o el supervisor abran su app, o cuando recuperen señal, la app descarga solo los cambios pendientes;
 - si no hay señal en ese momento, la app sigue usando el snapshot local ya precargado y se actualiza sola cuando detecte conexión.
 
 ## Key Changes
+
 - Mantener la UI intacta:
   - no agregar ventanas nuevas;
   - no crear un “modo offline” manual;
@@ -41,6 +44,7 @@ En la práctica:
   - el cambio de tienda de hoy para mañana debe aparecer sin acción manual del usuario.
 
 ## Test Plan
+
 - Caso principal:
   - el administrador cambia la asignación hoy;
   - el sistema publica la asignación nueva en el corte nocturno;
@@ -67,6 +71,7 @@ En la práctica:
   - `npm run docs:check-encoding`.
 
 ## Assumptions
+
 - No se cambia la interfaz visible del usuario.
 - No se agrega un botón manual de sincronización ni una pantalla nueva.
 - La app no puede “adivinar” un cambio si el dispositivo nunca tuvo forma de recibirlo; por eso la garantía real viene de dos piezas:

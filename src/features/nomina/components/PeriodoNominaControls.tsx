@@ -1,36 +1,30 @@
-'use client'
+'use client';
 
-import { useActionState } from 'react'
-import { useFormStatus } from 'react-dom'
-import { actualizarEstadoPeriodoNomina } from '../actions'
-import {
-  getNominaPeriodoTransitionTargets,
-  type NominaPeriodoEstado,
-} from '../lib/periodState'
-import { ESTADO_NOMINA_INICIAL } from '../state'
+import { useActionState } from 'react';
+import { useFormStatus } from 'react-dom';
+import { actualizarEstadoPeriodoNomina } from '../actions';
+import { getNominaPeriodoTransitionTargets, type NominaPeriodoEstado } from '../lib/periodState';
+import { ESTADO_NOMINA_INICIAL } from '../state';
 
 const LABELS: Record<NominaPeriodoEstado, string> = {
   BORRADOR: 'Regresar a borrador',
   APROBADO: 'Aprobar periodo',
   DISPERSADO: 'Marcar dispersado',
-}
+};
 
 export function PeriodoNominaControls({
   periodoId,
   estado,
 }: {
-  periodoId: string
-  estado: NominaPeriodoEstado
+  periodoId: string;
+  estado: NominaPeriodoEstado;
 }) {
-  const [state, formAction] = useActionState(
-    actualizarEstadoPeriodoNomina,
-    ESTADO_NOMINA_INICIAL
-  )
+  const [state, formAction] = useActionState(actualizarEstadoPeriodoNomina, ESTADO_NOMINA_INICIAL);
 
-  const targets = getNominaPeriodoTransitionTargets(estado)
+  const targets = getNominaPeriodoTransitionTargets(estado);
 
   if (targets.length === 0) {
-    return <span className="text-xs text-slate-400">Sin acciones disponibles</span>
+    return <span className="text-xs text-slate-400">Sin acciones disponibles</span>;
   }
 
   return (
@@ -50,11 +44,11 @@ export function PeriodoNominaControls({
         </p>
       )}
     </div>
-  )
+  );
 }
 
 function SubmitButton({ estadoDestino }: { estadoDestino: NominaPeriodoEstado }) {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   return (
     <button
@@ -70,5 +64,5 @@ function SubmitButton({ estadoDestino }: { estadoDestino: NominaPeriodoEstado })
     >
       {pending ? 'Guardando...' : LABELS[estadoDestino]}
     </button>
-  )
+  );
 }

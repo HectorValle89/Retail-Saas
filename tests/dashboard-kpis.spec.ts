@@ -1,119 +1,135 @@
-import { expect, test } from '@playwright/test'
-import type { ActorActual } from '../src/lib/auth/session'
+import { expect, test } from '@playwright/test';
+import type { ActorActual } from '../src/lib/auth/session';
 import {
   obtenerInsightsDashboard,
   obtenerPanelDashboard,
   resolveDashboardWidgets,
-} from '../src/features/dashboard/services/dashboardService'
+} from '../src/features/dashboard/services/dashboardService';
 
 type QueryResult = {
-  data: unknown[] | null
-  error: { message: string } | null
-}
+  data: unknown[] | null;
+  error: { message: string } | null;
+};
 
 function createFakeDashboardSupabase(results: {
-  initial: QueryResult
-  asistencia?: QueryResult
-  geocercas?: QueryResult
-  empleados?: QueryResult
-  asignaciones?: QueryResult
-  solicitudes?: QueryResult
-  configuracion?: QueryResult
-  periodos?: QueryResult
-  cuotas?: QueryResult
-  pdvs?: QueryResult
-  ventas?: QueryResult
-  love?: QueryResult
-  campanas?: QueryResult
-  campanasPdv?: QueryResult
+  initial: QueryResult;
+  asistencia?: QueryResult;
+  geocercas?: QueryResult;
+  empleados?: QueryResult;
+  asignaciones?: QueryResult;
+  solicitudes?: QueryResult;
+  configuracion?: QueryResult;
+  periodos?: QueryResult;
+  cuotas?: QueryResult;
+  pdvs?: QueryResult;
+  ventas?: QueryResult;
+  love?: QueryResult;
+  campanas?: QueryResult;
+  campanasPdv?: QueryResult;
 }) {
-  const eqValues = new Map<string, string>()
-  const inValues = new Map<string, string[]>()
+  const eqValues = new Map<string, string>();
+  const inValues = new Map<string, string[]>();
 
   return {
-    from(table: 'dashboard_kpis' | 'asistencia' | 'geocerca_pdv' | 'empleado' | 'asignacion' | 'solicitud' | 'configuracion' | 'nomina_periodo' | 'cuota_empleado_periodo' | 'pdv' | 'venta' | 'love_isdin' | 'campana' | 'campana_pdv') {
+    from(
+      table:
+        | 'dashboard_kpis'
+        | 'asistencia'
+        | 'geocerca_pdv'
+        | 'empleado'
+        | 'asignacion'
+        | 'solicitud'
+        | 'configuracion'
+        | 'nomina_periodo'
+        | 'cuota_empleado_periodo'
+        | 'pdv'
+        | 'venta'
+        | 'love_isdin'
+        | 'campana'
+        | 'campana_pdv'
+    ) {
       return {
         select() {
-          return this
+          return this;
         },
         eq(column: string, value: string) {
-          eqValues.set(`${table}:${column}`, value)
-          return this
+          eqValues.set(`${table}:${column}`, value);
+          return this;
         },
         in(column: string, values: string[]) {
-          inValues.set(`${table}:${column}`, values)
-          return this
+          inValues.set(`${table}:${column}`, values);
+          return this;
         },
         is() {
-          return this
+          return this;
         },
         order() {
-          return this
+          return this;
         },
         limit() {
           if (table === 'dashboard_kpis') {
-            return Promise.resolve(results.initial)
+            return Promise.resolve(results.initial);
           }
 
           if (table === 'asistencia') {
-            return Promise.resolve(results.asistencia ?? { data: [], error: null })
+            return Promise.resolve(results.asistencia ?? { data: [], error: null });
           }
 
           if (table === 'geocerca_pdv') {
-            return Promise.resolve(results.geocercas ?? { data: [], error: null })
+            return Promise.resolve(results.geocercas ?? { data: [], error: null });
           }
 
           if (table === 'empleado') {
-            return Promise.resolve(results.empleados ?? { data: [], error: null })
+            return Promise.resolve(results.empleados ?? { data: [], error: null });
           }
 
           if (table === 'asignacion') {
-            return Promise.resolve(results.asignaciones ?? { data: [], error: null })
+            return Promise.resolve(results.asignaciones ?? { data: [], error: null });
           }
 
           if (table === 'solicitud') {
-            return Promise.resolve(results.solicitudes ?? { data: [], error: null })
+            return Promise.resolve(results.solicitudes ?? { data: [], error: null });
           }
 
           if (table === 'configuracion') {
-            return Promise.resolve(results.configuracion ?? { data: [], error: null })
+            return Promise.resolve(results.configuracion ?? { data: [], error: null });
           }
 
           if (table === 'nomina_periodo') {
-            return Promise.resolve(results.periodos ?? { data: [], error: null })
+            return Promise.resolve(results.periodos ?? { data: [], error: null });
           }
 
           if (table === 'pdv') {
-            return Promise.resolve(results.pdvs ?? { data: [], error: null })
+            return Promise.resolve(results.pdvs ?? { data: [], error: null });
           }
 
           if (table === 'venta') {
-            return Promise.resolve(results.ventas ?? { data: [], error: null })
+            return Promise.resolve(results.ventas ?? { data: [], error: null });
           }
 
           if (table === 'love_isdin') {
-            return Promise.resolve(results.love ?? { data: [], error: null })
+            return Promise.resolve(results.love ?? { data: [], error: null });
           }
 
           if (table === 'campana') {
-            return Promise.resolve(results.campanas ?? { data: [], error: null })
+            return Promise.resolve(results.campanas ?? { data: [], error: null });
           }
 
           if (table === 'campana_pdv') {
-            return Promise.resolve(results.campanasPdv ?? { data: [], error: null })
+            return Promise.resolve(results.campanasPdv ?? { data: [], error: null });
           }
 
-          return Promise.resolve(results.cuotas ?? { data: [], error: null })
+          return Promise.resolve(results.cuotas ?? { data: [], error: null });
         },
-      }
+      };
     },
     getEqValue(table = 'dashboard_kpis', column = 'cuenta_cliente_id') {
-      return eqValues.get(`${table}:${column}`) ?? null
+      return eqValues.get(`${table}:${column}`) ?? null;
     },
     getInValues(table = 'empleado', column = 'id') {
-      return inValues.get(`${table}:${column}`) ?? []
+      return inValues.get(`${table}:${column}`) ?? [];
     },
-  }
+  };
 }
 
 const actorBase: ActorActual = {
@@ -127,16 +143,16 @@ const actorBase: ActorActual = {
   estadoCuenta: 'ACTIVA',
   nombreCompleto: 'Admin Uno',
   puesto: 'ADMINISTRADOR',
-}
+};
 
 test('construye dashboard ejecutivo de cobertura para reclutamiento', async () => {
-  const today = new Date().toISOString().slice(0, 10)
-  const overdue = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const today = new Date().toISOString().slice(0, 10);
+  const overdue = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const recruitmentClient = {
     from(table: string) {
       const query = {
         select() {
-          return query
+          return query;
         },
         eq() {
           if (table === 'pdv_cobertura_operativa') {
@@ -158,7 +174,7 @@ test('construye dashboard ejecutivo de cobertura para reclutamiento', async () =
                 },
               ],
               error: null,
-            })
+            });
           }
 
           if (table === 'usuario') {
@@ -170,19 +186,19 @@ test('construye dashboard ejecutivo de cobertura para reclutamiento', async () =
                 { empleado_id: 'cand-2', cuenta_cliente_id: 'c1' },
               ],
               error: null,
-            })
+            });
           }
 
-          return query
+          return query;
         },
         in() {
           return Promise.resolve({
             data: [{ clave: 'reclutamiento.cobertura.meta_plantilla', valor: 250 }],
             error: null,
-          })
+          });
         },
         lte() {
-          return query
+          return query;
         },
         or() {
           return Promise.resolve({
@@ -199,7 +215,7 @@ test('construye dashboard ejecutivo de cobertura para reclutamiento', async () =
               },
             ],
             error: null,
-          })
+          });
         },
         order() {
           if (table === 'cuenta_cliente_pdv') {
@@ -275,7 +291,7 @@ test('construye dashboard ejecutivo de cobertura para reclutamiento', async () =
                 },
               ],
               error: null,
-            })
+            });
           }
 
           if (table === 'empleado') {
@@ -334,19 +350,19 @@ test('construye dashboard ejecutivo de cobertura para reclutamiento', async () =
                 },
               ],
               error: null,
-            })
+            });
           }
 
-          return Promise.resolve({ data: [], error: null })
+          return Promise.resolve({ data: [], error: null });
         },
         limit() {
-          return Promise.resolve({ data: [], error: null })
+          return Promise.resolve({ data: [], error: null });
         },
-      }
+      };
 
-      return query
+      return query;
     },
-  }
+  };
 
   const data = await obtenerPanelDashboard(
     {
@@ -357,10 +373,10 @@ test('construye dashboard ejecutivo de cobertura para reclutamiento', async () =
     },
     {},
     recruitmentClient as never
-  )
+  );
 
-  expect(data.infraestructuraLista).toBe(true)
-  expect(data.scopeLabel).toBe('Cobertura de reclutamiento')
+  expect(data.infraestructuraLista).toBe(true);
+  expect(data.scopeLabel).toBe('Cobertura de reclutamiento');
   expect(data.recruitmentCoverage).toMatchObject({
     target: 250,
     plantillaActiva: 1,
@@ -374,11 +390,11 @@ test('construye dashboard ejecutivo de cobertura para reclutamiento', async () =
     vacantesEnProcesoFirma: 1,
     listosAdministracion: 1,
     proximasIsdinizaciones: 1,
-  })
-  expect(data.widgets).toEqual(resolveDashboardWidgets('RECLUTAMIENTO'))
-})
+  });
+  expect(data.widgets).toEqual(resolveDashboardWidgets('RECLUTAMIENTO'));
+});
 test('consolida dashboard desde dashboard_kpis y filtra por cuenta operativa', async () => {
-  const freshDate = new Date().toISOString()
+  const freshDate = new Date().toISOString();
   const client = createFakeDashboardSupabase({
     initial: {
       data: [
@@ -421,13 +437,13 @@ test('consolida dashboard desde dashboard_kpis y filtra por cuenta operativa', a
       ],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelDashboard(actorBase, {}, client as never)
+  const data = await obtenerPanelDashboard(actorBase, {}, client as never);
 
-  expect(client.getEqValue()).toBe('c1')
-  expect(data.infraestructuraLista).toBe(true)
-  expect(data.scopeLabel).toBe('ISDIN Mexico')
+  expect(client.getEqValue()).toBe('c1');
+  expect(data.infraestructuraLista).toBe(true);
+  expect(data.scopeLabel).toBe('ISDIN Mexico');
   expect(data.stats).toMatchObject({
     fechaCorte: '2026-03-14',
     promotoresActivosHoy: 4,
@@ -437,18 +453,18 @@ test('consolida dashboard desde dashboard_kpis y filtra por cuenta operativa', a
     asistenciaPorcentajeHoy: 75,
     cuotasCumplidasPeriodo: 2,
     netoNominaPeriodo: 12500,
-  })
+  });
   expect(data.clientes[0]).toMatchObject({
     cuentaCliente: 'ISDIN Mexico',
     jornadasPendientes: 1,
     ventasConfirmadas: 5,
-  })
-  expect(data.filtros).toEqual({ periodo: '', estado: '', zona: '', supervisorId: '' })
-  expect(data.widgets).toEqual(resolveDashboardWidgets('ADMINISTRADOR'))
-})
+  });
+  expect(data.filtros).toEqual({ periodo: '', estado: '', zona: '', supervisorId: '' });
+  expect(data.widgets).toEqual(resolveDashboardWidgets('ADMINISTRADOR'));
+});
 
 test('permite vista global consolidada para administradores multi-cuenta', async () => {
-  const freshDate = new Date().toISOString()
+  const freshDate = new Date().toISOString();
   const client = createFakeDashboardSupabase({
     initial: {
       data: [
@@ -491,7 +507,7 @@ test('permite vista global consolidada para administradores multi-cuenta', async
       ],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelDashboard(
     {
@@ -500,22 +516,22 @@ test('permite vista global consolidada para administradores multi-cuenta', async
     },
     {},
     client as never
-  )
+  );
 
-  expect(client.getEqValue()).toBeNull()
-  expect(data.scopeLabel).toBe('Vista global')
+  expect(client.getEqValue()).toBeNull();
+  expect(data.scopeLabel).toBe('Vista global');
   expect(data.stats).toMatchObject({
     promotoresActivosHoy: 6,
     checkInsValidosHoy: 5,
     ventasConfirmadasHoy: 6,
     montoConfirmadoHoy: 8500,
     alertasOperativas: 3,
-  })
-  expect(data.clientes).toHaveLength(2)
-})
+  });
+  expect(data.clientes).toHaveLength(2);
+});
 
 test('consume el snapshot disponible aunque ya este vencido', async () => {
-  const staleDate = '2026-03-14T00:00:00.000Z'
+  const staleDate = '2026-03-14T00:00:00.000Z';
   const client = createFakeDashboardSupabase({
     initial: {
       data: [
@@ -540,19 +556,19 @@ test('consume el snapshot disponible aunque ya este vencido', async () => {
       ],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelDashboard(actorBase, {}, client as never)
+  const data = await obtenerPanelDashboard(actorBase, {}, client as never);
 
-  expect(data.stats.ventasConfirmadasHoy).toBe(2)
-  expect(data.stats.montoConfirmadoHoy).toBe(1900)
-  expect(data.refreshedAt).toBe(staleDate)
-})
+  expect(data.stats.ventasConfirmadasHoy).toBe(2);
+  expect(data.stats.montoConfirmadoHoy).toBe(1900);
+  expect(data.refreshedAt).toBe(staleDate);
+});
 
 test('hidrata supervisoras en batch para evitar N+1 al construir filtros y mapa', async () => {
-  const todayIso = new Date().toISOString().slice(0, 10)
-  const currentPeriod = todayIso.slice(0, 7)
-  const freshDate = new Date().toISOString()
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const currentPeriod = todayIso.slice(0, 7);
+  const freshDate = new Date().toISOString();
   const client = createFakeDashboardSupabase({
     initial: {
       data: [
@@ -634,19 +650,23 @@ test('hidrata supervisoras en batch para evitar N+1 al construir filtros y mapa'
       ],
       error: null,
     },
-  })
+  });
 
-  const insights = await obtenerInsightsDashboard(actorBase, { period: currentPeriod }, client as never)
+  const insights = await obtenerInsightsDashboard(
+    actorBase,
+    { period: currentPeriod },
+    client as never
+  );
 
-  expect(client.getInValues()).toEqual(['sup-1', 'sup-2'])
-  expect(insights.mapaPromotores).toHaveLength(2)
-  expect(insights.mapaPromotores[0]?.supervisorNombre).toBeTruthy()
-})
+  expect(client.getInValues()).toEqual(['sup-1', 'sup-2']);
+  expect(insights.mapaPromotores).toHaveLength(2);
+  expect(insights.mapaPromotores[0]?.supervisorNombre).toBeTruthy();
+});
 
 test('aplica filtros operativos y expone mapa con supervisor y zona', async () => {
-  const todayIso = new Date().toISOString().slice(0, 10)
-  const currentPeriod = todayIso.slice(0, 7)
-  const freshDate = new Date().toISOString()
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const currentPeriod = todayIso.slice(0, 7);
+  const freshDate = new Date().toISOString();
   const client = createFakeDashboardSupabase({
     initial: {
       data: [
@@ -753,43 +773,43 @@ test('aplica filtros operativos y expone mapa con supervisor y zona', async () =
       ],
       error: null,
     },
-  })
+  });
 
   const summary = await obtenerPanelDashboard(
     actorBase,
     { period: currentPeriod, estado: 'CIUDAD DE MEXICO', zona: 'Centro', supervisorId: 'sup-1' },
     client as never
-  )
+  );
   const insights = await obtenerInsightsDashboard(
     actorBase,
     { period: currentPeriod, estado: 'CIUDAD DE MEXICO', zona: 'Centro', supervisorId: 'sup-1' },
     client as never
-  )
+  );
 
   expect(summary.filtros).toEqual({
     periodo: currentPeriod,
     estado: 'CIUDAD DE MEXICO',
     zona: 'Centro',
     supervisorId: 'sup-1',
-  })
-  expect(summary.opcionesFiltro.estados).toEqual(['CIUDAD DE MEXICO'])
-  expect(summary.opcionesFiltro.zonas).toEqual(['Centro'])
+  });
+  expect(summary.opcionesFiltro.estados).toEqual(['CIUDAD DE MEXICO']);
+  expect(summary.opcionesFiltro.zonas).toEqual(['Centro']);
   expect(summary.opcionesFiltro.supervisores).toEqual([
     { id: 'sup-1', nombre: 'Supervisora Centro' },
-  ])
-  expect(client.getInValues()).toEqual(['sup-1'])
-  expect(insights.alertasLive).toHaveLength(1)
-  expect(insights.mapaPromotores).toHaveLength(1)
+  ]);
+  expect(client.getInValues()).toEqual(['sup-1']);
+  expect(insights.alertasLive).toHaveLength(1);
+  expect(insights.mapaPromotores).toHaveLength(1);
   expect(insights.mapaPromotores[0]).toMatchObject({
     empleado: 'DC Uno',
     supervisorNombre: 'Supervisora Centro',
     zona: 'Centro',
     pdv: 'PDV Centro',
-  })
-  expect(insights.widgets).toEqual(resolveDashboardWidgets('ADMINISTRADOR'))
-})
+  });
+  expect(insights.widgets).toEqual(resolveDashboardWidgets('ADMINISTRADOR'));
+});
 test('define widgets compactos para supervisor y expande la vista para coordinacion', () => {
-  expect(resolveDashboardWidgets('DERMOCONSEJERO')).toEqual(['dermoconsejo'])
+  expect(resolveDashboardWidgets('DERMOCONSEJERO')).toEqual(['dermoconsejo']);
   expect(resolveDashboardWidgets('SUPERVISOR')).toEqual([
     'snapshot',
     'filtros',
@@ -800,7 +820,7 @@ test('define widgets compactos para supervisor y expande la vista para coordinac
     'mapa',
     'alertas',
     'pulso_comercial',
-  ])
+  ]);
   expect(resolveDashboardWidgets('COORDINADOR')).toEqual([
     'snapshot',
     'filtros',
@@ -810,7 +830,7 @@ test('define widgets compactos para supervisor y expande la vista para coordinac
     'alertas',
     'pulso_comercial',
     'disciplina',
-  ])
+  ]);
   expect(resolveDashboardWidgets('NOMINA')).toEqual([
     'snapshot',
     'filtros',
@@ -818,17 +838,17 @@ test('define widgets compactos para supervisor y expande la vista para coordinac
     'cartera',
     'alertas',
     'pulso_comercial',
-  ])
-})
+  ]);
+});
 
 test('construye dashboard operativo mobile-first para dermoconsejero', async () => {
-  const todayIso = new Date().toISOString().slice(0, 10)
+  const todayIso = new Date().toISOString().slice(0, 10);
   const actorDermo: ActorActual = {
     ...actorBase,
     puesto: 'DERMOCONSEJERO',
     empleadoId: 'dc-1',
     nombreCompleto: 'Nancy Dermo',
-  }
+  };
   const client = createFakeDashboardSupabase({
     initial: {
       data: [
@@ -938,11 +958,11 @@ test('construye dashboard operativo mobile-first para dermoconsejero', async () 
       ],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelDashboard(actorDermo, {}, client as never)
+  const data = await obtenerPanelDashboard(actorDermo, {}, client as never);
 
-  expect(data.widgets).toEqual(['dermoconsejo'])
+  expect(data.widgets).toEqual(['dermoconsejo']);
   expect(data.dermoconsejo).toMatchObject({
     greetingName: 'Nancy Dermo',
     store: {
@@ -959,7 +979,7 @@ test('construye dashboard operativo mobile-first para dermoconsejero', async () 
       nombre: 'Bloqueador solar marzo',
       ctaHref: '/campanas',
     },
-  })
+  });
   expect(data.dermoconsejo?.counters).toEqual([
     {
       label: 'Ventas',
@@ -971,12 +991,12 @@ test('construye dashboard operativo mobile-first para dermoconsejero', async () 
       value: 1,
       helper: 'Clientes capturados hoy',
     },
-  ])
-})
+  ]);
+});
 test('combina alertas live de geocerca, retardo y cuota baja', async () => {
-  const todayIso = new Date().toISOString().slice(0, 10)
-  const todayCode = ['D', 'L', 'M', 'X', 'J', 'V', 'S'][new Date().getUTCDay()]
-  const freshDate = `${todayIso}T17:40:00.000Z`
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayCode = ['D', 'L', 'M', 'X', 'J', 'V', 'S'][new Date().getUTCDay()];
+  const freshDate = `${todayIso}T17:40:00.000Z`;
   const client = createFakeDashboardSupabase({
     initial: {
       data: [
@@ -1093,7 +1113,9 @@ test('combina alertas live de geocerca, retardo y cuota baja', async () => {
       error: null,
     },
     periodos: {
-      data: [{ id: 'periodo-1', estado: 'ABIERTO', fecha_inicio: '2026-03-01', fecha_fin: todayIso }],
+      data: [
+        { id: 'periodo-1', estado: 'ABIERTO', fecha_inicio: '2026-03-01', fecha_fin: todayIso },
+      ],
       error: null,
     },
     cuotas: {
@@ -1110,20 +1132,24 @@ test('combina alertas live de geocerca, retardo y cuota baja', async () => {
       ],
       error: null,
     },
-  })
+  });
 
-  const insights = await obtenerInsightsDashboard(actorBase, {}, client as never)
+  const insights = await obtenerInsightsDashboard(actorBase, {}, client as never);
 
-  expect(insights.alertasLive.map((item) => item.tipo)).toEqual(['GEOCERCA', 'RETARDO', 'CUOTA_BAJA'])
-})
+  expect(insights.alertasLive.map((item) => item.tipo)).toEqual([
+    'GEOCERCA',
+    'RETARDO',
+    'CUOTA_BAJA',
+  ]);
+});
 
 test('prioriza pendientes IMSS en dashboard de nomina y los cuenta en el resumen', async () => {
-  const todayIso = new Date().toISOString().slice(0, 10)
-  const freshDate = `${todayIso}T17:40:00.000Z`
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const freshDate = `${todayIso}T17:40:00.000Z`;
   const actorNomina: ActorActual = {
     ...actorBase,
     puesto: 'NOMINA',
-  }
+  };
   const client = createFakeDashboardSupabase({
     initial: {
       data: [
@@ -1173,19 +1199,19 @@ test('prioriza pendientes IMSS en dashboard de nomina y los cuenta en el resumen
       ],
       error: null,
     },
-  })
+  });
 
-  const summary = await obtenerPanelDashboard(actorNomina, {}, client as never)
-  const insights = await obtenerInsightsDashboard(actorNomina, {}, client as never)
+  const summary = await obtenerPanelDashboard(actorNomina, {}, client as never);
+  const insights = await obtenerInsightsDashboard(actorNomina, {}, client as never);
 
-  expect(summary.stats.imssPendientes).toBe(2)
-  expect(summary.widgets).toEqual(resolveDashboardWidgets('NOMINA'))
+  expect(summary.stats.imssPendientes).toBe(2);
+  expect(summary.widgets).toEqual(resolveDashboardWidgets('NOMINA'));
   expect(insights.alertasLive.map((item) => item.tipo)).toEqual([
     'IMSS_PENDIENTE',
     'IMSS_PENDIENTE',
-  ])
+  ]);
   expect(insights.alertasLive[0]).toMatchObject({
     empleado: 'DC Pendiente Uno',
     pdv: 'Alta IMSS pendiente',
-  })
-})
+  });
+});

@@ -1,31 +1,31 @@
-import { readFileSync } from 'node:fs'
-import vm from 'node:vm'
-import { resolve } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import { resolve } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
 
-const serviceWorkerSource = readFileSync(resolve(process.cwd(), 'public/sw.js'), 'utf8')
+const serviceWorkerSource = readFileSync(resolve(process.cwd(), 'public/sw.js'), 'utf8');
 
 type SyncMessage = {
-  type?: string
-  requestId?: string
-  ok?: boolean
-  error?: string
-}
+  type?: string;
+  requestId?: string;
+  ok?: boolean;
+  error?: string;
+};
 
 function bootServiceWorker() {
-  const listeners: Record<string, (event: any) => void> = {}
-  const postedMessages: Array<Record<string, unknown>> = []
+  const listeners: Record<string, (event: any) => void> = {};
+  const postedMessages: Array<Record<string, unknown>> = [];
 
   const client = {
     postMessage: (payload: Record<string, unknown>) => {
-      postedMessages.push(payload)
-      return Promise.resolve()
+      postedMessages.push(payload);
+      return Promise.resolve();
     },
-  }
+  };
 
   const selfScope = {
     addEventListener: (type: string, handler: (event: any) => void) => {
-      listeners[type] = handler
+      listeners[type] = handler;
     },
     skipWaiting: vi.fn(),
     clients: {
@@ -42,7 +42,7 @@ function bootServiceWorker() {
     crypto: {
       randomUUID: () => 'req-123',
     },
-  }
+  };
 
   const sandbox = {
     self: selfScope,
@@ -66,41 +66,43 @@ function bootServiceWorker() {
     setTimeout,
     clearTimeout,
     console,
-  }
+  };
 
-  vm.createContext(sandbox)
-  vm.runInContext(serviceWorkerSource, sandbox)
+  vm.createContext(sandbox);
+  vm.runInContext(serviceWorkerSource, sandbox);
 
   return {
     listeners,
     postedMessages,
     selfScope,
     sandbox,
-  }
+  };
 }
 
 describe('service worker background sync runtime', () => {
   it('rechaza la sincronizacion si no llega confirmacion antes del timeout', async () => {
-    vi.useFakeTimers()
+    vi.useFakeTimers();
 
-    const runtime = bootServiceWorker()
-    const waitPromise = (runtime.sandbox as any).waitForSyncCompletion('req-timeout') as Promise<void>
-    const rejection = waitPromise.catch((error: Error) => error)
+    const runtime = bootServiceWorker();
+    const waitPromise = (runtime.sandbox as any).waitForSyncCompletion(
+      'req-timeout'
+    ) as Promise<void>;
+    const rejection = waitPromise.catch((error: Error) => error);
 
-    await vi.advanceTimersByTimeAsync(15_000)
+    await vi.advanceTimersByTimeAsync(15_000);
 
     await expect(rejection).resolves.toMatchObject({
       message: 'Foreground sync confirmation timed out',
-    })
+    });
 
-    vi.useRealTimers()
-  })
+    vi.useRealTimers();
+  });
 
   it('resuelve la sincronizacion cuando llega OFFLINE_SYNC_COMPLETE', async () => {
-    vi.useFakeTimers()
+    vi.useFakeTimers();
 
-    const runtime = bootServiceWorker()
-    const waitPromise = (runtime.sandbox as any).waitForSyncCompletion('req-ok') as Promise<void>
+    const runtime = bootServiceWorker();
+    const waitPromise = (runtime.sandbox as any).waitForSyncCompletion('req-ok') as Promise<void>;
 
     runtime.listeners.message?.({
       data: {
@@ -108,40 +110,40 @@ describe('service worker background sync runtime', () => {
         requestId: 'req-ok',
         ok: true,
       } satisfies SyncMessage,
-    })
+    });
 
-    await expect(waitPromise).resolves.toBeUndefined()
+    await expect(waitPromise).resolves.toBeUndefined();
 
-    vi.useRealTimers()
-  })
+    vi.useRealTimers();
+  });
 
   it('engancha waitUntil y expone un timeout controlado al procesar el evento sync', async () => {
-    vi.useFakeTimers()
+    vi.useFakeTimers();
 
-    const runtime = bootServiceWorker()
-    const waitUntil = vi.fn()
+    const runtime = bootServiceWorker();
+    const waitUntil = vi.fn();
 
     runtime.listeners.sync?.({
       tag: 'retail-offline-sync',
       waitUntil,
-    })
+    });
 
-    expect(waitUntil).toHaveBeenCalledTimes(1)
+    expect(waitUntil).toHaveBeenCalledTimes(1);
 
-    const syncPromise = waitUntil.mock.calls[0]?.[0] as Promise<void>
-    const rejection = syncPromise.catch((error: Error) => error)
+    const syncPromise = waitUntil.mock.calls[0]?.[0] as Promise<void>;
+    const rejection = syncPromise.catch((error: Error) => error);
 
-    await Promise.resolve()
-    await Promise.resolve()
+    await Promise.resolve();
+    await Promise.resolve();
 
-    expect(runtime.selfScope.clients.matchAll).toHaveBeenCalled()
+    expect(runtime.selfScope.clients.matchAll).toHaveBeenCalled();
 
-    await vi.advanceTimersByTimeAsync(15_000)
+    await vi.advanceTimersByTimeAsync(15_000);
 
     await expect(rejection).resolves.toMatchObject({
       message: 'Foreground sync confirmation timed out',
-    })
+    });
 
-    vi.useRealTimers()
-  })
-})
+    vi.useRealTimers();
+  });
+});

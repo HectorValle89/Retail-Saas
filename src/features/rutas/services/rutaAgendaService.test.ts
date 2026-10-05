@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { resolveAgendaOperativaSupervisorDia } from './rutaAgendaService'
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { resolveAgendaOperativaSupervisorDia } from './rutaAgendaService';
 
 describe('rutaAgendaService', () => {
   afterEach(() => {
-    vi.useRealTimers()
-  })
+    vi.useRealTimers();
+  });
 
   it('desplaza visitas planeadas y genera pendientes justificadas cuando un evento aprobado reemplaza el dia', () => {
     const result = resolveAgendaOperativaSupervisorDia({
@@ -71,13 +71,15 @@ describe('rutaAgendaService', () => {
         },
       ],
       pendientesPersistidos: [],
-    })
+    });
 
-    expect(result.visitasActivas).toHaveLength(0)
-    expect(result.visitasDesplazadas.map((item) => item.id)).toEqual(['visit-1', 'visit-2'])
-    expect(result.pendientesJustificadasCount).toBe(2)
-    expect(result.pendientesReposicion.every((item) => item.clasificacion === 'JUSTIFICADA')).toBe(true)
-  })
+    expect(result.visitasActivas).toHaveLength(0);
+    expect(result.visitasDesplazadas.map((item) => item.id)).toEqual(['visit-1', 'visit-2']);
+    expect(result.pendientesJustificadasCount).toBe(2);
+    expect(result.pendientesReposicion.every((item) => item.clasificacion === 'JUSTIFICADA')).toBe(
+      true
+    );
+  });
 
   it('genera pendiente injustificada cuando una visita pasada no se ejecuto y no tiene causa valida', () => {
     const result = resolveAgendaOperativaSupervisorDia({
@@ -102,20 +104,20 @@ describe('rutaAgendaService', () => {
       ],
       agendaEventos: [],
       pendientesPersistidos: [],
-    })
+    });
 
-    expect(result.cumplimientoIncompleto).toBe(true)
-    expect(result.pendientesInjustificadasCount).toBe(1)
+    expect(result.cumplimientoIncompleto).toBe(true);
+    expect(result.pendientesInjustificadasCount).toBe(1);
     expect(result.pendientesReposicion[0]).toMatchObject({
       visitId: 'visit-3',
       clasificacion: 'INJUSTIFICADA',
       estado: 'PENDIENTE',
-    })
-  })
+    });
+  });
 
   it('usa la fecha operativa de Mexico cuando no se pasa today y evita falsos atrasos', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-04-13T02:30:00.000Z'))
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-13T02:30:00.000Z'));
 
     const result = resolveAgendaOperativaSupervisorDia({
       fecha: '2026-04-12',
@@ -138,8 +140,8 @@ describe('rutaAgendaService', () => {
       ],
       agendaEventos: [],
       pendientesPersistidos: [],
-    })
+    });
 
-    expect(result.pendientesInjustificadasCount).toBe(0)
-  })
-})
+    expect(result.pendientesInjustificadasCount).toBe(0);
+  });
+});

@@ -1,24 +1,28 @@
-import { NextResponse } from 'next/server'
-import { obtenerActorActual } from '@/lib/auth/session'
+import { NextResponse } from 'next/server';
+import { obtenerActorActual } from '@/lib/auth/session';
 import {
   buildPdvRotationTemplateWorkbook,
   getPdvRotationTemplateFilename,
-} from '@/features/asignaciones/lib/pdvRotationTemplate'
+} from '@/features/asignaciones/lib/pdvRotationTemplate';
 
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-const ALLOWED_ROLES = ['ADMINISTRADOR'] as const
+const ALLOWED_ROLES = ['ADMINISTRADOR'] as const;
 
 export async function GET() {
-  const actor = await obtenerActorActual()
+  const actor = await obtenerActorActual();
 
-  if (!actor || actor.estadoCuenta !== 'ACTIVA' || !ALLOWED_ROLES.some((role) => role === actor.puesto)) {
-    return NextResponse.json({ error: 'No autorizado.' }, { status: 401 })
+  if (
+    !actor ||
+    actor.estadoCuenta !== 'ACTIVA' ||
+    !ALLOWED_ROLES.some((role) => role === actor.puesto)
+  ) {
+    return NextResponse.json({ error: 'No autorizado.' }, { status: 401 });
   }
 
   try {
-    const bytes = buildPdvRotationTemplateWorkbook()
+    const bytes = buildPdvRotationTemplateWorkbook();
 
     return new Response(bytes, {
       headers: {
@@ -26,11 +30,16 @@ export async function GET() {
         'Content-Disposition': `attachment; filename="${getPdvRotationTemplateFilename()}"`,
         'Cache-Control': 'no-store',
       },
-    })
+    });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'No fue posible generar la plantilla de rotación maestra.' },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : 'No fue posible generar la plantilla de rotación maestra.',
+      },
       { status: 500 }
-    )
+    );
   }
 }

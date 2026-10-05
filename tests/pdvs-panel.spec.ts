@@ -1,86 +1,108 @@
-import { expect, test } from '@playwright/test'
-import { obtenerPanelPdvs } from '../src/features/pdvs/services/pdvService'
+import { expect, test } from '@playwright/test';
+import { obtenerPanelPdvs } from '../src/features/pdvs/services/pdvService';
+import { normalizePdvsPanelFilters } from '../src/features/pdvs/lib/pdvPanelFilters';
+
+const testScope = { cuentaClienteId: 'cuenta-test' };
+const testFilters = normalizePdvsPanelFilters({ month: '2026-03' });
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+};
 
 function createFakePdvsSupabase(results: Record<string, QueryResult>) {
   return {
     from(table: string) {
-      let currentKey = table
+      let currentKey = table;
 
       return {
         select() {
-          return this
+          return this;
         },
         eq(column: string, value: string | boolean) {
           if (table === 'configuracion') {
             if (value === 'geocerca.radio_default_metros') {
-              currentKey = 'configuracion:radio-default'
+              currentKey = 'configuracion:radio-default';
             } else if (value === 'geocerca.fuera_permitida_con_justificacion') {
-              currentKey = 'configuracion:justificacion-default'
+              currentKey = 'configuracion:justificacion-default';
             } else if (value === 'asistencias.san_pablo.catalogo_turnos') {
-              currentKey = 'configuracion'
+              currentKey = 'configuracion';
             }
 
-            return this
+            return this;
           }
 
-          const result = results[currentKey]
+          const result = results[currentKey];
           if (!result || !Array.isArray(result.data)) {
-            return this
+            return this;
           }
 
-          currentKey = `${table}:eq:${column}:${String(value)}`
+          currentKey = `${table}:eq:${column}:${String(value)}`;
           results[currentKey] = {
             data: result.data.filter((row) => {
               if (!row || typeof row !== 'object') {
-                return false
+                return false;
               }
 
-              const candidate = row as Record<string, unknown>
-              return String(candidate[column] ?? '') === String(value)
+              const candidate = row as Record<string, unknown>;
+              return String(candidate[column] ?? '') === String(value);
             }),
             error: result.error,
-          }
+          };
 
-          return this
+          return this;
         },
         in(column: string, values: string[]) {
-          const result = results[currentKey]
+          const result = results[currentKey];
           if (!result || !Array.isArray(result.data)) {
-            return this
+            return this;
           }
 
-          currentKey = `${table}:filtered:${column}:${values.join(',')}`
+          currentKey = `${table}:filtered:${column}:${values.join(',')}`;
           results[currentKey] = {
             data: result.data.filter((row) => {
               if (!row || typeof row !== 'object') {
-                return false
+                return false;
               }
 
-              const candidate = row as Record<string, unknown>
-              return values.includes(String(candidate[column] ?? ''))
+              const candidate = row as Record<string, unknown>;
+              return values.includes(String(candidate[column] ?? ''));
             }),
             error: result.error,
-          }
+          };
 
-          return this
+          return this;
         },
         order() {
-          return Promise.resolve(results[currentKey])
+          return this;
+        },
+        gte() {
+          return this;
+        },
+        lte() {
+          return this;
+        },
+        range() {
+          return this;
+        },
+        not() {
+          return this;
+        },
+        then<TResult1 = QueryResult, TResult2 = never>(
+          onfulfilled?: ((value: QueryResult) => TResult1 | PromiseLike<TResult1>) | null,
+          onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+        ) {
+          return Promise.resolve(results[currentKey] ?? { data: [], error: null }).then(onfulfilled, onrejected);
         },
         limit() {
-          return Promise.resolve(results[currentKey])
+          return Promise.resolve(results[currentKey]);
         },
         maybeSingle() {
-          return Promise.resolve(results[currentKey])
+          return Promise.resolve(results[currentKey]);
         },
-      }
+      };
     },
-  }
+  };
 }
 
 test('consolida PDVs, horarios y supervisor vigente', async () => {
@@ -89,6 +111,7 @@ test('consolida PDVs, horarios y supervisor vigente', async () => {
       data: [
         {
           id: 'pdv-1',
+          cuenta_cliente_pdv: [{ cuenta_cliente_id: 'cuenta-test', activo: true, fecha_inicio: '2026-01-01', fecha_fin: null }],
           clave_btl: 'SP001',
           cadena_id: 'cadena-1',
           ciudad_id: 'ciudad-1',
@@ -124,13 +147,21 @@ test('consolida PDVs, horarios y supervisor vigente', async () => {
               activo: true,
               fecha_inicio: '2026-03-01',
               fecha_fin: null,
-              empleado: [{ id: 'emp-1', nombre_completo: 'Ana Supervisor', zona: 'NORTE', estatus_laboral: 'ACTIVO' }],
+              empleado: [
+                {
+                  id: 'emp-1',
+                  nombre_completo: 'Ana Supervisor',
+                  zona: 'NORTE',
+                  estatus_laboral: 'ACTIVO',
+                },
+              ],
             },
           ],
           horario_pdv: [],
         },
         {
           id: 'pdv-2',
+          cuenta_cliente_pdv: [{ cuenta_cliente_id: 'cuenta-test', activo: true, fecha_inicio: '2026-01-01', fecha_fin: null }],
           clave_btl: 'SP002',
           cadena_id: 'cadena-1',
           ciudad_id: 'ciudad-2',
@@ -165,6 +196,7 @@ test('consolida PDVs, horarios y supervisor vigente', async () => {
         },
         {
           id: 'pdv-3',
+          cuenta_cliente_pdv: [{ cuenta_cliente_id: 'cuenta-test', activo: true, fecha_inicio: '2026-01-01', fecha_fin: null }],
           clave_btl: 'SP003',
           cadena_id: 'cadena-1',
           ciudad_id: 'ciudad-2',
@@ -200,7 +232,15 @@ test('consolida PDVs, horarios y supervisor vigente', async () => {
       error: null,
     },
     empleado: {
-      data: [{ id: 'emp-1', nombre_completo: 'Ana Supervisor', zona: 'NORTE', puesto: 'SUPERVISOR', estatus_laboral: 'ACTIVO' }],
+      data: [
+        {
+          id: 'emp-1',
+          nombre_completo: 'Ana Supervisor',
+          zona: 'NORTE',
+          puesto: 'SUPERVISOR',
+          estatus_laboral: 'ACTIVO',
+        },
+      ],
       error: null,
     },
     configuracion: {
@@ -242,24 +282,24 @@ test('consolida PDVs, horarios y supervisor vigente', async () => {
       },
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelPdvs(client as never)
+  const data = await obtenerPanelPdvs(client as never, testFilters, testScope);
 
-  expect(data.infraestructuraLista).toBe(true)
+  expect(data.infraestructuraLista).toBe(true);
   expect(data.resumen).toMatchObject({
     total: 3,
     activos: 2,
     conGeocerca: 1,
     conSupervisor: 1,
     conHorario: 3,
-  })
+  });
   expect(data.turnosCadena[0]).toMatchObject({
     nomenclatura: 'SP-9-18',
     turno: 'Base semanal',
-  })
-  expect(data.geocercaDefaultMetros).toBe(150)
-  expect(data.permiteCheckinConJustificacionDefault).toBe(false)
+  });
+  expect(data.geocercaDefaultMetros).toBe(150);
+  expect(data.permiteCheckinConJustificacionDefault).toBe(false);
   expect(data.pdvs[0]).toMatchObject({
     id: 'pdv-1',
     cadena: 'SAN PABLO',
@@ -268,27 +308,19 @@ test('consolida PDVs, horarios y supervisor vigente', async () => {
     horarioMode: 'CADENA',
     supervisorActual: 'Ana Supervisor',
     geocercaCompleta: true,
-  })
-  expect(data.pdvs[0].horarios[0]).toMatchObject({
-    source: 'CADENA',
-    code: 'SP-9-18',
-    horaEntrada: '09:00:00',
-    horaSalida: '18:00:00',
-  })
+  });
+  // El listado entrega el resumen; los horarios completos se solicitan en el detalle.
+  expect(data.pdvs[0]).not.toHaveProperty('horarios');
   expect(data.pdvs[1]).toMatchObject({
     id: 'pdv-2',
     horarioMode: 'PERSONALIZADO',
     geocercaCompleta: false,
     estatus: 'INACTIVO',
-  })
-  expect(data.pdvs[2].horarioMode).toBe('GLOBAL')
-  expect(data.pdvs[2].horarios[0]).toMatchObject({
-    source: 'GLOBAL',
-    horaEntrada: '11:00:00',
-    horaSalida: '19:00:00',
-  })
-  expect(data.estados).toEqual(['CIUDAD DE MEXICO', 'NUEVO LEON'])
-})
+  });
+  expect(data.pdvs[2].horarioMode).toBe('GLOBAL');
+  expect(data.pdvs[2]).not.toHaveProperty('horarios');
+  expect(data.estados).toEqual(['CIUDAD DE MEXICO', 'NUEVO LEON']);
+});
 
 test('filtra PDVs por supervisor vigente y recalcula opciones dependientes', async () => {
   const client = createFakePdvsSupabase({
@@ -296,6 +328,7 @@ test('filtra PDVs por supervisor vigente y recalcula opciones dependientes', asy
       data: [
         {
           id: 'pdv-1',
+          cuenta_cliente_pdv: [{ cuenta_cliente_id: 'cuenta-test', activo: true, fecha_inicio: '2026-01-01', fecha_fin: null }],
           clave_btl: 'SP001',
           cadena_id: 'cadena-1',
           ciudad_id: 'ciudad-1',
@@ -327,13 +360,21 @@ test('filtra PDVs por supervisor vigente y recalcula opciones dependientes', asy
               activo: true,
               fecha_inicio: '2026-03-01',
               fecha_fin: null,
-              empleado: [{ id: 'legacy-id', nombre_completo: 'Adriana Yulisma', zona: 'NORTE', estatus_laboral: 'ACTIVO' }],
+              empleado: [
+                {
+                  id: 'legacy-id',
+                  nombre_completo: 'Adriana Yulisma',
+                  zona: 'NORTE',
+                  estatus_laboral: 'ACTIVO',
+                },
+              ],
             },
           ],
           horario_pdv: [],
         },
         {
           id: 'pdv-2',
+          cuenta_cliente_pdv: [{ cuenta_cliente_id: 'cuenta-test', activo: true, fecha_inicio: '2026-01-01', fecha_fin: null }],
           clave_btl: 'SP002',
           cadena_id: 'cadena-2',
           ciudad_id: 'ciudad-2',
@@ -373,8 +414,20 @@ test('filtra PDVs por supervisor vigente y recalcula opciones dependientes', asy
     },
     empleado: {
       data: [
-        { id: 'emp-1', nombre_completo: 'Adriana Yulisma', zona: 'NORTE', puesto: 'SUPERVISOR', estatus_laboral: 'ACTIVO' },
-        { id: 'emp-2', nombre_completo: 'Otra Supervisora', zona: 'CENTRO', puesto: 'SUPERVISOR', estatus_laboral: 'ACTIVO' },
+        {
+          id: 'emp-1',
+          nombre_completo: 'Adriana Yulisma',
+          zona: 'NORTE',
+          puesto: 'SUPERVISOR',
+          estatus_laboral: 'ACTIVO',
+        },
+        {
+          id: 'emp-2',
+          nombre_completo: 'Otra Supervisora',
+          zona: 'CENTRO',
+          puesto: 'SUPERVISOR',
+          estatus_laboral: 'ACTIVO',
+        },
       ],
       error: null,
     },
@@ -424,9 +477,11 @@ test('filtra PDVs por supervisor vigente y recalcula opciones dependientes', asy
       ],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelPdvs(client as never, {
+    month: '2026-03',
+    publicacionEstado: '',
     search: '',
     cadenaId: '',
     ciudadId: '',
@@ -434,17 +489,21 @@ test('filtra PDVs por supervisor vigente y recalcula opciones dependientes', asy
     zona: '',
     supervisorId: 'emp-1',
     estatus: 'ACTIVO',
-  })
+  }, testScope);
 
-  expect(data.hasActiveFilters).toBe(true)
-  expect(data.pdvs).toHaveLength(1)
-  expect(data.pdvs[0]?.id).toBe('pdv-1')
-  expect(data.cadenas).toEqual([{ id: 'cadena-1', codigo: 'SAN', nombre: 'SAN PABLO' }])
-  expect(data.ciudades).toEqual([{ id: 'ciudad-1', nombre: 'MONTERREY', zona: 'NORTE', estado: 'NUEVO LEON' }])
-  expect(data.estados).toEqual(['NUEVO LEON'])
-  expect(data.zonas).toEqual(['NORTE'])
-  expect(data.supervisores).toEqual([{ id: 'emp-1', nombreCompleto: 'Adriana Yulisma', zona: 'NORTE' }])
-})
+  expect(data.hasActiveFilters).toBe(true);
+  expect(data.pdvs).toHaveLength(1);
+  expect(data.pdvs[0]?.id).toBe('pdv-1');
+  expect(data.cadenas).toEqual([{ id: 'cadena-1', codigo: 'SAN', nombre: 'SAN PABLO' }]);
+  expect(data.ciudades).toEqual([
+    { id: 'ciudad-1', nombre: 'MONTERREY', zona: 'NORTE', estado: 'NUEVO LEON' },
+  ]);
+  expect(data.estados).toEqual(['NUEVO LEON']);
+  expect(data.zonas).toEqual(['NORTE']);
+  expect(data.supervisores).toEqual([
+    { id: 'emp-1', nombreCompleto: 'Adriana Yulisma', zona: 'NORTE' },
+  ]);
+});
 
 test('degrada el panel si la tabla pdv no esta disponible', async () => {
   const client = createFakePdvsSupabase({
@@ -459,12 +518,12 @@ test('degrada el panel si la tabla pdv no esta disponible', async () => {
     'configuracion:radio-default': { data: null, error: null },
     'configuracion:justificacion-default': { data: null, error: null },
     regla_negocio: { data: null, error: null },
-  })
+  });
 
-  const data = await obtenerPanelPdvs(client as never)
+  const data = await obtenerPanelPdvs(client as never, testFilters, testScope);
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.mensajeInfraestructura).toContain('relation public.pdv does not exist')
-  expect(data.pdvs).toHaveLength(0)
-  expect(data.geocercaDefaultMetros).toBe(150)
-})
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.mensajeInfraestructura).toContain('relation public.pdv does not exist');
+  expect(data.pdvs).toHaveLength(0);
+  expect(data.geocercaDefaultMetros).toBe(150);
+});

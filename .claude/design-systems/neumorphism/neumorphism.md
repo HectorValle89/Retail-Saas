@@ -1,6 +1,6 @@
 # Neumorphism (Soft UI) - Sistema de Diseño
 
-> *"Elementos que parecen extruidos del fondo, como plástico suave moldeado."*
+> _"Elementos que parecen extruidos del fondo, como plástico suave moldeado."_
 
 ## Referencia Visual
 
@@ -13,27 +13,28 @@
 ## Qué es Neumorphism
 
 **Neumorphism** (New + Skeuomorphism) es un estilo de diseño que combina minimalismo con sombras suaves para crear elementos que parecen:
+
 - **Extruidos** del fondo (raised/convex)
 - **Hundidos** en el fondo (pressed/inset)
 
 ### Características Clave
 
-| Característica | Descripción |
-|----------------|-------------|
-| Sombras duales | Una sombra oscura + una sombra clara |
-| Mismo fondo | El elemento tiene el MISMO color que el fondo |
-| Bordes redondeados | Esquinas suaves, nunca cuadradas |
-| Sin bordes visibles | O muy sutiles |
-| Efecto 3D suave | Como plástico moldeado |
+| Característica      | Descripción                                   |
+| ------------------- | --------------------------------------------- |
+| Sombras duales      | Una sombra oscura + una sombra clara          |
+| Mismo fondo         | El elemento tiene el MISMO color que el fondo |
+| Bordes redondeados  | Esquinas suaves, nunca cuadradas              |
+| Sin bordes visibles | O muy sutiles                                 |
+| Efecto 3D suave     | Como plástico moldeado                        |
 
 ### Diferencia con Glassmorphism
 
-| Neumorphism | Glassmorphism |
-|-------------|---------------|
-| Sombras externas/internas | Blur del fondo |
-| Mismo color que fondo | Transparente |
-| Efecto "extruido" | Efecto "vidrio flotante" |
-| Sin transparencia | Con transparencia |
+| Neumorphism               | Glassmorphism            |
+| ------------------------- | ------------------------ |
+| Sombras externas/internas | Blur del fondo           |
+| Mismo color que fondo     | Transparente             |
+| Efecto "extruido"         | Efecto "vidrio flotante" |
+| Sin transparencia         | Con transparencia        |
 
 ---
 
@@ -44,8 +45,8 @@ El secreto de neumorphism son **dos sombras opuestas**:
 ```css
 /* CSS Vanilla */
 box-shadow:
-  [offset-x] [offset-y] [blur] [color-oscuro],  /* Sombra oscura */
-  [-offset-x] [-offset-y] [blur] [color-claro]; /* Sombra clara */
+  [offset-x] [offset-y] [blur] [color-oscuro],
+  /* Sombra oscura */ [-offset-x] [-offset-y] [blur] [color-claro]; /* Sombra clara */
 ```
 
 ### Ejemplo Básico
@@ -55,8 +56,8 @@ box-shadow:
 .neumorphic {
   background: #e6e7ee;
   box-shadow:
-    6px 6px 12px #b8b9be,    /* Sombra oscura abajo-derecha */
-    -6px -6px 12px #ffffff;  /* Sombra clara arriba-izquierda */
+    6px 6px 12px #b8b9be,
+    /* Sombra oscura abajo-derecha */ -6px -6px 12px #ffffff; /* Sombra clara arriba-izquierda */
 }
 
 /* Elemento hundido (inset/pressed) */
@@ -78,20 +79,28 @@ El fondo debe ser un **gris medio** - ni muy claro ni muy oscuro:
 
 ```html
 <!-- Tailwind -->
-<body class="bg-[#e6e7ee]">  <!-- Gris azulado - MÁS COMÚN -->
-<body class="bg-[#f0f0f3]">  <!-- Gris claro -->
-<body class="bg-[#dde1e7]">  <!-- Gris medio -->
-<body class="bg-gray-200">   <!-- Alternativa Tailwind -->
+<body class="bg-[#e6e7ee]">
+  <!-- Gris azulado - MÁS COMÚN -->
+  <body class="bg-[#f0f0f3]">
+    <!-- Gris claro -->
+    <body class="bg-[#dde1e7]">
+      <!-- Gris medio -->
+      <body class="bg-gray-200">
+        <!-- Alternativa Tailwind -->
+      </body>
+    </body>
+  </body>
+</body>
 ```
 
 ### Cálculo de Sombras
 
 Para cualquier color de fondo, las sombras se calculan así:
 
-| Tipo | Fórmula | Ejemplo para #e6e7ee |
-|------|---------|---------------------|
-| Sombra oscura | Fondo - 15-20% brillo | `#b8b9be` |
-| Sombra clara | Fondo + 15-20% brillo (o #fff) | `#ffffff` |
+| Tipo          | Fórmula                        | Ejemplo para #e6e7ee |
+| ------------- | ------------------------------ | -------------------- |
+| Sombra oscura | Fondo - 15-20% brillo          | `#b8b9be`            |
+| Sombra clara  | Fondo + 15-20% brillo (o #fff) | `#ffffff`            |
 
 ### Paletas Predefinidas
 
@@ -125,22 +134,26 @@ Para cualquier color de fondo, las sombras se calculan así:
 
 ```html
 <!-- Elemento Raised -->
-<div class="
+<div
+  class="
   bg-[#e6e7ee]
   rounded-2xl
   shadow-[6px_6px_12px_#b8b9be,-6px_-6px_12px_#ffffff]
   p-6
-">
+"
+>
   Contenido
 </div>
 
 <!-- Elemento Inset (Pressed) -->
-<div class="
+<div
+  class="
   bg-[#e6e7ee]
   rounded-2xl
   shadow-[inset_4px_4px_8px_#b8b9be,inset_-4px_-4px_8px_#ffffff]
   p-6
-">
+"
+>
   Contenido hundido
 </div>
 ```
@@ -153,16 +166,16 @@ export default {
   theme: {
     extend: {
       colors: {
-        'neu': {
+        neu: {
           bg: '#e6e7ee',
           dark: '#b8b9be',
           light: '#ffffff',
-        }
+        },
       },
       boxShadow: {
         // Raised (elevado)
         'neu-sm': '3px 3px 6px #b8b9be, -3px -3px 6px #ffffff',
-        'neu': '6px 6px 12px #b8b9be, -6px -6px 12px #ffffff',
+        neu: '6px 6px 12px #b8b9be, -6px -6px 12px #ffffff',
         'neu-md': '8px 8px 16px #b8b9be, -8px -8px 16px #ffffff',
         'neu-lg': '12px 12px 24px #b8b9be, -12px -12px 24px #ffffff',
         'neu-xl': '20px 20px 40px #b8b9be, -20px -20px 40px #ffffff',
@@ -174,7 +187,7 @@ export default {
       },
     },
   },
-}
+};
 ```
 
 ```html
@@ -193,19 +206,20 @@ npm install tw-neumorphism
 // tailwind.config.js
 module.exports = {
   plugins: [require('tw-neumorphism')],
-}
+};
 ```
 
 **Clases generadas:**
 
-| Clase | Efecto |
-|-------|--------|
-| `nm-flat-gray-200` | Plano con sombras |
+| Clase                 | Efecto                          |
+| --------------------- | ------------------------------- |
+| `nm-flat-gray-200`    | Plano con sombras               |
 | `nm-concave-gray-200` | Cóncavo (hundido con gradiente) |
-| `nm-convex-gray-200` | Convexo (elevado con gradiente) |
-| `nm-inset-gray-200` | Inset (presionado) |
+| `nm-convex-gray-200`  | Convexo (elevado con gradiente) |
+| `nm-inset-gray-200`   | Inset (presionado)              |
 
 **Tamaños disponibles:**
+
 - `nm-flat-gray-200-xs` (0.05em)
 - `nm-flat-gray-200-sm` (0.1em)
 - `nm-flat-gray-200` (0.2em - default)
@@ -219,12 +233,14 @@ module.exports = {
 ### Card Neumorphic
 
 ```html
-<div class="
+<div
+  class="
   bg-[#e6e7ee]
   rounded-3xl
   shadow-[8px_8px_16px_#b8b9be,-8px_-8px_16px_#ffffff]
   p-8
-">
+"
+>
   <h3 class="text-gray-700 font-semibold text-xl">Card Title</h3>
   <p class="text-gray-500 mt-2">Card content goes here...</p>
 </div>
@@ -233,7 +249,8 @@ module.exports = {
 ### Botón Neumorphic (con hover)
 
 ```html
-<button class="
+<button
+  class="
   bg-[#e6e7ee]
   rounded-xl
   shadow-[6px_6px_12px_#b8b9be,-6px_-6px_12px_#ffffff]
@@ -242,7 +259,8 @@ module.exports = {
   px-8 py-4
   text-gray-600 font-medium
   transition-shadow duration-200
-">
+"
+>
   Click Me
 </button>
 ```
@@ -250,7 +268,8 @@ module.exports = {
 ### Botón con Icono
 
 ```html
-<button class="
+<button
+  class="
   bg-[#e6e7ee]
   rounded-full
   shadow-[6px_6px_12px_#b8b9be,-6px_-6px_12px_#ffffff]
@@ -259,7 +278,8 @@ module.exports = {
   flex items-center justify-center
   text-gray-600
   transition-shadow duration-200
-">
+"
+>
   <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
     <!-- Icon SVG -->
   </svg>
@@ -290,16 +310,19 @@ module.exports = {
 ### Toggle Switch
 
 ```html
-<div class="
+<div
+  class="
   relative
   w-16 h-8
   bg-[#e6e7ee]
   rounded-full
   shadow-[inset_4px_4px_8px_#b8b9be,inset_-4px_-4px_8px_#ffffff]
   cursor-pointer
-">
+"
+>
   <!-- Knob -->
-  <div class="
+  <div
+    class="
     absolute top-1 left-1
     w-6 h-6
     bg-[#e6e7ee]
@@ -307,37 +330,44 @@ module.exports = {
     shadow-[3px_3px_6px_#b8b9be,-3px_-3px_6px_#ffffff]
     transition-transform duration-300
     peer-checked:translate-x-8
-  "></div>
+  "
+  ></div>
 </div>
 ```
 
 ### Progress Bar
 
 ```html
-<div class="
+<div
+  class="
   w-full h-4
   bg-[#e6e7ee]
   rounded-full
   shadow-[inset_2px_2px_4px_#b8b9be,inset_-2px_-2px_4px_#ffffff]
   overflow-hidden
-">
-  <div class="
+"
+>
+  <div
+    class="
     h-full w-3/4
     bg-gradient-to-r from-blue-400 to-blue-500
     rounded-full
     shadow-[2px_0_4px_rgba(0,0,0,0.1)]
-  "></div>
+  "
+  ></div>
 </div>
 ```
 
 ### Navbar Neumorphic
 
 ```html
-<nav class="
+<nav
+  class="
   bg-[#e6e7ee]
   shadow-[0_4px_12px_#b8b9be]
   px-8 py-4
-">
+"
+>
   <div class="max-w-6xl mx-auto flex items-center justify-between">
     <span class="text-gray-700 font-bold text-xl">Logo</span>
 
@@ -345,7 +375,8 @@ module.exports = {
       <a href="#" class="text-gray-600 hover:text-gray-800">Home</a>
       <a href="#" class="text-gray-600 hover:text-gray-800">About</a>
 
-      <button class="
+      <button
+        class="
         bg-[#e6e7ee]
         rounded-xl
         shadow-[4px_4px_8px_#b8b9be,-4px_-4px_8px_#ffffff]
@@ -353,7 +384,8 @@ module.exports = {
         px-6 py-2
         text-gray-600 font-medium
         transition-shadow duration-200
-      ">
+      "
+      >
         Sign In
       </button>
     </div>
@@ -364,7 +396,9 @@ module.exports = {
 ### Sidebar Item
 
 ```html
-<a href="#" class="
+<a
+  href="#"
+  class="
   flex items-center gap-4
   bg-[#e6e7ee]
   rounded-xl
@@ -373,7 +407,8 @@ module.exports = {
   px-6 py-4
   text-gray-600
   transition-shadow duration-200
-">
+"
+>
   <span class="w-5 h-5"><!-- Icon --></span>
   <span>Dashboard</span>
 </a>
@@ -382,13 +417,16 @@ module.exports = {
 ### Stat Card
 
 ```html
-<div class="
+<div
+  class="
   bg-[#e6e7ee]
   rounded-2xl
   shadow-[8px_8px_16px_#b8b9be,-8px_-8px_16px_#ffffff]
   p-6
-">
-  <div class="
+"
+>
+  <div
+    class="
     w-12 h-12
     bg-[#e6e7ee]
     rounded-xl
@@ -396,7 +434,8 @@ module.exports = {
     flex items-center justify-center
     text-blue-500
     mb-4
-  ">
+  "
+  >
     <svg class="w-6 h-6" fill="currentColor"><!-- Icon --></svg>
   </div>
 
@@ -412,11 +451,13 @@ module.exports = {
 ### Flat (Plano)
 
 ```html
-<div class="
+<div
+  class="
   bg-[#e6e7ee]
   rounded-2xl
   shadow-[6px_6px_12px_#b8b9be,-6px_-6px_12px_#ffffff]
-">
+"
+>
   Flat - Fondo sólido con sombras
 </div>
 ```
@@ -424,11 +465,13 @@ module.exports = {
 ### Convex (Abombado hacia afuera)
 
 ```html
-<div class="
+<div
+  class="
   bg-gradient-to-br from-[#f0f1f5] to-[#dcdde3]
   rounded-2xl
   shadow-[6px_6px_12px_#b8b9be,-6px_-6px_12px_#ffffff]
-">
+"
+>
   Convex - Gradiente que simula curvatura hacia afuera
 </div>
 ```
@@ -436,11 +479,13 @@ module.exports = {
 ### Concave (Abombado hacia adentro)
 
 ```html
-<div class="
+<div
+  class="
   bg-gradient-to-br from-[#dcdde3] to-[#f0f1f5]
   rounded-2xl
   shadow-[6px_6px_12px_#b8b9be,-6px_-6px_12px_#ffffff]
-">
+"
+>
   Concave - Gradiente que simula curvatura hacia adentro
 </div>
 ```
@@ -448,11 +493,13 @@ module.exports = {
 ### Inset (Presionado)
 
 ```html
-<div class="
+<div
+  class="
   bg-[#e6e7ee]
   rounded-2xl
   shadow-[inset_4px_4px_8px_#b8b9be,inset_-4px_-4px_8px_#ffffff]
-">
+"
+>
   Inset - Sombras internas, como si estuviera hundido
 </div>
 ```
@@ -465,12 +512,14 @@ Neumorphism también funciona en modo oscuro:
 
 ```html
 <body class="bg-[#2d2d2d]">
-  <div class="
+  <div
+    class="
     bg-[#2d2d2d]
     rounded-2xl
     shadow-[6px_6px_12px_#1a1a1a,-6px_-6px_12px_#404040]
     p-8
-  ">
+  "
+  >
     Dark Neumorphism
   </div>
 </body>
@@ -504,7 +553,8 @@ Neumorphism también funciona en modo oscuro:
 
 ```html
 <!-- Añadir indicadores de color para estados -->
-<button class="
+<button
+  class="
   bg-[#e6e7ee]
   shadow-[6px_6px_12px_#b8b9be,-6px_-6px_12px_#ffffff]
 
@@ -513,17 +563,18 @@ Neumorphism también funciona en modo oscuro:
 
   /* Disabled con opacidad */
   disabled:opacity-50 disabled:cursor-not-allowed
-">
+"
+></button>
 ```
 
 ### Cuándo Usar y Cuándo NO
 
-| ✅ Usar Para | ❌ Evitar Para |
-|-------------|---------------|
-| Cards decorativas | CTAs principales |
-| Contenedores estáticos | Formularios críticos |
+| ✅ Usar Para           | ❌ Evitar Para             |
+| ---------------------- | -------------------------- |
+| Cards decorativas      | CTAs principales           |
+| Contenedores estáticos | Formularios críticos       |
 | Elementos de dashboard | Validación (error/success) |
-| Navegación secundaria | Botones de acción primaria |
+| Navegación secundaria  | Botones de acción primaria |
 
 ---
 
@@ -550,14 +601,14 @@ Neumorphism también funciona en modo oscuro:
 
 ## Tamaños de Sombra Recomendados
 
-| Tamaño | Sombra | Uso |
-|--------|--------|-----|
-| XS | `3px 3px 6px, -3px -3px 6px` | Iconos, badges pequeños |
-| SM | `4px 4px 8px, -4px -4px 8px` | Botones pequeños |
-| MD | `6px 6px 12px, -6px -6px 12px` | Botones, inputs |
-| LG | `8px 8px 16px, -8px -8px 16px` | Cards |
-| XL | `12px 12px 24px, -12px -12px 24px` | Modals, paneles grandes |
-| 2XL | `20px 20px 40px, -20px -20px 40px` | Hero sections |
+| Tamaño | Sombra                             | Uso                     |
+| ------ | ---------------------------------- | ----------------------- |
+| XS     | `3px 3px 6px, -3px -3px 6px`       | Iconos, badges pequeños |
+| SM     | `4px 4px 8px, -4px -4px 8px`       | Botones pequeños        |
+| MD     | `6px 6px 12px, -6px -6px 12px`     | Botones, inputs         |
+| LG     | `8px 8px 16px, -8px -8px 16px`     | Cards                   |
+| XL     | `12px 12px 24px, -12px -12px 24px` | Modals, paneles grandes |
+| 2XL    | `20px 20px 40px, -20px -20px 40px` | Hero sections           |
 
 ---
 
@@ -571,4 +622,4 @@ Neumorphism también funciona en modo oscuro:
 
 ---
 
-*Este documento es parte del Design System de SaaS Factory V2.*
+_Este documento es parte del Design System de SaaS Factory V2._

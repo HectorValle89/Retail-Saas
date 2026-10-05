@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   ClienteDashboardData,
   ClienteDashboardMaterialProgress,
@@ -32,8 +32,19 @@ function getCurrentPeriod() {
 function periodLabel(periodo: string) {
   const [y, m] = periodo.split('-');
   const months = [
-    '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+    '',
+    'Enero',
+    'Febrero',
+    'Marzo',
+    'Abril',
+    'Mayo',
+    'Junio',
+    'Julio',
+    'Agosto',
+    'Septiembre',
+    'Octubre',
+    'Noviembre',
+    'Diciembre',
   ];
   return `${months[Number(m)] ?? m} ${y}`;
 }
@@ -74,10 +85,7 @@ function MiniTrendChart({
   const seriesKeys = ['ventas', 'canjes', 'loveIsdin', 'desabasto'] as const;
   const activeKeys = seriesKeys.filter((k) => visibleSeries.has(k));
 
-  const maxVal = Math.max(
-    1,
-    ...data.flatMap((d) => activeKeys.map((k) => d[k]))
-  );
+  const maxVal = Math.max(1, ...data.flatMap((d) => activeKeys.map((k) => d[k])));
 
   const xStep = data.length > 1 ? plotW / (data.length - 1) : plotW;
 
@@ -147,7 +155,13 @@ function MiniTrendChart({
         return (
           <g key={key}>
             <path d={buildAreaPath(key)} fill={colors.fill} />
-            <path d={buildPath(key)} fill="none" stroke={colors.line} strokeWidth={2} strokeLinejoin="round" />
+            <path
+              d={buildPath(key)}
+              fill="none"
+              stroke={colors.line}
+              strokeWidth={2}
+              strokeLinejoin="round"
+            />
           </g>
         );
       })}
@@ -156,13 +170,13 @@ function MiniTrendChart({
       {activeKeys.map((key) => {
         const colors = CHART_COLORS[key];
         const lastIdx = data.length - 1;
-        const todayData = data.find(d => {
+        const todayData = data.find((d) => {
           const val = d[key] as number;
           return val > 0;
         });
         if (!todayData) return null;
         const idx = data.indexOf(todayData);
-        const lastWithData = [...data].reverse().find(d => (d[key] as number) > 0);
+        const lastWithData = [...data].reverse().find((d) => (d[key] as number) > 0);
         if (!lastWithData) return null;
         const lastDataIdx = data.indexOf(lastWithData);
         const x = PAD_L + lastDataIdx * xStep;
@@ -202,13 +216,13 @@ function KpiStat({ label, value, subtitle, icon, gradientFrom, gradientTo, iconB
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">{label}</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">
+            {label}
+          </p>
           <p className="mt-1.5 text-2xl font-bold leading-none tracking-tight text-white sm:text-3xl">
             {value}
           </p>
-          {subtitle && (
-            <p className="mt-1.5 text-[11px] font-medium text-white/60">{subtitle}</p>
-          )}
+          {subtitle && <p className="mt-1.5 text-[11px] font-medium text-white/60">{subtitle}</p>}
         </div>
         <span
           className={cls(
@@ -233,7 +247,9 @@ function MaterialProgressBar({ material }: { material: ClienteDashboardMaterialP
   return (
     <div className="rounded-xl border border-slate-100 bg-white p-3.5 shadow-sm transition-all hover:shadow-md">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-slate-800 line-clamp-1">{material.materialNombre}</p>
+        <p className="text-sm font-semibold text-slate-800 line-clamp-1">
+          {material.materialNombre}
+        </p>
         <span
           className={cls(
             'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide',
@@ -266,44 +282,17 @@ function MaterialProgressBar({ material }: { material: ClienteDashboardMaterialP
       {/* Details row */}
       <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
         <span>
-          Entregados: <strong className="text-slate-700">{formatNum(material.canjesEntregados)}</strong>
+          Entregados:{' '}
+          <strong className="text-slate-700">{formatNum(material.canjesEntregados)}</strong>
         </span>
         <span>
-          Inventario: <strong className="text-slate-700">{formatNum(material.inventarioInicial)}</strong>
+          Inventario:{' '}
+          <strong className="text-slate-700">{formatNum(material.inventarioInicial)}</strong>
         </span>
         <span>
           Restante: <strong className="text-slate-700">{formatNum(material.stockActual)}</strong>
         </span>
       </div>
-    </div>
-  );
-}
-
-/* ─────────────────── Alert Row Component ─────────────────────── */
-
-function AlertRow({ alert }: { alert: ClienteDashboardAlertItem }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-amber-100 bg-amber-50/50 px-3.5 py-2.5 transition-all hover:bg-amber-50">
-      {/* Warning icon */}
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100">
-        <svg className="h-4 w-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-        </svg>
-      </span>
-
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-amber-900 line-clamp-1">
-          {alert.empleadoNombre}
-        </p>
-        <p className="text-[11px] text-amber-700 line-clamp-1">
-          {alert.pdvNombre} {alert.pdvClaveBtl ? `(${alert.pdvClaveBtl})` : ''}
-          <span className="ml-1.5 text-amber-500">· Sup: {alert.supervisorNombre}</span>
-        </p>
-      </div>
-
-      <span className="shrink-0 rounded-full bg-amber-200/60 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-800">
-        Sin registro
-      </span>
     </div>
   );
 }
@@ -314,21 +303,31 @@ function DesabastoRow({ item }: { item: ClienteDashboardDesabastoItem }) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-red-100 bg-red-50/30 px-3.5 py-2.5 transition-all hover:bg-red-50/60">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-100">
-        <svg className="h-4 w-4 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+        <svg
+          className="h-4 w-4 text-red-600"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z"
+          />
         </svg>
       </span>
 
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-red-900 line-clamp-1">
-          {item.productoNombre}
-        </p>
+        <p className="text-sm font-semibold text-red-900 line-clamp-1">{item.productoNombre}</p>
         <p className="text-[11px] text-red-700 line-clamp-1">
           {item.pdvNombre} {item.pdvClaveBtl ? `(${item.pdvClaveBtl})` : ''}
           <span className="ml-1.5 text-red-500">· {item.fecha}</span>
         </p>
         {item.observaciones && (
-          <p className="mt-0.5 text-[10px] italic text-red-500 line-clamp-1">{item.observaciones}</p>
+          <p className="mt-0.5 text-[10px] italic text-red-500 line-clamp-1">
+            {item.observaciones}
+          </p>
         )}
       </div>
     </div>
@@ -397,6 +396,7 @@ function FilterBar({
   onSupervisorChange,
   onPeriodoChange,
   onFechaChange,
+  isSupervisorMode = false,
 }: {
   cadenas: ClienteDashboardCatalogOption[];
   tiendas: ClienteDashboardCatalogOption[];
@@ -411,6 +411,7 @@ function FilterBar({
   onSupervisorChange: (id: string) => void;
   onPeriodoChange: (p: string) => void;
   onFechaChange: (f: string) => void;
+  isSupervisorMode?: boolean;
 }) {
   const dateLimits = useMemo(() => {
     if (!periodo) return { min: undefined, max: undefined };
@@ -422,89 +423,157 @@ function FilterBar({
     };
   }, [periodo]);
 
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {/* Periodo */}
-      <input
-        type="month"
-        value={periodo}
-        onChange={(e) => {
-          onPeriodoChange(e.target.value);
-          onFechaChange(''); // Resetear fecha al cambiar de mes
-        }}
-        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition-all focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
-      />
+  const handleDayOffset = (offset: number) => {
+    const baseDateStr = fecha || `${periodo}-01`;
+    const current = new Date(baseDateStr + 'T12:00:00');
+    current.setDate(current.getDate() + offset);
 
-      {/* Día */}
+    const y = current.getFullYear();
+    const m = String(current.getMonth() + 1).padStart(2, '0');
+    const d = String(current.getDate()).padStart(2, '0');
+    const formatted = `${y}-${m}-${d}`;
+
+    if (dateLimits.min && formatted < dateLimits.min) return;
+    if (dateLimits.max && formatted > dateLimits.max) return;
+
+    onFechaChange(formatted);
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200/80 bg-white/90 p-2 shadow-2xs backdrop-blur-xs">
+      {/* Selector de Mes/Periodo */}
       <div className="relative flex items-center">
+        <span className="pointer-events-none absolute left-3 text-slate-400 text-xs">📅</span>
         <input
-          type="date"
-          value={fecha}
-          min={dateLimits.min}
-          max={dateLimits.max}
-          onChange={(e) => onFechaChange(e.target.value)}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition-all focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
+          type="month"
+          value={periodo}
+          onChange={(e) => {
+            onPeriodoChange(e.target.value);
+            onFechaChange(''); // Resetear fecha al cambiar de mes
+          }}
+          className="h-9 rounded-xl border border-slate-200/90 bg-slate-50/70 pl-8 pr-2.5 text-xs font-bold text-slate-700 shadow-2xs transition-all hover:bg-white hover:border-slate-300 focus:border-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 cursor-pointer"
         />
-        {fecha && (
-          <button
-            type="button"
-            onClick={() => onFechaChange('')}
-            className="absolute right-2 text-slate-400 hover:text-slate-600 text-xs font-bold bg-white px-1 select-none"
-            title="Limpiar fecha"
-          >
-            ✕
-          </button>
-        )}
       </div>
 
-      {/* Supervisor */}
-      <select
-        value={selectedSupervisorId}
-        onChange={(e) => onSupervisorChange(e.target.value)}
-        className="min-w-[150px] max-w-[200px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition-all focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
-      >
-        <option value="">Todos los supervisores</option>
-        {supervisores.map((s) => (
-          <option key={s.id} value={s.id}>{s.nombre}</option>
-        ))}
-      </select>
+      {/* Navegador de Día con flechas elegantes */}
+      <div className="flex items-center rounded-xl border border-slate-200/90 bg-slate-50/70 shadow-2xs p-0.5">
+        <button
+          type="button"
+          onClick={() => handleDayOffset(-1)}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-white hover:text-slate-900 hover:shadow-xs active:scale-95 transition-all text-xs font-bold"
+          title="Día anterior"
+        >
+          ◀
+        </button>
+        <div className="relative flex items-center">
+          <input
+            type="date"
+            value={fecha}
+            min={dateLimits.min}
+            max={dateLimits.max}
+            onChange={(e) => onFechaChange(e.target.value)}
+            className="h-8 rounded-lg border-0 bg-transparent px-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-0 cursor-pointer"
+          />
+          {fecha && (
+            <button
+              type="button"
+              onClick={() => onFechaChange('')}
+              className="mr-1 text-slate-400 hover:text-slate-700 text-xs font-bold p-1 rounded-md hover:bg-slate-200/60"
+              title="Ver todo el mes"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => handleDayOffset(1)}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-white hover:text-slate-900 hover:shadow-xs active:scale-95 transition-all text-xs font-bold"
+          title="Siguiente día"
+        >
+          ▶
+        </button>
+      </div>
+
+      {/* Supervisor (Oculto en modo supervisor) */}
+      {!isSupervisorMode && (
+        <div className="relative flex items-center">
+          <span className="pointer-events-none absolute left-3 text-slate-400 text-xs">👤</span>
+          <select
+            value={selectedSupervisorId}
+            onChange={(e) => onSupervisorChange(e.target.value)}
+            className="h-9 min-w-[140px] max-w-[190px] truncate rounded-xl border border-slate-200/90 bg-slate-50/70 pl-8 pr-7 text-xs font-bold text-slate-700 shadow-2xs transition-all hover:bg-white hover:border-slate-300 focus:border-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 cursor-pointer appearance-none"
+          >
+            <option value="">Todos los supervisores</option>
+            {supervisores.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nombre}
+              </option>
+            ))}
+          </select>
+          <span className="pointer-events-none absolute right-2.5 text-slate-400 text-[10px]">▼</span>
+        </div>
+      )}
 
       {/* Cadena */}
-      <select
-        value={selectedCadenaId}
-        onChange={(e) => onCadenaChange(e.target.value)}
-        className="min-w-[140px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition-all focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
-      >
-        <option value="">Todas las cadenas</option>
-        {cadenas.map((c) => (
-          <option key={c.id} value={c.id}>{c.nombre}</option>
-        ))}
-      </select>
+      <div className="relative flex items-center">
+        <span className="pointer-events-none absolute left-3 text-slate-400 text-xs">🏢</span>
+        <select
+          value={selectedCadenaId}
+          onChange={(e) => onCadenaChange(e.target.value)}
+          className="h-9 min-w-[130px] rounded-xl border border-slate-200/90 bg-slate-50/70 pl-8 pr-7 text-xs font-bold text-slate-700 shadow-2xs transition-all hover:bg-white hover:border-slate-300 focus:border-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 cursor-pointer appearance-none"
+        >
+          <option value="">Todas las cadenas</option>
+          {cadenas.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nombre}
+            </option>
+          ))}
+        </select>
+        <span className="pointer-events-none absolute right-2.5 text-slate-400 text-[10px]">▼</span>
+      </div>
 
       {/* Tienda */}
-      <select
-        value={selectedPdvId}
-        onChange={(e) => onPdvChange(e.target.value)}
-        className="min-w-[160px] max-w-[240px] truncate rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition-all focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
-      >
-        <option value="">Todas las tiendas</option>
-        {tiendas.map((t) => (
-          <option key={t.id} value={t.id}>{t.nombre}</option>
-        ))}
-      </select>
+      <div className="relative flex items-center">
+        <span className="pointer-events-none absolute left-3 text-slate-400 text-xs">🏪</span>
+        <select
+          value={selectedPdvId}
+          onChange={(e) => onPdvChange(e.target.value)}
+          className="h-9 min-w-[150px] max-w-[220px] truncate rounded-xl border border-slate-200/90 bg-slate-50/70 pl-8 pr-7 text-xs font-bold text-slate-700 shadow-2xs transition-all hover:bg-white hover:border-slate-300 focus:border-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 cursor-pointer appearance-none"
+        >
+          <option value="">Todas las tiendas</option>
+          {tiendas.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.nombre}
+            </option>
+          ))}
+        </select>
+        <span className="pointer-events-none absolute right-2.5 text-slate-400 text-[10px]">▼</span>
+      </div>
     </div>
   );
 }
 
 /* ═════════════════════ MAIN DASHBOARD ═════════════════════════ */
 
-export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDashboardData }) {
+export function ClienteDashboardPanel({
+  initialData,
+  isSupervisorMode = false,
+}: {
+  initialData: ClienteDashboardData;
+  isSupervisorMode?: boolean;
+}) {
   const [data, setData] = useState(initialData);
   const [periodo, setPeriodo] = useState(initialData.periodoSeleccionado || getCurrentPeriod());
   const [fecha, setFecha] = useState(initialData.fechaSeleccionada || '');
   const [cadenaId, setCadenaId] = useState('');
   const [pdvId, setPdvId] = useState('');
-  const [supervisorId, setSupervisorId] = useState('');
+  const [supervisorId, setSupervisorId] = useState(() => {
+    if (isSupervisorMode && initialData.supervisoresProgress?.[0]?.id) {
+      return initialData.supervisoresProgress[0].id;
+    }
+    return '';
+  });
   const [visibleSeries, setVisibleSeries] = useState<Set<string>>(
     new Set(['ventas', 'canjes', 'loveIsdin', 'desabasto'])
   );
@@ -516,26 +585,29 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
   // Estado para rastrear el ID del supervisor que se está copiando
   const [copiandoId, setCopiandoId] = useState<string | null>(null);
 
-  const fetchData = useCallback(async (p: string, c: string, pdv: string, sup: string, f: string) => {
-    setLoading(true);
-    setLastError(null);
-    try {
-      const params = new URLSearchParams();
-      if (p) params.set('periodo', p);
-      if (c) params.set('cadenaId', c);
-      if (pdv) params.set('pdvId', pdv);
-      if (sup) params.set('supervisorId', sup);
-      if (f) params.set('fecha', f);
-      const res = await fetch(`/api/dashboard/cliente-panel?${params.toString()}`);
-      if (!res.ok) throw new Error('Error al cargar datos');
-      const json = await res.json();
-      setData(json.data);
-    } catch (err) {
-      setLastError(err instanceof Error ? err.message : 'Error desconocido');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const fetchData = useCallback(
+    async (p: string, c: string, pdv: string, sup: string, f: string) => {
+      setLoading(true);
+      setLastError(null);
+      try {
+        const params = new URLSearchParams();
+        if (p) params.set('periodo', p);
+        if (c) params.set('cadenaId', c);
+        if (pdv) params.set('pdvId', pdv);
+        if (sup) params.set('supervisorId', sup);
+        if (f) params.set('fecha', f);
+        const res = await fetch(`/api/dashboard/cliente-panel?${params.toString()}`);
+        if (!res.ok) throw new Error('Error al cargar datos');
+        const json = await res.json();
+        setData(json.data);
+      } catch (err) {
+        setLastError(err instanceof Error ? err.message : 'Error desconocido');
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   // Refetch on filter change
   useEffect(() => {
@@ -555,11 +627,32 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
     });
   }, []);
 
-  const { resumen, materiales, tendencia, alertas, desabastos, supervisoresProgress = [], catalogos } = data;
+  const {
+    resumen,
+    materiales,
+    tendencia,
+    alertas,
+    desabastos,
+    supervisoresProgress = [],
+    catalogos,
+  } = data;
 
-  // Agrupar las alertas de dermoes sin reporte por supervisor
+  // Estado para sub-pestaña activa dentro de la tarjeta de cada supervisor (pendientes | cumplidas | todos)
+  const [subTabMap, setSubTabMap] = useState<Record<string, 'pendientes' | 'cumplidas' | 'todos'>>({});
+
+  // Agrupar las alertas y dermoes al día por supervisor
   const alertasAgrupadas = useMemo(() => {
-    const map = new Map<string, { supervisorId: string; supervisorNombre: string; totalCumplidas: number; totalProgramadas: number; pendientes: ClienteDashboardAlertItem[] }>();
+    const map = new Map<
+      string,
+      {
+        supervisorId: string;
+        supervisorNombre: string;
+        totalCumplidas: number;
+        totalProgramadas: number;
+        pendientes: ClienteDashboardAlertItem[];
+        cumplidas: ClienteDashboardAlertItem[];
+      }
+    >();
 
     // Inicializar con la lista de supervisores y su avance
     for (const sup of supervisoresProgress) {
@@ -569,6 +662,7 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
         totalCumplidas: sup.totalCumplidas,
         totalProgramadas: sup.totalProgramadas,
         pendientes: [],
+        cumplidas: [],
       });
     }
 
@@ -582,44 +676,100 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
           totalCumplidas: 0,
           totalProgramadas: 0,
           pendientes: [],
+          cumplidas: [],
         });
       }
       map.get(supId)!.pendientes.push(alert);
     }
 
-    return Array.from(map.values()).sort((a, b) => a.supervisorNombre.localeCompare(b.supervisorNombre, 'es'));
-  }, [alertas, supervisoresProgress]);
-
-  // Copiar pendientes formateados para WhatsApp
-  const handleCopiarPendientes = useCallback((supNombre: string, fechaDia: string, pendientes: ClienteDashboardAlertItem[], id: string) => {
-    const diaFormatted = fechaDia ? fechaDia.split('-').reverse().join('/') : 'Hoy';
-    let texto = `*Cumplimiento de Reportes (${diaFormatted}) - Equipo de ${supNombre}:*\n`;
-    if (pendientes.length === 0) {
-      texto += `✨ ¡100% de reportes completados! Todo el equipo al día.`;
-    } else {
-      const vacios = pendientes.filter((p) => p.tipo === 'vacio' || !p.tipo);
-      const incompletos = pendientes.filter((p) => p.tipo === 'incompleto');
-
-      if (vacios.length > 0) {
-        texto += `\n🚫 *Sin reportes hoy (En ceros):*\n`;
-        vacios.forEach((p) => {
-          texto += `• *${p.empleadoNombre}* - ${p.pdvNombre}${p.pdvClaveBtl ? ` (${p.pdvClaveBtl})` : ''}\n`;
+    // Agregar las cumplidas a sus respectivos supervisores
+    for (const item of (data.cumplidas ?? [])) {
+      const supId = item.supervisorId || 'SIN_SUPERVISOR';
+      if (!map.has(supId)) {
+        map.set(supId, {
+          supervisorId: supId,
+          supervisorNombre: item.supervisorNombre || 'Sin supervisor asignado',
+          totalCumplidas: 0,
+          totalProgramadas: 0,
+          pendientes: [],
+          cumplidas: [],
         });
       }
+      map.get(supId)!.cumplidas.push(item);
+    }
 
-      if (incompletos.length > 0) {
-        texto += `\n⚠️ *Tienen reportes pero sin Ventas ni Love ISDIN:*\n`;
-        incompletos.forEach((p) => {
-          texto += `• *${p.empleadoNombre}* - ${p.pdvNombre}${p.pdvClaveBtl ? ` (${p.pdvClaveBtl})` : ''}\n`;
-        });
+    let result = Array.from(map.values());
+
+    // Si es modo supervisor o hay supervisor seleccionado, FILTRAMOS ESTRICTAMENTE
+    // para que SOLAMENTE se muestre el equipo del supervisor autenticado (o seleccionado)
+    if (isSupervisorMode || supervisorId) {
+      const targetId = supervisorId || (isSupervisorMode && result[0]?.supervisorId);
+      if (targetId) {
+        result = result.filter((g) => g.supervisorId === targetId);
       }
     }
 
-    navigator.clipboard.writeText(texto).then(() => {
-      setCopiandoId(id);
-      setTimeout(() => setCopiandoId(null), 2000);
-    });
-  }, []);
+    return result.sort((a, b) =>
+      a.supervisorNombre.localeCompare(b.supervisorNombre, 'es')
+    );
+  }, [alertas, data.cumplidas, supervisoresProgress, isSupervisorMode, supervisorId]);
+
+  // Copiar reporte para WhatsApp con formato limpio, minimalista y ordenado
+  const handleCopiarWhatsApp = useCallback(
+    (
+      supNombre: string,
+      fechaDia: string,
+      pendientes: ClienteDashboardAlertItem[],
+      cumplidas: ClienteDashboardAlertItem[],
+      id: string
+    ) => {
+      const diaFormatted = fechaDia ? fechaDia.split('-').reverse().join('/') : 'Hoy';
+      const totalProg = pendientes.length + cumplidas.length;
+      const pct = totalProg > 0 ? Math.round((cumplidas.length / totalProg) * 100) : 0;
+
+      let texto = `*📊 REPORTE DE CAMPO (${diaFormatted})*\n`;
+      texto += `👤 *Supervisor:* ${supNombre}\n`;
+      texto += `📈 *Avance:* ${cumplidas.length} de ${totalProg} dermos (${pct}%)\n`;
+
+      if (cumplidas.length > 0) {
+        texto += `\n✅ *REPORTES ENVIADOS (${cumplidas.length}):*\n`;
+        cumplidas.forEach((c) => {
+          const btl = c.pdvClaveBtl ? ` (${c.pdvClaveBtl})` : '';
+          const ventasText = c.ventasOLove ? ` - ${c.ventasOLove} ventas/love` : '';
+          texto += `• *${c.empleadoNombre}* - ${c.pdvNombre}${btl}${ventasText}\n`;
+        });
+      }
+
+      if (pendientes.length === 0) {
+        texto += `\n✨ *¡100% de reportes completados! Todo el equipo al día.*`;
+      } else {
+        const vacios = pendientes.filter((p) => p.tipo === 'vacio' || !p.tipo);
+        const incompletos = pendientes.filter((p) => p.tipo === 'incompleto');
+
+        if (vacios.length > 0) {
+          texto += `\n🚫 *SIN REPORTES HOY (${vacios.length}):*\n`;
+          vacios.forEach((p) => {
+            const btl = p.pdvClaveBtl ? ` (${p.pdvClaveBtl})` : '';
+            texto += `• *${p.empleadoNombre}* - ${p.pdvNombre}${btl}\n`;
+          });
+        }
+
+        if (incompletos.length > 0) {
+          texto += `\n⚠️ *FALTA VENTAS O LOVE ISDIN (${incompletos.length}):*\n`;
+          incompletos.forEach((p) => {
+            const btl = p.pdvClaveBtl ? ` (${p.pdvClaveBtl})` : '';
+            texto += `• *${p.empleadoNombre}* - ${p.pdvNombre}${btl}\n`;
+          });
+        }
+      }
+
+      navigator.clipboard.writeText(texto).then(() => {
+        setCopiandoId(id);
+        setTimeout(() => setCopiandoId(null), 2500);
+      });
+    },
+    []
+  );
 
   // Totales de la pestaña de pendientes
   const totalPendientesProgramadas = useMemo(() => {
@@ -642,11 +792,14 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="font-heading text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-            Panel del Cliente
+            {isSupervisorMode ? 'Reportes de Campo' : 'Panel del Cliente'}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
             {periodLabel(data.periodoSeleccionado)} · Actualizado{' '}
-            {new Date(data.refreshedAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+            {new Date(data.refreshedAt).toLocaleTimeString('es-MX', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
           </p>
         </div>
         <FilterBar
@@ -658,11 +811,15 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
           selectedSupervisorId={supervisorId}
           periodo={periodo}
           fecha={fecha}
-          onCadenaChange={(id) => { setCadenaId(id); setPdvId(''); }}
+          onCadenaChange={(id) => {
+            setCadenaId(id);
+            setPdvId('');
+          }}
           onPdvChange={setPdvId}
           onSupervisorChange={setSupervisorId}
           onPeriodoChange={setPeriodo}
           onFechaChange={setFecha}
+          isSupervisorMode={isSupervisorMode}
         />
       </div>
 
@@ -670,7 +827,15 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
       {loading && (
         <div className="flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-4 py-2 text-sm text-primary-700">
           <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={3} strokeDasharray="31.4" strokeLinecap="round" />
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth={3}
+              strokeDasharray="31.4"
+              strokeLinecap="round"
+            />
           </svg>
           Actualizando datos…
         </div>
@@ -682,34 +847,44 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
         </div>
       )}
 
-      {/* ──── Pestañas (Tabs) de Navegación ──── */}
-      <div className="flex border-b border-slate-200 gap-1 overflow-x-auto select-none">
+      {/* ──── Botones de Navegación de Secciones (Visibles y Táctiles) ──── */}
+      <div className="flex items-center gap-2 p-1.5 bg-slate-100/90 rounded-2xl border border-slate-200/80 w-full sm:w-auto shadow-2xs select-none">
         <button
           type="button"
           onClick={() => setActiveTab('resumen')}
           className={cls(
-            'px-5 py-3 text-sm font-bold border-b-2 transition-all duration-200 whitespace-nowrap',
+            'flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-xs active:scale-95',
             activeTab === 'resumen'
-              ? 'border-slate-900 text-slate-900 font-extrabold'
-              : 'border-transparent text-slate-400 hover:text-slate-600 hover:border-slate-200'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
           )}
         >
-          Resumen General
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75M15 6.75v6" />
+          </svg>
+          <span>Resumen General</span>
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('pendientes')}
           className={cls(
-            'px-5 py-3 text-sm font-bold border-b-2 transition-all duration-200 flex items-center gap-2 whitespace-nowrap',
+            'flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-xs active:scale-95',
             activeTab === 'pendientes'
-              ? 'border-slate-900 text-slate-900 font-extrabold'
-              : 'border-transparent text-slate-400 hover:text-slate-600 hover:border-slate-200'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
           )}
         >
-          <span>Dermos Pendientes</span>
-          {alertas.length > 0 && (
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+          </svg>
+          <span>{isSupervisorMode ? 'Avance de mi Equipo' : 'Dermos Pendientes'}</span>
+          {alertas.length > 0 ? (
             <span className="inline-flex items-center justify-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-extrabold text-white leading-none">
               {alertas.length}
+            </span>
+          ) : (
+            <span className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-extrabold text-white leading-none">
+              ✓ 100%
             </span>
           )}
         </button>
@@ -727,8 +902,18 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
               gradientTo="#A78BFA"
               iconBg="bg-white/20"
               icon={
-                <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+                <svg
+                  className="h-5 w-5 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z"
+                  />
                 </svg>
               }
             />
@@ -740,8 +925,18 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
               gradientTo="#34D399"
               iconBg="bg-white/20"
               icon={
-                <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+                <svg
+                  className="h-5 w-5 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z"
+                  />
                 </svg>
               }
             />
@@ -753,8 +948,18 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
               gradientTo="#FBBF24"
               iconBg="bg-white/20"
               icon={
-                <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" />
+                <svg
+                  className="h-5 w-5 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z"
+                  />
                 </svg>
               }
             />
@@ -766,15 +971,25 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
               gradientTo="#F87171"
               iconBg="bg-white/20"
               icon={
-                <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                <svg
+                  className="h-5 w-5 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+                  />
                 </svg>
               }
             />
           </div>
 
           {/* ──── Avance Diario por Supervisor ──── */}
-          {supervisoresProgress.length > 0 && (
+          {supervisoresProgress.length > 0 && !isSupervisorMode && (
             <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm space-y-4">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -819,17 +1034,23 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
                       )}
                     >
                       <div className="flex items-start justify-between gap-2 w-full">
-                        <p className={cls(
-                          'text-xs font-bold truncate',
-                          isActive ? 'text-white' : 'text-slate-900'
-                        )}>
+                        <p
+                          className={cls(
+                            'text-xs font-bold truncate',
+                            isActive ? 'text-white' : 'text-slate-900'
+                          )}
+                        >
                           {sup.nombre}
                         </p>
                         {isPerfect && (
-                          <span className={cls(
-                            'shrink-0 text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full select-none',
-                            isActive ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
-                          )}>
+                          <span
+                            className={cls(
+                              'shrink-0 text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full select-none',
+                              isActive
+                                ? 'bg-white/20 text-white'
+                                : 'bg-emerald-100 text-emerald-800'
+                            )}
+                          >
                             ✨ 100%
                           </span>
                         )}
@@ -840,39 +1061,41 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
                           <span className="text-lg font-extrabold leading-none tracking-tight">
                             {sup.totalCumplidas}
                           </span>
-                          <span className={cls(
-                            'text-[10px] font-medium',
-                            isActive ? 'text-white/60' : 'text-slate-400'
-                          )}>
+                          <span
+                            className={cls(
+                              'text-[10px] font-medium',
+                              isActive ? 'text-white/60' : 'text-slate-400'
+                            )}
+                          >
                             / {sup.totalProgramadas}
                           </span>
                         </div>
 
-                        <span className={cls(
-                          'text-xs font-bold',
-                          isActive
-                            ? 'text-white'
-                            : isPerfect
-                              ? 'text-emerald-700'
-                              : 'text-slate-500'
-                        )}>
+                        <span
+                          className={cls(
+                            'text-xs font-bold',
+                            isActive
+                              ? 'text-white'
+                              : isPerfect
+                                ? 'text-emerald-700'
+                                : 'text-slate-500'
+                          )}
+                        >
                           {sup.porcentaje}%
                         </span>
                       </div>
 
                       {/* Tiny progress bar */}
-                      <div className={cls(
-                        'mt-2 h-1 w-full rounded-full overflow-hidden',
-                        isActive ? 'bg-white/10' : 'bg-slate-200/60'
-                      )}>
+                      <div
+                        className={cls(
+                          'mt-2 h-1 w-full rounded-full overflow-hidden',
+                          isActive ? 'bg-white/10' : 'bg-slate-200/60'
+                        )}
+                      >
                         <div
                           className={cls(
                             'h-full rounded-full transition-all duration-500',
-                            isActive
-                              ? 'bg-white'
-                              : isPerfect
-                                ? 'bg-emerald-500'
-                                : 'bg-violet-500'
+                            isActive ? 'bg-white' : isPerfect ? 'bg-emerald-500' : 'bg-violet-500'
                           )}
                           style={{ width: `${Math.min(sup.porcentaje, 100)}%` }}
                         />
@@ -888,7 +1111,9 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
           <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="font-heading text-base font-bold text-slate-800">Tendencia Diaria</h2>
+                <h2 className="font-heading text-base font-bold text-slate-800">
+                  Tendencia Diaria
+                </h2>
                 <p className="text-[11px] text-slate-500">Evolución de indicadores día a día</p>
               </div>
               <SeriesLegend visibleSeries={visibleSeries} onToggle={handleToggleSeries} />
@@ -903,15 +1128,22 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
             <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h2 className="font-heading text-base font-bold text-slate-800">Avance por Material de Canje</h2>
-                  <p className="text-[11px] text-slate-500">{materiales.length} material{materiales.length !== 1 ? 'es' : ''} activo{materiales.length !== 1 ? 's' : ''}</p>
+                  <h2 className="font-heading text-base font-bold text-slate-800">
+                    Avance por Material de Canje
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    {materiales.length} material{materiales.length !== 1 ? 'es' : ''} activo
+                    {materiales.length !== 1 ? 's' : ''}
+                  </p>
                 </div>
               </div>
               <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
                 {materiales.length > 0 ? (
                   materiales.map((m) => <MaterialProgressBar key={m.materialId} material={m} />)
                 ) : (
-                  <p className="py-8 text-center text-sm text-slate-400">Sin materiales de canje cargados</p>
+                  <p className="py-8 text-center text-sm text-slate-400">
+                    Sin materiales de canje cargados
+                  </p>
                 )}
               </div>
             </div>
@@ -927,171 +1159,301 @@ export function ClienteDashboardPanel({ initialData }: { initialData: ClienteDas
                     </span>
                   )}
                 </h2>
-                <p className="text-[11px] text-slate-500">Productos sin existencia reportados por el equipo de campo</p>
+                <p className="text-[11px] text-slate-500">
+                  Productos sin existencia reportados por el equipo de campo
+                </p>
               </div>
               <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
                 {desabastos.length > 0 ? (
                   desabastos.map((d) => <DesabastoRow key={d.id} item={d} />)
                 ) : (
-                  <p className="py-12 text-center text-sm text-slate-400">Sin reportes de desabasto en este periodo</p>
+                  <p className="py-12 text-center text-sm text-slate-400">
+                    Sin reportes de desabasto en este periodo
+                  </p>
                 )}
               </div>
             </div>
           </div>
         </>
       ) : (
-        /* ──── Pestaña: Dermoconsejeras Faltantes (Pendientes) ──── */
+        /* ──── Pestaña: Dermoconsejeras Faltantes y Al Día (Avance de Equipo) ──── */
         <div className="space-y-6 animate-fade-in">
           {/* Card Resumen de la Fecha */}
-          <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-5 shadow-sm space-y-4">
+          <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 sm:p-5 shadow-2xs space-y-3">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
-                <h2 className="font-heading text-lg font-bold text-slate-900">
-                  Estatus de Reportes para el {fecha ? fecha.split('-').reverse().join('/') : 'Día de Hoy'}
+                <h2 className="font-heading text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <span>{isSupervisorMode ? 'Avance de mi Equipo' : 'Estatus de Reportes'}</span>
+                  <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                    {fecha ? fecha.split('-').reverse().join('/') : 'Día de Hoy'}
+                  </span>
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Visualización detallada de asistencia y registros faltantes del equipo de campo.
+                  Seguimiento de dermoconsejeras en tienda, reportes recibidos y pendientes por enviar.
                 </p>
               </div>
               <div className="flex items-baseline gap-1 md:text-right">
-                <span className="text-2xl font-extrabold text-slate-900">{totalPendientesCumplidas}</span>
-                <span className="text-sm font-semibold text-slate-400">/ {totalPendientesProgramadas} dermoes</span>
-                <span className="ml-2 text-sm font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full">
+                <span className="text-2xl font-extrabold text-slate-900">
+                  {totalPendientesCumplidas}
+                </span>
+                <span className="text-sm font-semibold text-slate-400">
+                  / {totalPendientesProgramadas} dermoes
+                </span>
+                <span className={cls(
+                  'ml-2 text-xs font-bold px-2.5 py-1 rounded-full',
+                  porcentajePendientesCumplidas === 100
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-slate-100 text-slate-700'
+                )}>
                   {porcentajePendientesCumplidas}% de avance
                 </span>
               </div>
             </div>
 
             {/* Barra de progreso global */}
-            <div className="h-3 w-full rounded-full bg-slate-200/70 overflow-hidden shadow-inner">
+            <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-600 transition-all duration-700 ease-out"
+                className={cls(
+                  'h-full rounded-full transition-all duration-700 ease-out',
+                  porcentajePendientesCumplidas === 100
+                    ? 'bg-emerald-500'
+                    : 'bg-gradient-to-r from-violet-500 to-indigo-600'
+                )}
                 style={{ width: `${porcentajePendientesCumplidas}%` }}
               />
             </div>
           </div>
 
-          {/* Grid de Supervisores con sus pendientes */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Grid de Supervisores / Tarjeta de Equipo */}
+          <div className={cls(
+            'grid gap-6',
+            alertasAgrupadas.length === 1 ? 'grid-cols-1 max-w-4xl mx-auto w-full' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
+          )}>
             {alertasAgrupadas.map((group) => {
-              const total = group.totalProgramadas;
-              const cumplidas = group.totalCumplidas;
-              const pendientes = group.pendientes;
-              const isPerfect = total > 0 && cumplidas === total && pendientes.length === 0;
+              const total = group.totalProgramadas || (group.pendientes.length + group.cumplidas.length);
+              const cumplidasList = group.cumplidas;
+              const pendientesList = group.pendientes;
+              const cumplidasCount = cumplidasList.length;
+              const isPerfect = total > 0 && cumplidasCount === total && pendientesList.length === 0;
+              const currentSubTab = subTabMap[group.supervisorId] || (pendientesList.length > 0 ? 'pendientes' : 'cumplidas');
+
+              let listToDisplay: Array<ClienteDashboardAlertItem & { statusType: 'cumplido' | 'incompleto' | 'vacio' }> = [];
+              if (currentSubTab === 'pendientes') {
+                listToDisplay = pendientesList.map((p) => ({
+                  ...p,
+                  statusType: p.tipo === 'incompleto' ? 'incompleto' : 'vacio',
+                }));
+              } else if (currentSubTab === 'cumplidas') {
+                listToDisplay = cumplidasList.map((c) => ({
+                  ...c,
+                  statusType: 'cumplido',
+                }));
+              } else {
+                listToDisplay = [
+                  ...pendientesList.map((p) => ({
+                    ...p,
+                    statusType: (p.tipo === 'incompleto' ? 'incompleto' : 'vacio') as 'incompleto' | 'vacio',
+                  })),
+                  ...cumplidasList.map((c) => ({
+                    ...c,
+                    statusType: 'cumplido' as const,
+                  })),
+                ];
+              }
 
               return (
                 <div
                   key={group.supervisorId}
                   className={cls(
-                    'rounded-2xl border p-5 shadow-sm transition-all duration-300 hover:shadow-md flex flex-col justify-between',
+                    'rounded-2xl border p-5 shadow-xs transition-all duration-300 hover:shadow-md flex flex-col justify-between',
                     isPerfect
-                      ? 'bg-emerald-50/20 border-emerald-200 shadow-[0_0_15px_rgba(16,185,129,0.02)]'
-                      : 'bg-white border-slate-100'
+                      ? 'bg-emerald-50/20 border-emerald-200'
+                      : 'bg-white border-slate-200/80'
                   )}
                 >
                   <div className="space-y-4">
-                    {/* Header de Supervisor */}
-                    <div className="flex items-start justify-between gap-3">
+                    {/* Header del Supervisor con botón minimalista WhatsApp */}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
                       <div>
-                        <h3 className="font-bold text-slate-900 text-sm leading-tight">
-                          {group.supervisorNombre}
-                        </h3>
-                        <p className="text-[11px] text-slate-400 mt-0.5 uppercase tracking-wider font-semibold">
-                          Supervisor
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-slate-900 text-base leading-tight">
+                            {group.supervisorNombre}
+                          </h3>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                            {isSupervisorMode ? 'Mi Equipo' : 'Supervisor'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {cumplidasCount} de {total} dermos han reportado hoy
                         </p>
                       </div>
-                      <span
+
+                      {/* Botón WhatsApp minimalista */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleCopiarWhatsApp(
+                            group.supervisorNombre,
+                            fecha,
+                            pendientesList,
+                            cumplidasList,
+                            group.supervisorId
+                          )
+                        }
                         className={cls(
-                          'shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold select-none',
-                          isPerfect
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-slate-100 text-slate-600'
+                          'inline-flex items-center justify-center gap-2 rounded-xl py-2 px-3.5 text-xs font-bold transition-all select-none active:scale-95 shadow-2xs shrink-0',
+                          copiandoId === group.supervisorId
+                            ? 'bg-emerald-600 text-white ring-2 ring-emerald-600/30'
+                            : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 hover:border-emerald-300'
+                        )}
+                        title="Copiar resumen para WhatsApp"
+                      >
+                        {copiandoId === group.supervisorId ? (
+                          <>
+                            <span>¡Copiado con éxito! ✓</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="h-4 w-4 shrink-0 text-emerald-600" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.77-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.007c.106.005.249-.04.39.299.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.087-.177.181-.076.355.101.174.449.741.964 1.2.662.591 1.221.774 1.394.861.174.086.275.072.376-.044.101-.116.433-.506.549-.68.116-.173.231-.144.39-.086s1.011.477 1.184.564.289.13.332.202c.045.072.045.419-.099.824zm-3.423-10.416c-4.408 0-7.994 3.585-7.995 7.993 0 1.41.368 2.788 1.066 4.004l-1.134 4.143 4.244-1.113c1.175.641 2.502.979 3.821.98h.003c4.406 0 7.993-3.586 7.994-7.994-.001-4.41-3.59-7.997-7.999-7.997z" />
+                            </svg>
+                            <span>Copiar WhatsApp</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Sub-Tabs de Filtrado de Equipo */}
+                    <div className="flex items-center gap-1.5 p-1 bg-slate-100/80 rounded-xl border border-slate-200/60 select-none">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSubTabMap((prev) => ({ ...prev, [group.supervisorId]: 'pendientes' }))
+                        }
+                        className={cls(
+                          'flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-bold transition-all',
+                          currentSubTab === 'pendientes'
+                            ? 'bg-white text-slate-900 shadow-2xs font-extrabold'
+                            : 'text-slate-500 hover:text-slate-800'
                         )}
                       >
-                        {isPerfect ? '✨ Completado' : `${cumplidas} / ${total}`}
-                      </span>
+                        <span>Pendientes</span>
+                        <span className={cls(
+                          'px-1.5 py-0.2 rounded-full text-[10px]',
+                          pendientesList.length > 0 ? 'bg-amber-100 text-amber-800 font-extrabold' : 'bg-slate-200 text-slate-600'
+                        )}>
+                          {pendientesList.length}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSubTabMap((prev) => ({ ...prev, [group.supervisorId]: 'cumplidas' }))
+                        }
+                        className={cls(
+                          'flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-bold transition-all',
+                          currentSubTab === 'cumplidas'
+                            ? 'bg-white text-slate-900 shadow-2xs font-extrabold'
+                            : 'text-slate-500 hover:text-slate-800'
+                        )}
+                      >
+                        <span>Al día</span>
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 text-emerald-800 font-extrabold">
+                          {cumplidasCount}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSubTabMap((prev) => ({ ...prev, [group.supervisorId]: 'todos' }))
+                        }
+                        className={cls(
+                          'flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-bold transition-all',
+                          currentSubTab === 'todos'
+                            ? 'bg-white text-slate-900 shadow-2xs font-extrabold'
+                            : 'text-slate-500 hover:text-slate-800'
+                        )}
+                      >
+                        <span>Todos</span>
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 text-slate-700 font-extrabold">
+                          {total}
+                        </span>
+                      </button>
                     </div>
 
-                    {/* Lista de Faltantes */}
-                    <div className="space-y-2.5">
-                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                        Dermos Pendientes ({pendientes.length})
-                      </p>
-                      {pendientes.length > 0 ? (
-                        <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                          {pendientes.map((p) => {
-                            const isIncompleto = p.tipo === 'incompleto';
-                            return (
-                              <div
-                                key={p.id}
-                                className={cls(
-                                  "p-2.5 rounded-xl border text-left transition-colors",
-                                  isIncompleto
-                                    ? "border-amber-200 bg-amber-50/40 hover:bg-amber-50/60"
-                                    : "border-red-100 bg-red-50/10 hover:bg-red-50/20"
-                                )}
-                              >
-                                <div className="flex items-center justify-between gap-1.5">
-                                  <p className="text-xs font-bold text-slate-800 truncate">
-                                    {p.empleadoNombre}
-                                  </p>
-                                  <span
-                                    className={cls(
-                                      "shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-extrabold tracking-tight uppercase select-none",
-                                      isIncompleto
-                                        ? "bg-amber-100 text-amber-800"
-                                        : "bg-red-100 text-red-800"
-                                    )}
-                                  >
-                                    {isIncompleto ? "Falta Ventas/Love" : "Sin reportes"}
-                                  </span>
-                                </div>
-                                <p className="text-[10px] text-slate-500 mt-0.5 truncate">
-                                  {p.pdvNombre} {p.pdvClaveBtl ? `(${p.pdvClaveBtl})` : ''}
+                    {/* Lista Dinámica de Dermoconsejeras */}
+                    <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                      {listToDisplay.length > 0 ? (
+                        listToDisplay.map((item) => {
+                          const isCumplido = item.statusType === 'cumplido';
+                          const isIncompleto = item.statusType === 'incompleto';
+
+                          return (
+                            <div
+                              key={item.id}
+                              className={cls(
+                                'p-2.5 sm:p-3 rounded-xl border text-left transition-all',
+                                isCumplido
+                                  ? 'border-emerald-200/80 bg-emerald-50/30 hover:bg-emerald-50/50'
+                                  : isIncompleto
+                                    ? 'border-amber-200/80 bg-amber-50/40 hover:bg-amber-50/60'
+                                    : 'border-red-200/70 bg-red-50/20 hover:bg-red-50/40'
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                                  {item.empleadoNombre}
                                 </p>
+                                <span
+                                  className={cls(
+                                    'shrink-0 rounded-full px-2 py-0.5 text-[9px] font-extrabold tracking-tight uppercase select-none',
+                                    isCumplido
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : isIncompleto
+                                        ? 'bg-amber-100 text-amber-800'
+                                        : 'bg-red-100 text-red-800'
+                                  )}
+                                >
+                                  {isCumplido
+                                    ? `✓ Enviado (${item.ventasOLove ?? 0} ventas/love)`
+                                    : isIncompleto
+                                      ? '⚠️ Falta Ventas/Love'
+                                      : '🚫 Sin reportes'}
+                                </span>
                               </div>
-                            );
-                          })}
-                        </div>
+                              <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                                <span className="truncate">
+                                  {item.pdvNombre} {item.pdvClaveBtl ? `(${item.pdvClaveBtl})` : ''}
+                                </span>
+                                {item.totalCapturas !== undefined && item.totalCapturas > 0 && (
+                                  <span className="shrink-0 font-medium text-slate-400">
+                                    {item.totalCapturas} reg.
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
                       ) : (
-                        <div className="flex flex-col items-center justify-center py-6 text-center bg-emerald-50/30 rounded-xl border border-emerald-100/35">
-                          <span className="mb-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-emerald-50 text-emerald-500">
-                            ✓
+                        <div className="flex flex-col items-center justify-center py-8 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                          <span className="text-2xl mb-1">
+                            {currentSubTab === 'pendientes' ? '🎉' : '📋'}
                           </span>
-                          <p className="text-xs font-bold text-emerald-800">100% al día</p>
-                          <p className="text-[9px] text-emerald-600/75 mt-0.5">Ningún reporte pendiente</p>
+                          <p className="text-xs font-bold text-slate-700">
+                            {currentSubTab === 'pendientes'
+                              ? '¡Todo el equipo está al día!'
+                              : 'No hay registros en esta categoría.'}
+                          </p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {currentSubTab === 'pendientes'
+                              ? 'No hay reportes pendientes para esta fecha.'
+                              : 'Consulta las otras pestañas.'}
+                          </p>
                         </div>
                       )}
                     </div>
-                  </div>
-
-                  {/* Acciones de Copiado */}
-                  <div className="mt-5 pt-3 border-t border-slate-100/60">
-                    <button
-                      type="button"
-                      onClick={() => handleCopiarPendientes(group.supervisorNombre, fecha, pendientes, group.supervisorId)}
-                      className={cls(
-                        'w-full flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-xs font-bold transition-all select-none focus:outline-none',
-                        copiandoId === group.supervisorId
-                          ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-600/10'
-                          : isPerfect
-                            ? 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                            : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100'
-                      )}
-                    >
-                      {copiandoId === group.supervisorId ? (
-                        <>
-                          <span>Copió con éxito ✓</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-5 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                          </svg>
-                          <span>Copiar para WhatsApp</span>
-                        </>
-                      )}
-                    </button>
                   </div>
                 </div>
               );

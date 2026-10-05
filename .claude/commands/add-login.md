@@ -9,14 +9,17 @@ Inyecta autenticación B2B production-ready con Supabase + Next.js 16.
 ## Contexto Técnico
 
 **Next.js 16:**
+
 - `proxy.ts` (no middleware.ts) - Node.js runtime
 - Función: `proxy()` (no middleware())
 
 **Supabase SSR:**
+
 - `@supabase/ssr` con `getAll()` / `setAll()` (NUNCA get/set/remove)
 - Server: siempre `getUser()`, NUNCA `getSession()`
 
 **Patrón Profiles:**
+
 - `auth.users` es privado y limitado
 - `public.profiles` almacena datos del usuario
 - Trigger crea perfil automáticamente al signup
@@ -28,28 +31,26 @@ Inyecta autenticación B2B production-ready con Supabase + Next.js 16.
 ### 1. `proxy.ts` (root)
 
 ```typescript
-import { NextResponse, type NextRequest } from 'next/server'
-import { updateSession } from '@/lib/supabase/proxy'
+import { NextResponse, type NextRequest } from 'next/server';
+import { updateSession } from '@/lib/supabase/proxy';
 
 export async function proxy(request: NextRequest) {
-  return await updateSession(request)
+  return await updateSession(request);
 }
 
 export const config = {
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
-}
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+};
 ```
 
 ### 2. `src/lib/supabase/proxy.ts`
 
 ```typescript
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+import { createServerClient } from '@supabase/ssr';
+import { NextResponse, type NextRequest } from 'next/server';
 
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+  let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -57,37 +58,37 @@ export async function updateSession(request: NextRequest) {
     {
       cookies: {
         getAll() {
-          return request.cookies.getAll()
+          return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          )
-          supabaseResponse = NextResponse.next({ request })
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+          supabaseResponse = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
-          )
+          );
         },
       },
     }
-  )
+  );
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   // Rutas protegidas
-  const isProtectedRoute = request.nextUrl.pathname.startsWith('/dashboard')
-  const isAuthRoute = request.nextUrl.pathname.startsWith('/login') ||
-                      request.nextUrl.pathname.startsWith('/signup')
+  const isProtectedRoute = request.nextUrl.pathname.startsWith('/dashboard');
+  const isAuthRoute =
+    request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname.startsWith('/signup');
 
   if (isProtectedRoute && !user) {
-    return NextResponse.redirect(new URL('/login', request.url))
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
   if (isAuthRoute && user) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+    return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  return supabaseResponse
+  return supabaseResponse;
 }
 ```
 
@@ -95,110 +96,112 @@ export async function updateSession(request: NextRequest) {
 
 ```typescript
 export interface Profile {
-  id: string
-  email: string
-  full_name: string | null
-  avatar_url: string | null
-  created_at: string
-  updated_at: string
+  id: string;
+  email: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Database {
   public: {
     Tables: {
       profiles: {
-        Row: Profile
-        Insert: Omit<Profile, 'created_at' | 'updated_at'>
-        Update: Partial<Omit<Profile, 'id' | 'created_at'>>
-      }
-    }
-  }
+        Row: Profile;
+        Insert: Omit<Profile, 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<Profile, 'id' | 'created_at'>>;
+      };
+    };
+  };
 }
 ```
 
 ### 4. `src/actions/auth.ts`
 
 ```typescript
-'use server'
+'use server';
 
-import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
 
 export async function login(formData: FormData) {
-  const supabase = await createClient()
+  const supabase = await createClient();
 
   const { error } = await supabase.auth.signInWithPassword({
     email: formData.get('email') as string,
     password: formData.get('password') as string,
-  })
+  });
 
   if (error) {
-    return { error: error.message }
+    return { error: error.message };
   }
 
-  revalidatePath('/', 'layout')
-  redirect('/dashboard')
+  revalidatePath('/', 'layout');
+  redirect('/dashboard');
 }
 
 export async function signup(formData: FormData) {
-  const supabase = await createClient()
+  const supabase = await createClient();
 
   const { error } = await supabase.auth.signUp({
     email: formData.get('email') as string,
     password: formData.get('password') as string,
-  })
+  });
 
   if (error) {
-    return { error: error.message }
+    return { error: error.message };
   }
 
-  revalidatePath('/', 'layout')
-  redirect('/check-email')
+  revalidatePath('/', 'layout');
+  redirect('/check-email');
 }
 
 export async function signout() {
-  const supabase = await createClient()
-  await supabase.auth.signOut()
-  revalidatePath('/', 'layout')
-  redirect('/login')
+  const supabase = await createClient();
+  await supabase.auth.signOut();
+  revalidatePath('/', 'layout');
+  redirect('/login');
 }
 
 export async function resetPassword(formData: FormData) {
-  const supabase = await createClient()
-  const email = formData.get('email') as string
+  const supabase = await createClient();
+  const email = formData.get('email') as string;
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/update-password`,
-  })
+  });
 
   if (error) {
-    return { error: error.message }
+    return { error: error.message };
   }
 
-  return { success: true }
+  return { success: true };
 }
 
 export async function updatePassword(formData: FormData) {
-  const supabase = await createClient()
-  const password = formData.get('password') as string
+  const supabase = await createClient();
+  const password = formData.get('password') as string;
 
-  const { error } = await supabase.auth.updateUser({ password })
+  const { error } = await supabase.auth.updateUser({ password });
 
   if (error) {
-    return { error: error.message }
+    return { error: error.message };
   }
 
-  revalidatePath('/', 'layout')
-  redirect('/dashboard')
+  revalidatePath('/', 'layout');
+  redirect('/dashboard');
 }
 
 export async function updateProfile(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
-    return { error: 'Not authenticated' }
+    return { error: 'Not authenticated' };
   }
 
   const { error } = await supabase
@@ -207,97 +210,93 @@ export async function updateProfile(formData: FormData) {
       full_name: formData.get('full_name') as string,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', user.id)
+    .eq('id', user.id);
 
   if (error) {
-    return { error: error.message }
+    return { error: error.message };
   }
 
-  revalidatePath('/', 'layout')
-  return { success: true }
+  revalidatePath('/', 'layout');
+  return { success: true };
 }
 ```
 
 ### 5. `src/hooks/useAuth.ts`
 
 ```typescript
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import type { User } from '@supabase/supabase-js'
-import type { Profile } from '@/types/database'
+import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import type { User } from '@supabase/supabase-js';
+import type { Profile } from '@/types/database';
 
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null)
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const supabase = createClient()
+    const supabase = createClient();
 
     async function getProfile(userId: string) {
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single()
+      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
 
-      setProfile(data)
+      setProfile(data);
     }
 
     // Get initial user
     supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user)
+      setUser(user);
       if (user) {
-        getProfile(user.id)
+        getProfile(user.id);
       }
-      setLoading(false)
-    })
+      setLoading(false);
+    });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        const currentUser = session?.user ?? null
-        setUser(currentUser)
-        if (currentUser) {
-          getProfile(currentUser.id)
-        } else {
-          setProfile(null)
-        }
-        setLoading(false)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      if (currentUser) {
+        getProfile(currentUser.id);
+      } else {
+        setProfile(null);
       }
-    )
+      setLoading(false);
+    });
 
-    return () => subscription.unsubscribe()
-  }, [])
+    return () => subscription.unsubscribe();
+  }, []);
 
-  return { user, profile, loading }
+  return { user, profile, loading };
 }
 ```
 
 ### 6. `src/features/auth/components/LoginForm.tsx`
 
 ```tsx
-'use client'
+'use client';
 
-import { useState } from 'react'
-import Link from 'next/link'
-import { login } from '@/actions/auth'
+import { useState } from 'react';
+import Link from 'next/link';
+import { login } from '@/actions/auth';
 
 export function LoginForm() {
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(formData: FormData) {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
 
-    const result = await login(formData)
+    const result = await login(formData);
 
     if (result?.error) {
-      setError(result.error)
-      setLoading(false)
+      setError(result.error);
+      setLoading(false);
     }
   }
 
@@ -329,9 +328,7 @@ export function LoginForm() {
         />
       </div>
 
-      {error && (
-        <p className="text-sm text-red-600">{error}</p>
-      )}
+      {error && <p className="text-sm text-red-600">{error}</p>}
 
       <button
         type="submit"
@@ -347,31 +344,31 @@ export function LoginForm() {
         </Link>
       </p>
     </form>
-  )
+  );
 }
 ```
 
 ### 7. `src/features/auth/components/SignupForm.tsx`
 
 ```tsx
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { signup } from '@/actions/auth'
+import { useState } from 'react';
+import { signup } from '@/actions/auth';
 
 export function SignupForm() {
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(formData: FormData) {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
 
-    const result = await signup(formData)
+    const result = await signup(formData);
 
     if (result?.error) {
-      setError(result.error)
-      setLoading(false)
+      setError(result.error);
+      setLoading(false);
     }
   }
 
@@ -404,9 +401,7 @@ export function SignupForm() {
         />
       </div>
 
-      {error && (
-        <p className="text-sm text-red-600">{error}</p>
-      )}
+      {error && <p className="text-sm text-red-600">{error}</p>}
 
       <button
         type="submit"
@@ -416,35 +411,35 @@ export function SignupForm() {
         {loading ? 'Creating account...' : 'Create Account'}
       </button>
     </form>
-  )
+  );
 }
 ```
 
 ### 8. `src/features/auth/components/ForgotPasswordForm.tsx`
 
 ```tsx
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { resetPassword } from '@/actions/auth'
+import { useState } from 'react';
+import { resetPassword } from '@/actions/auth';
 
 export function ForgotPasswordForm() {
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(formData: FormData) {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
 
-    const result = await resetPassword(formData)
+    const result = await resetPassword(formData);
 
     if (result?.error) {
-      setError(result.error)
-      setLoading(false)
+      setError(result.error);
+      setLoading(false);
     } else {
-      setSuccess(true)
-      setLoading(false)
+      setSuccess(true);
+      setLoading(false);
     }
   }
 
@@ -453,7 +448,7 @@ export function ForgotPasswordForm() {
       <div className="text-center">
         <p className="text-green-600">Check your email for a reset link.</p>
       </div>
-    )
+    );
   }
 
   return (
@@ -471,9 +466,7 @@ export function ForgotPasswordForm() {
         />
       </div>
 
-      {error && (
-        <p className="text-sm text-red-600">{error}</p>
-      )}
+      {error && <p className="text-sm text-red-600">{error}</p>}
 
       <button
         type="submit"
@@ -483,31 +476,31 @@ export function ForgotPasswordForm() {
         {loading ? 'Sending...' : 'Send Reset Link'}
       </button>
     </form>
-  )
+  );
 }
 ```
 
 ### 9. `src/features/auth/components/UpdatePasswordForm.tsx`
 
 ```tsx
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { updatePassword } from '@/actions/auth'
+import { useState } from 'react';
+import { updatePassword } from '@/actions/auth';
 
 export function UpdatePasswordForm() {
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(formData: FormData) {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
 
-    const result = await updatePassword(formData)
+    const result = await updatePassword(formData);
 
     if (result?.error) {
-      setError(result.error)
-      setLoading(false)
+      setError(result.error);
+      setLoading(false);
     }
   }
 
@@ -527,9 +520,7 @@ export function UpdatePasswordForm() {
         />
       </div>
 
-      {error && (
-        <p className="text-sm text-red-600">{error}</p>
-      )}
+      {error && <p className="text-sm text-red-600">{error}</p>}
 
       <button
         type="submit"
@@ -539,24 +530,24 @@ export function UpdatePasswordForm() {
         {loading ? 'Updating...' : 'Update Password'}
       </button>
     </form>
-  )
+  );
 }
 ```
 
 ### 10. `src/features/auth/components/index.ts`
 
 ```typescript
-export { LoginForm } from './LoginForm'
-export { SignupForm } from './SignupForm'
-export { ForgotPasswordForm } from './ForgotPasswordForm'
-export { UpdatePasswordForm } from './UpdatePasswordForm'
+export { LoginForm } from './LoginForm';
+export { SignupForm } from './SignupForm';
+export { ForgotPasswordForm } from './ForgotPasswordForm';
+export { UpdatePasswordForm } from './UpdatePasswordForm';
 ```
 
 ### 11. `src/app/(auth)/login/page.tsx`
 
 ```tsx
-import Link from 'next/link'
-import { LoginForm } from '@/features/auth/components'
+import Link from 'next/link';
+import { LoginForm } from '@/features/auth/components';
 
 export default function LoginPage() {
   return (
@@ -577,15 +568,15 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
-  )
+  );
 }
 ```
 
 ### 12. `src/app/(auth)/signup/page.tsx`
 
 ```tsx
-import Link from 'next/link'
-import { SignupForm } from '@/features/auth/components'
+import Link from 'next/link';
+import { SignupForm } from '@/features/auth/components';
 
 export default function SignupPage() {
   return (
@@ -606,14 +597,14 @@ export default function SignupPage() {
         </p>
       </div>
     </div>
-  )
+  );
 }
 ```
 
 ### 13. `src/app/(auth)/check-email/page.tsx`
 
 ```tsx
-import Link from 'next/link'
+import Link from 'next/link';
 
 export default function CheckEmailPage() {
   return (
@@ -623,23 +614,20 @@ export default function CheckEmailPage() {
         <p className="text-gray-600">
           We've sent you a confirmation link. Please check your email to complete your registration.
         </p>
-        <Link
-          href="/login"
-          className="inline-block text-blue-600 hover:underline"
-        >
+        <Link href="/login" className="inline-block text-blue-600 hover:underline">
           Back to login
         </Link>
       </div>
     </div>
-  )
+  );
 }
 ```
 
 ### 14. `src/app/(auth)/forgot-password/page.tsx`
 
 ```tsx
-import Link from 'next/link'
-import { ForgotPasswordForm } from '@/features/auth/components'
+import Link from 'next/link';
+import { ForgotPasswordForm } from '@/features/auth/components';
 
 export default function ForgotPasswordPage() {
   return (
@@ -659,14 +647,14 @@ export default function ForgotPasswordPage() {
         </p>
       </div>
     </div>
-  )
+  );
 }
 ```
 
 ### 15. `src/app/(auth)/update-password/page.tsx`
 
 ```tsx
-import { UpdatePasswordForm } from '@/features/auth/components'
+import { UpdatePasswordForm } from '@/features/auth/components';
 
 export default function UpdatePasswordPage() {
   return (
@@ -680,7 +668,7 @@ export default function UpdatePasswordPage() {
         <UpdatePasswordForm />
       </div>
     </div>
-  )
+  );
 }
 ```
 

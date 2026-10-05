@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { deriveAttendanceDiscipline } from './attendanceDiscipline'
+import { describe, expect, it } from 'vitest';
+import { deriveAttendanceDiscipline } from './attendanceDiscipline';
 
 describe('deriveAttendanceDiscipline', () => {
   it('detects tardies, justified absences and administrative absences', () => {
@@ -63,19 +63,78 @@ describe('deriveAttendanceDiscipline', () => {
       salaries: [{ empleadoId: 'emp-1', sueldoBaseMensual: 9000 }],
       periodStart: '2026-03-02',
       periodEnd: '2026-03-06',
-    })
+    });
 
-    expect(result.records.filter((item) => item.estado === 'RETARDO')).toHaveLength(3)
-    expect(result.records.filter((item) => item.estado === 'AUSENCIA_JUSTIFICADA')).toHaveLength(1)
-    expect(result.records.filter((item) => item.estado === 'FALTA')).toHaveLength(1)
-    expect(result.administrativeAbsences).toHaveLength(1)
-    expect(result.administrativeAbsences[0]?.fecha).toBe('2026-03-04')
+    expect(result.records.filter((item) => item.estado === 'RETARDO')).toHaveLength(3);
+    expect(result.records.filter((item) => item.estado === 'AUSENCIA_JUSTIFICADA')).toHaveLength(1);
+    expect(result.records.filter((item) => item.estado === 'FALTA')).toHaveLength(1);
+    expect(result.administrativeAbsences).toHaveLength(1);
+    expect(result.administrativeAbsences[0]?.fecha).toBe('2026-03-04');
     expect(result.summaries[0]).toMatchObject({
       retardos: 3,
       faltas: 1,
       ausenciasJustificadas: 1,
       faltasAdministrativas: 1,
       deduccionSugerida: 600,
-    })
-  })
-})
+    });
+  });
+
+  it('aplica el evento operativo como formación y nunca genera falta aunque también exista incapacidad', () => {
+    const result = deriveAttendanceDiscipline({
+      assignments: [
+        {
+          id: 'asg-evento',
+          empleadoId: 'emp-evento',
+          pdvId: 'pdv-1',
+          cuentaClienteId: 'cta-1',
+          supervisorEmpleadoId: 'sup-1',
+          fechaInicio: '2026-08-24',
+          fechaFin: '2026-08-24',
+          tipo: 'FIJA',
+          diasLaborales: 'LUN',
+          diaDescanso: 'DOM',
+          horarioReferencia: 'TC',
+          naturaleza: 'BASE',
+          prioridad: 100,
+        },
+      ],
+      attendances: [],
+      solicitudes: [
+        {
+          id: 'inc-1',
+          empleadoId: 'emp-evento',
+          fechaInicio: '2026-08-24',
+          fechaFin: '2026-08-24',
+          tipo: 'INCAPACIDAD',
+          estatus: 'REGISTRADA_RH',
+          metadata: { justifica_asistencia: true, incapacidad_clasificacion: 'I' },
+        },
+      ],
+      formaciones: [
+        {
+          id: 'evento-1',
+          empleadoId: 'emp-evento',
+          fechaInicio: '2026-08-24',
+          fechaFin: '2026-08-24',
+          nombre: 'Activación especial',
+          tipo: 'ACTIVACION',
+          estatus: 'PROGRAMADA',
+        },
+      ],
+      toleranceMinutes: 15,
+      payrollDeductionDays: 1,
+      salaries: [{ empleadoId: 'emp-evento', sueldoBaseMensual: 9000 }],
+      periodStart: '2026-08-24',
+      periodEnd: '2026-08-24',
+    });
+
+    expect(result.records).toEqual([
+      expect.objectContaining({
+        empleadoId: 'emp-evento',
+        estado: 'AUSENCIA_JUSTIFICADA',
+        solicitudId: 'evento-1',
+      }),
+    ]);
+    expect(result.records.some((item) => item.estado === 'FALTA')).toBe(false);
+  });
+});

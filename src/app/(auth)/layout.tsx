@@ -1,10 +1,6 @@
-import Image from 'next/image'
+import Image from 'next/image';
 
-export default function AuthLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#eff5fb] text-slate-950">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -37,9 +33,7 @@ export default function AuthLayout({
                   <p className="text-[10px] font-semibold uppercase tracking-[0.34em] text-[#1269b2]">
                     Beteele One
                   </p>
-                  <p className="text-xs text-slate-600">
-                    Sistema operativo de campo
-                  </p>
+                  <p className="text-xs text-slate-600">Sistema operativo de campo</p>
                 </div>
               </div>
 
@@ -52,8 +46,8 @@ export default function AuthLayout({
                   <span className="mt-1 block">operacion clara.</span>
                 </h1>
                 <p className="mt-5 max-w-[24rem] text-[15px] leading-7 text-[#e7f1ff]">
-                  Un acceso sereno y preciso para equipos que necesitan foco,
-                  orden y lectura inmediata de la operacion.
+                  Un acceso sereno y preciso para equipos que necesitan foco, orden y lectura
+                  inmediata de la operacion.
                 </p>
               </div>
             </div>
@@ -67,5 +61,5 @@ export default function AuthLayout({
         </div>
       </div>
     </div>
-  )
+  );
 }

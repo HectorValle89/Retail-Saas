@@ -1,67 +1,69 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test';
 import {
   collectEmpleadosExportPayload,
   obtenerPanelEmpleados,
-} from '../src/features/empleados/services/empleadoService'
-import { filterEmpleadosListado } from '../src/features/empleados/lib/empleadosFilters'
+} from '../src/features/empleados/services/empleadoService';
+import { filterEmpleadosListado } from '../src/features/empleados/lib/empleadosFilters';
 
 type QueryResult = {
-  data: unknown[] | null
-  error: { message: string } | null
-}
+  data: unknown[] | null;
+  error: { message: string } | null;
+};
 
 function createFakeEmpleadosSupabase(results: {
-  empleado: QueryResult
-  usuario: QueryResult
-  empleado_documento: QueryResult
-  configuracion: QueryResult
-  pdv: QueryResult
-  asignacion: QueryResult
+  empleado: QueryResult;
+  usuario: QueryResult;
+  empleado_documento: QueryResult;
+  configuracion: QueryResult;
+  pdv: QueryResult;
+  asignacion: QueryResult;
 }) {
-  const signedCalls: string[] = []
+  const signedCalls: string[] = [];
 
   return {
-    from(table: 'empleado' | 'usuario' | 'empleado_documento' | 'configuracion' | 'pdv' | 'asignacion') {
+    from(
+      table: 'empleado' | 'usuario' | 'empleado_documento' | 'configuracion' | 'pdv' | 'asignacion'
+    ) {
       const query = {
         select() {
-          return query
+          return query;
         },
         order() {
-          return Promise.resolve(results[table])
+          return Promise.resolve(results[table]);
         },
         in() {
-          return Promise.resolve(results[table])
+          return Promise.resolve(results[table]);
         },
         eq() {
-          return query
+          return query;
         },
         lte() {
-          return query
+          return query;
         },
         or() {
-          return Promise.resolve(results[table])
+          return Promise.resolve(results[table]);
         },
-      }
+      };
 
-      return query
+      return query;
     },
     storage: {
       from(bucket: string) {
         return {
           createSignedUrl(path: string) {
-            signedCalls.push(`${bucket}/${path}`)
+            signedCalls.push(`${bucket}/${path}`);
             return Promise.resolve({
               data: { signedUrl: `https://signed.local/${bucket}/${path}` },
               error: null,
-            })
+            });
           },
-        }
+        };
       },
     },
     getSignedCalls() {
-      return signedCalls
+      return signedCalls;
     },
-  }
+  };
 }
 
 test('consolida empleados, documentos y filtros auxiliares del panel', async () => {
@@ -251,38 +253,38 @@ test('consolida empleados, documentos y filtros auxiliares del panel', async () 
       ],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelEmpleados(client as never)
+  const data = await obtenerPanelEmpleados(client as never);
 
-  expect(data.infraestructuraLista).toBe(true)
+  expect(data.infraestructuraLista).toBe(true);
   expect(data.resumen).toMatchObject({
     total: 2,
     activos: 1,
     bajas: 1,
     expedienteValidado: 1,
     imssEnProceso: 1,
-  })
+  });
   expect(data.resumenReclutamiento).toMatchObject({
-    candidatosEnPipeline: 2,
+    candidatosEnPipeline: 0,
     pendientesCoordinacion: 0,
     pendientesDocumentacion: 0,
-    pendientesNominaImss: 1,
-    listosAdministracion: 1,
-  })
+    pendientesNominaImss: 0,
+    listosAdministracion: 0,
+  });
   expect(data.pdvsDisponibles).toEqual([
     expect.objectContaining({
       id: 'pdv-2',
       nombre: 'Farmacia Sur',
       disponibilidadMotivo: 'SIN_ASIGNACION_ACTIVA',
     }),
-  ])
+  ]);
   expect(data.recruitmentCoverageSummary).toMatchObject({
     pdvsCubiertos: 1,
     pdvsVacantes: 1,
     vacantesUrgentes: 1,
     pdvsBloqueados: 0,
-  })
+  });
   expect(data.pdvCoberturaBoard).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -296,18 +298,19 @@ test('consolida empleados, documentos y filtros auxiliares del panel', async () 
         actionNeed: 'VACANTE_URGENTE',
       }),
     ])
-  )
+  );
   expect(data.supervisors).toEqual([
     {
       id: 'emp-1',
       nombreCompleto: 'Ana Supervisor',
     },
-  ])
-  expect(data.zonas).toEqual(['NORTE', 'SUR'])
-  expect(data.pdfOptimizationAvailable).toBe(true)
-  expect(data.ocrProvider).toBe('gemini')
-  expect(data.recruitingInbox.find((lane) => lane.key === 'en-revision')?.items).toHaveLength(1)
-  expect(data.recruitingInbox.find((lane) => lane.key === 'en-revision')?.items[0]?.employeeSummary.nombreCompleto).toBe('Luis DC')
+  ]);
+  expect(data.zonas).toEqual(['NORTE', 'SUR']);
+  expect(data.pdfOptimizationAvailable).toBe(true);
+  expect(data.ocrProvider).toBe('gemini');
+  // La bandeja de empleados conserva únicamente cancelaciones y devoluciones.
+  expect(data.recruitingInbox.map((lane) => lane.key)).toEqual(['cancelados-devueltos']);
+  expect(data.recruitingInbox[0].items).toHaveLength(0);
   expect(data.empleados[1]).toMatchObject({
     id: 'emp-2',
     supervisor: 'Ana Supervisor',
@@ -325,16 +328,15 @@ test('consolida empleados, documentos y filtros auxiliares del panel', async () 
     sbcDiario: 412.55,
     workflowStage: 'EN_FLUJO_IMSS',
     adminAccessPending: false,
-  })
+  });
   expect(data.empleados[0]).toMatchObject({
     workflowStage: 'PENDIENTE_ACCESO_ADMIN',
     adminAccessPending: true,
-  })
+  });
   expect(data.empleados[1].documentos[0]).toMatchObject({
     nombreArchivo: 'curp-luis.pdf',
     sha256: 'sha-doc-1',
-    signedUrl:
-      'https://signed.local/empleados-expediente/empleados/emp-2/expediente/sha-doc-1.pdf',
+    signedUrl: 'https://signed.local/empleados-expediente/empleados/emp-2/expediente/sha-doc-1.pdf',
     optimization: {
       kind: 'pdf-rewrite',
       optimized: true,
@@ -345,11 +347,11 @@ test('consolida empleados, documentos y filtros auxiliares del panel', async () 
       targetMet: true,
       notes: ['object_streams_enabled'],
     },
-  })
+  });
   expect(client.getSignedCalls()).toEqual([
     'empleados-expediente/empleados/emp-2/expediente/sha-doc-1.pdf',
-  ])
-})
+  ]);
+});
 
 test('degrada el panel si la tabla empleado no esta disponible', async () => {
   const client = createFakeEmpleadosSupabase({
@@ -377,15 +379,15 @@ test('degrada el panel si la tabla empleado no esta disponible', async () => {
       data: [],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelEmpleados(client as never)
+  const data = await obtenerPanelEmpleados(client as never);
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.mensajeInfraestructura).toContain('relation public.empleado does not exist')
-  expect(data.empleados).toHaveLength(0)
-  expect(data.resumen.total).toBe(0)
-})
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.mensajeInfraestructura).toContain('relation public.empleado does not exist');
+  expect(data.empleados).toHaveLength(0);
+  expect(data.resumen.total).toBe(0);
+});
 
 test('filtra empleados pendientes de IMSS con el criterio usado por dashboard y deep link', async () => {
   const empleados = [
@@ -457,7 +459,7 @@ test('filtra empleados pendientes de IMSS con el criterio usado por dashboard y 
       expedienteEstado: 'EN_REVISION',
       imssEstado: 'NO_INICIADO',
     },
-  ] as never
+  ] as never;
 
   const filtrados = filterEmpleadosListado(empleados, {
     search: '',
@@ -465,10 +467,10 @@ test('filtra empleados pendientes de IMSS con el criterio usado por dashboard y 
     zona: 'ALL',
     supervisorId: 'ALL',
     imss: 'PENDIENTE_IMSS',
-  })
+  });
 
-  expect(filtrados.map((item) => item.id)).toEqual(['emp-1', 'emp-2'])
-})
+  expect(filtrados.map((item) => item.id)).toEqual(['emp-1', 'emp-2']);
+});
 
 test('construye exportacion csv de empleados con datos operativos visibles', async () => {
   const client = createFakeEmpleadosSupabase({
@@ -545,12 +547,12 @@ test('construye exportacion csv de empleados con datos operativos visibles', asy
       data: [],
       error: null,
     },
-  })
+  });
 
-  const payload = await collectEmpleadosExportPayload(client as never)
+  const payload = await collectEmpleadosExportPayload(client as never);
 
-  expect(payload.headers).toContain('Nombre completo')
-  expect(payload.rows).toHaveLength(1)
+  expect(payload.headers).toContain('Nombre completo');
+  expect(payload.rows).toHaveLength(1);
   expect(payload.rows[0]).toEqual(
     expect.arrayContaining([
       'emp-1',
@@ -566,6 +568,6 @@ test('construye exportacion csv de empleados con datos operativos visibles', asy
       'SI',
       'PENDIENTE_ACCESO_ADMIN',
     ])
-  )
-  expect(payload.filenameBase).toMatch(/^empleados-\d{4}-\d{2}-\d{2}$/)
-})
+  );
+  expect(payload.filenameBase).toMatch(/^empleados-\d{4}-\d{2}-\d{2}$/);
+});

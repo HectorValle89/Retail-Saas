@@ -1,25 +1,23 @@
-import 'server-only'
+import 'server-only';
 
 import {
   canSendTransactionalEmail,
   sendTransactionalEmail,
-} from '@/lib/notifications/transactionalEmail'
+} from '@/lib/notifications/transactionalEmail';
 
 interface ProvisionalCredentialsEmailInput {
-  to: string
-  employeeName: string
-  username: string
-  temporaryPassword: string
-  loginUrl: string
+  to: string;
+  employeeName: string;
+  username: string;
+  temporaryPassword: string;
+  loginUrl: string;
 }
 
 export function canSendProvisionalCredentialsEmail() {
-  return canSendTransactionalEmail()
+  return canSendTransactionalEmail();
 }
 
-export async function sendProvisionalCredentialsEmail(
-  input: ProvisionalCredentialsEmailInput
-) {
+export async function sendProvisionalCredentialsEmail(input: ProvisionalCredentialsEmailInput) {
   await sendTransactionalEmail({
     to: {
       email: input.to,
@@ -43,5 +41,5 @@ export async function sendProvisionalCredentialsEmail(
       <p>Ingresa en: <a href="${input.loginUrl}">${input.loginUrl}</a></p>
       <p>Al entrar deberas continuar el flujo de activacion de tu cuenta.</p>
     `,
-  })
+  });
 }

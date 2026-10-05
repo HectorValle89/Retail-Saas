@@ -1,17 +1,17 @@
-import { requerirAdministradorActivo } from '@/lib/auth/session'
-import { UsuariosPanel } from '@/features/usuarios/components/UsuariosPanel'
-import { obtenerPanelUsuarios } from '@/features/usuarios/services/usuarioService'
-import { readRuntimeEnv } from '@/lib/runtime/env'
+import { requerirAdministradorActivo } from '@/lib/auth/session';
+import { UsuariosPanel } from '@/features/usuarios/components/UsuariosPanel';
+import { obtenerPanelUsuarios } from '@/features/usuarios/services/usuarioService';
+import { readRuntimeEnv } from '@/lib/runtime/env';
 
 export const metadata = {
   title: 'Usuarios | Field Force Platform',
-}
+};
 
 export default async function AdminUsersPage() {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
   const data = await obtenerPanelUsuarios(actor, {
     backendAdminConfigurado: Boolean(readRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY')),
-  })
+  });
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -27,5 +27,5 @@ export default async function AdminUsersPage() {
 
       <UsuariosPanel actor={actor} data={data} />
     </div>
-  )
+  );
 }

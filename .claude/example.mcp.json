@@ -2,51 +2,33 @@
   "mcpServers": {
     "playwright": {
       "command": "npx",
-      "args": [
-        "@playwright/mcp@latest"
-      ]
+      "args": ["@playwright/mcp@latest"]
     },
     "chrome-devtools": {
       "command": "npx",
-      "args": [
-        "-y",
-        "chrome-devtools-mcp@latest"
-      ]
+      "args": ["-y", "chrome-devtools-mcp@latest"]
     },
     "next-devtools": {
       "command": "npx",
-      "args": [
-        "-y",
-        "next-devtools-mcp@latest"
-      ]
+      "args": ["-y", "next-devtools-mcp@latest"]
     },
     "supabase": {
       "command": "npx",
-      "args": [
-        "-y",
-        "@supabase/mcp-server-supabase@latest",
-        "--project-ref=jbdfutvkfvmaulmnfwkk"
-      ],
+      "args": ["-y", "@supabase/mcp-server-supabase@latest", "--project-ref=jbdfutvkfvmaulmnfwkk"],
       "env": {
         "SUPABASE_ACCESS_TOKEN": "YOUR_SUPABASE_ACCESS_TOKEN"
       }
     },
     "brave-search": {
       "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-brave-search"
-      ],
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
       "env": {
         "BRAVE_API_KEY": "YOUR_BRAVE_API_KEY"
       }
     },
     "firecrawl-mcp": {
       "command": "npx",
-      "args": [
-        "-y",
-        "firecrawl-mcp"
-      ],
+      "args": ["-y", "firecrawl-mcp"],
       "env": {
         "FIRECRAWL_API_KEY": "YOUR_FIRECRAWL_API_KEY"
       }
@@ -72,10 +54,7 @@
     },
     "sequential-thinking": {
       "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-sequential-thinking"
-      ]
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
     }
   }
 }

@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { updateSession } from '@/lib/supabase/proxy';
 
+const PUBLIC_PORTALS = [
+  { hosts: ['dermoconsejo.'], path: '/captura/' },
+  { hosts: ['mecanicas.', 'formularios.'], path: '/formularios/' },
+  { hosts: ['reportes.'], path: '/reporte/' },
+] as const;
+
 export async function middleware(request: NextRequest) {
   const rawHost = request.headers.get('host') ?? '';
   const rawForwardedHost = request.headers.get('x-forwarded-host') ?? '';
@@ -25,86 +31,29 @@ export async function middleware(request: NextRequest) {
     .map((h) => h.trim().toLowerCase())
     .filter(Boolean);
 
-  const isDermoconsejo =
-    nextHostname.startsWith('dermoconsejo.') || allHosts.some((h) => h.startsWith('dermoconsejo.'));
+  // Conserva la prioridad de portales cuando el proxy envía varios hosts.
+  for (const portal of PUBLIC_PORTALS) {
+    const matchesHost = portal.hosts.some(
+      (prefix) =>
+        nextHostname.startsWith(prefix) || allHosts.some((host) => host.startsWith(prefix))
+    );
+    if (!matchesHost) continue;
 
-  const isMecanicas =
-    nextHostname.startsWith('mecanicas.') ||
-    allHosts.some((h) => h.startsWith('mecanicas.')) ||
-    nextHostname.startsWith('formularios.') ||
-    allHosts.some((h) => h.startsWith('formularios.'));
-
-  const isReportes =
-    nextHostname.startsWith('reportes.') || allHosts.some((h) => h.startsWith('reportes.'));
-
-  // Registro de depuración para la consola de Cloudflare
-  console.log('[middleware] Captura pública check:', {
-    nextHostname,
-    allHosts,
-    isDermoconsejo,
-    isMecanicas,
-    isReportes,
-    pathname: request.nextUrl.pathname,
-  });
-
-  if (isDermoconsejo) {
     const url = request.nextUrl.clone();
     if (url.pathname === '/') {
-      url.pathname = '/captura/isdin-mexico';
+      url.pathname = `${portal.path}isdin-mexico`;
       return NextResponse.rewrite(url);
     }
 
-    const isPublicCaptura = url.pathname.startsWith('/captura/');
+    const isPublicRoute = url.pathname.startsWith(portal.path);
     const isStaticOrApi =
       url.pathname.startsWith('/_next') ||
       url.pathname.startsWith('/api/') ||
       url.pathname === '/favicon.ico' ||
       url.pathname === '/manifest.webmanifest' ||
-      url.pathname.match(/\.(?:svg|png|jpg|jpeg|gif|webp|ico)$/);
+      /\.(?:svg|png|jpg|jpeg|gif|webp|ico)$/.test(url.pathname);
 
-    if (!isPublicCaptura && !isStaticOrApi) {
-      url.pathname = '/';
-      return NextResponse.redirect(url);
-    }
-  }
-
-  if (isMecanicas) {
-    const url = request.nextUrl.clone();
-    if (url.pathname === '/') {
-      url.pathname = '/formularios/isdin-mexico';
-      return NextResponse.rewrite(url);
-    }
-
-    const isPublicFormularios = url.pathname.startsWith('/formularios/');
-    const isStaticOrApi =
-      url.pathname.startsWith('/_next') ||
-      url.pathname.startsWith('/api/') ||
-      url.pathname === '/favicon.ico' ||
-      url.pathname === '/manifest.webmanifest' ||
-      url.pathname.match(/\.(?:svg|png|jpg|jpeg|gif|webp|ico)$/);
-
-    if (!isPublicFormularios && !isStaticOrApi) {
-      url.pathname = '/';
-      return NextResponse.redirect(url);
-    }
-  }
-
-  if (isReportes) {
-    const url = request.nextUrl.clone();
-    if (url.pathname === '/') {
-      url.pathname = '/reporte/isdin-mexico';
-      return NextResponse.rewrite(url);
-    }
-
-    const isPublicReporte = url.pathname.startsWith('/reporte/');
-    const isStaticOrApi =
-      url.pathname.startsWith('/_next') ||
-      url.pathname.startsWith('/api/') ||
-      url.pathname === '/favicon.ico' ||
-      url.pathname === '/manifest.webmanifest' ||
-      url.pathname.match(/\.(?:svg|png|jpg|jpeg|gif|webp|ico)$/);
-
-    if (!isPublicReporte && !isStaticOrApi) {
+    if (!isPublicRoute && !isStaticOrApi) {
       url.pathname = '/';
       return NextResponse.redirect(url);
     }

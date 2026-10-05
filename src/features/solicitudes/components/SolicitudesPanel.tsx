@@ -1,95 +1,98 @@
-'use client'
+'use client';
 
-import Link from 'next/link'
-import { useActionState, useCallback, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
-import type { ActorActual } from '@/lib/auth/session'
-import { useFormStatus } from 'react-dom'
-import { Button, Card, EvidencePreview, MetricCard as SharedMetricCard } from '@/components/ui'
-import { useScopedWidgetData } from '@/lib/ui-change/client'
-import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
+import Link from 'next/link';
+import { useActionState, useCallback, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import type { ActorActual } from '@/lib/auth/session';
+import { useFormStatus } from 'react-dom';
+import { Button, Card, EvidencePreview, MetricCard as SharedMetricCard } from '@/components/ui';
+import { useScopedWidgetData } from '@/lib/ui-change/client';
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
 import {
   getSingleTenantAccountLabel,
   isSingleTenantUiEnabled,
   resolveSingleTenantAccountOption,
-} from '@/lib/tenant/singleTenant'
-import { actualizarEstatusSolicitud, registrarSolicitudOperativa } from '../actions'
-import { injectDirectR2Upload } from '@/lib/storage/directR2Client'
-import { ESTADO_SOLICITUD_INICIAL } from '../state'
-import type { SolicitudListadoItem, SolicitudesPanelData } from '../services/solicitudService'
+} from '@/lib/tenant/singleTenant';
+import { actualizarEstatusSolicitud, registrarSolicitudOperativa } from '../actions';
+import { injectDirectR2Upload } from '@/lib/storage/directR2Client';
+import { ESTADO_SOLICITUD_INICIAL } from '../state';
+import type { SolicitudListadoItem, SolicitudesPanelData } from '../services/solicitudService';
 
 function getLocalDateValue() {
-  return new Intl.DateTimeFormat('en-CA').format(new Date())
+  return new Intl.DateTimeFormat('en-CA').format(new Date());
 }
 
 function formatApprovalPath(value: string[]) {
-  return value.join(' -> ')
+  return value.join(' -> ');
 }
 
 function buildPageHref(data: SolicitudesPanelData, page: number) {
-  const params = buildFilterParams(data)
-  params.set('page', String(page))
-  params.set('pageSize', String(data.paginacion.pageSize))
-  return `/solicitudes?${params.toString()}`
+  const params = buildFilterParams(data);
+  params.set('page', String(page));
+  params.set('pageSize', String(data.paginacion.pageSize));
+  return `/solicitudes?${params.toString()}`;
 }
 
 function buildFilterParams(data: SolicitudesPanelData) {
-  const params = new URLSearchParams()
+  const params = new URLSearchParams();
 
   if (data.filtros.tipo) {
-    params.set('tipo', data.filtros.tipo)
+    params.set('tipo', data.filtros.tipo);
   }
 
   if (data.filtros.estatus) {
-    params.set('estatus', data.filtros.estatus)
+    params.set('estatus', data.filtros.estatus);
   }
 
   if (data.filtros.empleadoId) {
-    params.set('empleado_id', data.filtros.empleadoId)
+    params.set('empleado_id', data.filtros.empleadoId);
   }
 
   if (data.filtros.fechaInicio) {
-    params.set('fecha_inicio', data.filtros.fechaInicio)
+    params.set('fecha_inicio', data.filtros.fechaInicio);
   }
 
   if (data.filtros.fechaFin) {
-    params.set('fecha_fin', data.filtros.fechaFin)
+    params.set('fecha_fin', data.filtros.fechaFin);
   }
 
   if (data.filtros.month) {
-    params.set('month', data.filtros.month)
+    params.set('month', data.filtros.month);
   }
 
-  return params
+  return params;
 }
 
 export function SolicitudesPanel({
   actor,
   data: initialData,
 }: {
-  actor: ActorActual
-  data: SolicitudesPanelData
+  actor: ActorActual;
+  data: SolicitudesPanelData;
 }) {
-  const searchParams = useSearchParams()
-  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const searchParams = useSearchParams();
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
   const fetcher = useCallback(
     async (signal: AbortSignal) => {
-      const query = searchParams.toString()
-      const response = await fetch(query ? `/api/solicitudes/panel?${query}` : '/api/solicitudes/panel', {
-        cache: 'no-store',
-        credentials: 'same-origin',
-        signal,
-      })
-      const payload = (await response.json()) as { data?: SolicitudesPanelData; message?: string }
+      const query = searchParams.toString();
+      const response = await fetch(
+        query ? `/api/solicitudes/panel?${query}` : '/api/solicitudes/panel',
+        {
+          cache: 'no-store',
+          credentials: 'same-origin',
+          signal,
+        }
+      );
+      const payload = (await response.json()) as { data?: SolicitudesPanelData; message?: string };
 
       if (!response.ok || !payload.data) {
-        throw new Error(payload.message ?? 'No fue posible refrescar el panel de solicitudes.')
+        throw new Error(payload.message ?? 'No fue posible refrescar el panel de solicitudes.');
       }
 
-      return payload.data
+      return payload.data;
     },
     [searchParams]
-  )
+  );
   const { data } = useScopedWidgetData({
     initialData,
     module: 'solicitudes',
@@ -98,34 +101,35 @@ export function SolicitudesPanel({
     roleTargets: [actor.puesto],
     fetcher: (signal) => fetcher(signal),
     debounceMs: 650,
-  })
-  const [state, formAction] = useActionState(registrarSolicitudOperativa, ESTADO_SOLICITUD_INICIAL)
-  const canPrev = data.paginacion.page > 1
-  const canNext = data.paginacion.page < data.paginacion.totalPages
-  const fixedAccount = resolveSingleTenantAccountOption(data.cuentas)
-  const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount)
-  const canRegister = data.actorPuesto === 'DERMOCONSEJERO' || data.actorPuesto === 'SUPERVISOR'
-  const [isUploadingR2, setIsUploadingR2] = useState(false)
+  });
+  const [state, formAction] = useActionState(registrarSolicitudOperativa, ESTADO_SOLICITUD_INICIAL);
+  const canPrev = data.paginacion.page > 1;
+  const canNext = data.paginacion.page < data.paginacion.totalPages;
+  const fixedAccount = resolveSingleTenantAccountOption(data.cuentas);
+  const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount);
+  const canRegister = data.actorPuesto === 'DERMOCONSEJERO' || data.actorPuesto === 'SUPERVISOR';
+  const [isUploadingR2, setIsUploadingR2] = useState(false);
+  const [tipoSolicitud, setTipoSolicitud] = useState('AVISO_INASISTENCIA');
 
   const handleSubmit = async (formData: FormData) => {
-    const justificante = formData.get('justificante')
+    const justificante = formData.get('justificante');
     if (justificante instanceof File && justificante.size > 0) {
-      setIsUploadingR2(true)
+      setIsUploadingR2(true);
       try {
         await injectDirectR2Upload(formData, justificante, {
           modulo: 'solicitudes',
           removeFieldName: 'justificante',
-        })
+        });
       } catch (error) {
-        console.error('No fue posible subir justificante a R2.', error)
+        console.error('No fue posible subir justificante a R2.', error);
       } finally {
-        setIsUploadingR2(false)
+        setIsUploadingR2(false);
       }
     }
 
-    const action = formAction as unknown as (payload: FormData) => void
-    action(formData)
-  }
+    const action = formAction as unknown as (payload: FormData) => void;
+    action(formData);
+  };
 
   return (
     <div className="space-y-6">
@@ -153,7 +157,8 @@ export function SolicitudesPanel({
             </p>
             <h2 className="mt-2 text-lg font-semibold text-slate-950">Registrar solicitud</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Este registro solo vive para dermoconsejo y supervisión. Los demás roles aquí solo consultan y confirman el flujo.
+              Este registro solo vive para dermoconsejo y supervisión. Los demás roles aquí solo
+              consultan y confirman el flujo.
             </p>
           </div>
 
@@ -171,7 +176,10 @@ export function SolicitudesPanel({
             ) : (
               <label className="block text-sm text-slate-600">
                 Cuenta cliente
-                <select name="cuenta_cliente_id" className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]">
+                <select
+                  name="cuenta_cliente_id"
+                  className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+                >
                   {data.cuentas.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.label}
@@ -183,7 +191,10 @@ export function SolicitudesPanel({
 
             <label className="block text-sm text-slate-600">
               Empleado
-              <select name="empleado_id" className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]">
+              <select
+                name="empleado_id"
+                className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+              >
                 {data.empleados.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.label}
@@ -194,7 +205,10 @@ export function SolicitudesPanel({
 
             <label className="block text-sm text-slate-600">
               Supervisor
-              <select name="supervisor_empleado_id" className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]">
+              <select
+                name="supervisor_empleado_id"
+                className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+              >
                 <option value="">Sin supervisor</option>
                 {data.supervisores.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -206,7 +220,12 @@ export function SolicitudesPanel({
 
             <label className="block text-sm text-slate-600">
               Tipo
-              <select name="tipo" className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]">
+              <select
+                name="tipo"
+                value={tipoSolicitud}
+                onChange={(event) => setTipoSolicitud(event.target.value)}
+                className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+              >
                 <option value="AVISO_INASISTENCIA">AVISO_INASISTENCIA</option>
                 <option value="JUSTIFICACION_FALTA">JUSTIFICACION_FALTA</option>
                 <option value="INCAPACIDAD">INCAPACIDAD</option>
@@ -214,6 +233,21 @@ export function SolicitudesPanel({
                 <option value="PERMISO">PERMISO</option>
               </select>
             </label>
+
+            {tipoSolicitud === 'INCAPACIDAD' ? (
+              <label className="block text-sm text-slate-600">
+                Tipo indicado en el formato
+                <select
+                  name="incapacidad_clase"
+                  defaultValue="INICIAL"
+                  required
+                  className="mt-2 w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+                >
+                  <option value="INICIAL">I · Incapacidad inicial</option>
+                  <option value="SUBSECUENTE">IS · Incapacidad subsecuente</option>
+                </select>
+              </label>
+            ) : null}
 
             <label className="block text-sm text-slate-600">
               Fecha inicio
@@ -280,9 +314,12 @@ export function SolicitudesPanel({
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--module-text)]">
               Flujo informativo
             </p>
-            <h2 className="mt-2 text-lg font-semibold text-slate-950">Solicitudes solo de consulta y confirmación</h2>
+            <h2 className="mt-2 text-lg font-semibold text-slate-950">
+              Solicitudes solo de consulta y confirmación
+            </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Para tu puesto este módulo ya no crea solicitudes nuevas. Aquí solo revisas, confirmas o cierras el flujo según tu rol.
+              Para tu puesto este módulo ya no crea solicitudes nuevas. Aquí solo revisas, confirmas
+              o cierras el flujo según tu rol.
             </p>
           </div>
           <div className="rounded-[18px] border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-sky-900">
@@ -302,7 +339,8 @@ export function SolicitudesPanel({
           </p>
           <h2 className="mt-2 text-lg font-semibold text-slate-950">Explorar solicitudes</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Filtra por tipo, estado, colaboradora y rango para revisar ausencias y aprobaciones sin perder el contexto del mes.
+            Filtra por tipo, estado, colaboradora y rango para revisar ausencias y aprobaciones sin
+            perder el contexto del mes.
           </p>
         </div>
 
@@ -403,26 +441,29 @@ export function SolicitudesPanel({
         </form>
       </Card>
 
-      {data.actorPuesto && ['SUPERVISOR', 'COORDINADOR', 'NOMINA', 'ADMINISTRADOR'].includes(data.actorPuesto) && (
-        <Card className="overflow-hidden p-0">
-          <div className="border-b border-border/60 px-6 py-5">
-            <h2 className="text-lg font-semibold text-slate-950">Bandeja de pendientes</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Solicitudes que aun requieren accion de {data.actorPuesto} en esta pagina.
-            </p>
-          </div>
+      {data.actorPuesto &&
+        ['SUPERVISOR', 'COORDINADOR', 'NOMINA', 'ADMINISTRADOR'].includes(data.actorPuesto) && (
+          <Card className="overflow-hidden p-0">
+            <div className="border-b border-border/60 px-6 py-5">
+              <h2 className="text-lg font-semibold text-slate-950">Bandeja de pendientes</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Solicitudes que aun requieren accion de {data.actorPuesto} en esta pagina.
+              </p>
+            </div>
 
-          <div className="space-y-3 px-6 py-5">
-            {data.pendientesAccionables.length === 0 ? (
-              <p className="text-sm text-slate-500">No hay solicitudes pendientes por resolver para tu puesto en esta pagina.</p>
-            ) : (
-              data.pendientesAccionables.map((item) => (
-                <PendingActionRow key={item.id} item={item} />
-              ))
-            )}
-          </div>
-        </Card>
-      )}
+            <div className="space-y-3 px-6 py-5">
+              {data.pendientesAccionables.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No hay solicitudes pendientes por resolver para tu puesto en esta pagina.
+                </p>
+              ) : (
+                data.pendientesAccionables.map((item) => (
+                  <PendingActionRow key={item.id} item={item} />
+                ))
+              )}
+            </div>
+          </Card>
+        )}
 
       <Card className="overflow-hidden p-0">
         <div className="border-b border-border/60 px-6 py-5">
@@ -460,8 +501,12 @@ export function SolicitudesPanel({
                     </td>
                     <td className="px-6 py-4">
                       <div className="font-medium text-slate-900">{item.empleado}</div>
-                      <div className="mt-1 text-xs text-slate-400">{item.supervisor ?? 'Sin supervisor'}</div>
-                      <div className="mt-1 text-xs text-slate-400">{item.cuentaCliente ?? 'Sin cliente'}</div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {item.supervisor ?? 'Sin supervisor'}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {item.cuentaCliente ?? 'Sin cliente'}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-slate-600">
                       <div className="font-medium text-slate-900">{item.tipo}</div>
@@ -473,10 +518,14 @@ export function SolicitudesPanel({
                           emptyLabel="Sin justificante"
                         />
                       </div>
-                      {item.motivo && <div className="mt-2 text-xs text-slate-500">{item.motivo}</div>}
+                      {item.motivo && (
+                        <div className="mt-2 text-xs text-slate-500">{item.motivo}</div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-slate-600">
-                      <div className="text-xs text-slate-500">{formatApprovalPath(item.approvalPath)}</div>
+                      <div className="text-xs text-slate-500">
+                        {formatApprovalPath(item.approvalPath)}
+                      </div>
                       <div className="mt-2 text-xs text-slate-400">
                         {item.diaJustificado
                           ? 'Dia justificado en asistencias'
@@ -485,13 +534,20 @@ export function SolicitudesPanel({
                             : 'No impacta asistencia'}
                       </div>
                       {item.siguienteActor && (
-                        <div className="mt-2 text-xs font-medium text-amber-700">Siguiente actor: {item.siguienteActor}</div>
+                        <div className="mt-2 text-xs font-medium text-amber-700">
+                          Siguiente actor: {item.siguienteActor}
+                        </div>
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <StatusPill active={item.estadoResolucion === 'APROBADA'} label={item.estadoResolucion} />
+                      <StatusPill
+                        active={item.estadoResolucion === 'APROBADA'}
+                        label={item.estadoResolucion}
+                      />
                       <div className="mt-2 text-xs text-slate-500">Interno: {item.estatus}</div>
-                      {item.comentarios && <div className="mt-2 text-xs text-slate-500">{item.comentarios}</div>}
+                      {item.comentarios && (
+                        <div className="mt-2 text-xs text-slate-500">{item.comentarios}</div>
+                      )}
                       {item.notificaciones[0] && (
                         <div className="mt-2 rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
                           <div className="font-medium text-slate-900">Ultima notificacion</div>
@@ -500,9 +556,16 @@ export function SolicitudesPanel({
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <form action={actualizarEstatusSolicitud} className="flex flex-wrap items-center gap-2">
+                      <form
+                        action={actualizarEstatusSolicitud}
+                        className="flex flex-wrap items-center gap-2"
+                      >
                         <input type="hidden" name="solicitud_id" value={item.id} />
-                        <input type="hidden" name="cuenta_cliente_id" value={item.cuentaClienteId} />
+                        <input
+                          type="hidden"
+                          name="cuenta_cliente_id"
+                          value={item.cuentaClienteId}
+                        />
                         <select
                           name="estatus"
                           defaultValue={item.estatus}
@@ -516,6 +579,21 @@ export function SolicitudesPanel({
                           <option value="CORRECCION_SOLICITADA">CORRECCION_SOLICITADA</option>
                           <option value="RECHAZADA">RECHAZADA</option>
                         </select>
+                        {item.tipo === 'INCAPACIDAD' ? (
+                          <select
+                            name="incapacidad_clase"
+                            defaultValue={item.incapacidadClase ?? ''}
+                            required
+                            aria-label={`Tipo de incapacidad de ${item.empleado}`}
+                            className="rounded-[12px] border border-border bg-surface-subtle px-3 py-2 text-xs text-slate-900"
+                          >
+                            <option value="" disabled>
+                              Clasificar formato
+                            </option>
+                            <option value="INICIAL">I · Inicial</option>
+                            <option value="SUBSECUENTE">IS · Subsecuente</option>
+                          </select>
+                        ) : null}
                         <button
                           type="submit"
                           className="rounded-[12px] bg-[var(--module-primary)] px-3 py-2 text-xs font-medium text-white"
@@ -537,36 +615,56 @@ export function SolicitudesPanel({
           <div>
             <p className="text-sm font-medium text-slate-900">Paginacion incremental</p>
             <p className="mt-1 text-xs text-slate-500">
-              Pagina {data.paginacion.page} de {data.paginacion.totalPages} | maximo {data.paginacion.pageSize} registros por pagina | total {data.paginacion.totalItems}
+              Pagina {data.paginacion.page} de {data.paginacion.totalPages} | maximo{' '}
+              {data.paginacion.pageSize} registros por pagina | total {data.paginacion.totalItems}
             </p>
           </div>
           <div className="flex gap-3">
-            <PaginationLink href={buildPageHref(data, Math.max(1, data.paginacion.page - 1))} disabled={!canPrev}>Anterior</PaginationLink>
-            <PaginationLink href={buildPageHref(data, Math.min(data.paginacion.totalPages, data.paginacion.page + 1))} disabled={!canNext}>Siguiente</PaginationLink>
+            <PaginationLink
+              href={buildPageHref(data, Math.max(1, data.paginacion.page - 1))}
+              disabled={!canPrev}
+            >
+              Anterior
+            </PaginationLink>
+            <PaginationLink
+              href={buildPageHref(
+                data,
+                Math.min(data.paginacion.totalPages, data.paginacion.page + 1)
+              )}
+              disabled={!canNext}
+            >
+              Siguiente
+            </PaginationLink>
           </div>
         </div>
       </Card>
     </div>
-  )
+  );
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return <SharedMetricCard label={label} value={value} />
+  return <SharedMetricCard label={label} value={value} />;
 }
 
 function PendingActionRow({ item }: { item: SolicitudListadoItem }) {
   return (
     <div className="flex flex-col gap-3 rounded-[18px] border border-border/60 bg-white px-4 py-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
       <div>
-        <p className="font-medium text-slate-950">{item.empleado} · {item.tipo}</p>
-        <p className="mt-1 text-sm text-slate-500">{item.cuentaCliente ?? 'Sin cliente'} · {item.fechaInicio} a {item.fechaFin}</p>
-        <p className="mt-1 text-xs text-amber-700">Pendiente por {item.siguienteActor ?? 'resolver'}</p>
+        <p className="font-medium text-slate-950">
+          {item.empleado} · {item.tipo}
+        </p>
+        <p className="mt-1 text-sm text-slate-500">
+          {item.cuentaCliente ?? 'Sin cliente'} · {item.fechaInicio} a {item.fechaFin}
+        </p>
+        <p className="mt-1 text-xs text-amber-700">
+          Pendiente por {item.siguienteActor ?? 'resolver'}
+        </p>
       </div>
       <div className="flex items-center gap-2">
         <StatusPill active={false} label={item.estadoResolucion} />
       </div>
     </div>
-  )
+  );
 }
 
 function StatusPill({ active, label }: { active: boolean; label: string }) {
@@ -577,37 +675,53 @@ function StatusPill({ active, label }: { active: boolean; label: string }) {
         ? 'bg-amber-100 text-amber-800'
         : active
           ? 'bg-emerald-100 text-emerald-700'
-          : 'bg-slate-100 text-slate-700'
+          : 'bg-slate-100 text-slate-700';
 
-  return (
-    <span className={`rounded-full px-3 py-1 text-xs font-medium ${toneClass}`}>
-      {label}
-    </span>
-  )
+  return <span className={`rounded-full px-3 py-1 text-xs font-medium ${toneClass}`}>{label}</span>;
 }
 
 function StateMessage({ ok, message }: { ok: boolean; message: string | null }) {
   if (!message) {
-    return null
+    return null;
   }
 
-  return <p className={`text-sm ${ok ? 'text-emerald-700' : 'text-rose-700'}`}>{message}</p>
+  return <p className={`text-sm ${ok ? 'text-emerald-700' : 'text-rose-700'}`}>{message}</p>;
 }
 
 function SubmitButton({ label, pendingLabel }: { label: string; pendingLabel: string }) {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   return (
     <Button type="submit" isLoading={pending}>
       {pending ? pendingLabel : label}
     </Button>
-  )
+  );
 }
 
-function PaginationLink({ href, disabled, children }: { href: string; disabled: boolean; children: string }) {
+function PaginationLink({
+  href,
+  disabled,
+  children,
+}: {
+  href: string;
+  disabled: boolean;
+  children: string;
+}) {
   if (disabled) {
-    return <span className="inline-flex items-center rounded-[14px] border border-border bg-white px-4 py-2 text-sm text-slate-400">{children}</span>
+    return (
+      <span className="inline-flex items-center rounded-[14px] border border-border bg-white px-4 py-2 text-sm text-slate-400">
+        {children}
+      </span>
+    );
   }
 
-  return <Link href={href} prefetch={false} className="inline-flex items-center rounded-[14px] border border-border bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-[var(--module-border)] hover:bg-[var(--module-soft-bg)]">{children}</Link>
+  return (
+    <Link
+      href={href}
+      prefetch={false}
+      className="inline-flex items-center rounded-[14px] border border-border bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-[var(--module-border)] hover:bg-[var(--module-soft-bg)]"
+    >
+      {children}
+    </Link>
+  );
 }

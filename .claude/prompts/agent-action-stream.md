@@ -10,6 +10,7 @@
 ### Por que esto importa
 
 La mayoria de chatbots son **cajas negras**:
+
 ```
 Usuario: "¿Cuanto me cuesta no tener tu sistema?"
 Bot: "Estas perdiendo $4,500/mes"
@@ -17,6 +18,7 @@ Usuario: "¿De donde sacaste ese numero?" 🤨
 ```
 
 Con Action Stream, el proceso es **visible**:
+
 ```
 Usuario: "¿Cuanto me cuesta no tener tu sistema?"
 
@@ -37,16 +39,16 @@ Usuario: "..." (no puede discutir, VIO el calculo)
 
 ### Aplicaciones del Paradigma
 
-| Caso de Uso | Por que Action Stream es CLAVE |
-|-------------|-------------------------------|
-| **Ventas High Ticket** | El cliente VE como llegaste al ROI |
-| **Calculadoras de ROI** | Cada paso del calculo es verificable |
-| **Auditorias** | Cada verificacion es trazable |
-| **Due Diligence** | Cada fuente consultada visible |
-| **Diagnosticos** | "Por que llegue a esta conclusion" |
-| **Pricing dinamico** | "Asi calcule tu precio personalizado" |
-| **Investigacion** | Cada busqueda mostrada en tiempo real |
-| **Onboarding** | Cada paso de configuracion visible |
+| Caso de Uso             | Por que Action Stream es CLAVE        |
+| ----------------------- | ------------------------------------- |
+| **Ventas High Ticket**  | El cliente VE como llegaste al ROI    |
+| **Calculadoras de ROI** | Cada paso del calculo es verificable  |
+| **Auditorias**          | Cada verificacion es trazable         |
+| **Due Diligence**       | Cada fuente consultada visible        |
+| **Diagnosticos**        | "Por que llegue a esta conclusion"    |
+| **Pricing dinamico**    | "Asi calcule tu precio personalizado" |
+| **Investigacion**       | Cada busqueda mostrada en tiempo real |
+| **Onboarding**          | Cada paso de configuracion visible    |
 
 ---
 
@@ -57,6 +59,7 @@ TRANSPARENCIA + PROCESO VISIBLE = CONFIANZA = CONVERSION
 ```
 
 Esto es lo que hace:
+
 - **Anthropic** con artifacts (muestra el trabajo)
 - **Perplexity** mostrando fuentes
 - **Cursor** mostrando el plan antes de ejecutar
@@ -69,12 +72,12 @@ Esto es lo que hace:
 
 ### Complejidad: FIJA, no incremental
 
-| Componente | Lineas | Se modifica? |
-|------------|--------|--------------|
-| `closeAndParseJson.ts` | ~70 | NUNCA |
-| `API route (streaming)` | ~80 | NUNCA |
-| `useActionStream.ts` | ~80 | NUNCA |
-| **Schemas de acciones** | ~15 c/u | SOLO ESTO |
+| Componente              | Lineas  | Se modifica? |
+| ----------------------- | ------- | ------------ |
+| `closeAndParseJson.ts`  | ~70     | NUNCA        |
+| `API route (streaming)` | ~80     | NUNCA        |
+| `useActionStream.ts`    | ~80     | NUNCA        |
+| **Schemas de acciones** | ~15 c/u | SOLO ESTO    |
 
 **Una vez que tienes el core, solo añades schemas Zod.**
 
@@ -97,51 +100,51 @@ Proyecto nuevo = Copiar core + Definir tus acciones
  * Permite procesar respuestas mientras llegan en streaming.
  */
 export function closeAndParseJson(str: string): any | null {
-  const stack: string[] = []
-  let i = 0
+  const stack: string[] = [];
+  let i = 0;
 
   while (i < str.length) {
-    const char = str[i]
-    const last = stack.at(-1)
+    const char = str[i];
+    const last = stack.at(-1);
 
     if (char === '"') {
       if (i > 0 && str[i - 1] === '\\') {
-        i++
-        continue
+        i++;
+        continue;
       }
       if (last === '"') {
-        stack.pop()
+        stack.pop();
       } else {
-        stack.push('"')
+        stack.push('"');
       }
     }
 
     if (last === '"') {
-      i++
-      continue
+      i++;
+      continue;
     }
 
     if (char === '{' || char === '[') {
-      stack.push(char)
+      stack.push(char);
     }
-    if (char === '}' && last === '{') stack.pop()
-    if (char === ']' && last === '[') stack.pop()
+    if (char === '}' && last === '{') stack.pop();
+    if (char === ']' && last === '[') stack.pop();
 
-    i++
+    i++;
   }
 
-  let closed = str
+  let closed = str;
   for (let j = stack.length - 1; j >= 0; j--) {
-    const opening = stack[j]
-    if (opening === '{') closed += '}'
-    if (opening === '[') closed += ']'
-    if (opening === '"') closed += '"'
+    const opening = stack[j];
+    if (opening === '{') closed += '}';
+    if (opening === '[') closed += ']';
+    if (opening === '"') closed += '"';
   }
 
   try {
-    return JSON.parse(closed)
+    return JSON.parse(closed);
   } catch {
-    return null
+    return null;
   }
 }
 ```
@@ -152,19 +155,19 @@ export function closeAndParseJson(str: string): any | null {
 // lib/actionSchemas.ts
 // MODIFICAR: Añade tus acciones especificas aqui
 
-import { z } from 'zod'
+import { z } from 'zod';
 
 // === ACCIONES BASE (siempre incluir) ===
 
 export const MessageAction = z.object({
   _type: z.literal('message'),
   text: z.string(),
-})
+});
 
 export const ThinkAction = z.object({
   _type: z.literal('think'),
   text: z.string(),
-})
+});
 
 // === ACCIONES PERSONALIZADAS (añade las tuyas) ===
 
@@ -173,7 +176,7 @@ export const AskAction = z.object({
   _type: z.literal('ask'),
   question: z.string(),
   field: z.string(), // nombre del campo que esperas
-})
+});
 
 // Ejemplo: Accion para calcular algo
 export const CalculateAction = z.object({
@@ -181,14 +184,14 @@ export const CalculateAction = z.object({
   operation: z.string(),
   inputs: z.record(z.number()),
   result: z.number(),
-})
+});
 
 // Ejemplo: Accion para ejecutar tool externa
 export const ToolAction = z.object({
   _type: z.literal('tool'),
   name: z.string(),
   args: z.record(z.any()),
-})
+});
 
 // === UNION DE TODAS LAS ACCIONES ===
 
@@ -198,14 +201,14 @@ export const ActionSchema = z.discriminatedUnion('_type', [
   AskAction,
   CalculateAction,
   ToolAction,
-])
+]);
 
-export type Action = z.infer<typeof ActionSchema>
+export type Action = z.infer<typeof ActionSchema>;
 
 // Schema de respuesta completa del modelo
 export const ResponseSchema = z.object({
   actions: z.array(ActionSchema),
-})
+});
 ```
 
 ### Paso 3: API Route con Streaming
@@ -214,13 +217,13 @@ export const ResponseSchema = z.object({
 // app/api/agent/route.ts
 // MODIFICAR: Solo el SYSTEM_PROMPT y las acciones disponibles
 
-import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import { streamText } from 'ai'
-import { closeAndParseJson } from '@/lib/closeAndParseJson'
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import { streamText } from 'ai';
+import { closeAndParseJson } from '@/lib/closeAndParseJson';
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY!,
-})
+});
 
 // === MODIFICAR ESTE PROMPT SEGUN TU CASO DE USO ===
 const SYSTEM_PROMPT = `Eres un agente que responde con acciones estructuradas.
@@ -245,17 +248,17 @@ REGLAS:
 1. Usa multiples acciones en secuencia
 2. Siempre muestra tu razonamiento con "think"
 3. Cada calculo debe mostrar los inputs y el resultado
-4. Se transparente en cada paso`
+4. Se transparente en cada paso`;
 
 export async function POST(req: Request) {
-  const { prompt, context } = await req.json()
+  const { prompt, context } = await req.json();
 
-  const encoder = new TextEncoder()
-  const stream = new TransformStream()
-  const writer = stream.writable.getWriter()
+  const encoder = new TextEncoder();
+  const stream = new TransformStream();
+  const writer = stream.writable.getWriter();
 
   // Forzar inicio de JSON (funciona con Anthropic/Google)
-  const forceStart = '{"actions": [{"_type":'
+  const forceStart = '{"actions": [{"_type":';
 
   const { textStream } = streamText({
     model: openrouter('anthropic/claude-3-5-sonnet'),
@@ -265,51 +268,49 @@ export async function POST(req: Request) {
       { role: 'user', content: prompt },
     ],
     temperature: 0,
-  })
+  });
 
-  ;(async () => {
-    let buffer = forceStart
-    let cursor = 0
+  (async () => {
+    let buffer = forceStart;
+    let cursor = 0;
 
     try {
       for await (const text of textStream) {
-        buffer += text
+        buffer += text;
 
-        const parsed = closeAndParseJson(buffer)
-        if (!parsed?.actions) continue
+        const parsed = closeAndParseJson(buffer);
+        if (!parsed?.actions) continue;
 
-        const actions = parsed.actions
+        const actions = parsed.actions;
 
         while (cursor < actions.length) {
-          const action = actions[cursor]
-          const isComplete = cursor < actions.length - 1 || buffer.endsWith(']}')
+          const action = actions[cursor];
+          const isComplete = cursor < actions.length - 1 || buffer.endsWith(']}');
 
           await writer.write(
             encoder.encode(`data: ${JSON.stringify({ ...action, complete: isComplete })}\n\n`)
-          )
+          );
 
-          if (isComplete) cursor++
-          else break
+          if (isComplete) cursor++;
+          else break;
         }
       }
 
-      await writer.write(encoder.encode('data: [DONE]\n\n'))
+      await writer.write(encoder.encode('data: [DONE]\n\n'));
     } catch (error) {
-      await writer.write(
-        encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`)
-      )
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`));
     } finally {
-      await writer.close()
+      await writer.close();
     }
-  })()
+  })();
 
   return new Response(stream.readable, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
     },
-  })
+  });
 }
 ```
 
@@ -319,77 +320,80 @@ export async function POST(req: Request) {
 // hooks/useActionStream.ts
 // NUNCA MODIFICAR - Este es el core del cliente
 
-'use client'
+'use client';
 
-import { useState, useCallback } from 'react'
-import type { Action } from '@/lib/actionSchemas'
+import { useState, useCallback } from 'react';
+import type { Action } from '@/lib/actionSchemas';
 
-export type StreamingAction = Action & { complete: boolean }
+export type StreamingAction = Action & { complete: boolean };
 
 export function useActionStream(endpoint = '/api/agent') {
-  const [actions, setActions] = useState<StreamingAction[]>([])
-  const [isStreaming, setIsStreaming] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [actions, setActions] = useState<StreamingAction[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const sendPrompt = useCallback(async (prompt: string, context?: any) => {
-    setIsStreaming(true)
-    setError(null)
-    setActions([])
+  const sendPrompt = useCallback(
+    async (prompt: string, context?: any) => {
+      setIsStreaming(true);
+      setError(null);
+      setActions([]);
 
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, context }),
-      })
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, context }),
+        });
 
-      const reader = res.body?.getReader()
-      const decoder = new TextDecoder()
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
 
-      if (!reader) throw new Error('No reader')
+        if (!reader) throw new Error('No reader');
 
-      let buffer = ''
+        let buffer = '';
 
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n\n')
-        buffer = lines.pop() || ''
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          const match = line.match(/^data: (.+)$/)
-          if (!match) continue
-          if (match[1] === '[DONE]') break
+          for (const line of lines) {
+            const match = line.match(/^data: (.+)$/);
+            if (!match) continue;
+            if (match[1] === '[DONE]') break;
 
-          try {
-            const action: StreamingAction = JSON.parse(match[1])
+            try {
+              const action: StreamingAction = JSON.parse(match[1]);
 
-            setActions(prev => {
-              if (prev.length > 0 && !prev[prev.length - 1].complete) {
-                return [...prev.slice(0, -1), action]
-              }
-              return [...prev, action]
-            })
-          } catch (e) {
-            console.error('Parse error:', e)
+              setActions((prev) => {
+                if (prev.length > 0 && !prev[prev.length - 1].complete) {
+                  return [...prev.slice(0, -1), action];
+                }
+                return [...prev, action];
+              });
+            } catch (e) {
+              console.error('Parse error:', e);
+            }
           }
         }
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setIsStreaming(false);
       }
-    } catch (e) {
-      setError(String(e))
-    } finally {
-      setIsStreaming(false)
-    }
-  }, [endpoint])
+    },
+    [endpoint]
+  );
 
   const reset = useCallback(() => {
-    setActions([])
-    setError(null)
-  }, [])
+    setActions([]);
+    setError(null);
+  }, []);
 
-  return { actions, isStreaming, error, sendPrompt, reset }
+  return { actions, isStreaming, error, sendPrompt, reset };
 }
 ```
 
@@ -575,7 +579,7 @@ export const PedirDatoAction = z.object({
   _type: z.literal('pedirDato'),
   pregunta: z.string(),
   campo: z.enum(['horas_semana', 'costo_hora', 'tasa_error', 'costo_solucion']),
-})
+});
 
 export const CalculoAction = z.object({
   _type: z.literal('calculo'),
@@ -583,7 +587,7 @@ export const CalculoAction = z.object({
   formula: z.string(),
   resultado: z.number(),
   unidad: z.string(),
-})
+});
 
 export const ROIAction = z.object({
   _type: z.literal('roi'),
@@ -591,7 +595,7 @@ export const ROIAction = z.object({
   costoSolucion: z.number(),
   roiMultiplier: z.number(),
   diasRecuperacion: z.number(),
-})
+});
 ```
 
 ### System prompt especifico:
@@ -616,7 +620,7 @@ Acciones disponibles:
 - roi: Resultado final con metricas
 
 IMPORTANTE: El usuario debe VER cada paso del calculo.
-Eso construye confianza y elimina objeciones.`
+Eso construye confianza y elimina objeciones.`;
 ```
 
 ---

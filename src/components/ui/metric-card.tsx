@@ -1,29 +1,29 @@
-import type { CSSProperties, ReactNode } from 'react'
-import { Card } from './card'
-import { resolveKpiSemantic, type KpiSemanticTone, withAlpha } from './kpi-semantics'
-import { PremiumLineIcon } from './premium-icons'
+import type { CSSProperties, ReactNode } from 'react';
+import { Card } from './card';
+import { resolveKpiSemantic, type KpiSemanticTone, withAlpha } from './kpi-semantics';
+import { PremiumLineIcon } from './premium-icons';
 
-export type MetricCardTone = KpiSemanticTone
+export type MetricCardTone = KpiSemanticTone;
 
 interface MetricCardProps {
-  label: string
-  value: ReactNode
-  tone?: MetricCardTone
-  className?: string
-  labelClassName?: string
-  valueClassName?: string
-  indicator?: ReactNode
-  indicatorClassName?: string
-  helper?: ReactNode
-  helperClassName?: string
+  label: string;
+  value: ReactNode;
+  tone?: MetricCardTone;
+  className?: string;
+  labelClassName?: string;
+  valueClassName?: string;
+  indicator?: ReactNode;
+  indicatorClassName?: string;
+  helper?: ReactNode;
+  helperClassName?: string;
 }
 
 const FIXED_TONE_STYLES: Record<
   Exclude<MetricCardTone, 'module'>,
   {
-    cardClassName: string
-    overlayClassName: string
-    indicatorClassName: string
+    cardClassName: string;
+    overlayClassName: string;
+    indicatorClassName: string;
   }
 > = {
   emerald: {
@@ -56,10 +56,10 @@ const FIXED_TONE_STYLES: Record<
     overlayClassName: 'bg-gradient-to-b from-slate-100/95 via-slate-50/60 to-white',
     indicatorClassName: 'border-slate-200/80 bg-slate-100 text-slate-600',
   },
-}
+};
 
 function joinClasses(...values: Array<string | false | null | undefined>) {
-  return values.filter(Boolean).join(' ')
+  return values.filter(Boolean).join(' ');
 }
 
 export function MetricCard({
@@ -74,41 +74,40 @@ export function MetricCard({
   helper,
   helperClassName,
 }: MetricCardProps) {
-  const semantic = resolveKpiSemantic(label)
-  const effectiveTone = tone ?? semantic.tone
-  const isModuleTone = effectiveTone === 'module'
+  const semantic = resolveKpiSemantic(label);
+  const effectiveTone = tone ?? semantic.tone;
+  const isModuleTone = effectiveTone === 'module';
 
   const cardStyle = isModuleTone
     ? ({
         borderColor: 'var(--module-border)',
       } satisfies CSSProperties)
-    : undefined
+    : undefined;
 
   const overlayStyle = isModuleTone
     ? ({
         background:
           'linear-gradient(180deg, color-mix(in srgb, var(--module-primary) 18%, white) 0%, var(--module-soft-bg) 42%, rgba(255, 255, 255, 0.94) 100%)',
       } satisfies CSSProperties)
-    : undefined
+    : undefined;
 
-  const fixedTone = !isModuleTone ? FIXED_TONE_STYLES[effectiveTone] : null
+  const fixedTone = !isModuleTone ? FIXED_TONE_STYLES[effectiveTone] : null;
   const semanticIndicatorStyle = !indicator
     ? ({
         borderColor: withAlpha(semantic.color, 0.24),
         backgroundColor: withAlpha(semantic.color, 0.1),
         color: semantic.color,
       } satisfies CSSProperties)
-    : undefined
-  const resolvedIndicator =
-    indicator ?? (
-      <PremiumLineIcon
-        name={semantic.icon}
-        className="h-4 w-4"
-        stroke={semantic.color}
-        strokeWidth={1.95}
-        variant={semantic.variant}
-      />
-    )
+    : undefined;
+  const resolvedIndicator = indicator ?? (
+    <PremiumLineIcon
+      name={semantic.icon}
+      className="h-4 w-4"
+      stroke={semantic.color}
+      strokeWidth={1.95}
+      variant={semantic.variant}
+    />
+  );
 
   return (
     <Card
@@ -120,7 +119,10 @@ export function MetricCard({
       style={cardStyle}
     >
       <div
-        className={joinClasses('pointer-events-none absolute inset-x-0 top-0 h-[52%]', fixedTone?.overlayClassName)}
+        className={joinClasses(
+          'pointer-events-none absolute inset-x-0 top-0 h-[52%]',
+          fixedTone?.overlayClassName
+        )}
         style={overlayStyle}
       />
       <div className="relative flex items-start justify-between gap-2">
@@ -177,5 +179,5 @@ export function MetricCard({
         ) : null}
       </div>
     </Card>
-  )
+  );
 }

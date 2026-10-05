@@ -1,14 +1,14 @@
-import { requerirAdministradorActivo } from '@/lib/auth/session'
-import { ClientesPanel } from '@/features/clientes/components/ClientesPanel'
-import { obtenerPanelClientes } from '@/features/clientes/services/clienteService'
+import { requerirAdministradorActivo } from '@/lib/auth/session';
+import { ClientesPanel } from '@/features/clientes/components/ClientesPanel';
+import { obtenerPanelClientes } from '@/features/clientes/services/clienteService';
 
 export const metadata = {
   title: 'Clientes | Field Force Platform',
-}
+};
 
 export default async function ClientesPage() {
-  const actor = await requerirAdministradorActivo()
-  const data = await obtenerPanelClientes(actor)
+  const actor = await requerirAdministradorActivo();
+  const data = await obtenerPanelClientes(actor);
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -18,12 +18,12 @@ export default async function ClientesPage() {
         </p>
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">Clientes</h1>
         <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-          Base multi-tenant de cuentas cliente, configuracion operativa e historial
-          de asignacion de PDVs a cartera.
+          Base multi-tenant de cuentas cliente, configuracion operativa e historial de asignacion de
+          PDVs a cartera.
         </p>
       </header>
 
       <ClientesPanel actor={actor} data={data} />
     </div>
-  )
+  );
 }

@@ -1,29 +1,34 @@
-'use client'
+'use client';
 
-import { useActionState, useEffect, useState, useTransition, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { ModalPanel } from '@/components/ui/modal-panel'
-import { Input } from '@/components/ui/input'
-import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
-import { Select } from '@/components/ui/select'
-import type { ActorActual } from '@/lib/auth/session'
+import {
+  useActionState,
+  useEffect,
+  useState,
+  useTransition,
+  type ChangeEvent,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { ModalPanel } from '@/components/ui/modal-panel';
+import { Input } from '@/components/ui/input';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
+import { Select } from '@/components/ui/select';
+import type { ActorActual } from '@/lib/auth/session';
 import {
   isSingleTenantUiEnabled,
   resolveSingleTenantAccountOption,
-} from '@/lib/tenant/singleTenant'
+} from '@/lib/tenant/singleTenant';
+import { ejecutarTareasCampanaPdv, guardarCampana } from '../actions';
 import {
-  ejecutarTareasCampanaPdv,
-  guardarCampana,
-} from '../actions'
-import { injectDirectR2Manifest, injectDirectR2Upload, uploadFilesDirectToR2 } from '@/lib/storage/directR2Client'
-import { CampanaPublishAction } from './CampanaPublishAction'
-import { ESTADO_CAMPANA_ADMIN_INICIAL } from '../state'
-import type {
-  CampanaItem,
-  CampanaPdvItem,
-  CampanasPanelData,
-} from '../services/campanaService'
+  injectDirectR2Manifest,
+  injectDirectR2Upload,
+  uploadFilesDirectToR2,
+} from '@/lib/storage/directR2Client';
+import { CampanaPublishAction } from './CampanaPublishAction';
+import { ESTADO_CAMPANA_ADMIN_INICIAL } from '../state';
+import type { CampanaItem, CampanaPdvItem, CampanasPanelData } from '../services/campanaService';
 import {
   createCampaignEvidenceRequirement,
   createVisitTaskTemplateItem,
@@ -31,14 +36,14 @@ import {
   type CampaignEvidenceKind,
   type CampaignGoalType,
   type VisitTaskKind,
-} from '../lib/campaignProgress'
+} from '../lib/campaignProgress';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('es-MX', {
     style: 'currency',
     currency: 'MXN',
     maximumFractionDigits: 0,
-  }).format(value)
+  }).format(value);
 }
 
 function formatDate(value: string) {
@@ -46,30 +51,30 @@ function formatDate(value: string) {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
-  }).format(new Date(`${value}T12:00:00`))
+  }).format(new Date(`${value}T12:00:00`));
 }
 
 function formatPercent(value: number) {
-  return `${value.toFixed(2)}%`
+  return `${value.toFixed(2)}%`;
 }
 
 function getStatusTone(status: CampanaPdvItem['estatus'] | CampanaItem['estado']) {
   switch (status) {
     case 'ACTIVA':
     case 'CUMPLIDA':
-      return 'bg-emerald-100 text-emerald-700'
+      return 'bg-emerald-100 text-emerald-700';
     case 'BORRADOR':
     case 'PENDIENTE':
-      return 'bg-slate-100 text-slate-700'
+      return 'bg-slate-100 text-slate-700';
     case 'EN_PROGRESO':
-      return 'bg-sky-100 text-sky-700'
+      return 'bg-sky-100 text-sky-700';
     case 'CANCELADA':
     case 'INCUMPLIDA':
-      return 'bg-rose-100 text-rose-700'
+      return 'bg-rose-100 text-rose-700';
     case 'CERRADA':
-      return 'bg-amber-100 text-amber-700'
+      return 'bg-amber-100 text-amber-700';
     default:
-      return 'bg-violet-100 text-violet-700'
+      return 'bg-violet-100 text-violet-700';
   }
 }
 
@@ -80,13 +85,13 @@ function FieldTextarea({
   placeholder,
   rows = 4,
 }: {
-  label: string
-  name: string
-  defaultValue?: string
-  placeholder?: string
-  rows?: number
+  label: string;
+  name: string;
+  defaultValue?: string;
+  placeholder?: string;
+  rows?: number;
 }) {
-  const fieldId = `${name}-${label.toLowerCase().replace(/\s+/g, '-')}`
+  const fieldId = `${name}-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
   return (
     <div className="w-full">
@@ -102,52 +107,44 @@ function FieldTextarea({
         className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-foreground transition-all duration-200 placeholder:text-foreground-muted hover:border-border-dark focus:outline-none focus:ring-2 focus:ring-accent-500"
       />
     </div>
-  )
+  );
 }
 
 function StateMessage({ state }: { state: { ok: boolean; message: string | null } }) {
   if (!state.message) {
-    return null
+    return null;
   }
 
   return (
-    <p className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
-      {state.message}
-    </p>
-  )
+    <p className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>
+  );
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return <SharedMetricCard label={label} value={value} />
+  return <SharedMetricCard label={label} value={value} />;
 }
 
-function SubmitActionButton({
-  label,
-  pendingLabel,
-}: {
-  label: string
-  pendingLabel: string
-}) {
+function SubmitActionButton({ label, pendingLabel }: { label: string; pendingLabel: string }) {
   return (
     <Button type="submit" size="sm">
       {label || pendingLabel}
     </Button>
-  )
+  );
 }
 
 interface TaskCaptureDraft {
-  file: File
-  previewUrl: string
-  capturedAt: string
-  latitude: number | null
-  longitude: number | null
-  timestampStamped: boolean
-  captureSource: 'camera'
+  file: File;
+  previewUrl: string;
+  capturedAt: string;
+  latitude: number | null;
+  longitude: number | null;
+  timestampStamped: boolean;
+  captureSource: 'camera';
 }
 
 async function readCurrentPosition() {
   if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
-    throw new Error('Este navegador no soporta geolocalizacion para la evidencia.')
+    throw new Error('Este navegador no soporta geolocalizacion para la evidencia.');
   }
 
   const position = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -155,33 +152,33 @@ async function readCurrentPosition() {
       enableHighAccuracy: true,
       timeout: 15000,
       maximumAge: 0,
-    })
-  })
+    });
+  });
 
   return {
     latitude: position.coords.latitude,
     longitude: position.coords.longitude,
-  }
+  };
 }
 
 async function loadImageBitmap(file: File) {
   if ('createImageBitmap' in window) {
-    return createImageBitmap(file)
+    return createImageBitmap(file);
   }
 
-  const image = document.createElement('img')
-  const objectUrl = URL.createObjectURL(file)
+  const image = document.createElement('img');
+  const objectUrl = URL.createObjectURL(file);
 
   try {
     await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve()
-      image.onerror = () => reject(new Error('No fue posible abrir la imagen capturada.'))
-      image.src = objectUrl
-    })
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('No fue posible abrir la imagen capturada.'));
+      image.src = objectUrl;
+    });
 
-    return image
+    return image;
   } finally {
-    URL.revokeObjectURL(objectUrl)
+    URL.revokeObjectURL(objectUrl);
   }
 }
 
@@ -193,25 +190,27 @@ async function stampTaskEvidenceImage(
     latitude,
     longitude,
   }: {
-    taskLabel: string
-    capturedAt: string
-    latitude: number | null
-    longitude: number | null
+    taskLabel: string;
+    capturedAt: string;
+    latitude: number | null;
+    longitude: number | null;
   }
 ) {
-  const imageSource = await loadImageBitmap(file)
-  const width = imageSource instanceof HTMLImageElement ? imageSource.naturalWidth : imageSource.width
-  const height = imageSource instanceof HTMLImageElement ? imageSource.naturalHeight : imageSource.height
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const context = canvas.getContext('2d')
+  const imageSource = await loadImageBitmap(file);
+  const width =
+    imageSource instanceof HTMLImageElement ? imageSource.naturalWidth : imageSource.width;
+  const height =
+    imageSource instanceof HTMLImageElement ? imageSource.naturalHeight : imageSource.height;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
 
   if (!context) {
-    throw new Error('No fue posible inicializar el sello visual de la evidencia.')
+    throw new Error('No fue posible inicializar el sello visual de la evidencia.');
   }
 
-  context.drawImage(imageSource as CanvasImageSource, 0, 0, width, height)
+  context.drawImage(imageSource as CanvasImageSource, 0, 0, width, height);
 
   const lines = [
     `Tarea: ${taskLabel}`,
@@ -219,42 +218,46 @@ async function stampTaskEvidenceImage(
     latitude !== null && longitude !== null
       ? `GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
       : 'GPS: no disponible',
-  ]
+  ];
 
-  const fontSize = Math.max(20, Math.round(width * 0.022))
-  const lineHeight = Math.round(fontSize * 1.4)
-  const padding = Math.max(16, Math.round(width * 0.02))
-  const boxHeight = padding * 2 + lineHeight * lines.length
+  const fontSize = Math.max(20, Math.round(width * 0.022));
+  const lineHeight = Math.round(fontSize * 1.4);
+  const padding = Math.max(16, Math.round(width * 0.02));
+  const boxHeight = padding * 2 + lineHeight * lines.length;
 
-  context.fillStyle = 'rgba(15, 23, 42, 0.78)'
-  context.fillRect(0, height - boxHeight, width, boxHeight)
-  context.fillStyle = '#F9FAFB'
-  context.font = `600 ${fontSize}px sans-serif`
-  context.textBaseline = 'top'
+  context.fillStyle = 'rgba(15, 23, 42, 0.78)';
+  context.fillRect(0, height - boxHeight, width, boxHeight);
+  context.fillStyle = '#F9FAFB';
+  context.font = `600 ${fontSize}px sans-serif`;
+  context.textBaseline = 'top';
 
   lines.forEach((line, index) => {
-    context.fillText(line, padding, height - boxHeight + padding + lineHeight * index)
-  })
+    context.fillText(line, padding, height - boxHeight + padding + lineHeight * index);
+  });
 
   const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((value) => {
-      if (!value) {
-        reject(new Error('No fue posible generar el archivo sellado de la evidencia.'))
-        return
-      }
+    canvas.toBlob(
+      (value) => {
+        if (!value) {
+          reject(new Error('No fue posible generar el archivo sellado de la evidencia.'));
+          return;
+        }
 
-      resolve(value)
-    }, 'image/jpeg', 0.84)
-  })
+        resolve(value);
+      },
+      'image/jpeg',
+      0.84
+    );
+  });
 
   return new File([blob], file.name.replace(/\.[^.]+$/, '') + '-stamped.jpg', {
     type: 'image/jpeg',
     lastModified: Date.now(),
-  })
+  });
 }
 
 function buildTaskTemplate(campaign: CampanaItem | null) {
-  return (campaign?.taskTemplate ?? []).map((item) => item.label).join('\n')
+  return (campaign?.taskTemplate ?? []).map((item) => item.label).join('\n');
 }
 
 const VISIT_TASK_KIND_OPTIONS: Array<{ value: VisitTaskKind; label: string }> = [
@@ -263,61 +266,63 @@ const VISIT_TASK_KIND_OPTIONS: Array<{ value: VisitTaskKind; label: string }> = 
   { value: 'ENCUESTA', label: 'Encuesta' },
   { value: 'REGISTRO_PRECIO', label: 'Registro de precio' },
   { value: 'OTRA', label: 'Otra' },
-]
+];
 
 const EVIDENCE_KIND_OPTIONS: Array<{ value: CampaignEvidenceKind; label: string }> = [
   { value: 'FOTO_PRODUCTO', label: 'Foto de producto' },
   { value: 'SELFIE_LABORANDO', label: 'Selfie laborando' },
   { value: 'EVIDENCIA_ACOMODO', label: 'Evidencia de acomodo' },
   { value: 'OTRA', label: 'Otra' },
-]
+];
 
 const PRODUCT_GOAL_TYPE_OPTIONS: Array<{ value: CampaignGoalType; label: string }> = [
   { value: 'VENTA', label: 'Cuota de venta' },
   { value: 'EXHIBICION', label: 'Cuota de exhibicion' },
-]
+];
 
-export function CampanasPanel({
-  actor,
-  data,
-}: {
-  actor: ActorActual
-  data: CampanasPanelData
-}) {
-  const canExecuteFieldTasks = actor.puesto === 'DERMOCONSEJERO'
-  const canManageCampaigns = data.puedeGestionar
-  const todayIso = new Date().toISOString().slice(0, 10)
-  const draftCampaigns = data.campanas.filter((campaign) => campaign.estado === 'BORRADOR')
+export function CampanasPanel({ actor, data }: { actor: ActorActual; data: CampanasPanelData }) {
+  const canExecuteFieldTasks = actor.puesto === 'DERMOCONSEJERO';
+  const canManageCampaigns = data.puedeGestionar;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const draftCampaigns = data.campanas.filter((campaign) => campaign.estado === 'BORRADOR');
   const scheduledCampaigns = data.campanas.filter(
-    (campaign) => campaign.estado === 'ACTIVA' && !campaign.ventanaActiva && campaign.fechaInicio > todayIso
-  )
+    (campaign) =>
+      campaign.estado === 'ACTIVA' && !campaign.ventanaActiva && campaign.fechaInicio > todayIso
+  );
   const activeCampaigns = data.campanas.filter(
     (campaign) => campaign.estado === 'ACTIVA' && campaign.ventanaActiva
-  )
-  const finishedCampaigns = data.campanas.filter((campaign) => campaign.estado === 'CERRADA')
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(data.campanas[0]?.id ?? null)
-  const [campaignModalId, setCampaignModalId] = useState<string | null>(null)
+  );
+  const finishedCampaigns = data.campanas.filter((campaign) => campaign.estado === 'CERRADA');
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
+    data.campanas[0]?.id ?? null
+  );
+  const [campaignModalId, setCampaignModalId] = useState<string | null>(null);
   const [dashboardCampaignId, setDashboardCampaignId] = useState<string | null>(
     finishedCampaigns[0]?.id ?? null
-  )
-  const selectedCampaign = data.campanas.find((item) => item.id === selectedCampaignId) ?? null
-  const selectedModalCampaign = data.campanas.find((item) => item.id === campaignModalId) ?? null
-  const [activeView, setActiveView] = useState<'CREAR' | 'KPIS'>(canManageCampaigns ? 'CREAR' : 'KPIS')
+  );
+  const selectedCampaign = data.campanas.find((item) => item.id === selectedCampaignId) ?? null;
+  const selectedModalCampaign = data.campanas.find((item) => item.id === campaignModalId) ?? null;
+  const [activeView, setActiveView] = useState<'CREAR' | 'KPIS'>(
+    canManageCampaigns ? 'CREAR' : 'KPIS'
+  );
   const [kpiSection, setKpiSection] = useState<
     'BORRADORES' | 'PUBLICAR' | 'ACTIVAS' | 'TERMINADAS' | 'DASHBOARD'
-  >(canManageCampaigns ? 'PUBLICAR' : 'ACTIVAS')
+  >(canManageCampaigns ? 'PUBLICAR' : 'ACTIVAS');
 
   useEffect(() => {
     if (!canManageCampaigns) {
-      setActiveView('KPIS')
+      setActiveView('KPIS');
     }
-  }, [canManageCampaigns])
+  }, [canManageCampaigns]);
 
   useEffect(() => {
-    if (!dashboardCampaignId || !finishedCampaigns.some((item) => item.id === dashboardCampaignId)) {
-      setDashboardCampaignId(finishedCampaigns[0]?.id ?? null)
+    if (
+      !dashboardCampaignId ||
+      !finishedCampaigns.some((item) => item.id === dashboardCampaignId)
+    ) {
+      setDashboardCampaignId(finishedCampaigns[0]?.id ?? null);
     }
-  }, [dashboardCampaignId, finishedCampaigns])
+  }, [dashboardCampaignId, finishedCampaigns]);
 
   return (
     <div className="space-y-6">
@@ -351,7 +356,9 @@ export function CampanasPanel({
               }`}
             >
               <p className="text-sm font-semibold">Crear campanas</p>
-              <p className={`mt-1 text-xs ${activeView === 'CREAR' ? 'text-slate-300' : 'text-slate-500'}`}>
+              <p
+                className={`mt-1 text-xs ${activeView === 'CREAR' ? 'text-slate-300' : 'text-slate-500'}`}
+              >
                 Configura borradores, PDVs, metas y manual.
               </p>
             </button>
@@ -365,7 +372,9 @@ export function CampanasPanel({
               }`}
             >
               <p className="text-sm font-semibold">Operacion y KPIs</p>
-              <p className={`mt-1 text-xs ${activeView === 'KPIS' ? 'text-slate-300' : 'text-slate-500'}`}>
+              <p
+                className={`mt-1 text-xs ${activeView === 'KPIS' ? 'text-slate-300' : 'text-slate-500'}`}
+              >
                 Borradores, publicacion, activas, terminadas y dashboard.
               </p>
             </button>
@@ -375,15 +384,28 @@ export function CampanasPanel({
 
       {activeView === 'CREAR' && canManageCampaigns ? (
         <div className="space-y-6">
-          <CampanaEditorCard key={selectedCampaign?.id ?? 'new'} data={data} campaign={selectedCampaign} />
+          <CampanaEditorCard
+            key={selectedCampaign?.id ?? 'new'}
+            data={data}
+            campaign={selectedCampaign}
+          />
 
           <Card className="overflow-hidden p-0">
             <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
               <div>
-                <h2 className="text-lg font-semibold text-slate-950">Borradores y campanas existentes</h2>
-                <p className="mt-1 text-sm text-slate-500">Usa esta lista para retomar o duplicar configuraciones.</p>
+                <h2 className="text-lg font-semibold text-slate-950">
+                  Borradores y campanas existentes
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Usa esta lista para retomar o duplicar configuraciones.
+                </p>
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={() => setSelectedCampaignId(null)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedCampaignId(null)}
+              >
                 Nueva campana
               </Button>
             </div>
@@ -406,11 +428,15 @@ export function CampanasPanel({
                   >
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-semibold">{campaign.nombre}</p>
-                      <span className={`rounded-full px-3 py-1 text-[11px] font-medium ${selectedCampaign?.id === campaign.id ? 'bg-white/10 text-white' : getStatusTone(campaign.estado)}`}>
+                      <span
+                        className={`rounded-full px-3 py-1 text-[11px] font-medium ${selectedCampaign?.id === campaign.id ? 'bg-white/10 text-white' : getStatusTone(campaign.estado)}`}
+                      >
                         {getCampaignDisplayStatus(campaign)}
                       </span>
                     </div>
-                    <p className={`mt-2 text-xs ${selectedCampaign?.id === campaign.id ? 'text-slate-300' : 'text-slate-500'}`}>
+                    <p
+                      className={`mt-2 text-xs ${selectedCampaign?.id === campaign.id ? 'text-slate-300' : 'text-slate-500'}`}
+                    >
                       {formatDate(campaign.fechaInicio)} - {formatDate(campaign.fechaFin)}
                     </p>
                   </button>
@@ -433,22 +459,37 @@ export function CampanasPanel({
           <Card className="border-slate-200 bg-white p-3">
             <div className="flex flex-wrap gap-2">
               {canManageCampaigns ? (
-                <KpiSectionButton active={kpiSection === 'BORRADORES'} onClick={() => setKpiSection('BORRADORES')}>
+                <KpiSectionButton
+                  active={kpiSection === 'BORRADORES'}
+                  onClick={() => setKpiSection('BORRADORES')}
+                >
                   Borradores
                 </KpiSectionButton>
               ) : null}
               {canManageCampaigns ? (
-                <KpiSectionButton active={kpiSection === 'PUBLICAR'} onClick={() => setKpiSection('PUBLICAR')}>
+                <KpiSectionButton
+                  active={kpiSection === 'PUBLICAR'}
+                  onClick={() => setKpiSection('PUBLICAR')}
+                >
                   Publicar
                 </KpiSectionButton>
               ) : null}
-              <KpiSectionButton active={kpiSection === 'ACTIVAS'} onClick={() => setKpiSection('ACTIVAS')}>
+              <KpiSectionButton
+                active={kpiSection === 'ACTIVAS'}
+                onClick={() => setKpiSection('ACTIVAS')}
+              >
                 Activas
               </KpiSectionButton>
-              <KpiSectionButton active={kpiSection === 'TERMINADAS'} onClick={() => setKpiSection('TERMINADAS')}>
+              <KpiSectionButton
+                active={kpiSection === 'TERMINADAS'}
+                onClick={() => setKpiSection('TERMINADAS')}
+              >
                 Terminadas
               </KpiSectionButton>
-              <KpiSectionButton active={kpiSection === 'DASHBOARD'} onClick={() => setKpiSection('DASHBOARD')}>
+              <KpiSectionButton
+                active={kpiSection === 'DASHBOARD'}
+                onClick={() => setKpiSection('DASHBOARD')}
+              >
                 Dashboard
               </KpiSectionButton>
             </div>
@@ -516,7 +557,7 @@ export function CampanasPanel({
         />
       ) : null}
     </div>
-  )
+  );
 }
 
 function KpiSectionButton({
@@ -524,9 +565,9 @@ function KpiSectionButton({
   onClick,
   children,
 }: {
-  active: boolean
-  onClick: () => void
-  children: ReactNode
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
 }) {
   return (
     <button
@@ -540,23 +581,26 @@ function KpiSectionButton({
     >
       {children}
     </button>
-  )
+  );
 }
 
 function getCampaignDisplayStatus(campaign: CampanaItem) {
   if (campaign.estado === 'CERRADA') {
-    return 'TERMINADA'
+    return 'TERMINADA';
   }
 
   if (campaign.ventanaActiva) {
-    return 'ACTIVA'
+    return 'ACTIVA';
   }
 
-  if (campaign.estado === 'ACTIVA' && campaign.fechaInicio > new Date().toISOString().slice(0, 10)) {
-    return 'PROGRAMADA'
+  if (
+    campaign.estado === 'ACTIVA' &&
+    campaign.fechaInicio > new Date().toISOString().slice(0, 10)
+  ) {
+    return 'PROGRAMADA';
   }
 
-  return campaign.estado
+  return campaign.estado;
 }
 
 function CampaignCompactSection({
@@ -565,10 +609,10 @@ function CampaignCompactSection({
   emptyLabel,
   onOpen,
 }: {
-  title: string
-  items: CampanaItem[]
-  emptyLabel: string
-  onOpen: (campaignId: string) => void
+  title: string;
+  items: CampanaItem[];
+  emptyLabel: string;
+  onOpen: (campaignId: string) => void;
 }) {
   return (
     <Card className="space-y-4 p-4 sm:p-5">
@@ -590,15 +634,15 @@ function CampaignCompactSection({
         </div>
       )}
     </Card>
-  )
+  );
 }
 
 function CampaignPublishSection({
   items,
   onOpen,
 }: {
-  items: CampanaItem[]
-  onOpen: (campaignId: string) => void
+  items: CampanaItem[];
+  onOpen: (campaignId: string) => void;
 }) {
   return (
     <Card className="space-y-4 p-4 sm:p-5">
@@ -611,22 +655,34 @@ function CampaignPublishSection({
       ) : (
         <div className="grid gap-3 xl:grid-cols-2">
           {items.map((campaign) => (
-            <div key={campaign.id} className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+            <div
+              key={campaign.id}
+              className="rounded-[24px] border border-slate-200 bg-slate-50 p-4"
+            >
               <div className="flex items-start justify-between gap-3">
-                <button type="button" className="min-w-0 text-left" onClick={() => onOpen(campaign.id)}>
+                <button
+                  type="button"
+                  className="min-w-0 text-left"
+                  onClick={() => onOpen(campaign.id)}
+                >
                   <p className="truncate text-sm font-semibold text-slate-950">{campaign.nombre}</p>
                   <p className="mt-1 text-xs text-slate-500">
                     {formatDate(campaign.fechaInicio)} - {formatDate(campaign.fechaFin)}
                   </p>
                 </button>
-                <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${getStatusTone(campaign.estado)}`}>
+                <span
+                  className={`rounded-full px-3 py-1 text-[11px] font-semibold ${getStatusTone(campaign.estado)}`}
+                >
                   {campaign.estado}
                 </span>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <MiniMetric label="PDVs" value={String(campaign.totalPdvs)} />
                 <MiniMetric label="Productos" value={String(campaign.productosFoco.length)} />
-                <MiniMetric label="Evidencias" value={String(campaign.evidenciasRequeridas.length)} />
+                <MiniMetric
+                  label="Evidencias"
+                  value={String(campaign.evidenciasRequeridas.length)}
+                />
               </div>
               <div className="mt-4 flex justify-end">
                 <CampanaPublishAction campaignId={campaign.id} align="right" />
@@ -636,15 +692,15 @@ function CampaignPublishSection({
         </div>
       )}
     </Card>
-  )
+  );
 }
 
 function CampaignCompactButton({
   campaign,
   onClick,
 }: {
-  campaign: CampanaItem
-  onClick: () => void
+  campaign: CampanaItem;
+  onClick: () => void;
 }) {
   return (
     <button
@@ -654,7 +710,9 @@ function CampaignCompactButton({
     >
       <div className="flex items-center justify-between gap-3">
         <p className="line-clamp-1 text-sm font-semibold text-slate-950">{campaign.nombre}</p>
-        <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${getStatusTone(campaign.estado)}`}>
+        <span
+          className={`rounded-full px-3 py-1 text-[11px] font-semibold ${getStatusTone(campaign.estado)}`}
+        >
           {getCampaignDisplayStatus(campaign)}
         </span>
       </div>
@@ -663,11 +721,15 @@ function CampaignCompactButton({
       </p>
       <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-600">
         <span className="rounded-full bg-slate-100 px-2.5 py-1">{campaign.totalPdvs} PDVs</span>
-        <span className="rounded-full bg-slate-100 px-2.5 py-1">{formatPercent(campaign.avancePromedio)}</span>
-        <span className="rounded-full bg-slate-100 px-2.5 py-1">{campaign.tareasPendientes} pendientes</span>
+        <span className="rounded-full bg-slate-100 px-2.5 py-1">
+          {formatPercent(campaign.avancePromedio)}
+        </span>
+        <span className="rounded-full bg-slate-100 px-2.5 py-1">
+          {campaign.tareasPendientes} pendientes
+        </span>
       </div>
     </button>
-  )
+  );
 }
 
 function CampaignDetailModal({
@@ -676,10 +738,10 @@ function CampaignDetailModal({
   canExecuteFieldTasks,
   onClose,
 }: {
-  campaign: CampanaItem
-  canManage: boolean
-  canExecuteFieldTasks: boolean
-  onClose: () => void
+  campaign: CampanaItem;
+  canManage: boolean;
+  canExecuteFieldTasks: boolean;
+  onClose: () => void;
 }) {
   return (
     <ModalPanel
@@ -695,7 +757,7 @@ function CampaignDetailModal({
         canExecuteFieldTasks={canExecuteFieldTasks}
       />
     </ModalPanel>
-  )
+  );
 }
 
 function CampaignDashboardSection({
@@ -704,24 +766,33 @@ function CampaignDashboardSection({
   onSelect,
   onOpen,
 }: {
-  campaigns: CampanaItem[]
-  selectedCampaignId: string | null
-  onSelect: (campaignId: string) => void
-  onOpen: (campaignId: string) => void
+  campaigns: CampanaItem[];
+  selectedCampaignId: string | null;
+  onSelect: (campaignId: string) => void;
+  onOpen: (campaignId: string) => void;
 }) {
-  const selectedCampaign = campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? campaigns[0] ?? null
+  const selectedCampaign =
+    campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? campaigns[0] ?? null;
 
   if (!selectedCampaign) {
     return (
       <Card className="p-5">
         <h2 className="text-base font-semibold text-slate-950">Dashboard de KPIs</h2>
-        <p className="mt-2 text-sm text-slate-500">No hay campanas terminadas para graficar todavia.</p>
+        <p className="mt-2 text-sm text-slate-500">
+          No hay campanas terminadas para graficar todavia.
+        </p>
       </Card>
-    )
+    );
   }
 
-  const totalEvidencias = selectedCampaign.pdvs.reduce((acc, item) => acc + item.evidenciasCargadas, 0)
-  const totalTareas = selectedCampaign.pdvs.reduce((acc, item) => acc + item.tareasCumplidas.length, 0)
+  const totalEvidencias = selectedCampaign.pdvs.reduce(
+    (acc, item) => acc + item.evidenciasCargadas,
+    0
+  );
+  const totalTareas = selectedCampaign.pdvs.reduce(
+    (acc, item) => acc + item.tareasCumplidas.length,
+    0
+  );
   const chartItems = selectedCampaign.pdvs
     .slice()
     .sort((left, right) => right.avancePorcentaje - left.avancePorcentaje)
@@ -731,7 +802,7 @@ function CampaignDashboardSection({
       helper: item.pdv,
       total: item.avancePorcentaje,
       meta: `${item.evidenciasCargadas} evidencias`,
-    }))
+    }));
   const evidenceItems = selectedCampaign.pdvs
     .slice()
     .sort((left, right) => right.evidenciasCargadas - left.evidenciasCargadas)
@@ -741,7 +812,7 @@ function CampaignDashboardSection({
       helper: item.pdv,
       total: item.evidenciasCargadas,
       meta: `${item.tareasCumplidas.length} tareas`,
-    }))
+    }));
 
   return (
     <div className="space-y-5">
@@ -769,7 +840,9 @@ function CampaignDashboardSection({
               }`}
             >
               <p className="line-clamp-1 text-sm font-semibold">{campaign.nombre}</p>
-              <p className={`mt-1 text-xs ${selectedCampaign.id === campaign.id ? 'text-slate-300' : 'text-slate-500'}`}>
+              <p
+                className={`mt-1 text-xs ${selectedCampaign.id === campaign.id ? 'text-slate-300' : 'text-slate-500'}`}
+              >
                 {formatDate(campaign.fechaFin)}
               </p>
             </button>
@@ -792,7 +865,9 @@ function CampaignDashboardSection({
       <Card className="p-4 sm:p-5">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-base font-semibold text-slate-950">KPIs por PDV y fecha</h3>
-          <span className="text-xs text-slate-500">Fecha cierre {formatDate(selectedCampaign.fechaFin)}</span>
+          <span className="text-xs text-slate-500">
+            Fecha cierre {formatDate(selectedCampaign.fechaFin)}
+          </span>
         </div>
         <div className="mt-4 overflow-x-auto rounded-3xl border border-slate-200">
           <table className="min-w-full text-sm">
@@ -812,16 +887,23 @@ function CampaignDashboardSection({
                     <div className="font-medium text-slate-900">{item.claveBtl}</div>
                     <div className="text-xs text-slate-400">{item.pdv}</div>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{formatDate(selectedCampaign.fechaFin)}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {formatDate(selectedCampaign.fechaFin)}
+                  </td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(item.estatus)}`}>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(item.estatus)}`}
+                    >
                       {item.estatus}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-slate-600">
-                    {item.tareasCumplidas.length}/{item.tareasRequeridas.length} tareas · {item.evidenciasCargadas}/{item.evidenciasRequeridas.length} evidencias
+                    {item.tareasCumplidas.length}/{item.tareasRequeridas.length} tareas ·{' '}
+                    {item.evidenciasCargadas}/{item.evidenciasRequeridas.length} evidencias
                   </td>
-                  <td className="px-4 py-3 font-medium text-slate-900">{formatPercent(item.avancePorcentaje)}</td>
+                  <td className="px-4 py-3 font-medium text-slate-900">
+                    {formatPercent(item.avancePorcentaje)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -829,7 +911,7 @@ function CampaignDashboardSection({
         </div>
       </Card>
     </div>
-  )
+  );
 }
 
 function CampaignBarChartCard({
@@ -837,12 +919,12 @@ function CampaignBarChartCard({
   items,
   valueSuffix = '',
 }: {
-  title: string
-  items: Array<{ id: string; label: string; helper: string; total: number; meta: string }>
-  valueSuffix?: string
+  title: string;
+  items: Array<{ id: string; label: string; helper: string; total: number; meta: string }>;
+  valueSuffix?: string;
 }) {
-  const visibleItems = items.slice(0, 8)
-  const maxValue = visibleItems.reduce((current, item) => Math.max(current, item.total), 0)
+  const visibleItems = items.slice(0, 8);
+  const maxValue = visibleItems.reduce((current, item) => Math.max(current, item.total), 0);
 
   return (
     <Card className="p-4 sm:p-5">
@@ -860,13 +942,16 @@ function CampaignBarChartCard({
                     <p className="text-xs text-slate-500">{item.helper}</p>
                   </div>
                   <span className="text-sm font-semibold text-slate-950">
-                    {item.total.toFixed(0)}{valueSuffix}
+                    {item.total.toFixed(0)}
+                    {valueSuffix}
                   </span>
                 </div>
                 <div className="mt-3 h-3 rounded-full bg-slate-100">
                   <div
                     className="h-3 rounded-full bg-gradient-to-r from-sky-600 to-emerald-400"
-                    style={{ width: `${maxValue <= 0 ? 0 : Math.max(8, (item.total / maxValue) * 100)}%` }}
+                    style={{
+                      width: `${maxValue <= 0 ? 0 : Math.max(8, (item.total / maxValue) * 100)}%`,
+                    }}
                   />
                 </div>
               </div>
@@ -876,7 +961,7 @@ function CampaignBarChartCard({
         </div>
       )}
     </Card>
-  )
+  );
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
@@ -888,28 +973,36 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
       labelClassName="text-[10px] text-slate-400"
       valueClassName="text-sm font-semibold"
     />
-  )
+  );
 }
 
 export function CampanaEditorCard({
   data,
   campaign,
 }: {
-  data: CampanasPanelData
-  campaign: CampanaItem | null
+  data: CampanasPanelData;
+  campaign: CampanaItem | null;
 }) {
-  const [state, formAction] = useActionState(guardarCampana, ESTADO_CAMPANA_ADMIN_INICIAL)
-  const [isUploadingR2, setIsUploadingR2] = useState(false)
-  const fixedAccount = resolveSingleTenantAccountOption(data.cuentasDisponibles)
-  const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount)
+  const [state, formAction] = useActionState(guardarCampana, ESTADO_CAMPANA_ADMIN_INICIAL);
+  const [isUploadingR2, setIsUploadingR2] = useState(false);
+  const fixedAccount = resolveSingleTenantAccountOption(data.cuentasDisponibles);
+  const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount);
   const [accountFilter, setAccountFilter] = useState<string>(
-    campaign?.cuentaClienteId ?? fixedAccount?.id ?? data.cuentaSeleccionadaId ?? data.cuentasDisponibles[0]?.id ?? ''
-  )
-  const [cadenaFilter, setCadenaFilter] = useState<string>(campaign?.cadenaId ?? '')
-  const [pdvSearch, setPdvSearch] = useState('')
-  const [productSearch, setProductSearch] = useState('')
-  const [selectedPdvIds, setSelectedPdvIds] = useState<string[]>(campaign?.pdvs.map((item) => item.pdvId) ?? [])
-  const [selectedProductIds, setSelectedProductIds] = useState<string[]>(campaign?.productoIds ?? [])
+    campaign?.cuentaClienteId ??
+      fixedAccount?.id ??
+      data.cuentaSeleccionadaId ??
+      data.cuentasDisponibles[0]?.id ??
+      ''
+  );
+  const [cadenaFilter, setCadenaFilter] = useState<string>(campaign?.cadenaId ?? '');
+  const [pdvSearch, setPdvSearch] = useState('');
+  const [productSearch, setProductSearch] = useState('');
+  const [selectedPdvIds, setSelectedPdvIds] = useState<string[]>(
+    campaign?.pdvs.map((item) => item.pdvId) ?? []
+  );
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>(
+    campaign?.productoIds ?? []
+  );
   const [taskTemplateRows, setTaskTemplateRows] = useState(
     campaign?.taskTemplate?.length
       ? campaign.taskTemplate
@@ -917,79 +1010,83 @@ export function CampanaEditorCard({
           .split('\n')
           .filter(Boolean)
           .map((label) => createVisitTaskTemplateItem(label))
-  )
+  );
   const [evidenceTemplateRows, setEvidenceTemplateRows] = useState(
     campaign?.evidenceTemplate?.length
       ? campaign.evidenceTemplate
-      : (campaign?.evidenciasRequeridas ?? []).map((label) => createCampaignEvidenceRequirement(label))
-  )
-  const [productGoalRows, setProductGoalRows] = useState(
-    campaign?.productGoals ?? []
-  )
-  const selectedPdvSet = new Set(selectedPdvIds)
-  const selectedProductSet = new Set(selectedProductIds)
+      : (campaign?.evidenciasRequeridas ?? []).map((label) =>
+          createCampaignEvidenceRequirement(label)
+        )
+  );
+  const [productGoalRows, setProductGoalRows] = useState(campaign?.productGoals ?? []);
+  const selectedPdvSet = new Set(selectedPdvIds);
+  const selectedProductSet = new Set(selectedProductIds);
   const eligiblePdvs = data.pdvsDisponibles.filter((item) => {
     if (accountFilter && item.cuentaClienteId !== accountFilter) {
-      return false
+      return false;
     }
 
     if (cadenaFilter && item.cadenaId !== cadenaFilter) {
-      return false
+      return false;
     }
 
-    return true
-  })
+    return true;
+  });
   const visiblePdvs = eligiblePdvs.filter((item) => {
-
-    const haystack = `${item.claveBtl} ${item.nombre} ${item.zona ?? ''} ${item.cadena ?? ''}`.toLowerCase()
-    return haystack.includes(pdvSearch.trim().toLowerCase())
-  })
+    const haystack =
+      `${item.claveBtl} ${item.nombre} ${item.zona ?? ''} ${item.cadena ?? ''}`.toLowerCase();
+    return haystack.includes(pdvSearch.trim().toLowerCase());
+  });
   const visibleProducts = data.productosDisponibles.filter((item) => {
-    const haystack = `${item.sku} ${item.nombre} ${item.nombreCorto}`.toLowerCase()
-    return haystack.includes(productSearch.trim().toLowerCase())
-  })
+    const haystack = `${item.sku} ${item.nombre} ${item.nombreCorto}`.toLowerCase();
+    return haystack.includes(productSearch.trim().toLowerCase());
+  });
 
   useEffect(() => {
-    setSelectedPdvIds(campaign?.pdvs.map((item) => item.pdvId) ?? [])
-    setSelectedProductIds(campaign?.productoIds ?? [])
-    setCadenaFilter(campaign?.cadenaId ?? '')
+    setSelectedPdvIds(campaign?.pdvs.map((item) => item.pdvId) ?? []);
+    setSelectedProductIds(campaign?.productoIds ?? []);
+    setCadenaFilter(campaign?.cadenaId ?? '');
     setEvidenceTemplateRows(
       campaign?.evidenceTemplate?.length
         ? campaign.evidenceTemplate
-        : (campaign?.evidenciasRequeridas ?? []).map((label) => createCampaignEvidenceRequirement(label))
-    )
-    setProductGoalRows(campaign?.productGoals ?? [])
-  }, [campaign])
+        : (campaign?.evidenciasRequeridas ?? []).map((label) =>
+            createCampaignEvidenceRequirement(label)
+          )
+    );
+    setProductGoalRows(campaign?.productGoals ?? []);
+  }, [campaign]);
 
   useEffect(() => {
-    setSelectedPdvIds((current) => current.filter((item) => eligiblePdvs.some((pdv) => pdv.id === item)))
-  }, [eligiblePdvs])
+    setSelectedPdvIds((current) =>
+      current.filter((item) => eligiblePdvs.some((pdv) => pdv.id === item))
+    );
+  }, [eligiblePdvs]);
 
   useEffect(() => {
     setProductGoalRows((current) => {
-      const selectedIds = new Set(selectedProductIds)
-      const next = current.filter((row) => selectedIds.has(row.productId))
+      const selectedIds = new Set(selectedProductIds);
+      const next = current.filter((row) => selectedIds.has(row.productId));
       const missingRows = selectedProductIds
         .filter((productId) => !next.some((row) => row.productId === productId))
         .map((productId) => ({
           productId,
           productLabel:
-            data.productosDisponibles.find((item) => item.id === productId)?.nombreCorto ?? productId,
-          productSku:
-            data.productosDisponibles.find((item) => item.id === productId)?.sku ?? null,
+            data.productosDisponibles.find((item) => item.id === productId)?.nombreCorto ??
+            productId,
+          productSku: data.productosDisponibles.find((item) => item.id === productId)?.sku ?? null,
           quota: 0,
           goalType: 'VENTA' as CampaignGoalType,
           notes: null,
-        }))
+        }));
 
-      return [...next, ...missingRows]
-    })
-  }, [data.productosDisponibles, selectedProductIds])
+      return [...next, ...missingRows];
+    });
+  }, [data.productosDisponibles, selectedProductIds]);
 
   const handleSubmit = async (formData: FormData) => {
-    const manual = formData.get('manual_mercadeo')
+    const manual = formData.get('manual_mercadeo');
     if (manual instanceof File && manual.size > 0) {
-      setIsUploadingR2(true)
+      setIsUploadingR2(true);
       try {
         await injectDirectR2Upload(formData, manual, {
           modulo: 'campanas',
@@ -1001,17 +1098,17 @@ export function CampanaEditorCard({
             contentType: 'manual_mercadeo_r2_type',
             size: 'manual_mercadeo_r2_size',
           },
-        })
+        });
       } catch (error) {
-        console.error('No fue posible subir el manual de campaña a R2.', error)
+        console.error('No fue posible subir el manual de campaña a R2.', error);
       } finally {
-        setIsUploadingR2(false)
+        setIsUploadingR2(false);
       }
     }
 
-    const submit = formAction as unknown as (payload: FormData) => void
-    submit(formData)
-  }
+    const submit = formAction as unknown as (payload: FormData) => void;
+    submit(formData);
+  };
 
   return (
     <Card className="space-y-5 p-6">
@@ -1021,11 +1118,14 @@ export function CampanaEditorCard({
             {campaign ? 'Editar campana' : 'Crear campana'}
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Define segmentacion por cadena, manual de mercadeo, metas por producto y PDVs participantes.
+            Define segmentacion por cadena, manual de mercadeo, metas por producto y PDVs
+            participantes.
           </p>
         </div>
         {campaign && (
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(campaign.estado)}`}>
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(campaign.estado)}`}
+          >
             {campaign.estado}
           </span>
         )}
@@ -1056,8 +1156,20 @@ export function CampanaEditorCard({
 
         <div className="grid gap-4 xl:grid-cols-3">
           <Input label="Nombre" name="nombre" defaultValue={campaign?.nombre ?? ''} required />
-          <Input label="Fecha inicio" name="fecha_inicio" type="date" defaultValue={campaign?.fechaInicio ?? ''} required />
-          <Input label="Fecha fin" name="fecha_fin" type="date" defaultValue={campaign?.fechaFin ?? ''} required />
+          <Input
+            label="Fecha inicio"
+            name="fecha_inicio"
+            type="date"
+            defaultValue={campaign?.fechaInicio ?? ''}
+            required
+          />
+          <Input
+            label="Fecha fin"
+            name="fecha_fin"
+            type="date"
+            defaultValue={campaign?.fechaFin ?? ''}
+            required
+          />
         </div>
 
         <div className="rounded-3xl border border-[var(--module-border)] bg-[var(--module-soft-bg)] px-4 py-4 text-sm text-slate-700">
@@ -1103,7 +1215,9 @@ export function CampanaEditorCard({
             placeholder="Objetivo comercial, cobertura, discurso y alcance de la activacion."
           />
           <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-            <label className="mb-1.5 block text-sm font-medium text-slate-900">Manual de mercadeo (PDF)</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-900">
+              Manual de mercadeo (PDF)
+            </label>
             <input
               type="file"
               name="manual_mercadeo"
@@ -1138,7 +1252,9 @@ export function CampanaEditorCard({
             <div className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-950">Auditoria y evidencias requeridas</p>
+                  <p className="text-sm font-semibold text-slate-950">
+                    Auditoria y evidencias requeridas
+                  </p>
                   <p className="mt-1 text-xs text-slate-500">
                     Define exactamente qué debe subir la DC durante la campaña.
                   </p>
@@ -1159,7 +1275,9 @@ export function CampanaEditorCard({
               </div>
               <div className="space-y-3">
                 {evidenceTemplateRows.length === 0 ? (
-                  <p className="text-sm text-slate-500">Agrega al menos una evidencia o selfie de cumplimiento.</p>
+                  <p className="text-sm text-slate-500">
+                    Agrega al menos una evidencia o selfie de cumplimiento.
+                  </p>
                 ) : (
                   evidenceTemplateRows.map((item, index) => (
                     <div
@@ -1241,7 +1359,9 @@ export function CampanaEditorCard({
             <div className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-950">Plantilla tipada de tareas de visita</p>
+                  <p className="text-sm font-semibold text-slate-950">
+                    Plantilla tipada de tareas de visita
+                  </p>
                   <p className="mt-1 text-xs text-slate-500">
                     Cada tarea debe tener tipo explícito para cumplir el canon antifraude.
                   </p>
@@ -1262,10 +1382,15 @@ export function CampanaEditorCard({
               </div>
               <div className="space-y-3">
                 {taskTemplateRows.length === 0 ? (
-                  <p className="text-sm text-slate-500">Agrega al menos una tarea tipada para la campana.</p>
+                  <p className="text-sm text-slate-500">
+                    Agrega al menos una tarea tipada para la campana.
+                  </p>
                 ) : (
                   taskTemplateRows.map((task, index) => (
-                    <div key={task.id} className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-3 xl:grid-cols-[1.2fr_0.8fr_auto]">
+                    <div
+                      key={task.id}
+                      className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-3 xl:grid-cols-[1.2fr_0.8fr_auto]"
+                    >
                       <div>
                         <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Tarea
@@ -1276,7 +1401,9 @@ export function CampanaEditorCard({
                           onChange={(event) =>
                             setTaskTemplateRows((current) =>
                               current.map((row, rowIndex) =>
-                                rowIndex === index ? createVisitTaskTemplateItem(event.target.value, row.kind) : row
+                                rowIndex === index
+                                  ? createVisitTaskTemplateItem(event.target.value, row.kind)
+                                  : row
                               )
                             )
                           }
@@ -1294,7 +1421,10 @@ export function CampanaEditorCard({
                             setTaskTemplateRows((current) =>
                               current.map((row, rowIndex) =>
                                 rowIndex === index
-                                  ? createVisitTaskTemplateItem(row.label, event.target.value as VisitTaskKind)
+                                  ? createVisitTaskTemplateItem(
+                                      row.label,
+                                      event.target.value as VisitTaskKind
+                                    )
                                   : row
                               )
                             )
@@ -1314,7 +1444,9 @@ export function CampanaEditorCard({
                           variant="outline"
                           size="sm"
                           onClick={() =>
-                            setTaskTemplateRows((current) => current.filter((_, rowIndex) => rowIndex !== index))
+                            setTaskTemplateRows((current) =>
+                              current.filter((_, rowIndex) => rowIndex !== index)
+                            )
                           }
                         >
                           Quitar
@@ -1351,7 +1483,10 @@ export function CampanaEditorCard({
             />
             <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
               {visibleProducts.map((item) => (
-                <label key={item.id} className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700">
+                <label
+                  key={item.id}
+                  className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700"
+                >
                   <input
                     type="checkbox"
                     name="producto_id"
@@ -1368,7 +1503,9 @@ export function CampanaEditorCard({
                   />
                   <span>
                     <span className="block font-medium text-slate-950">{item.nombreCorto}</span>
-                    <span className="text-xs text-slate-500">{item.sku} · {item.nombre}</span>
+                    <span className="text-xs text-slate-500">
+                      {item.sku} · {item.nombre}
+                    </span>
                   </span>
                 </label>
               ))}
@@ -1391,7 +1528,10 @@ export function CampanaEditorCard({
             />
             <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
               {visiblePdvs.map((item) => (
-                <label key={item.id} className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700">
+                <label
+                  key={item.id}
+                  className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700"
+                >
                   <input
                     type="checkbox"
                     name="pdv_id"
@@ -1407,9 +1547,12 @@ export function CampanaEditorCard({
                     className="mt-1 h-4 w-4 rounded border-slate-300"
                   />
                   <span>
-                    <span className="block font-medium text-slate-950">{item.claveBtl} · {item.nombre}</span>
+                    <span className="block font-medium text-slate-950">
+                      {item.claveBtl} · {item.nombre}
+                    </span>
                     <span className="text-xs text-slate-500">
-                      {item.cuentaCliente} · {item.cadena ?? 'Sin cadena'} · {item.zona ?? 'Sin zona'}
+                      {item.cuentaCliente} · {item.cadena ?? 'Sin cadena'} ·{' '}
+                      {item.zona ?? 'Sin zona'}
                     </span>
                     {(item.dcNombre || item.supervisorNombre) && (
                       <span className="mt-1 block text-xs text-slate-400">
@@ -1428,17 +1571,21 @@ export function CampanaEditorCard({
             <div>
               <h3 className="text-sm font-semibold text-slate-950">Metas por producto foco</h3>
               <p className="mt-1 text-xs text-slate-500">
-                Si subes la matriz Excel por PDV, esa carga prevalece y se vuelve la fuente oficial por tienda.
+                Si subes la matriz Excel por PDV, esa carga prevalece y se vuelve la fuente oficial
+                por tienda.
               </p>
             </div>
-            <span className="text-xs text-slate-500">{productGoalRows.length} metas configuradas</span>
+            <span className="text-xs text-slate-500">
+              {productGoalRows.length} metas configuradas
+            </span>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-slate-950">Carga por PDV y producto</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Sube un Excel con `BTL CVE`, `SKU`/`ARTICULO` y `CUOTA` para definir metas distintas por punto de venta.
+                  Sube un Excel con `BTL CVE`, `SKU`/`ARTICULO` y `CUOTA` para definir metas
+                  distintas por punto de venta.
                 </p>
               </div>
               <a
@@ -1455,7 +1602,8 @@ export function CampanaEditorCard({
               className="mt-4 block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 file:mr-3 file:rounded-full file:border-0 file:bg-sky-100 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-sky-700"
             />
             <p className="mt-2 text-xs text-slate-500">
-              Si no subes archivo, la campaña seguirá usando la meta global capturada aquí abajo como compatibilidad temporal.
+              Si no subes archivo, la campaña seguirá usando la meta global capturada aquí abajo
+              como compatibilidad temporal.
             </p>
           </div>
           {productGoalRows.length === 0 ? (
@@ -1476,7 +1624,9 @@ export function CampanaEditorCard({
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900">
                       <input type="hidden" name="product_goal_product_id" value={row.productId} />
                       <div className="font-medium">{row.productLabel}</div>
-                      {row.productSku && <div className="text-xs text-slate-500">{row.productSku}</div>}
+                      {row.productSku && (
+                        <div className="text-xs text-slate-500">{row.productSku}</div>
+                      )}
                     </div>
                   </div>
                   <div>
@@ -1555,12 +1705,14 @@ export function CampanaEditorCard({
 
         <StateMessage state={state} />
         <SubmitActionButton
-          label={isUploadingR2 ? 'Subiendo manual...' : campaign ? 'Actualizar campana' : 'Crear campana'}
+          label={
+            isUploadingR2 ? 'Subiendo manual...' : campaign ? 'Actualizar campana' : 'Crear campana'
+          }
           pendingLabel={campaign ? 'Actualizando...' : 'Creando...'}
         />
       </form>
     </Card>
-  )
+  );
 }
 
 export function CampaignDetailCard({
@@ -1568,9 +1720,9 @@ export function CampaignDetailCard({
   canManage,
   canExecuteFieldTasks,
 }: {
-  campaign: CampanaItem | null
-  canManage: boolean
-  canExecuteFieldTasks: boolean
+  campaign: CampanaItem | null;
+  canManage: boolean;
+  canExecuteFieldTasks: boolean;
 }) {
   if (!campaign) {
     return (
@@ -1580,7 +1732,7 @@ export function CampaignDetailCard({
           Selecciona una campana para revisar alcance por PDV, instrucciones y cumplimiento.
         </p>
       </Card>
-    )
+    );
   }
 
   return (
@@ -1589,32 +1741,60 @@ export function CampaignDetailCard({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold text-slate-950">{campaign.nombre}</h2>
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(campaign.ventanaActiva ? 'ACTIVA' : campaign.estado)}`}>
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(campaign.ventanaActiva ? 'ACTIVA' : campaign.estado)}`}
+            >
               {campaign.ventanaActiva ? 'ACTIVA' : campaign.estado}
             </span>
           </div>
           <p className="mt-2 text-sm text-slate-500">
-            {campaign.cuentaCliente ?? 'Sin cuenta'} · {formatDate(campaign.fechaInicio)} - {formatDate(campaign.fechaFin)}
+            {campaign.cuentaCliente ?? 'Sin cuenta'} · {formatDate(campaign.fechaInicio)} -{' '}
+            {formatDate(campaign.fechaFin)}
           </p>
-          {campaign.descripcion && <p className="mt-2 text-sm text-slate-600">{campaign.descripcion}</p>}
+          {campaign.descripcion && (
+            <p className="mt-2 text-sm text-slate-600">{campaign.descripcion}</p>
+          )}
         </div>
         <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-          <p>Cuota adicional: <span className="font-semibold text-slate-900">{formatCurrency(campaign.cuotaAdicional)}</span></p>
-          <p className="mt-2">Avance: <span className="font-semibold text-slate-900">{formatPercent(campaign.avancePromedio)}</span></p>
+          <p>
+            Cuota adicional:{' '}
+            <span className="font-semibold text-slate-900">
+              {formatCurrency(campaign.cuotaAdicional)}
+            </span>
+          </p>
+          <p className="mt-2">
+            Avance:{' '}
+            <span className="font-semibold text-slate-900">
+              {formatPercent(campaign.avancePromedio)}
+            </span>
+          </p>
         </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <MetaList title="Productos foco" items={campaign.productosFoco} emptyLabel="Sin productos foco definidos" />
-        <MetaList title="Evidencias requeridas" items={campaign.evidenciasRequeridas} emptyLabel="Sin evidencia obligatoria" />
-        <MetaList title="Instrucciones" items={campaign.instrucciones ? [campaign.instrucciones] : []} emptyLabel="Sin instrucciones adicionales" />
+        <MetaList
+          title="Productos foco"
+          items={campaign.productosFoco}
+          emptyLabel="Sin productos foco definidos"
+        />
+        <MetaList
+          title="Evidencias requeridas"
+          items={campaign.evidenciasRequeridas}
+          emptyLabel="Sin evidencia obligatoria"
+        />
+        <MetaList
+          title="Instrucciones"
+          items={campaign.instrucciones ? [campaign.instrucciones] : []}
+          emptyLabel="Sin instrucciones adicionales"
+        />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <MetaList
           title="Resumen de metas por producto"
-          items={(campaign.productGoals ?? []).map((item) =>
-            `${item.productLabel}${item.productSku ? ` (${item.productSku})` : ''} · ${item.goalType === 'EXHIBICION' ? 'Exhibicion' : 'Venta'} · ${item.quota}`
+          items={(campaign.productGoals ?? []).map(
+            (item) =>
+              `${item.productLabel}${item.productSku ? ` (${item.productSku})` : ''} · ${item.goalType === 'EXHIBICION' ? 'Exhibicion' : 'Venta'} · ${item.quota}`
           )}
           emptyLabel="Sin metas por producto configuradas"
         />
@@ -1643,18 +1823,33 @@ export function CampaignDetailCard({
           <span className="text-xs text-slate-500">{campaign.totalPdvs} objetivo(s)</span>
         </div>
         {campaign.pdvs.length === 0 ? (
-          <p className="text-sm text-slate-500">Esta campana no tiene PDVs visibles en el alcance actual.</p>
+          <p className="text-sm text-slate-500">
+            Esta campana no tiene PDVs visibles en el alcance actual.
+          </p>
         ) : (
           campaign.pdvs.map((item) => (
-            <CampaignPdvRow key={item.id} item={item} canManage={canManage} canExecuteFieldTasks={canExecuteFieldTasks} />
+            <CampaignPdvRow
+              key={item.id}
+              item={item}
+              canManage={canManage}
+              canExecuteFieldTasks={canExecuteFieldTasks}
+            />
           ))
         )}
       </div>
     </Card>
-  )
+  );
 }
 
-function MetaList({ title, items, emptyLabel }: { title: string; items: string[]; emptyLabel: string }) {
+function MetaList({
+  title,
+  items,
+  emptyLabel,
+}: {
+  title: string;
+  items: string[];
+  emptyLabel: string;
+}) {
   return (
     <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
       <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
@@ -1670,7 +1865,7 @@ function MetaList({ title, items, emptyLabel }: { title: string; items: string[]
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function CampaignPdvRow({
@@ -1678,9 +1873,9 @@ function CampaignPdvRow({
   canManage,
   canExecuteFieldTasks,
 }: {
-  item: CampanaPdvItem
-  canManage: boolean
-  canExecuteFieldTasks: boolean
+  item: CampanaPdvItem;
+  canManage: boolean;
+  canExecuteFieldTasks: boolean;
 }) {
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-4">
@@ -1690,13 +1885,16 @@ function CampaignPdvRow({
             <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold text-white">
               {item.claveBtl}
             </span>
-            <span className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusTone(item.estatus)}`}>
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusTone(item.estatus)}`}
+            >
               {item.estatus}
             </span>
           </div>
           <p className="mt-3 text-base font-semibold text-slate-950">{item.pdv}</p>
           <p className="mt-1 text-sm text-slate-600">
-            {item.cuentaCliente ?? 'Sin cuenta'} · {item.cadena ?? 'Sin cadena'} · {item.zona ?? 'Sin zona'}
+            {item.cuentaCliente ?? 'Sin cuenta'} · {item.cadena ?? 'Sin cadena'} ·{' '}
+            {item.zona ?? 'Sin zona'}
           </p>
           {(item.dcNombre || item.supervisorNombre) && (
             <p className="mt-1 text-xs text-slate-500">
@@ -1705,7 +1903,9 @@ function CampaignPdvRow({
           )}
         </div>
         <div className="min-w-[220px] rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-          <p className="font-medium text-slate-950">Avance {formatPercent(item.avancePorcentaje)}</p>
+          <p className="font-medium text-slate-950">
+            Avance {formatPercent(item.avancePorcentaje)}
+          </p>
           <div className="mt-3 h-2 rounded-full bg-slate-200">
             <div
               className="h-2 rounded-full bg-sky-500"
@@ -1713,7 +1913,8 @@ function CampaignPdvRow({
             />
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            {item.tareasCumplidas.length}/{item.tareasRequeridas.length} tareas · {item.evidenciasCargadas}/{item.evidenciasRequeridas.length} evidencias
+            {item.tareasCumplidas.length}/{item.tareasRequeridas.length} tareas ·{' '}
+            {item.evidenciasCargadas}/{item.evidenciasRequeridas.length} evidencias
           </p>
         </div>
       </div>
@@ -1721,21 +1922,33 @@ function CampaignPdvRow({
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <MetaList
           title="Metas producto en PDV"
-          items={item.productGoals.map((goal) =>
-            `${goal.productLabel}${goal.productSku ? ` (${goal.productSku})` : ''} · ${goal.goalType === 'EXHIBICION' ? 'Exhibicion' : 'Venta'} · ${goal.quota}`
+          items={item.productGoals.map(
+            (goal) =>
+              `${goal.productLabel}${goal.productSku ? ` (${goal.productSku})` : ''} · ${goal.goalType === 'EXHIBICION' ? 'Exhibicion' : 'Venta'} · ${goal.quota}`
           )}
           emptyLabel="Sin metas por producto especificas en este PDV"
         />
-        <MetaList title="Tareas requeridas" items={item.tareasRequeridas} emptyLabel="Sin tareas declaradas" />
-        <MetaList title="Tareas cumplidas" items={item.tareasCumplidas} emptyLabel="Sin avances registrados" />
+        <MetaList
+          title="Tareas requeridas"
+          items={item.tareasRequeridas}
+          emptyLabel="Sin tareas declaradas"
+        />
+        <MetaList
+          title="Tareas cumplidas"
+          items={item.tareasCumplidas}
+          emptyLabel="Sin avances registrados"
+        />
       </div>
 
       {item.activeVisitSession && (
         <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-slate-700">
           <p className="font-semibold text-slate-950">Sesion activa de tareas de visita</p>
           <p className="mt-1 text-xs text-slate-500">
-            Visita {item.activeVisitSession.attendanceId.slice(0, 8)} · generada {new Date(item.activeVisitSession.generatedAt).toLocaleString('es-MX')}
-            {item.activeVisitSession.executionMinutes !== null ? ` · ${item.activeVisitSession.executionMinutes} min` : ''}
+            Visita {item.activeVisitSession.attendanceId.slice(0, 8)} · generada{' '}
+            {new Date(item.activeVisitSession.generatedAt).toLocaleString('es-MX')}
+            {item.activeVisitSession.executionMinutes !== null
+              ? ` · ${item.activeVisitSession.executionMinutes} min`
+              : ''}
           </p>
         </div>
       )}
@@ -1744,64 +1957,70 @@ function CampaignPdvRow({
       {canExecuteFieldTasks && <EjecucionCampoForm item={item} />}
       {canManage && <CumplimientoAutomaticoNotice item={item} />}
     </div>
-  )
+  );
 }
 
 function EjecucionCampoForm({ item }: { item: CampanaPdvItem }) {
-  const [state, formAction] = useActionState(ejecutarTareasCampanaPdv, ESTADO_CAMPANA_ADMIN_INICIAL)
-  const [isPending, startTransition] = useTransition()
-  const activeSession = item.activeVisitSession
-  const [feedback, setFeedback] = useState<string | null>(null)
-  const [isPreparingEvidence, setIsPreparingEvidence] = useState(false)
-  const [taskCaptures, setTaskCaptures] = useState<Record<string, TaskCaptureDraft>>({})
+  const [state, formAction] = useActionState(
+    ejecutarTareasCampanaPdv,
+    ESTADO_CAMPANA_ADMIN_INICIAL
+  );
+  const [isPending, startTransition] = useTransition();
+  const activeSession = item.activeVisitSession;
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [isPreparingEvidence, setIsPreparingEvidence] = useState(false);
+  const [taskCaptures, setTaskCaptures] = useState<Record<string, TaskCaptureDraft>>({});
 
   useEffect(() => {
     return () => {
       for (const capture of Object.values(taskCaptures)) {
-        URL.revokeObjectURL(capture.previewUrl)
+        URL.revokeObjectURL(capture.previewUrl);
       }
-    }
-  }, [taskCaptures])
+    };
+  }, [taskCaptures]);
 
   const handleTaskEvidenceChange = async (
     taskKey: string,
     taskLabel: string,
     event: ChangeEvent<HTMLInputElement>
   ) => {
-    const file = event.target.files?.[0]
+    const file = event.target.files?.[0];
 
     if (!file) {
       setTaskCaptures((current) => {
-        const existing = current[taskKey]
+        const existing = current[taskKey];
         if (existing) {
-          URL.revokeObjectURL(existing.previewUrl)
+          URL.revokeObjectURL(existing.previewUrl);
         }
 
-        const next = { ...current }
-        delete next[taskKey]
-        return next
-      })
-      return
+        const next = { ...current };
+        delete next[taskKey];
+        return next;
+      });
+      return;
     }
 
-    setIsPreparingEvidence(true)
-    setFeedback(null)
+    setIsPreparingEvidence(true);
+    setFeedback(null);
 
     try {
-      const capturedAt = new Date().toISOString()
-      const position = await readCurrentPosition().catch(() => ({ latitude: null, longitude: null }))
+      const capturedAt = new Date().toISOString();
+      const position = await readCurrentPosition().catch(() => ({
+        latitude: null,
+        longitude: null,
+      }));
       const stampedFile = await stampTaskEvidenceImage(file, {
         taskLabel,
         capturedAt,
         latitude: position.latitude,
         longitude: position.longitude,
-      })
-      const previewUrl = URL.createObjectURL(stampedFile)
+      });
+      const previewUrl = URL.createObjectURL(stampedFile);
 
       setTaskCaptures((current) => {
-        const existing = current[taskKey]
+        const existing = current[taskKey];
         if (existing) {
-          URL.revokeObjectURL(existing.previewUrl)
+          URL.revokeObjectURL(existing.previewUrl);
         }
 
         return {
@@ -1815,43 +2034,43 @@ function EjecucionCampoForm({ item }: { item: CampanaPdvItem }) {
             timestampStamped: true,
             captureSource: 'camera',
           },
-        }
-      })
+        };
+      });
 
-      setFeedback(`Evidencia preparada para "${taskLabel}".`)
+      setFeedback(`Evidencia preparada para "${taskLabel}".`);
     } catch (error) {
       setFeedback(
         error instanceof Error ? error.message : 'No fue posible preparar la evidencia de la tarea.'
-      )
+      );
     } finally {
-      event.target.value = ''
-      setIsPreparingEvidence(false)
+      event.target.value = '';
+      setIsPreparingEvidence(false);
     }
-  }
+  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const formData = new FormData(event.currentTarget)
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
 
     void (async () => {
       try {
         const evidenceFiles = formData
           .getAll('evidencia')
-          .filter((item): item is File => item instanceof File && item.size > 0)
+          .filter((item): item is File => item instanceof File && item.size > 0);
 
         if (evidenceFiles.length > 0) {
           await injectDirectR2Manifest(formData, evidenceFiles, {
             modulo: 'campanas',
             manifestFieldName: 'evidencia_r2_manifest',
             removeFieldName: 'evidencia',
-          })
+          });
         }
 
-        const taskEntries: Array<{ file: File; metadata: Record<string, unknown> }> = []
+        const taskEntries: Array<{ file: File; metadata: Record<string, unknown> }> = [];
         for (const task of activeSession?.tasks ?? []) {
-          const capture = taskCaptures[task.key]
+          const capture = taskCaptures[task.key];
           if (!capture) {
-            continue
+            continue;
           }
 
           taskEntries.push({
@@ -1864,36 +2083,44 @@ function EjecucionCampoForm({ item }: { item: CampanaPdvItem }) {
               timestampStamped: capture.timestampStamped,
               captureSource: capture.captureSource,
             },
-          })
+          });
         }
 
         if (taskEntries.length > 0) {
-          const uploadedTaskEvidence = await uploadFilesDirectToR2(taskEntries, 'campanas')
-          formData.set('task_evidence_r2_manifest', JSON.stringify(uploadedTaskEvidence))
+          const uploadedTaskEvidence = await uploadFilesDirectToR2(taskEntries, 'campanas');
+          formData.set('task_evidence_r2_manifest', JSON.stringify(uploadedTaskEvidence));
         }
       } catch (error) {
         setFeedback(
-          error instanceof Error ? error.message : 'No fue posible subir la evidencia de campaña a R2.'
-        )
+          error instanceof Error
+            ? error.message
+            : 'No fue posible subir la evidencia de campaña a R2.'
+        );
       }
 
       startTransition(() => {
-        formAction(formData)
-      })
-    })()
-  }
+        formAction(formData);
+      });
+    })();
+  };
 
   return (
-    <form onSubmit={handleSubmit} className="mt-4 space-y-4 rounded-2xl border border-sky-200 bg-sky-50 p-4">
+    <form
+      onSubmit={handleSubmit}
+      className="mt-4 space-y-4 rounded-2xl border border-sky-200 bg-sky-50 p-4"
+    >
       <input type="hidden" name="campana_pdv_id" value={item.id} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-slate-950">Ejecucion en campo</p>
           <p className="mt-1 text-xs text-slate-500">
-            Requiere check-in valido y activo en este PDV. Las tareas tipo foto se sellan con timestamp y GPS antes de enviarse.
+            Requiere check-in valido y activo en este PDV. Las tareas tipo foto se sellan con
+            timestamp y GPS antes de enviarse.
           </p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusTone(item.estatus)}`}>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusTone(item.estatus)}`}
+        >
           {item.estatus}
         </span>
       </div>
@@ -1902,12 +2129,16 @@ function EjecucionCampoForm({ item }: { item: CampanaPdvItem }) {
         <p className="text-sm font-semibold text-slate-950">Tareas de la visita activa</p>
         {!activeSession || activeSession.tasks.length === 0 ? (
           <p className="text-sm text-slate-500">
-            Necesitas una visita activa en este PDV para generar el subconjunto de tareas de esta jornada.
+            Necesitas una visita activa en este PDV para generar el subconjunto de tareas de esta
+            jornada.
           </p>
         ) : (
           <div className="space-y-3">
             {activeSession.tasks.map((task) => (
-              <div key={task.key} className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700">
+              <div
+                key={task.key}
+                className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700"
+              >
                 <input type="hidden" name="task_key" value={task.key} />
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -1923,12 +2154,18 @@ function EjecucionCampoForm({ item }: { item: CampanaPdvItem }) {
                       )}
                     </div>
                     <p className="mt-1 text-xs text-slate-500">
-                      {task.startedAt ? `Inicio ${new Date(task.startedAt).toLocaleString('es-MX')}` : 'Sin iniciar'}
-                      {task.finishedAt ? ` · Fin ${new Date(task.finishedAt).toLocaleString('es-MX')}` : ''}
+                      {task.startedAt
+                        ? `Inicio ${new Date(task.startedAt).toLocaleString('es-MX')}`
+                        : 'Sin iniciar'}
+                      {task.finishedAt
+                        ? ` · Fin ${new Date(task.finishedAt).toLocaleString('es-MX')}`
+                        : ''}
                       {task.evidenceCount > 0 ? ` · Evidencias ${task.evidenceCount}` : ''}
                     </p>
                     {task.suspiciousReason && (
-                      <p className="mt-1 text-xs font-medium text-amber-700">{task.suspiciousReason}</p>
+                      <p className="mt-1 text-xs font-medium text-amber-700">
+                        {task.suspiciousReason}
+                      </p>
                     )}
                   </div>
                   <div className="w-full max-w-[220px]">
@@ -1971,7 +2208,8 @@ function EjecucionCampoForm({ item }: { item: CampanaPdvItem }) {
                       className="block w-full rounded-xl border border-border bg-white px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-full file:border-0 file:bg-sky-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
                     />
                     <p className="text-xs text-slate-500">
-                      Solo se acepta captura de camara. La foto se marca con fecha, hora y coordenadas visibles antes de enviarse.
+                      Solo se acepta captura de camara. La foto se marca con fecha, hora y
+                      coordenadas visibles antes de enviarse.
                     </p>
                     {taskCaptures[task.key] && (
                       <div className="space-y-2">
@@ -1982,7 +2220,8 @@ function EjecucionCampoForm({ item }: { item: CampanaPdvItem }) {
                         />
                         <p className="text-[11px] text-slate-500">
                           {new Date(taskCaptures[task.key]!.capturedAt).toLocaleString('es-MX')}
-                          {taskCaptures[task.key]!.latitude !== null && taskCaptures[task.key]!.longitude !== null
+                          {taskCaptures[task.key]!.latitude !== null &&
+                          taskCaptures[task.key]!.longitude !== null
                             ? ` · ${taskCaptures[task.key]!.latitude!.toFixed(6)}, ${taskCaptures[task.key]!.longitude!.toFixed(6)}`
                             : ' · GPS no disponible'}
                         </p>
@@ -2009,7 +2248,8 @@ function EjecucionCampoForm({ item }: { item: CampanaPdvItem }) {
             />
           </label>
           <p className="text-xs text-slate-500">
-            Usa camara en vivo cuando la tarea lo requiera. El pipeline optimiza y deduplica cada archivo.
+            Usa camara en vivo cuando la tarea lo requiera. El pipeline optimiza y deduplica cada
+            archivo.
           </p>
         </div>
         <FieldTextarea
@@ -2022,7 +2262,9 @@ function EjecucionCampoForm({ item }: { item: CampanaPdvItem }) {
       </div>
 
       {feedback && (
-        <p className={`text-sm ${feedback.toLowerCase().includes('no fue posible') ? 'text-rose-700' : 'text-sky-700'}`}>
+        <p
+          className={`text-sm ${feedback.toLowerCase().includes('no fue posible') ? 'text-rose-700' : 'text-sky-700'}`}
+        >
           {feedback}
         </p>
       )}
@@ -2031,7 +2273,7 @@ function EjecucionCampoForm({ item }: { item: CampanaPdvItem }) {
         {isPending || isPreparingEvidence ? 'Guardando...' : 'Guardar avance de visita'}
       </Button>
     </form>
-  )
+  );
 }
 
 function CumplimientoAutomaticoNotice({ item }: { item: CampanaPdvItem }) {
@@ -2041,30 +2283,39 @@ function CumplimientoAutomaticoNotice({ item }: { item: CampanaPdvItem }) {
         <div>
           <p className="text-sm font-semibold text-slate-950">Cumplimiento automatico</p>
           <p className="mt-1 max-w-3xl text-sm text-slate-600">
-            Este seguimiento ya no se captura manualmente desde este panel. Las tareas resueltas, las evidencias y el
-            porcentaje de avance se actualizan automaticamente desde la ejecucion real de la campana en campo.
+            Este seguimiento ya no se captura manualmente desde este panel. Las tareas resueltas,
+            las evidencias y el porcentaje de avance se actualizan automaticamente desde la
+            ejecucion real de la campana en campo.
           </p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusTone(item.estatus)}`}>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusTone(item.estatus)}`}
+        >
           {item.estatus}
         </span>
       </div>
 
       <div className="mt-4 grid gap-3 xl:grid-cols-3">
         <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Tareas resueltas</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+            Tareas resueltas
+          </p>
           <p className="mt-2 text-lg font-semibold text-slate-950">
             {item.tareasCumplidas.length}/{item.tareasRequeridas.length}
           </p>
         </div>
         <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Evidencias detectadas</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+            Evidencias detectadas
+          </p>
           <p className="mt-2 text-lg font-semibold text-slate-950">
             {item.evidenciasCargadas}/{item.evidenciasRequeridas.length}
           </p>
         </div>
         <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Origen del avance</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+            Origen del avance
+          </p>
           <p className="mt-2 text-sm font-medium text-slate-700">
             {item.activeVisitSession
               ? 'Sesion activa de visita y evidencia operativa'
@@ -2073,107 +2324,5 @@ function CumplimientoAutomaticoNotice({ item }: { item: CampanaPdvItem }) {
         </div>
       </div>
     </div>
-  )
-}
-
-function ReportesCampanaCard({ data }: { data: CampanasPanelData }) {
-  const reportePorDc = data.reportePorDc.slice(0, 12)
-  const reportePorPdv = data.reportePorPdv.slice(0, 16)
-
-  return (
-    <Card className="space-y-5 p-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-950">Reporte de avance</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Seguimiento consolidado por dermoconsejera y por PDV para identificar rezagos comerciales.
-        </p>
-      </div>
-
-      {data.puedeVerDc ? (
-        <div className="overflow-x-auto rounded-3xl border border-slate-200">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-left text-slate-500">
-              <tr>
-                <th className="px-4 py-3 font-medium">DC</th>
-                <th className="px-4 py-3 font-medium">Campanas activas</th>
-                <th className="px-4 py-3 font-medium">PDVs</th>
-                <th className="px-4 py-3 font-medium">Cumplidas</th>
-                <th className="px-4 py-3 font-medium">Avance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reportePorDc.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
-                    Sin informacion visible por dermoconsejera en este alcance.
-                  </td>
-                </tr>
-              ) : (
-                reportePorDc.map((item) => (
-                  <tr key={item.empleadoId} className="border-t border-slate-100">
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-slate-900">{item.empleado}</div>
-                      <div className="text-xs text-slate-400">{item.puesto ?? 'Sin puesto'}</div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{item.campanasActivas}</td>
-                    <td className="px-4 py-3 text-slate-600">{item.pdvsObjetivo}</td>
-                    <td className="px-4 py-3 text-slate-600">{item.pdvsCumplidos}</td>
-                    <td className="px-4 py-3 font-medium text-slate-900">{formatPercent(item.avancePromedio)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
-          El detalle por dermoconsejera se oculta para el alcance cliente.
-        </p>
-      )}
-
-      <div className="overflow-x-auto rounded-3xl border border-slate-200">
-        <table className="min-w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-500">
-            <tr>
-              <th className="px-4 py-3 font-medium">Campana</th>
-              <th className="px-4 py-3 font-medium">PDV</th>
-              <th className="px-4 py-3 font-medium">DC</th>
-              <th className="px-4 py-3 font-medium">Estado</th>
-              <th className="px-4 py-3 font-medium">Pendientes</th>
-              <th className="px-4 py-3 font-medium">Avance</th>
-            </tr>
-          </thead>
-          <tbody>
-            {reportePorPdv.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
-                  Sin PDVs visibles para reporte en el alcance actual.
-                </td>
-              </tr>
-            ) : (
-              reportePorPdv.map((item) => (
-                <tr key={`${item.campanaId}-${item.pdvId}`} className="border-t border-slate-100">
-                  <td className="px-4 py-3 text-slate-900">{item.campana}</td>
-                  <td className="px-4 py-3 text-slate-600">
-                    <div>{item.claveBtl}</div>
-                    <div className="text-xs text-slate-400">{item.pdv}</div>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">{item.dc ?? 'No visible'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(item.estatus)}`}>
-                      {item.estatus}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {item.tareasPendientes} tareas · {item.evidenciasPendientes} evidencias
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-900">{formatPercent(item.avancePorcentaje)}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  )
+  );
 }

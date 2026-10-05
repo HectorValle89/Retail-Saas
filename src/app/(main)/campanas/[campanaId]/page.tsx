@@ -1,15 +1,18 @@
-import Link from 'next/link'
-import { notFound } from 'next/navigation'
-import { Card } from '@/components/ui/card'
-import { requerirPuestosActivos } from '@/lib/auth/session'
-import { readRequestAccountScope } from '@/lib/tenant/accountScope'
-import { CampanaPublishAction } from '@/features/campanas/components/CampanaPublishAction'
-import { CampanaEditorCard, CampaignDetailCard } from '@/features/campanas/components/CampanasPanel'
-import { obtenerPanelCampanas } from '@/features/campanas/services/campanaService'
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { Card } from '@/components/ui/card';
+import { requerirPuestosActivos } from '@/lib/auth/session';
+import { readRequestAccountScope } from '@/lib/tenant/accountScope';
+import { CampanaPublishAction } from '@/features/campanas/components/CampanaPublishAction';
+import {
+  CampanaEditorCard,
+  CampaignDetailCard,
+} from '@/features/campanas/components/CampanasPanel';
+import { obtenerPanelCampanas } from '@/features/campanas/services/campanaService';
 
 export const metadata = {
   title: 'Detalle de campana | Field Force Platform',
-}
+};
 
 const CAMPANA_ROLES = [
   'ADMINISTRADOR',
@@ -19,21 +22,21 @@ const CAMPANA_ROLES = [
   'LOGISTICA',
   'DERMOCONSEJERO',
   'CLIENTE',
-] as const
+] as const;
 
 export default async function CampanaDetallePage({
   params,
   searchParams,
 }: {
-  params: Promise<{ campanaId: string }>
-  searchParams: Promise<{ editar?: string }>
+  params: Promise<{ campanaId: string }>;
+  searchParams: Promise<{ editar?: string }>;
 }) {
-  const actor = await requerirPuestosActivos([...CAMPANA_ROLES])
-  const accountScope = await readRequestAccountScope()
-  const [{ campanaId }, resolvedSearchParams] = await Promise.all([params, searchParams])
+  const actor = await requerirPuestosActivos([...CAMPANA_ROLES]);
+  const accountScope = await readRequestAccountScope();
+  const [{ campanaId }, resolvedSearchParams] = await Promise.all([params, searchParams]);
   const data = await obtenerPanelCampanas(actor, {
     scopeAccountId: accountScope.accountId,
-  })
+  });
 
   if (!data.infraestructuraLista) {
     return (
@@ -62,18 +65,18 @@ export default async function CampanaDetallePage({
           <p className="mt-2 text-sm">{data.mensajeInfraestructura}</p>
         </Card>
       </div>
-    )
+    );
   }
 
-  const campaign = data.campanas.find((item) => item.id === campanaId) ?? null
+  const campaign = data.campanas.find((item) => item.id === campanaId) ?? null;
 
   if (!campaign) {
-    notFound()
+    notFound();
   }
 
   const canEditCampaign =
-    data.puedeGestionar && campaign.estado !== 'CERRADA' && campaign.estado !== 'CANCELADA'
-  const isEditing = canEditCampaign && resolvedSearchParams.editar === '1'
+    data.puedeGestionar && campaign.estado !== 'CERRADA' && campaign.estado !== 'CANCELADA';
+  const isEditing = canEditCampaign && resolvedSearchParams.editar === '1';
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -87,8 +90,8 @@ export default async function CampanaDetallePage({
               {campaign.nombre}
             </h1>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              La consulta se abre en una superficie dedicada. Si la campaña es editable, la edición vive aquí mismo y
-              ya no dentro de la pantalla de creación.
+              La consulta se abre en una superficie dedicada. Si la campaña es editable, la edición
+              vive aquí mismo y ya no dentro de la pantalla de creación.
             </p>
           </div>
 
@@ -118,8 +121,8 @@ export default async function CampanaDetallePage({
             <div className="max-w-2xl">
               <p className="text-sm font-semibold text-slate-950">Publicación desde operación</p>
               <p className="mt-1 text-sm leading-6 text-slate-600">
-                El borrador ya está aislado en su ficha. Si quedó listo, publícalo desde aquí sin regresar al flujo de
-                creación.
+                El borrador ya está aislado en su ficha. Si quedó listo, publícalo desde aquí sin
+                regresar al flujo de creación.
               </p>
             </div>
             <CampanaPublishAction campaignId={campaign.id} align="right" />
@@ -136,5 +139,5 @@ export default async function CampanaDetallePage({
         {isEditing ? <CampanaEditorCard data={data} campaign={campaign} /> : null}
       </div>
     </div>
-  )
+  );
 }

@@ -1,32 +1,35 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
-import { MetricCard } from '@/components/ui/metric-card'
-import { ScrollablePipelineBoard } from './PipelineBoard'
-import Link from 'next/link'
-import { getRecruitingStageMeta, getRecruitingBajaStageMeta } from '../lib/recruitingUI'
-import { VacantesFuturasBoard } from '@/features/asignaciones/components/VacantesFuturasBoard'
-import { 
-  resolveRecruitingAltaPipelineStage, 
+import { useState } from 'react';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { MetricCard } from '@/components/ui/metric-card';
+import { ScrollablePipelineBoard } from './PipelineBoard';
+import Link from 'next/link';
+import { getRecruitingStageMeta, getRecruitingBajaStageMeta } from '../lib/recruitingUI';
+import { VacantesFuturasBoard } from '@/features/asignaciones/components/VacantesFuturasBoard';
+import {
+  resolveRecruitingAltaPipelineStage,
   resolveRecruitingBajaPipelineStage,
   isRecruitingAltaPipelineEmployee,
-  isRecruitingBajaPipelineEmployee
-} from '../lib/recruitingPipeline'
-import type { 
-  RecruitingAltaPipelineStageKey, 
+  isRecruitingBajaPipelineEmployee,
+} from '../lib/recruitingPipeline';
+import type {
+  RecruitingAltaPipelineStageKey,
   RecruitingBajaPipelineStageKey,
   RecruitingCandidateContext,
-  RecruitingBajaCandidateContext
-} from '../types'
-import type { EmpleadosPanelData, EmpleadoListadoItem } from '@/features/empleados/services/empleadoService'
+  RecruitingBajaCandidateContext,
+} from '../types';
+import type {
+  EmpleadosPanelData,
+  EmpleadoListadoItem,
+} from '@/features/empleados/services/empleadoService';
 
 interface RecruitmentDashboardProps {
-  data: EmpleadosPanelData
-  onOpen: (empleado: EmpleadoListadoItem) => void
-  onCreateCandidate: () => void
+  data: EmpleadosPanelData;
+  onOpen: (empleado: EmpleadoListadoItem) => void;
+  onCreateCandidate: () => void;
 }
 
 export function RecruitmentDashboard({
@@ -34,24 +37,25 @@ export function RecruitmentDashboard({
   onOpen,
   onCreateCandidate,
 }: RecruitmentDashboardProps) {
-  const [search, setSearch] = useState('')
-  const [coordinatorFilter, setCoordinatorFilter] = useState('ALL')
-  const [cadenaFilter, setCadenaFilter] = useState('ALL')
-  const [ciudadFilter, setCiudadFilter] = useState('ALL')
+  const [search, setSearch] = useState('');
+  const [coordinatorFilter, setCoordinatorFilter] = useState('ALL');
+  const [cadenaFilter, setCadenaFilter] = useState('ALL');
+  const [ciudadFilter, setCiudadFilter] = useState('ALL');
 
-  const pdvMap = new Map(data.pdvs.map((pdv) => [pdv.id, pdv]))
+  const pdvMap = new Map(data.pdvs.map((pdv) => [pdv.id, pdv]));
 
   const altaCandidates = data.empleados
     .filter((empleado) => isRecruitingAltaPipelineEmployee(empleado))
     .map((empleado): RecruitingCandidateContext | null => {
-      const pdvSugeridoId = empleado.onboarding.pdvSugeridoId ?? empleado.onboarding.pdvObjetivoId ?? null
-      const pdvDefinitivoId = empleado.onboarding.pdvDefinitivoId ?? null
-      const pdvSugerido = pdvSugeridoId ? pdvMap.get(pdvSugeridoId) ?? null : null
-      const pdvDefinitivo = pdvDefinitivoId ? pdvMap.get(pdvDefinitivoId) ?? null : null
-      const stageKey = resolveRecruitingAltaPipelineStage(empleado)
+      const pdvSugeridoId =
+        empleado.onboarding.pdvSugeridoId ?? empleado.onboarding.pdvObjetivoId ?? null;
+      const pdvDefinitivoId = empleado.onboarding.pdvDefinitivoId ?? null;
+      const pdvSugerido = pdvSugeridoId ? (pdvMap.get(pdvSugeridoId) ?? null) : null;
+      const pdvDefinitivo = pdvDefinitivoId ? (pdvMap.get(pdvDefinitivoId) ?? null) : null;
+      const stageKey = resolveRecruitingAltaPipelineStage(empleado);
 
       if (!stageKey) {
-        return null
+        return null;
       }
 
       return {
@@ -74,21 +78,22 @@ export function RecruitmentDashboard({
         coordinadorLabel: empleado.onboarding.coordinadorNombre ?? 'Sin coordinador',
         cadena: pdvDefinitivo?.cadena ?? pdvSugerido?.cadena ?? null,
         ciudad: pdvDefinitivo?.ciudad ?? pdvSugerido?.ciudad ?? null,
-      } satisfies RecruitingCandidateContext
+      } satisfies RecruitingCandidateContext;
     })
-    .filter((item): item is RecruitingCandidateContext => item !== null)
+    .filter((item): item is RecruitingCandidateContext => item !== null);
 
   const bajaCandidates = data.empleados
     .filter((empleado) => isRecruitingBajaPipelineEmployee(empleado))
     .map((empleado): RecruitingBajaCandidateContext | null => {
-      const pdvSugeridoId = empleado.onboarding.pdvSugeridoId ?? empleado.onboarding.pdvObjetivoId ?? null
-      const pdvDefinitivoId = empleado.onboarding.pdvDefinitivoId ?? null
-      const pdvSugerido = pdvSugeridoId ? pdvMap.get(pdvSugeridoId) ?? null : null
-      const pdvDefinitivo = pdvDefinitivoId ? pdvMap.get(pdvDefinitivoId) ?? null : null
-      const stageKey = resolveRecruitingBajaPipelineStage(empleado)
+      const pdvSugeridoId =
+        empleado.onboarding.pdvSugeridoId ?? empleado.onboarding.pdvObjetivoId ?? null;
+      const pdvDefinitivoId = empleado.onboarding.pdvDefinitivoId ?? null;
+      const pdvSugerido = pdvSugeridoId ? (pdvMap.get(pdvSugeridoId) ?? null) : null;
+      const pdvDefinitivo = pdvDefinitivoId ? (pdvMap.get(pdvDefinitivoId) ?? null) : null;
+      const stageKey = resolveRecruitingBajaPipelineStage(empleado);
 
       if (!stageKey) {
-        return null
+        return null;
       }
 
       return {
@@ -99,16 +104,16 @@ export function RecruitmentDashboard({
         coordinadorLabel: empleado.onboarding.coordinadorNombre ?? 'Sin coordinador',
         cadena: pdvDefinitivo?.cadena ?? pdvSugerido?.cadena ?? null,
         ciudad: pdvDefinitivo?.ciudad ?? pdvSugerido?.ciudad ?? null,
-      } satisfies RecruitingBajaCandidateContext
+      } satisfies RecruitingBajaCandidateContext;
     })
-    .filter((item): item is RecruitingBajaCandidateContext => item !== null)
+    .filter((item): item is RecruitingBajaCandidateContext => item !== null);
 
-  const searchNormalized = search.trim().toLocaleLowerCase('es-MX')
+  const searchNormalized = search.trim().toLocaleLowerCase('es-MX');
   const matchesFilters = (item: {
-    empleado: EmpleadoListadoItem
-    cadena: string | null
-    ciudad: string | null
-    coordinadorLabel: string
+    empleado: EmpleadoListadoItem;
+    cadena: string | null;
+    ciudad: string | null;
+    coordinadorLabel: string;
   }) => {
     const matchesSearch =
       searchNormalized.length === 0 ||
@@ -122,18 +127,19 @@ export function RecruitmentDashboard({
         item.coordinadorLabel,
       ]
         .filter(Boolean)
-        .some((value) => String(value).toLocaleLowerCase('es-MX').includes(searchNormalized))
+        .some((value) => String(value).toLocaleLowerCase('es-MX').includes(searchNormalized));
 
     const matchesCoordinator =
-      coordinatorFilter === 'ALL' || item.empleado.onboarding.coordinadorEmpleadoId === coordinatorFilter
-    const matchesCadena = cadenaFilter === 'ALL' || item.cadena === cadenaFilter
-    const matchesCiudad = ciudadFilter === 'ALL' || item.ciudad === ciudadFilter
+      coordinatorFilter === 'ALL' ||
+      item.empleado.onboarding.coordinadorEmpleadoId === coordinatorFilter;
+    const matchesCadena = cadenaFilter === 'ALL' || item.cadena === cadenaFilter;
+    const matchesCiudad = ciudadFilter === 'ALL' || item.ciudad === ciudadFilter;
 
-    return matchesSearch && matchesCoordinator && matchesCadena && matchesCiudad
-  }
+    return matchesSearch && matchesCoordinator && matchesCadena && matchesCiudad;
+  };
 
-  const filteredAltaCandidates = altaCandidates.filter(matchesFilters)
-  const filteredBajaCandidates = bajaCandidates.filter(matchesFilters)
+  const filteredAltaCandidates = altaCandidates.filter(matchesFilters);
+  const filteredBajaCandidates = bajaCandidates.filter(matchesFilters);
 
   const pipelineOrder: RecruitingAltaPipelineStageKey[] = [
     'NUEVOS',
@@ -141,26 +147,34 @@ export function RecruitmentDashboard({
     'EN_GESTION',
     'ONBOARDING',
     'CANCELADOS',
-  ]
+  ];
   const bajaPipelineOrder: RecruitingBajaPipelineStageKey[] = [
     'BAJAS_SOLICITADAS',
     'BAJAS_DEVUELTAS',
-  ]
+  ];
 
   const cadenas = Array.from(
-    new Set([...altaCandidates, ...bajaCandidates].map((item) => item.cadena).filter((value): value is string => Boolean(value)))
-  ).sort((a, b) => a.localeCompare(b, 'es-MX'))
+    new Set(
+      [...altaCandidates, ...bajaCandidates]
+        .map((item) => item.cadena)
+        .filter((value): value is string => Boolean(value))
+    )
+  ).sort((a, b) => a.localeCompare(b, 'es-MX'));
   const ciudades = Array.from(
-    new Set([...altaCandidates, ...bajaCandidates].map((item) => item.ciudad).filter((value): value is string => Boolean(value)))
-  ).sort((a, b) => a.localeCompare(b, 'es-MX'))
+    new Set(
+      [...altaCandidates, ...bajaCandidates]
+        .map((item) => item.ciudad)
+        .filter((value): value is string => Boolean(value))
+    )
+  ).sort((a, b) => a.localeCompare(b, 'es-MX'));
 
   function formatDate(value: string | null) {
-    if (!value) return 'Sin registro'
+    if (!value) return 'Sin registro';
     return new Intl.DateTimeFormat('es-MX', {
       year: 'numeric',
       month: 'short',
       day: '2-digit',
-    }).format(new Date(value))
+    }).format(new Date(value));
   }
 
   return (
@@ -192,7 +206,9 @@ export function RecruitmentDashboard({
       {/* Filters & Actions */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex-1">
-          <h2 className="text-xl font-bold tracking-tight text-slate-900">Embudo de Contratación</h2>
+          <h2 className="text-xl font-bold tracking-tight text-slate-900">
+            Embudo de Contratación
+          </h2>
           <p className="text-sm text-slate-500">Gestión visual del ciclo de vida del candidato.</p>
         </div>
         <button
@@ -218,7 +234,7 @@ export function RecruitmentDashboard({
             onChange={(e) => setCoordinatorFilter(e.target.value)}
             options={[
               { value: 'ALL', label: 'Todos' },
-              ...data.coordinators.map(c => ({ value: c.id, label: c.nombreCompleto }))
+              ...data.coordinators.map((c) => ({ value: c.id, label: c.nombreCompleto })),
             ]}
           />
           <Select
@@ -227,7 +243,7 @@ export function RecruitmentDashboard({
             onChange={(e) => setCadenaFilter(e.target.value)}
             options={[
               { value: 'ALL', label: 'Todas' },
-              ...cadenas.map(c => ({ value: c, label: c }))
+              ...cadenas.map((c) => ({ value: c, label: c })),
             ]}
           />
           <Select
@@ -236,7 +252,7 @@ export function RecruitmentDashboard({
             onChange={(e) => setCiudadFilter(e.target.value)}
             options={[
               { value: 'ALL', label: 'Todas' },
-              ...ciudades.map(c => ({ value: c, label: c }))
+              ...ciudades.map((c) => ({ value: c, label: c })),
             ]}
           />
         </div>
@@ -247,13 +263,13 @@ export function RecruitmentDashboard({
         title="Pipeline de Candidatos"
         subtitle="Flujo desde CV filtrado hasta Onboarding final."
         stageOrder={pipelineOrder}
-        items={filteredAltaCandidates.map(item => ({
+        items={filteredAltaCandidates.map((item) => ({
           id: item.id,
           stageKey: item.stageKey,
           title: item.nombreCompleto,
           line1: item.empleado.onboarding.pdvObjetivoLabel ?? 'Sin PDV asignado',
           line2: `Alta: ${formatDate(item.empleado.fechaAlta)}`,
-          empleado: item.empleado
+          empleado: item.empleado,
         }))}
         getStageMeta={getRecruitingStageMeta}
         onOpen={onOpen}
@@ -264,13 +280,13 @@ export function RecruitmentDashboard({
         title="Pipeline de Bajas"
         subtitle="Seguimiento de salidas y cierres institucionales."
         stageOrder={bajaPipelineOrder}
-        items={filteredBajaCandidates.map(item => ({
+        items={filteredBajaCandidates.map((item) => ({
           id: item.id,
           stageKey: item.stageKey,
           title: item.nombreCompleto,
           line1: item.empleado.motivoBaja ?? 'Motivo no registrado',
           line2: `Baja: ${formatDate(item.empleado.fechaBaja)}`,
-          empleado: item.empleado
+          empleado: item.empleado,
         }))}
         getStageMeta={getRecruitingBajaStageMeta}
         onOpen={onOpen}
@@ -280,9 +296,12 @@ export function RecruitmentDashboard({
       <Card className="border-slate-200/90 bg-white p-6 shadow-[0_12px_30px_rgba(15,23,42,0.08)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-950">Vacantes futuras ligadas a bajas</h2>
+            <h2 className="text-lg font-semibold text-slate-950">
+              Vacantes futuras ligadas a bajas
+            </h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-500">
-              Espejo operativo de la bandeja principal de Asignaciones. Reclutamiento ve aquí el impacto para coordinar cobertura sin mantener una lógica paralela.
+              Espejo operativo de la bandeja principal de Asignaciones. Reclutamiento ve aquí el
+              impacto para coordinar cobertura sin mantener una lógica paralela.
             </p>
           </div>
           <Link
@@ -305,5 +324,5 @@ export function RecruitmentDashboard({
         </div>
       </Card>
     </div>
-  )
+  );
 }

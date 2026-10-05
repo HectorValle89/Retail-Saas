@@ -4,22 +4,22 @@ const path = require('node:path');
 
 function loadEnvFile(filePath, { override = false } = {}) {
   if (!fs.existsSync(filePath)) {
-    return
+    return;
   }
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/)
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
   for (const line of lines) {
-    const trimmed = line.trim()
+    const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) {
-      continue
+      continue;
     }
-    const separatorIndex = trimmed.indexOf('=')
+    const separatorIndex = trimmed.indexOf('=');
     if (separatorIndex === -1) {
-      continue
+      continue;
     }
-    const key = trimmed.slice(0, separatorIndex).trim()
-    const value = trimmed.slice(separatorIndex + 1).trim()
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
     if (override || !process.env[key]) {
-      process.env[key] = value
+      process.env[key] = value;
     }
   }
 }
@@ -34,7 +34,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function run() {
   const email = 'test_supervisor_03@fieldforce.test';
-  
+
   // 1. Encontrar empleado
   const { data: usuario } = await supabase
     .from('usuario')
@@ -58,20 +58,22 @@ async function run() {
     .order('semana_inicio', { ascending: false });
 
   console.log('\nRutas encontradas:', rutas.length);
-  rutas.forEach(r => {
-    console.log(`- ID: ${r.id} | Semana: ${r.semana_inicio} | Estatus: ${r.estatus} | Cuenta: ${r.cuenta_cliente_id}`);
+  rutas.forEach((r) => {
+    console.log(
+      `- ID: ${r.id} | Semana: ${r.semana_inicio} | Estatus: ${r.estatus} | Cuenta: ${r.cuenta_cliente_id}`
+    );
     console.log(`  Metadata:`, JSON.stringify(r.metadata, null, 2));
   });
 
   // 3. Verificar si hay rutas para la semana del 13 de abril
-  const week13 = rutas.find(r => r.semana_inicio === '2026-04-13');
+  const week13 = rutas.find((r) => r.semana_inicio === '2026-04-13');
   if (week13) {
     const { data: visitas } = await supabase
       .from('ruta_semanal_visita')
       .select('id, pdv_id, dia_semana, orden, estatus')
       .eq('ruta_semanal_id', week13.id);
     console.log(`\nVisitas para la semana del 13 de abril (${visitas.length}):`);
-    visitas.forEach(v => {
+    visitas.forEach((v) => {
       console.log(`  - Día ${v.dia_semana} | Orden ${v.orden} | Estatus: ${v.estatus}`);
     });
   }

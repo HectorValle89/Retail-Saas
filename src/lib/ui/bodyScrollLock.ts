@@ -1,49 +1,49 @@
-let activeBodyScrollLocks = 0
-let previousBodyOverflow: string | null = null
+let activeBodyScrollLocks = 0;
+let previousBodyOverflow: string | null = null;
 
 export function lockBodyScroll() {
   if (typeof document === 'undefined') {
-    return () => {}
+    return () => {};
   }
 
-  const body = document.body
+  const body = document.body;
 
   if (activeBodyScrollLocks === 0) {
-    previousBodyOverflow = body.style.overflow
-    body.style.overflow = 'hidden'
-    body.dataset.scrollLock = 'true'
+    previousBodyOverflow = body.style.overflow;
+    body.style.overflow = 'hidden';
+    body.dataset.scrollLock = 'true';
   }
 
-  activeBodyScrollLocks += 1
+  activeBodyScrollLocks += 1;
 
-  let released = false
+  let released = false;
 
   return () => {
     if (released || typeof document === 'undefined') {
-      return
+      return;
     }
 
-    released = true
-    activeBodyScrollLocks = Math.max(0, activeBodyScrollLocks - 1)
+    released = true;
+    activeBodyScrollLocks = Math.max(0, activeBodyScrollLocks - 1);
 
     if (activeBodyScrollLocks === 0) {
-      document.body.style.overflow = previousBodyOverflow ?? ''
-      delete document.body.dataset.scrollLock
-      previousBodyOverflow = null
+      document.body.style.overflow = previousBodyOverflow ?? '';
+      delete document.body.dataset.scrollLock;
+      previousBodyOverflow = null;
     }
-  }
+  };
 }
 
 export function getActiveBodyScrollLocks() {
-  return activeBodyScrollLocks
+  return activeBodyScrollLocks;
 }
 
 export function resetBodyScrollLocksForTest() {
-  activeBodyScrollLocks = 0
-  previousBodyOverflow = null
+  activeBodyScrollLocks = 0;
+  previousBodyOverflow = null;
 
   if (typeof document !== 'undefined') {
-    document.body.style.overflow = ''
-    delete document.body.dataset.scrollLock
+    document.body.style.overflow = '';
+    delete document.body.dataset.scrollLock;
   }
 }

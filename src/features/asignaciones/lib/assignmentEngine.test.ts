@@ -1,8 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import {
-  buildAssignmentEngineAlerts,
-  buildAssignmentTransitionPlan,
-} from './assignmentEngine'
+import { describe, expect, it } from 'vitest';
+import { buildAssignmentEngineAlerts, buildAssignmentTransitionPlan } from './assignmentEngine';
 
 describe('assignmentEngine', () => {
   it('cierra asignacion activa y crea retorno automatico cuando un movimiento temporal debe volver a base', () => {
@@ -52,9 +49,9 @@ describe('assignmentEngine', () => {
           estado_publicacion: 'PUBLICADA',
         },
       ]
-    )
+    );
 
-    expect(plan.ignoredComparableIds).toEqual(['base-1'])
+    expect(plan.ignoredComparableIds).toEqual(['base-1']);
     expect(plan.updates).toEqual([
       {
         id: 'base-1',
@@ -63,7 +60,7 @@ describe('assignmentEngine', () => {
           observaciones: '[AUTO CIERRE 2026-04-10]',
         },
       },
-    ])
+    ]);
     expect(plan.continuationInsert).toMatchObject({
       empleado_id: 'emp-1',
       pdv_id: 'pdv-a',
@@ -72,8 +69,8 @@ describe('assignmentEngine', () => {
       naturaleza: 'BASE',
       motivo_movimiento: 'RETORNO_AUTOMATICO_A_BASE',
       generado_automaticamente: true,
-    })
-  })
+    });
+  });
 
   it('genera alertas por temporales por vencer y huecos operativos', () => {
     const alerts = buildAssignmentEngineAlerts(
@@ -102,12 +99,12 @@ describe('assignmentEngine', () => {
         },
       ],
       '2026-04-01'
-    )
+    );
 
     expect(alerts.map((item) => item.code)).toEqual([
       'TEMPORAL_POR_VENCER',
       'DC_SIN_PDV_PROXIMO',
       'PDV_QUEDARA_LIBRE',
-    ])
-  })
-})
+    ]);
+  });
+});

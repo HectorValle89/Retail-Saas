@@ -1,30 +1,29 @@
-import { cookies, headers } from 'next/headers'
+import { cookies, headers } from 'next/headers';
 import {
   getSingleTenantAccountId,
   getSingleTenantAccountLabel,
   isSingleTenantBackendEnabled,
-} from '@/lib/tenant/singleTenant'
+} from '@/lib/tenant/singleTenant';
 
-export const ACTIVE_ACCOUNT_COOKIE = 'ff_active_cuenta_cliente_id'
-export const ACTIVE_ACCOUNT_HEADER = 'x-retail-active-account-id'
-export const ACTIVE_ACCOUNT_SCOPE_HEADER = 'x-retail-account-scope'
+export const ACTIVE_ACCOUNT_COOKIE = 'ff_active_cuenta_cliente_id';
+export const ACTIVE_ACCOUNT_HEADER = 'x-retail-active-account-id';
+export const ACTIVE_ACCOUNT_SCOPE_HEADER = 'x-retail-account-scope';
 
 export interface AccountScopeOption {
-  id: string
-  identificador: string
-  nombre: string
-  activa: boolean
+  id: string;
+  identificador: string;
+  nombre: string;
+  activa: boolean;
 }
 
 export interface AccountScopeData {
-  enabled: boolean
-  currentAccountId: string | null
-  currentAccountLabel: string
-  options: AccountScopeOption[]
+  enabled: boolean;
+  currentAccountId: string | null;
+  currentAccountLabel: string;
+  options: AccountScopeOption[];
 }
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const SCOPED_TABLES = new Set([
   'asignacion',
@@ -46,60 +45,57 @@ export const SCOPED_TABLES = new Set([
   'audit_log',
   'cuenta_cliente_pdv',
   'dashboard_kpis',
-])
+]);
 
 function normalizeAccountId(value: string | null | undefined) {
-  const normalized = String(value ?? '').trim()
-  return UUID_PATTERN.test(normalized) ? normalized : null
+  const normalized = String(value ?? '').trim();
+  return UUID_PATTERN.test(normalized) ? normalized : null;
 }
 
 export function readTableFromRestUrl(url: URL) {
-  const marker = '/rest/v1/'
-  const index = url.pathname.indexOf(marker)
+  const marker = '/rest/v1/';
+  const index = url.pathname.indexOf(marker);
 
   if (index === -1) {
-    return null
+    return null;
   }
 
-  const resource = url.pathname.slice(index + marker.length)
-  const [table] = resource.split('/')
-  return table ? decodeURIComponent(table) : null
+  const resource = url.pathname.slice(index + marker.length);
+  const [table] = resource.split('/');
+  return table ? decodeURIComponent(table) : null;
 }
 
 export function applyAccountFilterToRestUrl(url: URL, accountId: string) {
-  const table = readTableFromRestUrl(url)
+  const table = readTableFromRestUrl(url);
 
   if (!table || !SCOPED_TABLES.has(table)) {
-    return url
+    return url;
   }
 
   if (!url.searchParams.has('cuenta_cliente_id')) {
-    url.searchParams.append('cuenta_cliente_id', `eq.${accountId}`)
+    url.searchParams.append('cuenta_cliente_id', `eq.${accountId}`);
   }
 
-  return url
+  return url;
 }
 
-export function createTenantScopedFetch(
-  accountId: string | null,
-  baseFetch: typeof fetch = fetch
-) {
-  const normalizedAccountId = normalizeAccountId(accountId)
+export function createTenantScopedFetch(accountId: string | null, baseFetch: typeof fetch = fetch) {
+  const normalizedAccountId = normalizeAccountId(accountId);
 
   if (!normalizedAccountId) {
-    return baseFetch
+    return baseFetch;
   }
 
   return async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = input instanceof Request ? input : new Request(input, init)
-    const scopedUrl = applyAccountFilterToRestUrl(new URL(request.url), normalizedAccountId)
+    const request = input instanceof Request ? input : new Request(input, init);
+    const scopedUrl = applyAccountFilterToRestUrl(new URL(request.url), normalizedAccountId);
 
     if (scopedUrl.toString() === request.url) {
-      return baseFetch(request)
+      return baseFetch(request);
     }
 
-    return baseFetch(new Request(scopedUrl, request))
-  }
+    return baseFetch(new Request(scopedUrl, request));
+  };
 }
 
 export async function readRequestAccountScope() {
@@ -107,28 +103,27 @@ export async function readRequestAccountScope() {
     return {
       accountId: getSingleTenantAccountId(),
       scope: 'scoped' as const,
-    }
+    };
   }
 
-  const requestHeaders = await headers()
-  const cookieStore = await cookies()
+  const requestHeaders = await headers();
+  const cookieStore = await cookies();
 
   return {
     accountId:
       normalizeAccountId(requestHeaders.get(ACTIVE_ACCOUNT_HEADER)) ??
       normalizeAccountId(cookieStore.get(ACTIVE_ACCOUNT_COOKIE)?.value) ??
       null,
-    scope:
-      requestHeaders.get(ACTIVE_ACCOUNT_SCOPE_HEADER) === 'scoped' ? 'scoped' : 'global',
-  }
+    scope: requestHeaders.get(ACTIVE_ACCOUNT_SCOPE_HEADER) === 'scoped' ? 'scoped' : 'global',
+  };
 }
 
 export function normalizeRequestedAccountId(value: unknown) {
   if (isSingleTenantBackendEnabled()) {
-    return getSingleTenantAccountId()
+    return getSingleTenantAccountId();
   }
 
-  return normalizeAccountId(typeof value === 'string' ? value : null)
+  return normalizeAccountId(typeof value === 'string' ? value : null);
 }
 
 export function getSingleTenantScopeData(): AccountScopeData {
@@ -137,5 +132,5 @@ export function getSingleTenantScopeData(): AccountScopeData {
     currentAccountId: getSingleTenantAccountId(),
     currentAccountLabel: getSingleTenantAccountLabel(),
     options: [],
-  }
+  };
 }

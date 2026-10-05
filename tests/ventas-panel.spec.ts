@@ -1,22 +1,22 @@
-import { expect, test } from '@playwright/test'
-import { obtenerPanelVentas } from '../src/features/ventas/services/ventaService'
+import { expect, test } from '@playwright/test';
+import { obtenerPanelVentas } from '../src/features/ventas/services/ventaService';
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+};
 
 function createFakeVentasClient(results: Record<string, QueryResult>) {
   return {
     from(table: string) {
-      const entry = results[table] ?? { data: [], error: null }
+      const entry = results[table] ?? { data: [], error: null };
 
       const chain = {
         select(
           _columns?: string,
           options?: {
-            count?: 'exact' | 'planned' | 'estimated'
-            head?: boolean
+            count?: 'exact' | 'planned' | 'estimated';
+            head?: boolean;
           }
         ) {
           if (options?.head) {
@@ -24,41 +24,41 @@ function createFakeVentasClient(results: Record<string, QueryResult>) {
               data: null,
               error: entry.error,
               count: Array.isArray(entry.data) ? entry.data.length : 0,
-            })
+            });
           }
 
-          return chain
+          return chain;
         },
         eq() {
-          return chain
+          return chain;
         },
         in() {
-          return chain
+          return chain;
         },
         gte() {
-          return chain
+          return chain;
         },
         lte() {
-          return chain
+          return chain;
         },
         order() {
-          return chain
+          return chain;
         },
         range() {
-          return Promise.resolve(entry)
+          return Promise.resolve(entry);
         },
         limit() {
-          return Promise.resolve(entry)
+          return Promise.resolve(entry);
         },
-      }
+      };
 
-      return chain
+      return chain;
     },
-  }
+  };
 }
 
 test('expone indicador visual de cuota diaria estimada para la jornada activa', async () => {
-  const todayIso = new Date().toISOString().slice(0, 10)
+  const todayIso = new Date().toISOString().slice(0, 10);
   const client = createFakeVentasClient({
     venta: {
       data: [
@@ -159,19 +159,19 @@ test('expone indicador visual de cuota diaria estimada para la jornada activa', 
       ],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelVentas(client as never)
+  const data = await obtenerPanelVentas(client as never);
 
   expect(data.resumen).toMatchObject({
     total: 2,
     confirmadas: 2,
     monto: 1200,
-  })
+  });
   expect(data.jornadasContexto[0]).toMatchObject({
     empleado: 'Ana Uno',
     abierta: true,
-  })
+  });
   expect(data.jornadasContexto[0]?.cuotaDiaria).toMatchObject({
     objetivoDiarioMonto: 1000,
     avanceHoyMonto: 1200,
@@ -179,11 +179,11 @@ test('expone indicador visual de cuota diaria estimada para la jornada activa', 
     cumplimientoPeriodoPct: 120,
     cuotaEstado: 'CUMPLIDA',
     semaforo: 'VERDE',
-  })
+  });
   expect(data.catalogoProductos[0]).toMatchObject({
     id: 'prod-1',
     sku: 'SKU-001',
     nombre: 'Fusion Water',
     nombreCorto: 'Fusion',
-  })
-})
+  });
+});

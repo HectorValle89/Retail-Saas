@@ -6,6 +6,7 @@ description: Contenedorizar PocketBase en VPS con backups automáticos
 # Docker PocketBase Setup
 
 ## Dockerfile
+
 ```dockerfile
 FROM alpine:latest
 
@@ -26,13 +27,14 @@ CMD ["./pocketbase", "serve", "--http=0.0.0.0:8090"]
 ```
 
 ## docker-compose.yml
+
 ```yaml
 version: '3.8'
 services:
   pocketbase:
     build: .
     ports:
-      - "8090:8090"
+      - '8090:8090'
     volumes:
       - ./pb_data:/app/pb_data
       - ./pb_backups:/app/pb_backups
@@ -42,6 +44,7 @@ services:
 ```
 
 ## Backup Script
+
 ```bash
 #!/bin/bash
 # /app/backup.sh
@@ -51,6 +54,7 @@ find /app/pb_backups -name "backup_*.db" -mtime +7 -delete
 ```
 
 ## Crontab
+
 ```bash
 0 2 * * * /app/backup.sh
 ```

@@ -1,30 +1,41 @@
-import { resolveAssignmentsForDate, type AssignmentScheduleLike } from '@/features/asignaciones/lib/assignmentEngine'
+import {
+  resolveAssignmentsForDate,
+  type AssignmentScheduleLike,
+} from '@/features/asignaciones/lib/assignmentEngine';
 
 export interface CheckInAssignmentRow extends AssignmentScheduleLike {
-  cuenta_cliente_id: string | null
-  supervisor_empleado_id: string | null
-  estado_publicacion: 'BORRADOR' | 'PUBLICADA'
+  cuenta_cliente_id: string | null;
+  supervisor_empleado_id: string | null;
+  estado_publicacion: 'BORRADOR' | 'PUBLICADA';
 }
 
 interface AssignmentQueryBuilder {
-  select(columns: string): AssignmentQueryBuilder
-  eq(column: string, value: string): AssignmentQueryBuilder
-  lte(column: string, value: string): AssignmentQueryBuilder
-  or(filter: string): AssignmentQueryBuilder
-  order(column: string, options?: { ascending?: boolean; nullsFirst?: boolean }): AssignmentQueryBuilder
-  limit(count: number): Promise<{ data: CheckInAssignmentRow[] | CheckInAssignmentRow | null; error: { message: string } | null }>
-  maybeSingle(): Promise<{ data: CheckInAssignmentRow | null; error: { message: string } | null }>
+  select(columns: string): AssignmentQueryBuilder;
+  eq(column: string, value: string): AssignmentQueryBuilder;
+  lte(column: string, value: string): AssignmentQueryBuilder;
+  or(filter: string): AssignmentQueryBuilder;
+  order(
+    column: string,
+    options?: { ascending?: boolean; nullsFirst?: boolean }
+  ): AssignmentQueryBuilder;
+  limit(
+    count: number
+  ): Promise<{
+    data: CheckInAssignmentRow[] | CheckInAssignmentRow | null;
+    error: { message: string } | null;
+  }>;
+  maybeSingle(): Promise<{ data: CheckInAssignmentRow | null; error: { message: string } | null }>;
 }
 
 interface AssignmentPersistenceService {
-  from(table: 'asignacion'): AssignmentQueryBuilder
+  from(table: 'asignacion'): AssignmentQueryBuilder;
 }
 
 export interface ResolveCheckInAssignmentInput {
-  assignmentId: string | null
-  empleadoId: string
-  pdvId: string
-  fechaOperacion: string
+  assignmentId: string | null;
+  empleadoId: string;
+  pdvId: string;
+  fechaOperacion: string;
 }
 
 function isActiveAssignmentForDate(
@@ -37,7 +48,7 @@ function isActiveAssignmentForDate(
     assignment.estado_publicacion === 'PUBLICADA' &&
     assignment.fecha_inicio <= input.fechaOperacion &&
     (!assignment.fecha_fin || assignment.fecha_fin >= input.fechaOperacion)
-  )
+  );
 }
 
 export async function resolveCheckInAssignmentForPersistence(
@@ -45,7 +56,7 @@ export async function resolveCheckInAssignmentForPersistence(
   input: ResolveCheckInAssignmentInput
 ) {
   if (!input.assignmentId) {
-    throw new Error('El check-in requiere una asignacion activa con PDV y horario de referencia.')
+    throw new Error('El check-in requiere una asignacion activa con PDV y horario de referencia.');
   }
 
   const selectColumns = [
@@ -63,20 +74,20 @@ export async function resolveCheckInAssignmentForPersistence(
     'prioridad',
     'tipo',
     'estado_publicacion',
-  ].join(', ')
+  ].join(', ');
 
   const { data: directAssignment, error: directError } = await service
     .from('asignacion')
     .select(selectColumns)
     .eq('id', input.assignmentId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (directError) {
-    throw new Error(directError.message)
+    throw new Error(directError.message);
   }
 
   if (directAssignment && isActiveAssignmentForDate(directAssignment, input)) {
-    return directAssignment
+    return directAssignment;
   }
 
   const { data: fallbackRows, error: fallbackError } = await service
@@ -90,20 +101,25 @@ export async function resolveCheckInAssignmentForPersistence(
     .order('prioridad', { ascending: false, nullsFirst: false })
     .order('fecha_inicio', { ascending: false, nullsFirst: false })
     .order('id', { ascending: false, nullsFirst: false })
-    .limit(50)
+    .limit(50);
 
   if (fallbackError) {
-    throw new Error(fallbackError.message)
+    throw new Error(fallbackError.message);
   }
 
-  const resolvedFallback = resolveAssignmentsForDate(
-    (Array.isArray(fallbackRows) ? fallbackRows : fallbackRows ? [fallbackRows] : []) as AssignmentScheduleLike[],
-    input.fechaOperacion
-  )[0] ?? null
+  const resolvedFallback =
+    resolveAssignmentsForDate(
+      (Array.isArray(fallbackRows)
+        ? fallbackRows
+        : fallbackRows
+          ? [fallbackRows]
+          : []) as AssignmentScheduleLike[],
+      input.fechaOperacion
+    )[0] ?? null;
 
   if (resolvedFallback) {
-    return resolvedFallback as CheckInAssignmentRow
+    return resolvedFallback as CheckInAssignmentRow;
   }
 
-  throw new Error('El check-in requiere una asignacion activa con PDV y horario de referencia.')
+  throw new Error('El check-in requiere una asignacion activa con PDV y horario de referencia.');
 }

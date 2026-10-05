@@ -225,21 +225,35 @@ export async function POST(request: Request) {
     const payload = parsePayload(formData.get('payload'));
     const cuentaClienteId = asString(payload.cuenta_cliente_id) ?? actor.cuentaClienteId;
     const supervisorEmpleadoId = asString(payload.supervisor_empleado_id) ?? actor.empleadoId;
-    const offlineClientId = asString(payload.offline_client_id);
+    const offlineClientId =
+      asString(payload.offline_client_id) ||
+      `offline_auto_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    payload.offline_client_id = offlineClientId;
+
     const correctionMode = isCorrectionMode(payload);
     const correctionDeliveryId = asString(payload.correccion_entrega_id);
     const correctionClientId = asString(payload.correccion_client_id) ?? offlineClientId;
-    const entregaFisicaFile = asUploadedFile(formData.get('evidencia_entrega_fisica_file'));
-    const acuseFiles = formData
+
+    const rawEntregaFisica =
+      asUploadedFile(formData.get('evidencia_entrega_fisica_file')) ||
+      asUploadedFile(formData.get('evidencia_1')) ||
+      asUploadedFile(formData.get('evidencia_0'));
+
+    const rawAcuseList = formData
       .getAll('acuse_firmado_files')
       .map(asUploadedFile)
       .filter((file): file is File => Boolean(file));
 
+    if (rawAcuseList.length === 0) {
+      const fallbackAcuse = asUploadedFile(formData.get('evidencia_0'));
+      if (fallbackAcuse) rawAcuseList.push(fallbackAcuse);
+    }
+
+    const entregaFisicaFile = rawEntregaFisica;
+    const acuseFiles = rawAcuseList;
+
     if (!cuentaClienteId) {
       throw new Error('La cuenta cliente es obligatoria para sincronizar la entrega.');
-    }
-    if (!offlineClientId) {
-      throw new Error('El identificador offline de la entrega es obligatorio.');
     }
     if (correctionMode && !correctionDeliveryId) {
       throw new Error('La entrega a corregir es obligatoria.');
@@ -247,7 +261,199 @@ export async function POST(request: Request) {
     if (!correctionMode && !entregaFisicaFile) {
       throw new Error('La evidencia de entrega fisica es obligatoria.');
     }
+    // Resolve virtual/draft distributions or PDV IDs on-the-fly
+    let distribucionId = asString(payload.distribucion_id);
     const payloadMetadata = asObject(payload.metadata);
+    const pdvId = asString(payload.pdv_id);
+
+    // Verify if distribucionId is actually a valid material_distribucion_mensual record
+    let isRealDistribution = false;
+    if (distribucionId && distribucionId !== 'virtual') {
+      const { data: checkDist } = await service
+        .from('material_distribucion_mensual')
+        .select('id')
+        .eq('id', distribucionId)
+        .maybeSingle();
+      if (checkDist) {
+        isRealDistribution = true;
+      }
+    }
+
+    const isVirtual = !isRealDistribution;
+
+    if (!correctionMode && isVirtual) {
+      const mesOperacion =
+        asString(payloadMetadata.mes_operacion) ||
+        asString(payload.mes_operacion) ||
+        getCurrentMonth();
+      const tipoDispersion = asString(payloadMetadata.tipo_dispersion) || 'MENSUAL';
+
+      if (!pdvId) {
+        throw new Error('El punto de venta es obligatorio para la entrega.');
+      }
+
+      // 1. Check if a distribution already exists
+      const { data: existingDist, error: distError } = await service
+        .from('material_distribucion_mensual')
+        .select('id')
+        .eq('cuenta_cliente_id', cuentaClienteId)
+        .eq('pdv_id', pdvId)
+        .eq('mes_operacion', mesOperacion)
+        .maybeSingle();
+
+      if (distError) {
+        throw new Error('Error al buscar distribución: ' + distError.message);
+      }
+
+      if (existingDist) {
+        distribucionId = existingDist.id;
+      } else {
+        // Fetch pdv info for snapshot fields
+        const { data: pdvInfo, error: pdvError } = await service
+          .from('pdv')
+          .select('nombre, clave_btl, zona, id_cadena, cadena:cadena_id(nombre)')
+          .eq('id', pdvId)
+          .maybeSingle();
+
+        if (pdvError || !pdvInfo) {
+          throw new Error('Error al obtener datos del PDV: ' + (pdvError?.message || 'No encontrado'));
+        }
+
+        const pdvChain = Array.isArray(pdvInfo.cadena) ? pdvInfo.cadena[0] : pdvInfo.cadena;
+        const cadenaName = pdvChain?.nombre ?? null;
+
+        // Insert new distribution
+        const { data: newDist, error: insertDistError } = await service
+          .from('material_distribucion_mensual')
+          .insert({
+            cuenta_cliente_id: cuentaClienteId,
+            pdv_id: pdvId,
+            supervisor_empleado_id: supervisorEmpleadoId,
+            mes_operacion: mesOperacion,
+            tipo_dispersion: tipoDispersion,
+            estado: 'PENDIENTE_RECEPCION',
+            sucursal_snapshot: pdvInfo.nombre,
+            cadena_snapshot: cadenaName,
+            id_pdv_cadena_snapshot: pdvInfo.id_cadena,
+            territorio_snapshot: pdvInfo.zona,
+            hoja_origen: 'VIRTUAL',
+            metadata: {
+              creado_al_vuelo: true,
+              creado_en: new Date().toISOString(),
+            },
+          })
+          .select('id')
+          .single();
+
+        if (insertDistError || !newDist) {
+          throw new Error('Error al crear distribución al vuelo: ' + insertDistError?.message);
+        }
+
+        distribucionId = newDist.id;
+      }
+
+      // Update payload
+      payload.distribucion_id = distribucionId;
+    }
+
+    // Map/expand payload.detalles dynamically based on database details
+    if (distribucionId) {
+      const frontendDetail = Array.isArray(payload.detalles) ? payload.detalles[0] : null;
+      const isCompleto = frontendDetail?.estado_item !== 'CON_DISCREPANCIA';
+      const observaciones = frontendDetail?.observaciones || null;
+
+      if (correctionMode) {
+        // Query existing delivery details
+        const { data: currentDetails, error: currentDetailsError } = await service
+          .from('material_entrega_ultima_milla_detalle')
+          .select('id, distribucion_detalle_id, material_catalogo_id, cantidad_teorica')
+          .eq('entrega_id', correctionDeliveryId);
+
+        if (currentDetailsError) {
+          throw new Error('Error al buscar detalles de la entrega a corregir: ' + currentDetailsError.message);
+        }
+
+        if (currentDetails && currentDetails.length > 0) {
+          payload.detalles = currentDetails.map((dbDetail) => ({
+            distribucion_detalle_id: dbDetail.distribucion_detalle_id,
+            material_catalogo_id: dbDetail.material_catalogo_id,
+            cantidad_teorica: dbDetail.cantidad_teorica,
+            estado_item: isCompleto ? 'COMPLETO' : 'CON_DISCREPANCIA',
+            cantidad_real_recibida: isCompleto ? dbDetail.cantidad_teorica : 0,
+            observaciones: observaciones,
+          }));
+        }
+      } else {
+        // Query distribution details
+        const { data: dbDetails, error: detailsError } = await service
+          .from('material_distribucion_detalle')
+          .select('id, material_catalogo_id, cantidad_enviada, material_nombre_snapshot, material_tipo_mes')
+          .eq('distribucion_id', distribucionId);
+
+        if (detailsError) {
+          throw new Error('Error al buscar detalles de la distribución: ' + detailsError.message);
+        }
+
+        let finalDetails = dbDetails || [];
+        if (finalDetails.length === 0) {
+          // Fetch a default active material
+          const { data: catalogMaterial, error: materialError } = await service
+            .from('material_catalogo')
+            .select('id, nombre, tipo')
+            .eq('cuenta_cliente_id', cuentaClienteId)
+            .eq('activo', true)
+            .limit(1);
+
+          if (materialError) {
+            throw new Error('Error al buscar material de catálogo: ' + materialError.message);
+          }
+
+          const material = Array.isArray(catalogMaterial) ? catalogMaterial[0] : catalogMaterial;
+          if (!material) {
+            throw new Error('No se encontró ningún material activo en el catálogo de esta cuenta.');
+          }
+
+          const { data: newDetail, error: insertDetailError } = await service
+            .from('material_distribucion_detalle')
+            .insert({
+              distribucion_id: distribucionId,
+              material_catalogo_id: material.id,
+              cantidad_enviada: 1,
+              cantidad_recibida: 0,
+              cantidad_entregada: 0,
+              cantidad_observada: 0,
+              material_nombre_snapshot: material.nombre,
+              material_tipo_mes: material.tipo,
+              requiere_ticket_mes: false,
+              requiere_evidencia_entrega_mes: true,
+              requiere_evidencia_mercadeo: false,
+              es_regalo_dc: false,
+              excluir_de_registrar_entrega: false,
+              metadata: {
+                creado_al_vuelo: true,
+              },
+            })
+            .select('id, material_catalogo_id, cantidad_enviada, material_nombre_snapshot, material_tipo_mes')
+            .single();
+
+          if (insertDetailError || !newDetail) {
+            throw new Error('Error al crear detalle genérico: ' + insertDetailError?.message);
+          }
+
+          finalDetails = [newDetail];
+        }
+
+        payload.detalles = finalDetails.map((dbDetail) => ({
+          distribucion_detalle_id: dbDetail.id,
+          material_catalogo_id: dbDetail.material_catalogo_id,
+          cantidad_teorica: dbDetail.cantidad_enviada,
+          estado_item: isCompleto ? 'COMPLETO' : 'CON_DISCREPANCIA',
+          cantidad_real_recibida: isCompleto ? dbDetail.cantidad_enviada : 0,
+          observaciones: observaciones,
+        }));
+      }
+    }
+
     const payloadModoEntrega =
       asString(payloadMetadata.modo_entrega) === 'POR_CUBRIR' ? 'POR_CUBRIR' : 'ENTREGA_DC';
     const receptorOrigen = asString(payloadMetadata.receptor_origen);
@@ -447,12 +653,16 @@ export async function POST(request: Request) {
       estado: rpcResult.estado ?? null,
     });
   } catch (error) {
+    const errorMsg =
+      error instanceof Error
+        ? error.message
+        : 'No fue posible sincronizar la entrega de ultima milla.';
+    console.error('Error en /api/materiales/ultima-milla/sync:', error);
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'No fue posible sincronizar la entrega de ultima milla.',
+        ok: false,
+        message: errorMsg,
+        error: errorMsg,
       },
       { status: 400 }
     );

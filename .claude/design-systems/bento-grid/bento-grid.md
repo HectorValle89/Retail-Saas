@@ -1,6 +1,6 @@
 # Bento Grid - Sistema de Layout
 
-> *"El arte japonés del orden: cada elemento en su lugar perfecto."*
+> _"El arte japonés del orden: cada elemento en su lugar perfecto."_
 
 ## Referencia Visual
 
@@ -20,13 +20,13 @@
 
 ### Características Clave
 
-| Característica | Descripción |
-|----------------|-------------|
-| Cuadrícula modular | Elementos en celdas definidas |
-| Tamaños variados | Celdas de 1x1, 2x1, 1x2, 2x2, etc. |
-| Espaciado uniforme | Gap consistente entre elementos |
-| Responsive | Se reorganiza en diferentes breakpoints |
-| Contenido mixto | Texto, imágenes, iconos, stats |
+| Característica     | Descripción                             |
+| ------------------ | --------------------------------------- |
+| Cuadrícula modular | Elementos en celdas definidas           |
+| Tamaños variados   | Celdas de 1x1, 2x1, 1x2, 2x2, etc.      |
+| Espaciado uniforme | Gap consistente entre elementos         |
+| Responsive         | Se reorganiza en diferentes breakpoints |
+| Contenido mixto    | Texto, imágenes, iconos, stats          |
 
 ### Cuándo Usar
 
@@ -80,40 +80,40 @@ Bento Grid se construye principalmente con **CSS Grid**:
 
 ### Clases de Grid Principales
 
-| Clase | Descripción |
-|-------|-------------|
-| `grid` | Activa display: grid |
-| `grid-cols-1` | 1 columna |
-| `grid-cols-2` | 2 columnas |
-| `grid-cols-3` | 3 columnas |
-| `grid-cols-4` | 4 columnas |
-| `grid-cols-6` | 6 columnas |
-| `gap-4` | Espaciado de 1rem |
-| `gap-6` | Espaciado de 1.5rem |
+| Clase         | Descripción          |
+| ------------- | -------------------- |
+| `grid`        | Activa display: grid |
+| `grid-cols-1` | 1 columna            |
+| `grid-cols-2` | 2 columnas           |
+| `grid-cols-3` | 3 columnas           |
+| `grid-cols-4` | 4 columnas           |
+| `grid-cols-6` | 6 columnas           |
+| `gap-4`       | Espaciado de 1rem    |
+| `gap-6`       | Espaciado de 1.5rem  |
 
 ### Clases de Spanning
 
-| Clase | Efecto |
-|-------|--------|
-| `col-span-1` | Ocupa 1 columna |
-| `col-span-2` | Ocupa 2 columnas |
-| `col-span-3` | Ocupa 3 columnas |
+| Clase           | Efecto                   |
+| --------------- | ------------------------ |
+| `col-span-1`    | Ocupa 1 columna          |
+| `col-span-2`    | Ocupa 2 columnas         |
+| `col-span-3`    | Ocupa 3 columnas         |
 | `col-span-full` | Ocupa todas las columnas |
-| `row-span-1` | Ocupa 1 fila |
-| `row-span-2` | Ocupa 2 filas |
-| `row-span-3` | Ocupa 3 filas |
+| `row-span-1`    | Ocupa 1 fila             |
+| `row-span-2`    | Ocupa 2 filas            |
+| `row-span-3`    | Ocupa 3 filas            |
 
 ### Altura de Filas
 
 ```html
 <!-- Altura fija -->
 <div class="grid auto-rows-[200px] grid-cols-3 gap-4">
-
-<!-- Altura mínima -->
-<div class="grid auto-rows-[minmax(200px,auto)] grid-cols-3 gap-4">
-
-<!-- Con Tailwind arbitrary values -->
-<div class="grid auto-rows-[192px] grid-cols-3 gap-4">
+  <!-- Altura mínima -->
+  <div class="grid auto-rows-[minmax(200px,auto)] grid-cols-3 gap-4">
+    <!-- Con Tailwind arbitrary values -->
+    <div class="grid auto-rows-[192px] grid-cols-3 gap-4"></div>
+  </div>
+</div>
 ```
 
 ---
@@ -146,7 +146,9 @@ Bento Grid se construye principalmente con **CSS Grid**:
 ```html
 <div class="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-4">
   <!-- Hero (2x2 en md, 3x2 en lg) -->
-  <div class="md:col-span-2 md:row-span-2 lg:col-span-3 bg-gradient-to-br from-purple-500 to-pink-500 rounded-3xl p-8">
+  <div
+    class="md:col-span-2 md:row-span-2 lg:col-span-3 bg-gradient-to-br from-purple-500 to-pink-500 rounded-3xl p-8"
+  >
     <h2 class="text-white text-3xl font-bold mb-4">Main Feature</h2>
     <p class="text-white/80">Description of the main feature goes here.</p>
   </div>
@@ -206,7 +208,9 @@ Bento Grid se construye principalmente con **CSS Grid**:
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       <!-- Feature Card Large -->
-      <div class="lg:col-span-2 lg:row-span-2 bg-gradient-to-br from-blue-600 to-blue-800 rounded-3xl p-10 text-white">
+      <div
+        class="lg:col-span-2 lg:row-span-2 bg-gradient-to-br from-blue-600 to-blue-800 rounded-3xl p-10 text-white"
+      >
         <div class="h-full flex flex-col justify-between">
           <div>
             <span class="inline-block bg-white/20 rounded-full px-4 py-1 text-sm mb-6">New</span>
@@ -263,7 +267,9 @@ Bento Grid se construye principalmente con **CSS Grid**:
 ```html
 <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
   <!-- Main Stat (2x2) -->
-  <div class="col-span-2 row-span-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-8 text-white">
+  <div
+    class="col-span-2 row-span-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-8 text-white"
+  >
     <h3 class="text-lg font-medium mb-2 opacity-80">Total Revenue</h3>
     <span class="text-5xl font-bold">$124,500</span>
     <div class="mt-4 flex items-center gap-2 text-emerald-300">
@@ -301,7 +307,10 @@ Bento Grid se construye principalmente con **CSS Grid**:
 <div class="grid grid-cols-2 md:grid-cols-4 auto-rows-[250px] gap-4">
   <!-- Large image -->
   <div class="col-span-2 row-span-2 relative overflow-hidden rounded-2xl group">
-    <img src="/project1.jpg" class="w-full h-full object-cover transition-transform group-hover:scale-105" />
+    <img
+      src="/project1.jpg"
+      class="w-full h-full object-cover transition-transform group-hover:scale-105"
+    />
     <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent flex items-end p-6">
       <div class="text-white">
         <h3 class="font-bold text-xl">Project Name</h3>
@@ -312,16 +321,25 @@ Bento Grid se construye principalmente con **CSS Grid**:
 
   <!-- Regular images -->
   <div class="relative overflow-hidden rounded-2xl group">
-    <img src="/project2.jpg" class="w-full h-full object-cover transition-transform group-hover:scale-105" />
+    <img
+      src="/project2.jpg"
+      class="w-full h-full object-cover transition-transform group-hover:scale-105"
+    />
   </div>
 
   <div class="relative overflow-hidden rounded-2xl group">
-    <img src="/project3.jpg" class="w-full h-full object-cover transition-transform group-hover:scale-105" />
+    <img
+      src="/project3.jpg"
+      class="w-full h-full object-cover transition-transform group-hover:scale-105"
+    />
   </div>
 
   <!-- Wide image -->
   <div class="col-span-2 relative overflow-hidden rounded-2xl group">
-    <img src="/project4.jpg" class="w-full h-full object-cover transition-transform group-hover:scale-105" />
+    <img
+      src="/project4.jpg"
+      class="w-full h-full object-cover transition-transform group-hover:scale-105"
+    />
   </div>
 </div>
 ```
@@ -339,21 +357,24 @@ Bento Grid se construye principalmente con **CSS Grid**:
       <span class="text-gray-500">/month</span>
     </div>
     <ul class="space-y-3 text-gray-600 mb-8">
-      <li class="flex items-center gap-2">
-        <span class="text-emerald-500">✓</span> 5 projects
-      </li>
+      <li class="flex items-center gap-2"><span class="text-emerald-500">✓</span> 5 projects</li>
       <li class="flex items-center gap-2">
         <span class="text-emerald-500">✓</span> Basic analytics
       </li>
     </ul>
-    <button class="w-full py-3 border-2 border-gray-900 rounded-xl font-bold hover:bg-gray-900 hover:text-white transition-colors">
+    <button
+      class="w-full py-3 border-2 border-gray-900 rounded-xl font-bold hover:bg-gray-900 hover:text-white transition-colors"
+    >
       Get Started
     </button>
   </div>
 
   <!-- Pro (Featured - Larger) -->
   <div class="md:row-span-2 bg-gray-900 text-white rounded-3xl p-8 flex flex-col">
-    <span class="inline-block bg-amber-500 text-black px-3 py-1 rounded-full text-sm font-bold mb-4 w-fit">Popular</span>
+    <span
+      class="inline-block bg-amber-500 text-black px-3 py-1 rounded-full text-sm font-bold mb-4 w-fit"
+      >Popular</span
+    >
     <h3 class="font-bold text-2xl mb-2">Pro</h3>
     <p class="text-gray-400 mb-6">For teams</p>
     <div class="mb-6">
@@ -377,7 +398,9 @@ Bento Grid se construye principalmente con **CSS Grid**:
         <span class="text-emerald-400">✓</span> Team collaboration
       </li>
     </ul>
-    <button class="w-full py-4 bg-white text-gray-900 rounded-xl font-bold hover:bg-gray-100 transition-colors">
+    <button
+      class="w-full py-4 bg-white text-gray-900 rounded-xl font-bold hover:bg-gray-100 transition-colors"
+    >
       Start Free Trial
     </button>
   </div>
@@ -397,7 +420,9 @@ Bento Grid se construye principalmente con **CSS Grid**:
         <span class="text-emerald-500">✓</span> Dedicated support
       </li>
     </ul>
-    <button class="w-full py-3 border-2 border-gray-900 rounded-xl font-bold hover:bg-gray-900 hover:text-white transition-colors">
+    <button
+      class="w-full py-3 border-2 border-gray-900 rounded-xl font-bold hover:bg-gray-900 hover:text-white transition-colors"
+    >
       Contact Sales
     </button>
   </div>
@@ -484,6 +509,7 @@ Bento Grid se construye principalmente con **CSS Grid**:
 ```
 
 **Clases clave:**
+
 - `columns-X` - Número de columnas
 - `break-inside-avoid` - Evita que un elemento se divida
 - `mb-4` - Margen inferior (reemplaza gap)
@@ -540,7 +566,8 @@ Bento Grid se construye principalmente con **CSS Grid**:
 ### Estrategia de Breakpoints
 
 ```html
-<div class="
+<div
+  class="
   grid
   grid-cols-1          /* Mobile: 1 columna */
   sm:grid-cols-2       /* Small: 2 columnas */
@@ -548,21 +575,18 @@ Bento Grid se construye principalmente con **CSS Grid**:
   lg:grid-cols-4       /* Large: 4 columnas */
   xl:grid-cols-6       /* XL: 6 columnas */
   gap-4
-">
+"
+></div>
 ```
 
 ### Spanning Responsivo
 
 ```html
 <!-- Grande en desktop, normal en mobile -->
-<div class="col-span-1 md:col-span-2 lg:col-span-3">
-  Responsive item
-</div>
+<div class="col-span-1 md:col-span-2 lg:col-span-3">Responsive item</div>
 
 <!-- Alto solo en desktop -->
-<div class="row-span-1 lg:row-span-2">
-  Conditionally tall
-</div>
+<div class="row-span-1 lg:row-span-2">Conditionally tall</div>
 ```
 
 ---
@@ -572,37 +596,37 @@ Bento Grid se construye principalmente con **CSS Grid**:
 ### Minimal
 
 ```html
-<div class="bg-gray-50 rounded-2xl p-6">
+<div class="bg-gray-50 rounded-2xl p-6"></div>
 ```
 
 ### Con Borde
 
 ```html
-<div class="bg-white border border-gray-200 rounded-2xl p-6">
+<div class="bg-white border border-gray-200 rounded-2xl p-6"></div>
 ```
 
 ### Con Sombra
 
 ```html
-<div class="bg-white rounded-2xl p-6 shadow-lg">
+<div class="bg-white rounded-2xl p-6 shadow-lg"></div>
 ```
 
 ### Gradiente
 
 ```html
-<div class="bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl p-6 text-white">
+<div class="bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl p-6 text-white"></div>
 ```
 
 ### Glassmorphism
 
 ```html
-<div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-6">
+<div class="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-6"></div>
 ```
 
 ### Neobrutalism
 
 ```html
-<div class="bg-yellow-300 border-4 border-black shadow-[6px_6px_0_#000] rounded-xl p-6">
+<div class="bg-yellow-300 border-4 border-black shadow-[6px_6px_0_#000] rounded-xl p-6"></div>
 ```
 
 ---
@@ -617,4 +641,4 @@ Bento Grid se construye principalmente con **CSS Grid**:
 
 ---
 
-*Este documento es parte del Design System de SaaS Factory V2.*
+_Este documento es parte del Design System de SaaS Factory V2._

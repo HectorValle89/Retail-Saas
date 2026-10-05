@@ -4,22 +4,22 @@ const path = require('node:path');
 
 function loadEnvFile(filePath, { override = false } = {}) {
   if (!fs.existsSync(filePath)) {
-    return
+    return;
   }
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/)
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
   for (const line of lines) {
-    const trimmed = line.trim()
+    const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) {
-      continue
+      continue;
     }
-    const separatorIndex = trimmed.indexOf('=')
+    const separatorIndex = trimmed.indexOf('=');
     if (separatorIndex === -1) {
-      continue
+      continue;
     }
-    const key = trimmed.slice(0, separatorIndex).trim()
-    const value = trimmed.slice(separatorIndex + 1).trim()
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
     if (override || !process.env[key]) {
-      process.env[key] = value
+      process.env[key] = value;
     }
   }
 }
@@ -74,9 +74,9 @@ async function run() {
           approval: {
             state: 'APROBADA',
             note: 'Creada para pruebas de visitas diarias',
-            reviewedAt: new Date().toISOString()
-          }
-        }
+            reviewedAt: new Date().toISOString(),
+          },
+        },
       })
       .select()
       .single();
@@ -88,23 +88,23 @@ async function run() {
     ruta = newRuta;
   } else {
     // Asegurar que esté publicada y aprobada
-    await supabase.from('ruta_semanal').update({
-       estatus: 'PUBLICADA',
-       metadata: {
+    await supabase
+      .from('ruta_semanal')
+      .update({
+        estatus: 'PUBLICADA',
+        metadata: {
           approval: {
             state: 'APROBADA',
             note: 'Actualizada para pruebas',
-            reviewedAt: new Date().toISOString()
-          }
-       }
-    }).eq('id', ruta.id);
+            reviewedAt: new Date().toISOString(),
+          },
+        },
+      })
+      .eq('id', ruta.id);
   }
 
   // 3. Encontrar PDV de prueba (el primero que encuentre)
-  const { data: pdvs } = await supabase
-    .from('pdv')
-    .select('id, nombre')
-    .limit(1);
+  const { data: pdvs } = await supabase.from('pdv').select('id, nombre').limit(1);
 
   if (!pdvs || pdvs.length === 0) {
     console.log('Error: No se encontraron PDVs.');
@@ -115,25 +115,25 @@ async function run() {
   // 4. Crear 1 visita por día (Lunes a Domingo)
   console.log(`Asignando visitas al PDV: ${pdvs[0].nombre}`);
   const days = [1, 2, 3, 4, 5, 6, 7];
-  
+
   for (const day of days) {
-    const { error: visitError } = await supabase
-      .from('ruta_semanal_visita')
-      .insert({
-        ruta_semanal_id: ruta.id,
-        pdv_id: pdvId,
-        dia_semana: day,
-        orden: 1,
-        estatus: 'COMPLETADA', // Para que cuente como "hecha"
-        cuenta_cliente_id: accountId,
-        supervisor_empleado_id: empleadoId,
-        completada_en: new Date(new Date(weekStart).getTime() + (day - 1) * 24 * 60 * 60 * 1000).toISOString(),
-        metadata: {
-          checkIn: { at: new Date().toISOString() },
-          checkOut: { at: new Date().toISOString() }
-        }
-      });
-    
+    const { error: visitError } = await supabase.from('ruta_semanal_visita').insert({
+      ruta_semanal_id: ruta.id,
+      pdv_id: pdvId,
+      dia_semana: day,
+      orden: 1,
+      estatus: 'COMPLETADA', // Para que cuente como "hecha"
+      cuenta_cliente_id: accountId,
+      supervisor_empleado_id: empleadoId,
+      completada_en: new Date(
+        new Date(weekStart).getTime() + (day - 1) * 24 * 60 * 60 * 1000
+      ).toISOString(),
+      metadata: {
+        checkIn: { at: new Date().toISOString() },
+        checkOut: { at: new Date().toISOString() },
+      },
+    });
+
     if (visitError) {
       console.error(`Error en día ${day}:`, visitError);
     } else {

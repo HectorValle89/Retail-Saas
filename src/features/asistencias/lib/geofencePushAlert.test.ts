@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { buildGeofencePushAlert } from './geofencePushAlert'
+import { describe, expect, it } from 'vitest';
+import { buildGeofencePushAlert } from './geofencePushAlert';
 
 describe('buildGeofencePushAlert', () => {
   it('crea payload push para check-in fuera de geocerca con supervisor asignado', () => {
@@ -14,7 +14,7 @@ describe('buildGeofencePushAlert', () => {
       distanciaCheckInMetros: 412.8,
       justificacionFueraGeocerca: 'Ajuste de entrada',
       checkInUtc: '2026-03-18T15:00:00.000Z',
-    })
+    });
 
     expect(payload).toMatchObject({
       employeeIds: ['sup-1'],
@@ -27,10 +27,10 @@ describe('buildGeofencePushAlert', () => {
         registroId: 'asis-1',
         accion: 'fanout_alerta_geocerca_push',
       },
-    })
-    expect(payload?.body).toContain('San Pablo Centro')
-    expect(payload?.body).toContain('413 m')
-  })
+    });
+    expect(payload?.body).toContain('San Pablo Centro');
+    expect(payload?.body).toContain('413 m');
+  });
 
   it('omite push si no hay supervisor o la asistencia no esta fuera de geocerca', () => {
     expect(
@@ -46,7 +46,7 @@ describe('buildGeofencePushAlert', () => {
         justificacionFueraGeocerca: null,
         checkInUtc: '2026-03-18T15:10:00.000Z',
       })
-    ).toBeNull()
+    ).toBeNull();
 
     expect(
       buildGeofencePushAlert({
@@ -61,6 +61,6 @@ describe('buildGeofencePushAlert', () => {
         justificacionFueraGeocerca: null,
         checkInUtc: '2026-03-18T15:20:00.000Z',
       })
-    ).toBeNull()
-  })
-})
+    ).toBeNull();
+  });
+});

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   revalidatePathMock,
@@ -12,120 +12,150 @@ const {
   requerirPuestosActivosMock: vi.fn(),
   createServiceClientMock: vi.fn(),
   storeOptimizedEvidenceMock: vi.fn(),
-}))
+}));
 
 vi.mock('next/cache', () => ({
   revalidatePath: revalidatePathMock,
   revalidateTag: revalidateTagMock,
   unstable_cache: vi.fn((fn) => fn),
-}))
+}));
 
 vi.mock('@/lib/auth/session', () => ({
   requerirPuestosActivos: requerirPuestosActivosMock,
-}))
+}));
 
 vi.mock('@/lib/supabase/server', () => ({
   createServiceClient: createServiceClientMock,
-}))
+}));
 
 vi.mock('@/lib/files/evidenceStorage', () => ({
   storeOptimizedEvidence: storeOptimizedEvidenceMock,
-}))
+}));
 
-import { actualizarEstatusGasto, registrarGastoOperativo } from './actions'
-import { ESTADO_GASTO_INICIAL } from './state'
+import { actualizarEstatusGasto, registrarGastoOperativo } from './actions';
+import { ESTADO_GASTO_INICIAL } from './state';
 
 describe('gastos actions', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.clearAllMocks();
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-1',
       empleadoId: 'emp-1',
       puesto: 'COORDINADOR',
       nombreCompleto: 'Coordinacion Uno',
-    })
-  })
+    });
+  });
 
   it('registra un gasto de formacion con comprobante optimizado', async () => {
-    const inserts = [] as Array<{ table: string; payload: Record<string, unknown> }>
+    const inserts = [] as Array<{ table: string; payload: Record<string, unknown> }>;
     const service = {
       rpc() {
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: null, error: null });
       },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
               return {
                 maybeSingle() {
-                  return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null })
+                  return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null });
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'empleado') {
           return {
-            select() { return this },
-            in() { return this },
-            eq() { return this },
-            or() { return this },
-            maybeSingle() { return Promise.resolve({ data: { id: 'emp-1', nombre_completo: 'Test User' }, error: null }) },
-            single() { return this.maybeSingle() },
-          }
+            select() {
+              return this;
+            },
+            in() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            or() {
+              return this;
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: { id: 'emp-1', nombre_completo: 'Test User' },
+                error: null,
+              });
+            },
+            single() {
+              return this.maybeSingle();
+            },
+          };
         }
 
         if (table === 'usuario') {
           return {
-            select() { return this },
-            in() { return this },
-            eq() { return this },
-            or() { return this },
-            maybeSingle() { return Promise.resolve({ data: { id: 'user-1', email: 'test@example.com' }, error: null }) },
-            single() { return this.maybeSingle() },
-          }
+            select() {
+              return this;
+            },
+            in() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            or() {
+              return this;
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: { id: 'user-1', email: 'test@example.com' },
+                error: null,
+              });
+            },
+            single() {
+              return this.maybeSingle();
+            },
+          };
         }
 
         if (table === 'gasto') {
           return {
             insert(payload: Record<string, unknown>) {
-              inserts.push({ table, payload })
+              inserts.push({ table, payload });
               return {
                 select() {
                   return {
                     maybeSingle() {
-                      return Promise.resolve({ data: { id: 'gasto-1' }, error: null })
+                      return Promise.resolve({ data: { id: 'gasto-1' }, error: null });
                     },
-                  }
+                  };
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'audit_log') {
           return {
             insert(payload: Record<string, unknown>) {
-              inserts.push({ table, payload })
-              return Promise.resolve({ error: null })
+              inserts.push({ table, payload });
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         }
 
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       },
       storage: {
         createBucket() {
-          return Promise.resolve({ error: null })
+          return Promise.resolve({ error: null });
         },
       },
-    }
+    };
 
-    createServiceClientMock.mockReturnValue(service)
+    createServiceClientMock.mockReturnValue(service);
     storeOptimizedEvidenceMock.mockResolvedValue({
       archivo: { url: 'bucket/comprobante.jpg', hash: 'hash-1' },
       miniatura: null,
@@ -137,22 +167,22 @@ describe('gastos actions', () => {
         notes: [],
         officialAssetKind: 'optimized',
       },
-    })
+    });
 
-    const formData = new FormData()
-    formData.set('cuenta_cliente_id', 'cuenta-1')
-    formData.set('empleado_id', 'emp-1')
-    formData.set('supervisor_empleado_id', 'emp-2')
-    formData.set('pdv_id', 'pdv-1')
-    formData.set('formacion_evento_id', 'evento-1')
-    formData.set('tipo', 'FORMACION')
-    formData.set('monto', '350')
-    formData.set('fecha_gasto', '2026-03-19')
-    formData.set('comprobante', new File(['ok'], 'gasto.jpg', { type: 'image/jpeg' }))
+    const formData = new FormData();
+    formData.set('cuenta_cliente_id', 'cuenta-1');
+    formData.set('empleado_id', 'emp-1');
+    formData.set('supervisor_empleado_id', 'emp-2');
+    formData.set('pdv_id', 'pdv-1');
+    formData.set('formacion_evento_id', 'evento-1');
+    formData.set('tipo', 'FORMACION');
+    formData.set('monto', '350');
+    formData.set('fecha_gasto', '2026-03-19');
+    formData.set('comprobante', new File(['ok'], 'gasto.jpg', { type: 'image/jpeg' }));
 
-    const result = await registrarGastoOperativo(ESTADO_GASTO_INICIAL, formData)
+    const result = await registrarGastoOperativo(ESTADO_GASTO_INICIAL, formData);
 
-    expect(result.ok).toBe(true)
+    expect(result.ok).toBe(true);
     expect(inserts[0]).toMatchObject({
       table: 'gasto',
       payload: {
@@ -160,42 +190,42 @@ describe('gastos actions', () => {
         formacion_evento_id: 'evento-1',
         comprobante_url: 'bucket/comprobante.jpg',
       },
-    })
+    });
     expect(inserts[0]?.payload.metadata).toMatchObject({
       approval_stage: 'PENDIENTE_SUPERVISOR',
       tiene_comprobante: true,
-    })
-  })
+    });
+  });
 
   it('reembolsa un gasto aprobado y genera su entrada en ledger', async () => {
-    const updates = [] as Array<Record<string, unknown>>
-    const ledgerInserts = [] as Array<Record<string, unknown>>
-    const auditInserts = [] as Array<Record<string, unknown>>
+    const updates = [] as Array<Record<string, unknown>>;
+    const ledgerInserts = [] as Array<Record<string, unknown>>;
+    const auditInserts = [] as Array<Record<string, unknown>>;
 
     const service = {
       rpc() {
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: null, error: null });
       },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
               return {
                 maybeSingle() {
-                  return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null })
+                  return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null });
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'gasto') {
           return {
             select() {
-              return this
+              return this;
             },
             eq(column: string) {
               if (column === 'id') {
@@ -216,34 +246,34 @@ describe('gastos actions', () => {
                             metadata: { approval_stage: 'APROBADO' },
                           },
                           error: null,
-                        })
+                        });
                       },
-                    }
+                    };
                   },
-                }
+                };
               }
 
-              throw new Error(`Unexpected eq on ${table}.${column}`)
+              throw new Error(`Unexpected eq on ${table}.${column}`);
             },
             update(payload: Record<string, unknown>) {
-              updates.push(payload)
+              updates.push(payload);
               return {
                 eq() {
                   return {
                     eq() {
-                      return Promise.resolve({ error: null })
+                      return Promise.resolve({ error: null });
                     },
-                  }
+                  };
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'nomina_ledger') {
           return {
             select() {
-              return this
+              return this;
             },
             eq(column: string) {
               if (column === 'referencia_tabla') {
@@ -251,11 +281,11 @@ describe('gastos actions', () => {
                   eq() {
                     return {
                       maybeSingle() {
-                        return Promise.resolve({ data: null, error: null })
+                        return Promise.resolve({ data: null, error: null });
                       },
-                    }
+                    };
                   },
-                }
+                };
               }
 
               if (column === 'estado') {
@@ -266,103 +296,136 @@ describe('gastos actions', () => {
                         return Promise.resolve({
                           data: { id: 'periodo-1', clave: '2026-03-Q2' },
                           error: null,
-                        })
+                        });
                       },
-                    }
+                    };
                   },
-                }
+                };
               }
 
-              throw new Error(`Unexpected eq on ${table}.${column}`)
+              throw new Error(`Unexpected eq on ${table}.${column}`);
             },
             insert(payload: Record<string, unknown>) {
-              ledgerInserts.push(payload)
+              ledgerInserts.push(payload);
               return {
                 select() {
                   return {
                     maybeSingle() {
-                      return Promise.resolve({ data: { id: 'ledger-1' }, error: null })
+                      return Promise.resolve({ data: { id: 'ledger-1' }, error: null });
                     },
-                  }
+                  };
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'nomina_periodo') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
               return {
                 order() {
                   return {
                     maybeSingle() {
-                      return Promise.resolve({ data: { id: 'periodo-1', clave: '2026-03-Q2' }, error: null })
+                      return Promise.resolve({
+                        data: { id: 'periodo-1', clave: '2026-03-Q2' },
+                        error: null,
+                      });
                     },
-                  }
+                  };
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'audit_log') {
           return {
             insert(payload: Record<string, unknown>) {
-              auditInserts.push(payload)
-              return Promise.resolve({ error: null })
+              auditInserts.push(payload);
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         }
 
         if (table === 'empleado') {
           return {
-            select() { return this },
-            in() { return this },
-            eq() { return this },
-            or() { return this },
-            maybeSingle() { return Promise.resolve({ data: { id: 'emp-1', nombre_completo: 'Test User' }, error: null }) },
-            single() { return this.maybeSingle() },
-          }
+            select() {
+              return this;
+            },
+            in() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            or() {
+              return this;
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: { id: 'emp-1', nombre_completo: 'Test User' },
+                error: null,
+              });
+            },
+            single() {
+              return this.maybeSingle();
+            },
+          };
         }
 
         if (table === 'usuario') {
           return {
-            select() { return this },
-            in() { return this },
-            eq() { return this },
-            or() { return this },
-            maybeSingle() { return Promise.resolve({ data: { id: 'user-1', email: 'test@example.com' }, error: null }) },
-            single() { return this.maybeSingle() },
-          }
+            select() {
+              return this;
+            },
+            in() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            or() {
+              return this;
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: { id: 'user-1', email: 'test@example.com' },
+                error: null,
+              });
+            },
+            single() {
+              return this.maybeSingle();
+            },
+          };
         }
 
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       },
       storage: {
         createBucket() {
-          return Promise.resolve({ error: null })
+          return Promise.resolve({ error: null });
         },
       },
-    }
+    };
 
-    createServiceClientMock.mockReturnValue(service)
+    createServiceClientMock.mockReturnValue(service);
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'admin-1',
       empleadoId: 'emp-admin',
       puesto: 'ADMINISTRADOR',
       nombreCompleto: 'Admin Uno',
-    })
+    });
 
-    const formData = new FormData()
-    formData.set('gasto_id', 'gasto-1')
-    formData.set('cuenta_cliente_id', 'cuenta-1')
-    formData.set('estatus', 'REEMBOLSADO')
+    const formData = new FormData();
+    formData.set('gasto_id', 'gasto-1');
+    formData.set('cuenta_cliente_id', 'cuenta-1');
+    formData.set('estatus', 'REEMBOLSADO');
 
-    await actualizarEstatusGasto(formData)
+    await actualizarEstatusGasto(formData);
 
     expect(ledgerInserts[0]).toMatchObject({
       periodo_id: 'periodo-1',
@@ -370,20 +433,23 @@ describe('gastos actions', () => {
       referencia_id: 'gasto-1',
       concepto: 'REEMBOLSO_GASTO',
       monto: 350,
-    })
+    });
     expect(updates[0]).toMatchObject({
       estatus: 'REEMBOLSADO',
-    })
+    });
     expect(updates[0]?.metadata).toMatchObject({
       approval_stage: 'REEMBOLSADO',
       reembolso_ledger_id: 'ledger-1',
-    })
+    });
     expect(auditInserts[0]).toMatchObject({
       tabla: 'gasto',
       payload: {
         reembolso_ledger_id: 'ledger-1',
       },
-    })
-    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:nomina'), expect.anything())
-  })
-})
+    });
+    expect(revalidateTagMock).toHaveBeenCalledWith(
+      expect.stringContaining('module:nomina'),
+      expect.anything()
+    );
+  });
+});

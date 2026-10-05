@@ -1,72 +1,76 @@
-import { expect, test } from '@playwright/test'
-import type { ActorActual } from '../src/lib/auth/session'
-import { buildPublicRankingPanel, obtenerPanelRanking, resetRankingCache } from '../src/features/rankings/services/rankingService'
+import { expect, test } from '@playwright/test';
+import type { ActorActual } from '../src/lib/auth/session';
+import {
+  buildPublicRankingPanel,
+  obtenerPanelRanking,
+  resetRankingCache,
+} from '../src/features/rankings/services/rankingService';
 
 type QueryResult = {
-  data: unknown[] | null
-  error: { message: string } | null
-}
+  data: unknown[] | null;
+  error: { message: string } | null;
+};
 
 function createFakeRankingSupabase(results: {
-  ventas: QueryResult
-  love: QueryResult
-  empleados?: QueryResult
-  cuotas?: QueryResult
+  ventas: QueryResult;
+  love: QueryResult;
+  empleados?: QueryResult;
+  cuotas?: QueryResult;
 }) {
-  const eqValues = new Map<string, string>()
-  let ventasCalls = 0
-  let loveCalls = 0
-  let cuotasCalls = 0
+  const eqValues = new Map<string, string>();
+  let ventasCalls = 0;
+  let loveCalls = 0;
+  let cuotasCalls = 0;
 
   return {
     from(table: 'venta' | 'love_isdin' | 'empleado' | 'cuota_empleado_periodo') {
       return {
         select() {
-          return this
+          return this;
         },
         eq(column: string, value: string) {
-          eqValues.set(`${table}:${column}`, value)
-          return this
+          eqValues.set(`${table}:${column}`, value);
+          return this;
         },
         gte() {
-          return this
+          return this;
         },
         lt() {
-          return this
+          return this;
         },
         order() {
-          return this
+          return this;
         },
         in() {
-          return Promise.resolve(results.empleados ?? { data: [], error: null })
+          return Promise.resolve(results.empleados ?? { data: [], error: null });
         },
         limit() {
           if (table === 'venta') {
-            ventasCalls += 1
-            return Promise.resolve(results.ventas)
+            ventasCalls += 1;
+            return Promise.resolve(results.ventas);
           }
 
           if (table === 'love_isdin') {
-            loveCalls += 1
-            return Promise.resolve(results.love)
+            loveCalls += 1;
+            return Promise.resolve(results.love);
           }
 
           if (table === 'cuota_empleado_periodo') {
-            cuotasCalls += 1
-            return Promise.resolve(results.cuotas ?? { data: [], error: null })
+            cuotasCalls += 1;
+            return Promise.resolve(results.cuotas ?? { data: [], error: null });
           }
 
-          return Promise.resolve(results.empleados ?? { data: [], error: null })
+          return Promise.resolve(results.empleados ?? { data: [], error: null });
         },
-      }
+      };
     },
     getEqValue(table: string, column: string) {
-      return eqValues.get(`${table}:${column}`) ?? null
+      return eqValues.get(`${table}:${column}`) ?? null;
     },
     getCalls() {
-      return { ventasCalls, loveCalls, cuotasCalls }
+      return { ventasCalls, loveCalls, cuotasCalls };
     },
-  }
+  };
 }
 
 const actorBase: ActorActual = {
@@ -80,11 +84,11 @@ const actorBase: ActorActual = {
   estadoCuenta: 'ACTIVA',
   nombreCompleto: 'DC Uno',
   puesto: 'DERMOCONSEJERO',
-}
+};
 
 test.beforeEach(() => {
-  resetRankingCache()
-})
+  resetRankingCache();
+});
 
 test('consolida ranking de ventas, love, zona y supervisor con filtros operativos', async () => {
   const client = createFakeRankingSupabase({
@@ -222,23 +226,51 @@ test('consolida ranking de ventas, love, zona y supervisor con filtros operativo
       ],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelRanking(actorBase, client as never, {
     periodo: '2026-03',
     corte: 'MES',
-  })
+  });
 
-  expect(client.getEqValue('venta', 'cuenta_cliente_id')).toBe('c1')
-  expect(data.filtros).toEqual({ periodo: '2026-03', corte: 'MES', zona: '', supervisorId: '' })
-  expect(data.resumen).toMatchObject({ totalDcs: 2, totalSupervisores: 2, totalZonas: 2, totalPdvs: 2, miPosicionVentas: 1, miPosicionLove: 1 })
-  expect(data.ventasDcs[0]).toMatchObject({ empleado: 'DC Uno', montoConfirmado: 1500, supervisorNombre: 'Supervisora Centro', esActorActual: true })
-  expect(data.loveDcs[0]).toMatchObject({ empleado: 'DC Uno', afiliacionesLove: 2, validasLove: 1 })
-  expect(data.pdvs[0]).toMatchObject({ pdv: 'PDV Centro', montoConfirmado: 1500, ventasConfirmadas: 1, dcsActivos: 1 })
-  expect(data.supervisores[0]).toMatchObject({ supervisorNombre: 'Supervisora Centro', dcsActivos: 1 })
-  expect(data.zonas[0]).toMatchObject({ zona: 'Centro', afiliacionesLove: 2 })
-  expect(data.cuotasZonas[0]).toMatchObject({ zona: 'Centro', cuotasCumplidas: 1, cumplimientoPromedio: 115 })
-})
+  expect(client.getEqValue('venta', 'cuenta_cliente_id')).toBe('c1');
+  expect(data.filtros).toEqual({ periodo: '2026-03', corte: 'MES', zona: '', supervisorId: '' });
+  expect(data.resumen).toMatchObject({
+    totalDcs: 2,
+    totalSupervisores: 2,
+    totalZonas: 2,
+    totalPdvs: 2,
+    miPosicionVentas: 1,
+    miPosicionLove: 1,
+  });
+  expect(data.ventasDcs[0]).toMatchObject({
+    empleado: 'DC Uno',
+    montoConfirmado: 1500,
+    supervisorNombre: 'Supervisora Centro',
+    esActorActual: true,
+  });
+  expect(data.loveDcs[0]).toMatchObject({
+    empleado: 'DC Uno',
+    afiliacionesLove: 2,
+    validasLove: 1,
+  });
+  expect(data.pdvs[0]).toMatchObject({
+    pdv: 'PDV Centro',
+    montoConfirmado: 1500,
+    ventasConfirmadas: 1,
+    dcsActivos: 1,
+  });
+  expect(data.supervisores[0]).toMatchObject({
+    supervisorNombre: 'Supervisora Centro',
+    dcsActivos: 1,
+  });
+  expect(data.zonas[0]).toMatchObject({ zona: 'Centro', afiliacionesLove: 2 });
+  expect(data.cuotasZonas[0]).toMatchObject({
+    zona: 'Centro',
+    cuotasCumplidas: 1,
+    cumplimientoPromedio: 115,
+  });
+});
 
 test('cachea el snapshot de ranking por 15 minutos para la misma combinacion de actor y filtros', async () => {
   const client = createFakeRankingSupabase({
@@ -246,13 +278,13 @@ test('cachea el snapshot de ranking por 15 minutos para la misma combinacion de 
     love: { data: [], error: null },
     cuotas: { data: [], error: null },
     empleados: { data: [], error: null },
-  })
+  });
 
-  await obtenerPanelRanking(actorBase, client as never, { periodo: '2026-03', corte: 'MES' })
-  await obtenerPanelRanking(actorBase, client as never, { periodo: '2026-03', corte: 'MES' })
+  await obtenerPanelRanking(actorBase, client as never, { periodo: '2026-03', corte: 'MES' });
+  await obtenerPanelRanking(actorBase, client as never, { periodo: '2026-03', corte: 'MES' });
 
-  expect(client.getCalls()).toMatchObject({ ventasCalls: 1, loveCalls: 1, cuotasCalls: 1 })
-})
+  expect(client.getCalls()).toMatchObject({ ventasCalls: 1, loveCalls: 1, cuotasCalls: 1 });
+});
 
 test('acota automaticamente el ranking de supervisor a su propio equipo', async () => {
   const client = createFakeRankingSupabase({
@@ -304,10 +336,13 @@ test('acota automaticamente el ranking de supervisor a su propio equipo', async 
     love: { data: [], error: null },
     cuotas: { data: [], error: null },
     empleados: {
-      data: [{ id: 'sup-1', nombre_completo: 'Supervisora Centro' }, { id: 'sup-2', nombre_completo: 'Supervisor Norte' }],
+      data: [
+        { id: 'sup-1', nombre_completo: 'Supervisora Centro' },
+        { id: 'sup-2', nombre_completo: 'Supervisor Norte' },
+      ],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelRanking(
     {
@@ -318,12 +353,12 @@ test('acota automaticamente el ranking de supervisor a su propio equipo', async 
     },
     client as never,
     { periodo: '2026-03', corte: 'MES', supervisorId: 'sup-2' }
-  )
+  );
 
-  expect(data.filtros.supervisorId).toBe('sup-1')
-  expect(data.ventasDcs).toHaveLength(1)
-  expect(data.ventasDcs[0].empleado).toBe('DC Uno')
-})
+  expect(data.filtros.supervisorId).toBe('sup-1');
+  expect(data.ventasDcs).toHaveLength(1);
+  expect(data.ventasDcs[0].empleado).toBe('DC Uno');
+});
 test('genera una vista publica anonimizada sin datos sensibles', () => {
   const snapshot = buildPublicRankingPanel({
     filtros: { periodo: '2026-03', corte: 'MES', zona: '', supervisorId: '' },
@@ -406,9 +441,9 @@ test('genera una vista publica anonimizada sin datos sensibles', () => {
     ],
     generatedAt: '2026-03-18T23:00:00.000Z',
     infraestructuraLista: true,
-  })
+  });
 
-  expect(snapshot.scopeLabel).toBe('Muro publico de ranking')
+  expect(snapshot.scopeLabel).toBe('Muro publico de ranking');
   expect(snapshot.ventasDcs[0]).toEqual({
     posicion: 1,
     colaboradora: 'Ana P.',
@@ -416,12 +451,12 @@ test('genera una vista publica anonimizada sin datos sensibles', () => {
     montoConfirmado: 2500,
     unidadesConfirmadas: 7,
     afiliacionesLove: 1,
-  })
+  });
   expect(snapshot.pdvs[0]).toEqual({
     posicion: 1,
     pdv: 'Farmacia Centro',
     zona: 'Centro',
     montoConfirmado: 3900,
     ventasConfirmadas: 5,
-  })
-})
+  });
+});

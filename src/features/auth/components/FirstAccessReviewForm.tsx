@@ -1,20 +1,20 @@
-'use client'
+'use client';
 
-import { useActionState, useState } from 'react'
-import { confirmarPrimerAccesoDatos, solicitarCorreccionPrimerAcceso } from '@/actions/auth'
-import { Button } from '@/components/ui/button'
+import { useActionState, useState } from 'react';
+import { confirmarPrimerAccesoDatos, solicitarCorreccionPrimerAcceso } from '@/actions/auth';
+import { Button } from '@/components/ui/button';
 
 type AuthActionState = {
-  error: string | null
-}
+  error: string | null;
+};
 
 const INITIAL_STATE: AuthActionState = {
   error: null,
-}
+};
 
 export interface FirstAccessField {
-  label: string
-  value: string
+  label: string;
+  value: string;
 }
 
 export function FirstAccessReviewForm({
@@ -22,23 +22,24 @@ export function FirstAccessReviewForm({
   username,
   fields,
 }: {
-  nombreCompleto: string
-  username: string | null
-  fields: FirstAccessField[]
+  nombreCompleto: string;
+  username: string | null;
+  fields: FirstAccessField[];
 }) {
-  const [confirmState, confirmAction] = useActionState(confirmarPrimerAccesoDatos, INITIAL_STATE)
+  const [confirmState, confirmAction] = useActionState(confirmarPrimerAccesoDatos, INITIAL_STATE);
   const [correctionState, correctionAction] = useActionState(
     solicitarCorreccionPrimerAcceso,
     INITIAL_STATE
-  )
-  const [showCorrectionForm, setShowCorrectionForm] = useState(false)
+  );
+  const [showCorrectionForm, setShowCorrectionForm] = useState(false);
 
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-slate-700">
         <p className="font-semibold text-slate-950">{nombreCompleto}</p>
         <p className="mt-1">
-          Acceso de primer login: <span className="font-medium">{username ?? 'sin username visible'}</span>
+          Acceso de primer login:{' '}
+          <span className="font-medium">{username ?? 'sin username visible'}</span>
         </p>
         <p className="mt-3">
           Antes de entrar a la operacion, revisa estos datos. Puedes confirmarlos si estan bien o
@@ -60,7 +61,10 @@ export function FirstAccessReviewForm({
         ))}
       </div>
 
-      <form action={confirmAction} className="space-y-3 rounded-[22px] border border-emerald-200 bg-emerald-50 px-4 py-4">
+      <form
+        action={confirmAction}
+        className="space-y-3 rounded-[22px] border border-emerald-200 bg-emerald-50 px-4 py-4"
+      >
         {confirmState.error && (
           <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
             {confirmState.error}
@@ -77,10 +81,12 @@ export function FirstAccessReviewForm({
       <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-slate-950">Solicitar correccion a Administracion</p>
+            <p className="text-sm font-semibold text-slate-950">
+              Solicitar correccion a Administracion
+            </p>
             <p className="mt-1 text-sm text-slate-700">
-              Usa esta opcion si detectas informacion incorrecta en tus datos iniciales. La solicitud
-              llegara a la bandeja del administrador.
+              Usa esta opcion si detectas informacion incorrecta en tus datos iniciales. La
+              solicitud llegara a la bandeja del administrador.
             </p>
           </div>
           <Button
@@ -120,5 +126,5 @@ export function FirstAccessReviewForm({
         )}
       </div>
     </div>
-  )
+  );
 }

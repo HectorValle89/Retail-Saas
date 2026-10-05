@@ -270,10 +270,20 @@ h6,
     @apply mx-auto max-w-7xl px-6 pb-12 pt-28 lg:px-10 lg:pt-10;
   }
 
+  .app-module-surface > :where(div, main, section, article) {
+    width: 100%;
+    min-width: 0;
+    max-width: none !important;
+  }
+
   .page-hero {
     @apply rounded-[28px] bg-white px-6 py-6 shadow-card lg:px-8 lg:py-8;
     border: 1px solid rgba(255, 255, 255, 0.75);
-    background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.96) 100%);
+    background-image: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.98) 0%,
+      rgba(248, 250, 252, 0.96) 100%
+    );
     box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
     position: relative;
     overflow: hidden;

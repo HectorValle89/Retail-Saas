@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { shouldAutoSyncOfflineQueue } from './useOfflineSync'
+import { describe, expect, it } from 'vitest';
+import { shouldAutoSyncOfflineQueue } from './useOfflineSync';
 
 describe('shouldAutoSyncOfflineQueue', () => {
   it('no intenta sincronizar cuando la cola esta vacia', () => {
@@ -11,10 +11,11 @@ describe('shouldAutoSyncOfflineQueue', () => {
         asistenciaDrafts: 0,
         ventaDrafts: 0,
         loveDrafts: 0,
+        materialEntregaDrafts: 0,
         syncedDrafts: 0,
       })
-    ).toBe(false)
-  })
+    ).toBe(false);
+  });
 
   it('solo intenta sincronizar cuando existen pendientes', () => {
     expect(
@@ -25,8 +26,9 @@ describe('shouldAutoSyncOfflineQueue', () => {
         asistenciaDrafts: 1,
         ventaDrafts: 1,
         loveDrafts: 0,
+        materialEntregaDrafts: 0,
         syncedDrafts: 0,
       })
-    ).toBe(true)
-  })
-})
+    ).toBe(true);
+  });
+});

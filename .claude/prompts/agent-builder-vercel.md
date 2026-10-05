@@ -35,37 +35,37 @@ OPENROUTER_API_KEY=sk-or-v1-...
 
 ```typescript
 // app/api/chat/route.ts
-import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import { streamText, convertToModelMessages, type UIMessage } from 'ai'
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import { streamText, convertToModelMessages, type UIMessage } from 'ai';
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
-})
+});
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json()
+  const { messages }: { messages: UIMessage[] } = await req.json();
 
   // IMPORTANTE: Convertir UIMessage[] a ModelMessage[]
-  const modelMessages = convertToModelMessages(messages)
+  const modelMessages = convertToModelMessages(messages);
 
   const result = streamText({
     model: openrouter('anthropic/claude-3-5-sonnet'),
     system: 'Eres un asistente util',
     messages: modelMessages,
-  })
+  });
 
   // IMPORTANTE: Usar toUIMessageStreamResponse() para SDK v5
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse();
 }
 ```
 
 ### Cambios Clave en v5
 
-| v4 (antiguo) | v5 (actual) |
-|--------------|-------------|
-| `OpenRouter` class | `createOpenRouter()` function |
-| `messages` directo | `convertToModelMessages(messages)` |
-| `toDataStreamResponse()` | `toUIMessageStreamResponse()` |
+| v4 (antiguo)                         | v5 (actual)                               |
+| ------------------------------------ | ----------------------------------------- |
+| `OpenRouter` class                   | `createOpenRouter()` function             |
+| `messages` directo                   | `convertToModelMessages(messages)`        |
+| `toDataStreamResponse()`             | `toUIMessageStreamResponse()`             |
 | `import { useChat } from 'ai/react'` | `import { useChat } from '@ai-sdk/react'` |
 
 ---
@@ -133,13 +133,13 @@ export function ChatWidget() {
 
 ### Cambios en useChat v5
 
-| v4 (antiguo) | v5 (actual) |
-|--------------|-------------|
-| `input` del hook | `useState` externo |
-| `handleInputChange` | `onChange={(e) => setInput(e.target.value)}` |
-| `handleSubmit` | Custom con `sendMessage({ text })` |
-| `isLoading` | `status === 'submitted' \|\| status === 'streaming'` |
-| `message.content` | `message.parts.filter(p => p.type === 'text')` |
+| v4 (antiguo)        | v5 (actual)                                          |
+| ------------------- | ---------------------------------------------------- |
+| `input` del hook    | `useState` externo                                   |
+| `handleInputChange` | `onChange={(e) => setInput(e.target.value)}`         |
+| `handleSubmit`      | Custom con `sendMessage({ text })`                   |
+| `isLoading`         | `status === 'submitted' \|\| status === 'streaming'` |
+| `message.content`   | `message.parts.filter(p => p.type === 'text')`       |
 
 ---
 
@@ -177,29 +177,29 @@ const result = streamText({
 ## Configuracion Multi-Proveedor
 
 ```typescript
-import { createOpenRouter } from '@openrouter/ai-sdk-provider'
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
-})
+});
 
 // Cambiar modelos facilmente
-const claude = openrouter('anthropic/claude-3-5-sonnet')
-const gpt4 = openrouter('openai/gpt-4o')
-const gemini = openrouter('google/gemini-2.0-flash-exp')
+const claude = openrouter('anthropic/claude-3-5-sonnet');
+const gpt4 = openrouter('openai/gpt-4o');
+const gemini = openrouter('google/gemini-2.0-flash-exp');
 ```
 
 ---
 
 ## Matriz de Niveles de IA
 
-| Nivel | Patron | Cuando Usar |
-|-------|--------|-------------|
-| 1 | `generateText()` | Background jobs, sin UI |
-| 2 | `streamText()` + `useChat()` | Chat interactivo basico |
-| 3 | `streamText()` + `tools` | Agente que ejecuta acciones |
-| 4 | `Agent` class | Workflows autonomos complejos |
-| 5 | Multi-agente | Orquestacion de agentes especializados |
+| Nivel | Patron                       | Cuando Usar                            |
+| ----- | ---------------------------- | -------------------------------------- |
+| 1     | `generateText()`             | Background jobs, sin UI                |
+| 2     | `streamText()` + `useChat()` | Chat interactivo basico                |
+| 3     | `streamText()` + `tools`     | Agente que ejecuta acciones            |
+| 4     | `Agent` class                | Workflows autonomos complejos          |
+| 5     | Multi-agente                 | Orquestacion de agentes especializados |
 
 ---
 

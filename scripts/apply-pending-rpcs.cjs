@@ -4,22 +4,22 @@ const path = require('node:path');
 
 function loadEnvFile(filePath, { override = false } = {}) {
   if (!fs.existsSync(filePath)) {
-    return
+    return;
   }
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/)
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
   for (const line of lines) {
-    const trimmed = line.trim()
+    const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) {
-      continue
+      continue;
     }
-    const separatorIndex = trimmed.indexOf('=')
+    const separatorIndex = trimmed.indexOf('=');
     if (separatorIndex === -1) {
-      continue
+      continue;
     }
-    const key = trimmed.slice(0, separatorIndex).trim()
-    const value = trimmed.slice(separatorIndex + 1).trim()
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
     if (override || !process.env[key]) {
-      process.env[key] = value
+      process.env[key] = value;
     }
   }
 }
@@ -37,18 +37,18 @@ if (!databaseUrl) {
 const client = new Client({
   connectionString: databaseUrl,
   ssl: {
-    rejectUnauthorized: false
-  }
+    rejectUnauthorized: false,
+  },
 });
 
 async function run() {
   console.log('--- APLICANDO MIGRACIONES RPC PENDIENTES ---');
-  
+
   const migrationsToApply = [
     '20260415190000_rpc_transaccional_operativo.sql',
     '20260415194500_rpc_conteo_y_entrega.sql',
     '20260415200000_rpc_asistencia_dc_v3.sql',
-    '20260415201500_rpc_rutas_supervisor_v2.sql'
+    '20260415201500_rpc_rutas_supervisor_v2.sql',
   ];
 
   try {
@@ -64,7 +64,7 @@ async function run() {
 
       console.log(`Ejecutando SQL de: ${migration}...`);
       const sql = fs.readFileSync(filePath, 'utf8');
-      
+
       try {
         await client.query(sql);
         console.log(`✅ ${migration} aplicada con éxito.`);

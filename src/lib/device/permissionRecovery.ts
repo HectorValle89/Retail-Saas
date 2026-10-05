@@ -1,12 +1,12 @@
-export type PermissionKind = 'camera' | 'geolocation'
+export type PermissionKind = 'camera' | 'geolocation';
 
 export interface PermissionRecoveryState {
-  kind: PermissionKind
-  title: string
-  message: string
-  steps: string[]
-  retryLabel: string
-  requiresSettings: boolean
+  kind: PermissionKind;
+  title: string;
+  message: string;
+  steps: string[];
+  retryLabel: string;
+  requiresSettings: boolean;
 }
 
 function buildSettingsSteps(permissionLabel: string) {
@@ -14,11 +14,12 @@ function buildSettingsSteps(permissionLabel: string) {
     `Toca "Volver a intentar" para que Beteele vuelva a pedir permiso de ${permissionLabel}.`,
     `Si tu telefono ya no muestra el aviso, abre el candado o menu del navegador y activa ${permissionLabel}.`,
     'Regresa a la app y toca nuevamente el boton azul para continuar.',
-  ]
+  ];
 }
 
 export function getCameraPermissionRecoveryState(error: unknown): PermissionRecoveryState {
-  const name = error instanceof DOMException ? error.name : error instanceof Error ? error.name : ''
+  const name =
+    error instanceof DOMException ? error.name : error instanceof Error ? error.name : '';
 
   if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
     return {
@@ -29,7 +30,7 @@ export function getCameraPermissionRecoveryState(error: unknown): PermissionReco
       steps: buildSettingsSteps('camara'),
       retryLabel: 'Volver a pedir camara',
       requiresSettings: true,
-    }
+    };
   }
 
   if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
@@ -45,7 +46,7 @@ export function getCameraPermissionRecoveryState(error: unknown): PermissionReco
       ],
       retryLabel: 'Reintentar camara',
       requiresSettings: false,
-    }
+    };
   }
 
   if (name === 'NotReadableError' || name === 'TrackStartError') {
@@ -60,7 +61,7 @@ export function getCameraPermissionRecoveryState(error: unknown): PermissionReco
       ],
       retryLabel: 'Reintentar camara',
       requiresSettings: false,
-    }
+    };
   }
 
   return {
@@ -76,7 +77,7 @@ export function getCameraPermissionRecoveryState(error: unknown): PermissionReco
     ],
     retryLabel: 'Reintentar camara',
     requiresSettings: false,
-  }
+  };
 }
 
 export function getGeolocationPermissionRecoveryState(error: unknown): PermissionRecoveryState {
@@ -86,7 +87,7 @@ export function getGeolocationPermissionRecoveryState(error: unknown): Permissio
     'code' in error &&
     typeof (error as { code?: unknown }).code === 'number'
       ? (error as { code: number }).code
-      : null
+      : null;
 
   if (code === 1) {
     return {
@@ -97,7 +98,7 @@ export function getGeolocationPermissionRecoveryState(error: unknown): Permissio
       steps: buildSettingsSteps('ubicacion'),
       retryLabel: 'Volver a pedir GPS',
       requiresSettings: true,
-    }
+    };
   }
 
   if (code === 2) {
@@ -113,7 +114,7 @@ export function getGeolocationPermissionRecoveryState(error: unknown): Permissio
       ],
       retryLabel: 'Volver a pedir GPS',
       requiresSettings: false,
-    }
+    };
   }
 
   if (code === 3) {
@@ -122,13 +123,10 @@ export function getGeolocationPermissionRecoveryState(error: unknown): Permissio
       title: 'El GPS tardo demasiado',
       message:
         'La ubicacion no respondio a tiempo. Beteele puede volver a pedir el GPS para completar la captura.',
-      steps: [
-        'Espera unos segundos.',
-        'Toca "Volver a pedir GPS".',
-      ],
+      steps: ['Espera unos segundos.', 'Toca "Volver a pedir GPS".'],
       retryLabel: 'Volver a pedir GPS',
       requiresSettings: false,
-    }
+    };
   }
 
   return {
@@ -144,5 +142,5 @@ export function getGeolocationPermissionRecoveryState(error: unknown): Permissio
     ],
     retryLabel: 'Volver a pedir GPS',
     requiresSettings: false,
-  }
+  };
 }

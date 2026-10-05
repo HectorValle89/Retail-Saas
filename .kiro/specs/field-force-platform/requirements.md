@@ -45,6 +45,7 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 ---
 
 ## Requirements
+
 ### Requirement 0: Disciplina de Implementacion Asistida por Skills
 
 **User Story:** Como dueno tecnico del repositorio, quiero que todo agente que modifique el proyecto use las skills locales relevantes de forma obligatoria, para estandarizar calidad, depuracion, pruebas, performance y manejo seguro de encoding.
@@ -190,10 +191,10 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 #### Acceptance Criteria
 
 1. THE Administrador SHALL poder asignar una Cuota a cada PDV para un Periodo determinado, expresada en unidades o valor monetario.
-2. WHEN el Motor_Cuotas distribuye la Cuota de un PDV entre los Promotores que lo atendieron en el Periodo, THE Motor_Cuotas SHALL calcular la Cuota Individual de cada Promotor de forma proporcional a los días efectivamente trabajados en ese PDV.
+2. WHEN el Motor_Cuotas calcula la Cuota Individual de un PDV, THE Motor_Cuotas SHALL dividir la Cuota mensual del PDV en importes diarios y SHALL sumar para cada DERMOCONSEJERO únicamente los importes de los días en los que `asignacion_diaria_resuelta` confirme trabajo efectivo en ese PDV.
 3. WHEN un Promotor registra Cobertura en un PDV adicional durante el Periodo, THE Motor_Cuotas SHALL recalcular la Cuota Individual del Promotor sumando la porción proporcional de la Cuota del PDV cubierto.
-4. WHEN un Promotor tiene una Falta registrada, THE Motor_Cuotas SHALL redistribuir la porción de Cuota correspondiente a ese día entre los Promotores que sí trabajaron en ese PDV ese día.
-5. THE Motor_Cuotas SHALL garantizar que la suma de todas las Cuotas Individuales asignadas a un PDV en un Periodo sea igual a la Cuota total del PDV para ese Periodo.
+4. WHEN un DERMOCONSEJERO tiene una falta, descanso, incapacidad, vacaciones, formación o no asignación en una fecha, THE Motor_Cuotas SHALL excluir para esa persona la cuota diaria del PDV y SHALL NOT redistribuirla automáticamente entre otras personas.
+5. THE Motor_Cuotas SHALL garantizar que la suma de Cuotas Individuales de un PDV sea igual a la suma de sus cuotas diarias efectivamente cubiertas; los días sin cobertura SHALL permanecer como cuota no atribuida del PDV para conservar visibilidad operativa.
 6. THE Dashboard SHALL mostrar al Promotor y al Gestor el historial de ajustes de Cuota Individual con la justificación de cada cambio (cobertura, falta, ajuste manual).
 7. IF el Administrador modifica manualmente la Cuota de un PDV durante un Periodo activo, THEN THE Motor_Cuotas SHALL recalcular todas las Cuotas Individuales afectadas y registrar el cambio en el log de auditoría.
 
@@ -209,7 +210,7 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 
 2. THE Sistema SHALL otorgar al rol DERMOCONSEJERO acceso exclusivo a: check-in/check-out con GPS y selfie, reporte de ventas diarias, registro de incidencias y desabastos, afiliaciones LOVE ISDIN, solicitud de vacaciones/permisos/incapacidades, y visualización de su propio progreso de ventas y proyección de bonos.
 
-3. THE Sistema SHALL otorgar al rol SUPERVISOR acceso a: validación o rechazo (sin edición) de excepciones de asistencia y ventas capturadas, aprobación de solicitudes de primer nivel, planificación de ruta semanal de visitas, y registro de visita a tienda con selfie obligatoria y checklist de calidad.
+3. THE Sistema SHALL otorgar al rol SUPERVISOR acceso a: validación o rechazo (sin edición) de excepciones de asistencia y ventas capturadas, aprobación de solicitudes de primer nivel, planificación mensual día por día de su ruta de visitas, y registro de visita a tienda con selfie obligatoria y checklist de calidad.
 
 4. THE Sistema SHALL otorgar al rol COORDINADOR acceso a: aprobación definitiva de vacaciones, cambios de tienda de un DERMOCONSEJERO, resolución de incidencias graves no resueltas por SUPERVISOR, aprobación o rechazo de rutas y visitas de SUPERVISORES, y validación de candidatos enviados por RECLUTAMIENTO antes de regresar el expediente al flujo operativo.
 
@@ -307,9 +308,9 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 18. WHEN una incapacidad queda validada por SUPERVISOR, THE Sistema SHALL notificar a RECLUTAMIENTO para revisar el documento, validar que el soporte sea correcto y, si procede, marcar la revisión documental como aprobada; IF RECLUTAMIENTO no la aprueba, THEN THE Sistema SHALL regresarla al originador con CORRECCION_SOLICITADA.
 19. WHEN RECLUTAMIENTO valida documentalmente una incapacidad, THE Sistema SHALL notificar al rol NÓMINA para que verifique el folio oficial en el sistema y formalice la incapacidad cambiando el estado a REGISTRADA_RH en un plazo máximo de 48 horas.
 20. WHEN una incapacidad alcanza el estado REGISTRADA_RH, THE Motor_Nomina SHALL anular automáticamente todas las Faltas injustificadas y Retardos registrados para el DERMOCONSEJERO en las fechas cubiertas por la incapacidad.
-21. WHEN el Motor_Nomina calcula el pago de una incapacidad, THE Motor_Nomina SHALL aplicar la siguiente lógica por bloque continuo de ausencia: los días 1 al 3 consecutivos del bloque se marcan como pagados al 100% del sueldo base (IP o ISP); el día 4 en adelante del mismo bloque continuo se marcan como justificados sin pago por parte de la empresa (I o IS).
-22. IF un DERMOCONSEJERO presenta un nuevo folio de incapacidad sin haber registrado al menos una Asistencia Normal entre el folio anterior y el nuevo, y el folio anterior ya agotó los 3 días subsidiados, THEN THE Motor_Nomina SHALL marcar todos los días del nuevo folio directamente como IS (sin pago).
-23. WHEN un DERMOCONSEJERO registra una Asistencia Normal después de un bloque de incapacidad, THE Motor_Nomina SHALL reiniciar el contador de días pagados, de modo que una incapacidad futura inicie un nuevo bloque con derecho a 3 días pagados.
+21. THE Sistema SHALL utilizar exclusivamente los códigos `I` para incapacidad inicial e `IS` para incapacidad subsecuente en solicitudes, asistencias, reportes, exportaciones y nómina; `IP` e `ISP` quedan retirados del contrato operativo.
+22. WHEN la persona responsable recibe y revisa el formato de incapacidad, THE Sistema SHALL exigir que registre si el documento corresponde a `INICIAL` o `SUBSECUENTE` según el tipo indicado en el propio formato; el código diario SHALL derivarse de esa clasificación explícita y no de la duración, continuidad o pago.
+23. WHEN una incapacidad llegue a `REGISTRADA_RH`, THE Sistema SHALL impedir la formalización si falta la clasificación `INICIAL | SUBSECUENTE` y SHALL registrar quién, cuándo y desde qué puesto realizó la clasificación documental.
 
 **Horarios y Jerarquía de Resolución**
 
@@ -327,8 +328,8 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 
 **Cuotas**
 
-31. THE Motor_Cuotas SHALL garantizar en todo momento que la suma de las Cuotas Individuales de todos los DERMOCONSEJEROs asignados a un PDV en un Periodo sea igual a la Cuota total del PDV para ese Periodo; ninguna operación de asignación o ajuste podrá dejar el sistema en un estado que viole esta invariante.
-32. WHEN un DERMOCONSEJERO tiene una incapacidad o vacaciones aprobadas para un día en que debía trabajar en un PDV, THE Motor_Cuotas SHALL redistribuir proporcionalmente la Cuota Individual correspondiente a ese día entre los DERMOCONSEJEROs que sí trabajaron en ese PDV ese día, sin reducir la Cuota total del PDV.
+31. THE Motor_Cuotas SHALL garantizar que la Cuota Individual de cada DERMOCONSEJERO sea la suma exacta de `cuotas_diarias_pdv.monto_cuota` para las fechas y PDVs en los que tuvo trabajo efectivo resuelto; la diferencia contra la Cuota mensual del PDV SHALL identificarse como cuota no atribuida por días sin cobertura.
+32. WHEN un DERMOCONSEJERO tiene incapacidad, vacaciones, formación, descanso, falta o ausencia de asignación en un día, THE Motor_Cuotas SHALL excluir esa cuota diaria de su objetivo y SHALL NOT trasladarla automáticamente a otra persona, salvo que otra asignación diaria resuelta confirme una cobertura efectiva para ese PDV y fecha.
 33. THE Motor_Cuotas SHALL calcular la Cuota total de un SUPERVISOR como la suma de las Cuotas de todos los PDVs que tiene asignados en el Periodo activo, actualizándola automáticamente cuando se agreguen o remuevan PDVs de su asignación.
 
 ---
@@ -464,7 +465,7 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 
 26. WHEN el Sistema detecta que un PDV acumula retardos de check-in en más del 50% de los días del mes en curso, THE Sistema SHALL generar una alerta `RETARDOS_MASIVOS_PDV` al SUPERVISOR responsable indicando que el horario del PDV puede estar mal configurado.
 
-24. WHEN la cola de sincronización offline de un DC tiene registros pendientes de sincronización por más de 48 horas y el DC tiene asignación activa en un PDV obligatorio, THE Sistema SHALL generar una alerta `COLA_OFFLINE_ATORADA` al SUPERVISOR y al ADMINISTRADOR.
+27. WHEN la cola de sincronización offline de un DC tiene registros pendientes de sincronización por más de 48 horas y el DC tiene asignación activa en un PDV obligatorio, THE Sistema SHALL generar una alerta `COLA_OFFLINE_ATORADA` al SUPERVISOR y al ADMINISTRADOR.
 
 **Reglas pospuestas para v2**
 
@@ -510,8 +511,113 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 
 12. WHEN el ADMINISTRADOR reasigna un PDV de una cuenta de cliente a otra, THE Sistema SHALL conservar el historial operativo (asistencias, ventas, evidencias) del PDV asociado a la cuenta original; los datos históricos no se transfieren a la nueva cuenta.
 
+---
+
+### Requirement 16: Calendario mensual de rutas de supervisión
+
+**User Story:** Como COORDINADOR o ADMINISTRADOR, quiero revisar en una sola matriz mensual la actividad de todos los supervisores para identificar qué tiendas están planeadas, cuáles ya se visitaron y cuáles quedaron pendientes.
+
+#### Acceptance Criteria
+
+1. THE Sistema SHALL mostrar una columna por cada día del mes seleccionado y SHALL presentar en cada encabezado el número del día junto con la letra operativa `L`, `M`, `X`, `J`, `V`, `S` o `D`.
+2. THE Sistema SHALL mostrar una fila por SUPERVISOR visible dentro del alcance de la cuenta de cliente; los días sin ruta SHALL permanecer visibles con estado `SIN_RUTA`.
+3. WHEN existe una ruta mensual enviada, THE calendario SHALL incluir únicamente las visitas cuya fecha efectiva pertenece al mes consultado; los cortes semanales internos SHALL ser transparentes para el usuario y existir únicamente como compatibilidad de ejecución e historial.
+4. WHEN el usuario selecciona una celda, THE Sistema SHALL abrir un detalle consultivo del supervisor y fecha seleccionados sin abandonar la matriz mensual.
+5. THE detalle diario SHALL distinguir visitas planeadas, visitas completadas, visitas pendientes, visitas desplazadas y pendientes de reposición justificadas o injustificadas.
+6. THE resumen mensual SHALL devolver únicamente contadores y estados por celda; el detalle de tiendas, checklist, check-in, check-out y evidencias SHALL cargarse de forma diferida al seleccionar una celda.
+7. THE Sistema SHALL mantener el alcance por cuenta de cliente y rol en el resumen y en el detalle; ninguna consulta SHALL devolver rutas o visitas de otra cuenta.
+8. COORDINADOR y ADMINISTRADOR SHALL poder aprobar rutas desde la bandeja de revisión o mediante la acción masiva del mes, conservando alcance exclusivo a su cuenta de cliente.
+9. WHEN una ruta, visita, evento o reposición cambia, THE calendario SHALL refrescar su resumen afectado mediante la infraestructura de cambios operativos existente, sin polling permanente.
+10. THE Sistema SHALL registrar estados de la matriz con texto accesible y no SHALL depender únicamente del color para comunicar aprobación, cumplimiento o pendientes.
+11. WHEN la matriz se consulta en un viewport de escritorio, THE Sistema SHALL ajustar las 28 a 31 columnas del mes al ancho disponible sin scroll horizontal; en móvil SHALL conservar scroll horizontal y objetivos táctiles legibles.
+12. THE cabecera del calendario SHALL exponer `LIBERAR RUTAS DEL MES` y `APROBAR RUTAS DEL MES` junto al selector mensual, y ambas acciones SHALL aplicar a todos los supervisores del mes aunque exista un filtro visual por supervisor.
+13. WHEN ADMINISTRADOR o COORDINADOR libera un mes, THE Sistema SHALL cambiar únicamente rutas publicadas no iniciadas a `BORRADOR + CAMBIOS_SOLICITADOS`, SHALL conservar sus tiendas para edición y reenvío y SHALL retirarlas inmediatamente de las superficies de ejecución del supervisor.
+14. THE liberación y aprobación mensual SHALL proteger rutas cerradas, en progreso, completamente pasadas o con al menos una visita ejecutada; esas rutas SHALL permanecer sin cambios y SHALL aparecer como omitidas en la previsualización.
+15. BEFORE ejecutar una acción mensual, THE Sistema SHALL mostrar el número de rutas y supervisores afectados, rutas protegidas y semanas que cruzan el límite del mes; la confirmación SHALL rechazar cambios concurrentes respecto de esa previsualización.
+16. THE aprobación o liberación mensual SHALL ejecutarse mediante una sola operación transaccional por cuenta y mes, SHALL auditar cada ruta, SHALL actualizar la infraestructura de cambios de UI y SHALL notificar a cada supervisor afectado una sola vez por operación.
+17. THE SUPERVISOR SHALL seleccionar un mes actual o futuro y SHALL planear directamente cada fecha calendario sin tener que seleccionar ni enviar semanas por separado.
+18. WHEN el SUPERVISOR abre una fecha editable, THE Sistema SHALL mostrar únicamente los PDVs que pertenecen a su cartera y cuenta en esa fecha exacta, y SHALL permitir ordenarlos antes de guardar el borrador del día.
+19. WHEN el SUPERVISOR envía su ruta, THE Sistema SHALL guardar y enviar el mes completo mediante una sola operación transaccional; IF cualquier fecha o PDV deja de ser válido, THEN SHALL rechazar toda la operación sin dejar semanas parcialmente guardadas.
+20. THE Sistema SHALL persistir un envío mensual único por SUPERVISOR y periodo con estado, revisión, totales, autor y timestamps, y SHALL vincular los cortes semanales de compatibilidad al envío mensual.
+21. WHEN una ruta mensual está aprobada, iniciada o contiene ejecución, THE Sistema SHALL proteger sus fechas contra reemplazo directo; una modificación posterior SHALL requerir liberación o el flujo de corrección vigente.
+22. WHEN el envío mensual se confirma, THE Sistema SHALL crear una sola auditoría de negocio y una sola notificación consolidada para COORDINADOR/ADMINISTRADOR, independientemente de la cantidad de semanas internas afectadas.
+23. THE carga del catálogo mensual SHALL estar acotada al mes y cacheada por cuenta, supervisor, periodo y versión de cambio operativo, sin polling ni consultas por cada día.
+24. THE calendario mensual de revisión SHALL continuar usando resumen agregado y detalle diario diferido, y SHALL reflejar el nuevo envío sin introducir una segunda consulta pesada por render.
+25. THE controles de selección, orden y envío SHALL conservar objetivos táctiles de al menos 44 px en móvil y una cuadrícula mensual legible en escritorio.
+
+---
+
+### Requirement 17: Shell de módulos con navegación compacta
+
+**User Story:** Como usuario administrativo, quiero conservar accesibles los íconos de todos mis módulos sin mantener visibles sus etiquetas, para cambiar de módulo rápidamente y aprovechar casi todo el ancho de la pantalla.
+
+#### Acceptance Criteria
+
+1. THE shell de escritorio SHALL reservar únicamente un riel compacto de navegación de hasta 72 px y SHALL entregar al módulo activo todo el ancho restante del viewport.
+2. THE riel compacto SHALL mantener visibles y seleccionables los íconos de todos los módulos autorizados, incluido el estado activo, sin mostrar letras ni fragmentos de sus etiquetas.
+3. THE sidebar de escritorio SHALL expandir las etiquetas como panel superpuesto por hover, clic o navegación de teclado, manteniendo los mismos íconos en su posición y comunicando el estado expandido mediante atributos accesibles.
+4. THE estado compacto SHALL proporcionar nombre accesible y ayuda contextual para cada ícono, de modo que la navegación no dependa de la etiqueta visual.
+5. WHEN el usuario abandona el sidebar con puntero y foco, THE panel SHALL volver al riel compacto sin desplazar ni redimensionar el módulo activo.
+6. THE navegación móvil SHALL conservar el menú hamburguesa y los objetivos táctiles de al menos 44 px.
+
+---
+
+### Requirement 18: Cuotas recurrentes de visitas de supervisión
+
+**User Story:** Como ADMINISTRADOR o COORDINADOR, quiero definir una sola vez las visitas mensuales esperadas por supervisor y tienda, para que la cuota siga vigente en los meses futuros y pueda cambiarla sin alterar el historial anterior.
+
+#### Acceptance Criteria
+
+1. THE Sistema SHALL persistir la cuota de visitas en una fuente independiente de `ruta_semanal`, identificada por cuenta de cliente, SUPERVISOR, PDV y mes de inicio de vigencia.
+2. THE Sistema SHALL permitir configurar la cuota de cada PDV visible para todos los SUPERVISORES activos dentro del alcance de la cuenta.
+3. WHEN una cuota no tenga una versión posterior, THE Sistema SHALL aplicarla a todos los meses siguientes sin copiar registros por cada mes futuro.
+4. WHEN un usuario autorizado cambie una cuota con vigencia desde un mes, THE Sistema SHALL cerrar la versión anterior al último día del mes previo y SHALL conservar sin cambios todos los meses históricos anteriores.
+5. ADMINISTRADOR y COORDINADOR SHALL poder gestionar cuotas recurrentes; la aprobación o rechazo de rutas SHALL continuar siendo exclusiva de COORDINADOR.
+6. WHEN se guarda una cuota, THE Sistema SHALL NOT crear una ruta semanal, cambiar su estatus ni modificar una aprobación existente.
+7. War Room, alcance mensual, cobertura y ranking de visitas SHALL resolver la cuota desde la misma versión vigente para el mes consultado.
+8. THE Sistema SHALL validar la pertenencia del supervisor y los PDVs a la cuenta, registrar cada modificación en `audit_log` y evitar escrituras directas del cliente sobre la tabla de vigencias.
+9. THE editor SHALL mostrar una lista compacta por supervisor y PDV, aplicar filtros inmediatamente, permitir ajuste individual y asignación masiva sobre las filas visibles, y comunicar el mes inicial y la permanencia de la cuota.
+10. THE carga administrativa SHALL resolver las cuotas vigentes mediante una sola consulta indexada y acotada por mes/cuenta, sin consultas por fila, polling ni copia anticipada de meses futuros.
+11. WHEN se habilite la fuente recurrente por primera vez, THE Sistema SHALL migrar la última cuota válida existente de cada supervisor/PDV sin modificar las rutas ni perder valores.
+
+### Requirement 19: Planeación mensual de asignaciones
+
+**User Story:** Como ADMINISTRADOR o COORDINADOR, quiero consultar y editar la asignación mensual desde una matriz única, para programar altas, bajas, liberaciones, coberturas, rotaciones, descansos y horarios sin producir dobles asignaciones ni divergencias entre módulos.
+
+#### Acceptance Criteria
+
+1. THE matriz SHALL mostrar por PDV: Cadena, Tienda, Rol (`FIJA = 1`, `ROTATIVA = 0.5`), DERMOCONSEJERO asignada, rango efectivo, supervisor, horario, descanso, días del mes, días laborados, Cuota mensual del PDV y Cuota Individual calculada.
+2. THE usuario SHALL poder seleccionar un PDV o rango de días y ejecutar `LIBERAR_DC`, `ASIGNAR_DC`, `MOVER_DC`, `CAMBIAR_ROTACION`, `CAMBIAR_DESCANSO`, `CAMBIAR_HORARIO`, `CAMBIAR_ESTADO_PDV` o `AGREGAR_EVENTO`, con fecha efectiva hoy o futura y una vista previa obligatoria de impactos.
+3. WHEN se libera una DC de un PDV, THE Sistema SHALL cerrar la vigencia estructural en la fecha efectiva, dejar el PDV `POR_CUBRIR` desde esa fecha salvo cobertura válida y permitir reutilizar la DC únicamente en fechas sin conflicto.
+4. THE Sistema SHALL validar en una transacción que una DC no tenga dos PDVs efectivos el mismo día; una operación con conflicto SHALL rechazarse completa y SHALL informar fechas y asignaciones incompatibles.
+5. THE edición SHALL escribir las fuentes estructurales o excepciones operativas correspondientes y SHALL recalcular `asignacion_diaria_resuelta` para el conjunto mínimo `empleados × fechas` afectado; la matriz sí es una superficie de edición de la asignación, pero no SHALL mutar filas derivadas sin modificar su fuente y propagar el cambio aguas arriba y aguas abajo.
+6. WHEN una DC o PDV se dé de alta, baja, pause o inactive, THE Sistema SHALL aplicar una vigencia efectiva, conservar el histórico anterior y recalcular únicamente fechas actuales o futuras dentro del horizonte materializado.
+7. WHEN cambie la naturaleza fija o rotativa de un PDV, THE Sistema SHALL versionar el factor y grupo de rotación, validar cobertura diaria y volver a resolver las fechas afectadas sin reescribir meses cerrados.
+8. WHEN un evento independiente, formación, incapacidad, vacaciones o justificación aprobada desplace la tienda ordinaria, THE resolvedor SHALL aplicar la prioridad `FORMACION > INCAPACIDAD > VACACIONES > JUSTIFICACION > COBERTURA_TEMPORAL > COBERTURA_PERMANENTE > BASE > SIN_ASIGNACION`; la misma resolución SHALL alimentar Asistencias.
+9. THE matriz SHALL distinguir estados diarios con texto y color y SHALL mostrar el turno resuelto `M`, `TCM`, `TC`, `TC_12`, `TCV`, `V1`, `V`, `ES1/ACT`, `CAP`, `VC` o un rango `HH:MM-HH:MM`; el rango directo SHALL definir la ventana esperada de check-in/out.
+10. WHEN cambien descansos u horarios recurrentes, incluidos calendarios semanales de San Pablo, THE Sistema SHALL versionar el patrón, preservar días transcurridos y recalcular solamente días futuros desde la fecha efectiva.
+11. WHEN un SUPERVISOR se dé de baja, THE Sistema SHALL exigir un sucesor para sus PDVs y SHALL propagar la nueva responsabilidad a asignaciones, visibilidad móvil, formularios públicos de ventas y LOVE ISDIN, catálogos de productos y canjes y reportes, sin cambiar históricos cerrados.
+12. THE Cuota mensual del PDV SHALL importarse desde XLSX con vista previa, validación de PDV, mes, duplicados y montos no negativos; el sistema SHALL persistir su desglose en `cuotas_diarias_pdv` y calcular `Cuota Individual = sum(cuota diaria del PDV en días efectivamente laborados por la DC en ese PDV)`.
+13. THE consulta inicial SHALL ser una proyección mensual general cacheada por `cuenta + mes + filtros + versión`; no SHALL renovarse por tiempo, foco, render ni polling, sino solamente cuando `ui_change_version` identifique un cambio relevante o el usuario solicite recarga explícita.
+14. THE resumen general SHALL devolver filas compactas y contadores; los detalles, conflictos, evidencias e historial SHALL cargarse bajo demanda al seleccionar una fila o celda.
+15. THE Server Action de cambio SHALL usar idempotency key, control de versión optimista, transacción, `audit_log`, outbox e invalidación selectiva; un fallo en cualquier validación SHALL revertir el lote completo.
+16. THE matriz SHALL presentar en escritorio una ventana central legible de aproximadamente 14 días, mantener congeladas a la izquierda las columnas Cadena, Tienda, Rol, DERMOCONSEJERO, Vigencia, Turno/descanso y Supervisor, y mantener congeladas a la derecha las columnas Días laborados, Cuota PDV y Cuota DC; solamente el calendario diario SHALL desplazarse horizontalmente. En móvil SHALL conservar scroll horizontal y objetivos táctiles legibles de al menos 44 px.
+17. WHEN un mes futuro no tenga cambios propios, THE matriz SHALL proyectar la última asignación estructural publicada que siga vigente, por lo que septiembre SHALL verse igual que agosto sin copiar filas ni crear una segunda asignación maestra.
+18. THE usuario SHALL poder abrir la edición maestra desde las columnas PDV, DERMOCONSEJERO o SUPERVISOR, indicar una fecha de inicio efectiva y una fecha de fin opcional; una vigencia sin fin SHALL continuar en meses posteriores hasta que una nueva versión la sustituya y SHALL conservar intacto el histórico anterior.
+19. WHEN una baja futura se capture mediante `ultimo_dia_laborado`, THE Sistema SHALL derivar como primer día inactivo el día natural siguiente, conservar el acceso y las relaciones vigentes hasta el cierre del último día laborado y aplicar automáticamente `BAJA` desde la fecha efectiva.
+20. WHEN la baja futura corresponda a un SUPERVISOR, THE catálogo de Ruta semanal SHALL resolverse por semana seleccionada y por día exacto: el supervisor saliente SHALL conservar sus PDVs hasta su último día laborado y el sucesor SHALL ver desde ahora los PDVs futuros únicamente en los días donde su vigencia ya comenzó.
+21. THE unidad maestra de planeación SHALL ser el PDV: su supervisor efectivo define la responsabilidad jerárquica y la DERMOCONSEJERO asignada al PDV queda bajo ese supervisor por transitividad, sin mantener una segunda jerarquía manual divergente.
+22. WHEN el usuario cambie un PDV de `FIJA` a `ROTATIVA`, THE matriz SHALL exigir los demás PDVs del grupo, su posición `A | B | C`, la DERMOCONSEJERO de cada integrante, los días laborados y el turno o rango directo; SHALL ofrecer al menos los patrones `A: LUN-MAR-MIE / B: JUE-VIE-SAB`, su inverso y una configuración personalizada.
+23. THE cambio de naturaleza y calendario del grupo SHALL previsualizarse y publicarse como un único lote atómico que cierre las vigencias anteriores, versione todos los PDVs y cree las asignaciones maestras resultantes desde la fecha efectiva y hasta el siguiente cambio; una misma DC SHALL poder cubrir varios PDVs solo cuando los días no se traslapen y cualquier integrante sin DC SHALL quedar `POR_CUBRIR`.
+24. THE cabecera de Planeación Mensual SHALL ocupar como máximo dos franjas operativas en escritorio: título y acciones en la primera, y selector de mes, KPIs compactos y filtros en la segunda; SHALL evitar espacios verticales ornamentales, permitir que la matriz comience antes de 280 px en un viewport de 1920 × 1080 y conservar en móvil controles táctiles de al menos 44 px mediante reflujo responsivo.
+25. THE matriz SHALL permitir seleccionar PDVs únicos individualmente o desde el conjunto filtrado y aplicar un lote masivo de hasta 100 operaciones para `LIBERAR_DC` o reasignar esos PDVs a un supervisor sucesor; la liberación SHALL cerrar todas las asignaciones de DC vigentes en cada PDV y dejarlo `POR_CUBRIR`, mientras la reasignación SHALL tocar exclusivamente los PDVs seleccionados, conservar intacta la cartera no seleccionada y exigir previsualización y confirmación atómicas con fecha efectiva y motivo.
+26. THE calendario mensual SHALL permitir avanzar o retroceder por bloques de 14 días mediante controles explícitos y, en escritorio, arrastrar horizontalmente sosteniendo el botón principal sobre los días; IF el puntero supera el umbral de arrastre, THEN la liberación SHALL finalizar el desplazamiento sin abrir ni seleccionar la celda, mientras un clic sin arrastre SHALL conservar la edición diaria existente.
+27. THE publicación automática SHALL mantener completa una proyección rodante del mes actual y los cuatro meses siguientes; BEFORE omitir un mes, SHALL comprobar tanto la existencia del snapshot como el número esperado de filas diarias para todas las DC con vigencia estructural intersectante. IF la materialización está incompleta, THEN SHALL reconstruir el rango faltante por lotes, renovar el snapshot y eliminar vacantes derivadas exclusivamente de una proyección ausente. Una edición maestra sin fecha final SHALL recalcular meses completos dentro del mismo horizonte y después SHALL continuar extendiéndose con el proceso mensual.
+28. WHEN una vista previa de Planeación Mensual sea válida, THE Sistema SHALL devolver el token de `ui_change_version` observado para `cuenta + mes` y la confirmación SHALL presentar exactamente ese token; la revisión interna de `planeacion_mensual_snapshot_fila` no SHALL utilizarse como versión optimista de escritura. IF otro lote cambia la misma planeación después de la vista previa, THEN la confirmación SHALL rechazarse y requerir una nueva previsualización.
+29. WHEN se importe una nueva versión del catálogo maestro de PDVs, THE Sistema SHALL conservar el detalle vigente hasta la fecha efectiva, publicar desde esa fecha una versión abierta hasta el siguiente cambio y dejar intactos los PDVs ausentes salvo instrucción explícita. Los cambios de supervisor SHALL versionar la jerarquía y asignaciones, cancelar únicamente visitas o eventos futuros no ejecutados del responsable anterior y trasladar la cuota de ruta al responsable efectivo sin alterar agosto ni el histórico completado.
 
 ### Addendum - Registros Extemporáneos de Ventas y LOVE ISDIN
+
 - THE Sistema SHALL exponer en Incidencias una opción de `Registro extemporáneo` para DERMOCONSEJERO y ADMINISTRADOR.
 - THE formulario SHALL permitir elegir `VENTA`, `LOVE_ISDIN` o `AMBAS`, seleccionar la fecha a regularizar, capturar una justificación obligatoria y adjuntar evidencia opcional.
 - BEFORE aceptar la solicitud, THE Sistema SHALL validar que el DERMOCONSEJERO tuvo asignación operativa válida en esa fecha, PDV resuelto y una asistencia con check-in válido en el mismo día.
@@ -522,9 +628,10 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 - WHEN una solicitud de tipo `VENTA` o `AMBAS` es aprobada, THEN THE consolidación SHALL reemplazar la venta del mismo producto ya existente para la misma fecha operativa, evitando duplicados ciegos.
 - WHEN una solicitud de tipo `LOVE_ISDIN` o `AMBAS` es aprobada, THEN THE consolidación SHALL mostrar lo ya capturado para la fecha operativa y SHALL evitar duplicación ciega de afiliaciones.
 - THE consolidación aprobada SHALL marcar `metodo_ingreso = EXTEMPORANEO`, `fuera_de_ventana = true`, almacenar `fecha_operativa`, `fecha_registro` y derivar el `gap` de retraso para auditoría.
-- THE Sistema SHALL exponer la bandeja de registros extemporáneos dentro de `Ventas` y `LOVE ISDIN`, filtrada por tipo de registro, con totales, pendientes, aprobados, rechazados y recurrencia mensual por DERMOCONSEJERO.`n- THE modulo `Solicitudes` SHALL quedar reservado a informacion, seguimiento y aprobacion de incapacidades, vacaciones, permisos, avisos y justificaciones; el alta manual SHALL estar disponible solo para DERMOCONSEJERO y SUPERVISOR, y el calendario de ausencias SHALL vivir en `Asistencias`.
+- THE Sistema SHALL exponer la bandeja de registros extemporáneos dentro de `Ventas` y `LOVE ISDIN`, filtrada por tipo de registro, con totales, pendientes, aprobados, rechazados y recurrencia mensual por DERMOCONSEJERO.`n- THE modulo `Solicitudes`SHALL quedar reservado a informacion, seguimiento y aprobacion de incapacidades, vacaciones, permisos, avisos y justificaciones; el alta manual SHALL estar disponible solo para DERMOCONSEJERO y SUPERVISOR, y el calendario de ausencias SHALL vivir en`Asistencias`.
 
 ### Addendum - Dashboard de Reclutamiento
+
 - THE Sistema SHALL exponer en Empleados/Reclutamiento un dashboard operativo y no solo una bandeja documental.
 - THE dashboard SHALL mostrar KPIs rápidos de vacantes abiertas, candidatos en proceso, tiempo promedio de contratación y próximas ISDINIZACIONES de la semana.
 - THE dashboard SHALL presentar un pipeline visual con las etapas FILTRADOS, ENTREVISTA_SELECCION, GESTION_ACCESOS, DOCUMENTACION, TRAMITE_ALTA y CONTRATADOS.

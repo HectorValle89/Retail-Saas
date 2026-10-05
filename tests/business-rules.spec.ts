@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test';
 import {
   readApprovalFlowRule,
   readSchedulePriorityRule,
@@ -6,10 +6,10 @@ import {
   resolveApprovalFlow,
   resolveScheduleHierarchy,
   resolveSupervisorInheritance,
-} from '../src/features/reglas/lib/businessRules'
+} from '../src/features/reglas/lib/businessRules';
 
 test('prioriza supervisor de PDV por defecto y respeta orden configurable', () => {
-  const defaultRule = readSupervisorInheritanceRule(null)
+  const defaultRule = readSupervisorInheritanceRule(null);
   const defaultResolution = resolveSupervisorInheritance(
     [
       { source: 'PDV', supervisorEmpleadoId: 'sup-pdv', active: true },
@@ -17,12 +17,12 @@ test('prioriza supervisor de PDV por defecto y respeta orden configurable', () =
       { source: 'ASIGNACION', supervisorEmpleadoId: 'sup-asg', active: true },
     ],
     defaultRule
-  )
+  );
 
   expect(defaultResolution).toMatchObject({
     supervisorEmpleadoId: 'sup-pdv',
     source: 'PDV',
-  })
+  });
 
   const customResolution = resolveSupervisorInheritance(
     [
@@ -39,13 +39,13 @@ test('prioriza supervisor de PDV por defecto y respeta orden configurable', () =
       active: true,
       sources: ['EMPLEADO', 'PDV', 'ASIGNACION'],
     }
-  )
+  );
 
   expect(customResolution).toMatchObject({
     supervisorEmpleadoId: 'sup-emp',
     source: 'EMPLEADO',
-  })
-})
+  });
+});
 
 test('resuelve horario por jerarquia y cae a fallback global si no hay PDV o cadena', () => {
   const scheduleRule = readSchedulePriorityRule({
@@ -66,7 +66,7 @@ test('resuelve horario por jerarquia y cae a fallback global si no hay PDV o cad
       },
     },
     activa: true,
-  })
+  });
 
   const chainResolution = resolveScheduleHierarchy(
     [
@@ -84,9 +84,9 @@ test('resuelve horario por jerarquia y cae a fallback global si no hay PDV o cad
       },
     ],
     scheduleRule
-  )
+  );
 
-  expect(chainResolution.candidate?.payload).toMatchObject({ source: 'CADENA' })
+  expect(chainResolution.candidate?.payload).toMatchObject({ source: 'CADENA' });
 
   const globalResolution = resolveScheduleHierarchy(
     [
@@ -102,26 +102,26 @@ test('resuelve horario por jerarquia y cae a fallback global si no hay PDV o cad
       },
     ],
     scheduleRule
-  )
+  );
 
   expect(globalResolution.candidate?.payload).toMatchObject({
     source: 'GLOBAL',
     horaEntrada: '11:00:00',
     horaSalida: '19:00:00',
-  })
-})
+  });
+});
 
 test('resuelve flujos de aprobacion por tipo de solicitud con overrides', () => {
-  const incapacidad = resolveApprovalFlow('INCAPACIDAD', [])
-  expect(incapacidad.steps).toHaveLength(3)
+  const incapacidad = resolveApprovalFlow('INCAPACIDAD', []);
+  expect(incapacidad.steps).toHaveLength(3);
   expect(incapacidad.steps[1]).toMatchObject({
     actor: 'RECLUTAMIENTO',
     targetStatus: 'VALIDADA_SUP',
-  })
+  });
   expect(incapacidad.steps[2]).toMatchObject({
     actor: 'NOMINA',
     targetStatus: 'REGISTRADA_RH',
-  })
+  });
 
   const vacaciones = readApprovalFlowRule({
     id: 'rule-vacaciones',
@@ -135,17 +135,15 @@ test('resuelve flujos de aprobacion por tipo de solicitud con overrides', () => 
       min_notice_days: 30,
     },
     accion: {
-      steps: [
-        { actor: 'COORDINADOR', target_status: 'REGISTRADA', sla_hours: 48 },
-      ],
+      steps: [{ actor: 'COORDINADOR', target_status: 'REGISTRADA', sla_hours: 48 }],
     },
     activa: true,
-  })
+  });
 
-  expect(vacaciones.minNoticeDays).toBe(30)
-  expect(vacaciones.steps).toHaveLength(1)
+  expect(vacaciones.minNoticeDays).toBe(30);
+  expect(vacaciones.steps).toHaveLength(1);
   expect(vacaciones.steps[0]).toMatchObject({
     actor: 'COORDINADOR',
     targetStatus: 'REGISTRADA',
-  })
-})
+  });
+});

@@ -6,9 +6,11 @@ description: Framework TDD completo (RED-GREEN-REFACTOR) para Beteele SAAS
 # Test-Driven Development para Beteele SAAS
 
 ## Overview
+
 Implementa el ciclo TDD completo para lógica de negocio crítica en Beteele Platform.
 
 ## Cuando Usar
+
 - **ANTES** de implementar cálculo de cuotas diarias
 - **ANTES** de modificar lógica de asignaciones temporales
 - **ANTES** de cambiar recálculo de asistencias
@@ -17,6 +19,7 @@ Implementa el ciclo TDD completo para lógica de negocio crítica en Beteele Pla
 ## Proceso TDD
 
 ### 🔴 RED - Escribir Test que Falla
+
 ```typescript
 // Ejemplo: Test para calcularMetaDiaria()
 import { calcularMetaDiaria } from '@/lib/quota-calculator';
@@ -26,15 +29,16 @@ describe('calcularMetaDiaria', () => {
     const result = calcularMetaDiaria({
       cuotaMensual: 30000,
       diasRealesBloque: 25,
-      factor: 1.0
+      factor: 1.0,
     });
-    
+
     expect(result).toBe(1200); // 30000 / 25 * 1.0
   });
 });
 ```
 
 ### 🟢 GREEN - Código Mínimo que Pasa
+
 ```typescript
 export function calcularMetaDiaria(params: QuotaParams): number {
   const { cuotaMensual, diasRealesBloque, factor } = params;
@@ -43,14 +47,15 @@ export function calcularMetaDiaria(params: QuotaParams): number {
 ```
 
 ### 🔵 REFACTOR - Mejorar sin Romper Tests
+
 ```typescript
 export function calcularMetaDiaria(params: QuotaParams): number {
   const { cuotaMensual, diasRealesBloque, factor } = params;
-  
+
   if (diasRealesBloque === 0) {
     throw new Error('diasRealesBloque no puede ser 0');
   }
-  
+
   return Math.round((cuotaMensual / diasRealesBloque) * factor);
 }
 ```
@@ -58,6 +63,7 @@ export function calcularMetaDiaria(params: QuotaParams): number {
 ## Casos de Uso en Beteele
 
 ### 1. Cálculo de Cuotas
+
 ```typescript
 describe('Quota Calculator', () => {
   test('ajusta por días laborales reales del mes');
@@ -67,6 +73,7 @@ describe('Quota Calculator', () => {
 ```
 
 ### 2. Sincronización Offline
+
 ```typescript
 describe('Offline Sync Queue', () => {
   test('guarda registros en IndexedDB cuando offline');
@@ -76,6 +83,7 @@ describe('Offline Sync Queue', () => {
 ```
 
 ### 3. Validación de API Rules
+
 ```typescript
 describe('PocketBase Security Rules', () => {
   test('nómina NO puede editar asistencias');
@@ -85,6 +93,7 @@ describe('PocketBase Security Rules', () => {
 ```
 
 ## Comandos
+
 ```bash
 # Ejecutar tests
 npm run test
@@ -97,6 +106,7 @@ npm run test:coverage
 ```
 
 ## Reglas para Beteele
+
 1. **Atomicidad Diaria**: Tests deben validar cálculos por DÍA, no promedios mensuales
 2. **SQL Syntax**: Tests de queries deben usar sintaxis PocketBase (`user_id = @request.auth.id`)
 3. **Offline-First**: Mock IndexedDB en tests de sincronización

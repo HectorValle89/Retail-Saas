@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { obtenerMecanicasPublicasData } from '@/features/captura-publica/services/mecanicasService';
 import { MecanicasPropuestaForm } from '@/features/captura-publica/components/MecanicasPropuestaForm';
-import { getCapturaPublicaDefaultDate } from '@/features/captura-publica/services/capturaPublicaService';
 
 interface PageProps {
   params: Promise<{

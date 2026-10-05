@@ -1,37 +1,37 @@
-import { sendOperationalPushNotification } from '@/lib/push/pushFanout'
-import { sendWorkflowTransitionEmail } from '@/lib/notifications/workflowTransitionEmail'
-import type { WorkflowNotificationRecipient } from './types'
-import type { WorkflowNotificationEnvelope } from './workflowCatalog'
+import { sendOperationalPushNotification } from '@/lib/push/pushFanout';
+import { sendWorkflowTransitionEmail } from '@/lib/notifications/workflowTransitionEmail';
+import type { WorkflowNotificationRecipient } from './types';
+import type { WorkflowNotificationEnvelope } from './workflowCatalog';
 
 function normalizeRecipients(recipients: WorkflowNotificationRecipient[]) {
-  const emailRecipients = new Map<string, { email: string; name: string }>()
-  const employeeIds = new Set<string>()
+  const emailRecipients = new Map<string, { email: string; name: string }>();
+  const employeeIds = new Set<string>();
 
   for (const recipient of recipients) {
-    const email = recipient.email.trim().toLowerCase()
+    const email = recipient.email.trim().toLowerCase();
     if (email && !emailRecipients.has(email)) {
       emailRecipients.set(email, {
         email,
         name: recipient.name.trim() || email,
-      })
+      });
     }
 
     if (recipient.empleadoId?.trim()) {
-      employeeIds.add(recipient.empleadoId.trim())
+      employeeIds.add(recipient.empleadoId.trim());
     }
   }
 
   return {
     emailRecipients: Array.from(emailRecipients.values()),
     employeeIds: Array.from(employeeIds),
-  }
+  };
 }
 
 export async function sendWorkflowNotification(
   recipients: WorkflowNotificationRecipient[],
   envelope: WorkflowNotificationEnvelope
 ) {
-  const normalized = normalizeRecipients(recipients)
+  const normalized = normalizeRecipients(recipients);
 
   await Promise.allSettled([
     normalized.emailRecipients.length > 0
@@ -56,5 +56,5 @@ export async function sendWorkflowNotification(
           },
         })
       : Promise.resolve(),
-  ])
+  ]);
 }

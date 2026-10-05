@@ -1,14 +1,14 @@
-import { forwardRef, type ButtonHTMLAttributes } from 'react'
+import { forwardRef, type ButtonHTMLAttributes } from 'react';
 
-type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger'
-type ButtonSize = 'sm' | 'md' | 'lg'
+type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
+type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: ButtonVariant
-  size?: ButtonSize
-  isLoading?: boolean
-  leftIcon?: React.ReactNode
-  rightIcon?: React.ReactNode
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  isLoading?: boolean;
+  leftIcon?: React.ReactNode;
+  rightIcon?: React.ReactNode;
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
@@ -38,13 +38,13 @@ const variantStyles: Record<ButtonVariant, string> = {
     hover:from-error-600 hover:to-error-700 active:from-error-700 active:to-error-700
     shadow-[0_4px_12px_rgba(239,68,68,0.14)] hover:shadow-[0_8px_18px_rgba(239,68,68,0.18)]
   `,
-}
+};
 
 const sizeStyles: Record<ButtonSize, string> = {
   sm: 'min-h-10 px-3.5 py-2 text-sm gap-1.5',
   md: 'min-h-11 px-4.5 py-2.5 text-sm gap-2',
   lg: 'min-h-12 px-6 py-3 text-base gap-2.5',
-}
+};
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
@@ -61,7 +61,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     },
     ref
   ) => {
-    const isDisabled = disabled || isLoading
+    const isDisabled = disabled || isLoading;
 
     return (
       <button
@@ -108,8 +108,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           </>
         )}
       </button>
-    )
+    );
   }
-)
+);
 
-Button.displayName = 'Button'
+Button.displayName = 'Button';

@@ -1,46 +1,46 @@
-import { expect, test } from '@playwright/test'
-import { obtenerPanelGastos } from '../src/features/gastos/services/gastoService'
+import { expect, test } from '@playwright/test';
+import { obtenerPanelGastos } from '../src/features/gastos/services/gastoService';
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+};
 
-type FakeResults = Record<string, QueryResult>
+type FakeResults = Record<string, QueryResult>;
 
 function createFakeGastosClient(results: FakeResults) {
   return {
     from(table: string) {
-      const entry = results[table] ?? { data: null, error: null }
+      const entry = results[table] ?? { data: null, error: null };
 
       const chain = {
         table,
         select() {
-          return chain
+          return chain;
         },
         eq() {
-          return chain
+          return chain;
         },
         in() {
-          return chain
+          return chain;
         },
         order() {
-          return chain
+          return chain;
         },
         limit() {
-          return chain
+          return chain;
         },
         maybeSingle() {
-          return Promise.resolve(entry)
+          return Promise.resolve(entry);
         },
         then(resolve: (value: QueryResult) => void) {
-          return Promise.resolve(entry).then(resolve)
+          return Promise.resolve(entry).then(resolve);
         },
-      }
+      };
 
-      return chain
+      return chain;
     },
-  }
+  };
 }
 
 test('consolida gastos operativos por cuenta, empleado y categoria', async () => {
@@ -136,15 +136,17 @@ test('consolida gastos operativos por cuenta, empleado y categoria', async () =>
       ],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelGastos(fakeClient as never, { serviceClient: fakeClient as never })
+  const data = await obtenerPanelGastos(fakeClient as never, {
+    serviceClient: fakeClient as never,
+  });
 
-  expect(data.gastos).toHaveLength(2)
-  expect(data.resumen.total).toBe(2)
-  expect(data.resumen.montoSolicitado).toBe(1850.5)
-  expect(data.resumen.pendientes).toBe(1)
-  expect(data.resumen.aprobados).toBe(1)
+  expect(data.gastos).toHaveLength(2);
+  expect(data.resumen.total).toBe(2);
+  expect(data.resumen.montoSolicitado).toBe(1850.5);
+  expect(data.resumen.pendientes).toBe(1);
+  expect(data.resumen.aprobados).toBe(1);
   expect(data.reporteEmpleado).toEqual([
     {
       key: '2026-03::Ana::VIATICOS',
@@ -166,13 +168,13 @@ test('consolida gastos operativos por cuenta, empleado y categoria', async () =>
       montoAprobado: 350,
       montoReembolsado: 350,
     },
-  ])
-  expect(data.cuentas).toHaveLength(2)
-  expect(data.empleados).toHaveLength(2)
-  expect(data.supervisores).toHaveLength(2)
-  expect(data.pdvs).toHaveLength(2)
-  expect(data.formaciones).toHaveLength(1)
-})
+  ]);
+  expect(data.cuentas).toHaveLength(2);
+  expect(data.empleados).toHaveLength(2);
+  expect(data.supervisores).toHaveLength(2);
+  expect(data.pdvs).toHaveLength(2);
+  expect(data.formaciones).toHaveLength(1);
+});
 
 test('degrada con mensaje de infraestructura cuando falla consulta', async () => {
   const fakeClient = createFakeGastosClient({
@@ -181,11 +183,13 @@ test('degrada con mensaje de infraestructura cuando falla consulta', async () =>
     empleado: { data: [], error: null },
     pdv: { data: [], error: null },
     cuenta_cliente: { data: [], error: null },
-  })
+  });
 
-  const data = await obtenerPanelGastos(fakeClient as never, { serviceClient: fakeClient as never })
+  const data = await obtenerPanelGastos(fakeClient as never, {
+    serviceClient: fakeClient as never,
+  });
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.reporteEmpleado).toEqual([])
-  expect(data.mensajeInfraestructura).toContain('control operativo')
-})
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.reporteEmpleado).toEqual([]);
+  expect(data.mensajeInfraestructura).toContain('control operativo');
+});

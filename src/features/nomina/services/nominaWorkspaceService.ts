@@ -1,86 +1,88 @@
-import { unstable_cache } from 'next/cache'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ActorActual } from '@/lib/auth/session'
-import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
+import { unstable_cache } from 'next/cache';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ActorActual } from '@/lib/auth/session';
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags';
 import type {
   DocumentoExpedienteItem,
   EmpleadoListadoItem,
   DocumentoOcrResultado,
   DocumentoOptimizationSummary,
   OnboardingOperativoSummary,
-} from '@/features/empleados/services/empleadoService'
+} from '@/features/empleados/services/empleadoService';
 import {
   buildPayrollInbox,
   type EmployeePayrollInboxData,
-} from '@/features/empleados/lib/workflowInbox'
-import { createServiceClient } from '@/lib/supabase/server'
-import { getIncapacidadNextActor } from '@/features/solicitudes/lib/incapacidadWorkflow'
-import type { Puesto } from '@/types/database'
+} from '@/features/empleados/lib/workflowInbox';
+import { createServiceClient } from '@/lib/supabase/server';
+import { getIncapacidadNextActor } from '@/features/solicitudes/lib/incapacidadWorkflow';
+import type { Puesto } from '@/types/database';
 
-type MaybeMany<T> = T | T[] | null
+type MaybeMany<T> = T | T[] | null;
 
 function isSupabaseClient(value: unknown): value is SupabaseClient {
   return Boolean(
     value &&
-      typeof value === 'object' &&
-      'from' in value &&
-      typeof (value as { from?: unknown }).from === 'function'
-  )
+    typeof value === 'object' &&
+    'from' in value &&
+    typeof (value as { from?: unknown }).from === 'function'
+  );
 }
 
-const SIGNED_URL_EXPIRY_SECONDS = 60 * 60 * 6
+const SIGNED_URL_EXPIRY_SECONDS = 60 * 60 * 6;
 
 interface ArchivoRelacion {
-  id: string
-  sha256: string
-  bucket: string
-  ruta_archivo: string
+  id: string;
+  sha256: string;
+  bucket: string;
+  ruta_archivo: string;
 }
 
 interface WorkspaceEmpleadoRow {
-  id: string
-  id_nomina: string | null
-  nombre_completo: string
-  curp: string | null
-  nss: string | null
-  rfc: string | null
-  puesto: string
-  zona: string | null
-  telefono: string | null
-  correo_electronico: string | null
-  estatus_laboral: string
-  fecha_alta: string | null
-  fecha_nacimiento: string | null
-  fecha_baja: string | null
-  domicilio_completo: string | null
-  codigo_postal: string | null
-  edad: number | null
-  anios_laborando: number | null
-  sexo: string | null
-  estado_civil: string | null
-  originario: string | null
-  sbc_diario: number | null
-  supervisor_empleado_id: string | null
-  sueldo_base_mensual: number | null
-  expediente_estado: string
-  expediente_validado_en: string | null
-  expediente_observaciones: string | null
-  imss_estado: string
-  imss_fecha_solicitud: string | null
-  imss_fecha_alta: string | null
-  imss_observaciones: string | null
-  motivo_baja: string | null
-  checklist_baja: Record<string, boolean> | null
-  metadata: Record<string, unknown> | null
-  created_at: string
-  updated_at: string
-  supervisor: MaybeMany<{ nombre_completo: string | null }>
+  id: string;
+  id_nomina: string | null;
+  nombre_completo: string;
+  curp: string | null;
+  nss: string | null;
+  rfc: string | null;
+  puesto: string;
+  zona: string | null;
+  telefono: string | null;
+  correo_electronico: string | null;
+  estatus_laboral: string;
+  fecha_alta: string | null;
+  fecha_nacimiento: string | null;
+  fecha_baja: string | null;
+  domicilio_completo: string | null;
+  codigo_postal: string | null;
+  latitud_domicilio?: number | null;
+  longitud_domicilio?: number | null;
+  edad: number | null;
+  anios_laborando: number | null;
+  sexo: string | null;
+  estado_civil: string | null;
+  originario: string | null;
+  sbc_diario: number | null;
+  supervisor_empleado_id: string | null;
+  sueldo_base_mensual: number | null;
+  expediente_estado: string;
+  expediente_validado_en: string | null;
+  expediente_observaciones: string | null;
+  imss_estado: string;
+  imss_fecha_solicitud: string | null;
+  imss_fecha_alta: string | null;
+  imss_observaciones: string | null;
+  motivo_baja: string | null;
+  checklist_baja: Record<string, boolean> | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  supervisor: MaybeMany<{ nombre_completo: string | null }>;
 }
 
 interface DocumentoQueryRow {
-  id: string
-  empleado_id: string
-  categoria: 'EXPEDIENTE' | 'IMSS' | 'BAJA'
+  id: string;
+  empleado_id: string;
+  categoria: 'EXPEDIENTE' | 'IMSS' | 'BAJA';
   tipo_documento:
     | 'CURP'
     | 'RFC'
@@ -90,65 +92,68 @@ interface DocumentoQueryRow {
     | 'CONTRATO'
     | 'ALTA_IMSS'
     | 'BAJA'
-    | 'OTRO'
-  nombre_archivo_original: string
-  mime_type: string | null
-  tamano_bytes: number | null
-  estado_documento: 'CARGADO' | 'VALIDADO' | 'OBSERVADO'
-  ocr_provider: string | null
-  ocr_resultado: Record<string, unknown> | null
-  metadata: Record<string, unknown> | null
-  created_at: string
-  archivo: MaybeMany<ArchivoRelacion>
+    | 'OTRO';
+  nombre_archivo_original: string;
+  mime_type: string | null;
+  tamano_bytes: number | null;
+  estado_documento: 'CARGADO' | 'VALIDADO' | 'OBSERVADO';
+  ocr_provider: string | null;
+  ocr_resultado: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  archivo: MaybeMany<ArchivoRelacion>;
 }
 
 interface IncapacidadSolicitudRow {
-  id: string
-  cuenta_cliente_id: string
-  empleado_id: string
-  supervisor_empleado_id: string | null
-  fecha_inicio: string
-  fecha_fin: string
-  tipo: string
-  estatus: string
-  motivo: string | null
-  comentarios: string | null
-  justificante_url: string | null
-  metadata: Record<string, unknown> | null
-  created_at: string
-  empleado: MaybeMany<{ nombre_completo: string | null }>
+  id: string;
+  cuenta_cliente_id: string;
+  empleado_id: string;
+  supervisor_empleado_id: string | null;
+  fecha_inicio: string;
+  fecha_fin: string;
+  tipo: string;
+  estatus: string;
+  motivo: string | null;
+  comentarios: string | null;
+  justificante_url: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  empleado: MaybeMany<{ nombre_completo: string | null }>;
 }
 
 function getFirst<T>(value: MaybeMany<T>): T | null {
   if (!value) {
-    return null
+    return null;
   }
 
-  return Array.isArray(value) ? value[0] ?? null : value
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
 function normalizeMetadata(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
-    : {}
+    : {};
 }
 
 function mapString(value: unknown) {
-  return typeof value === 'string' && value.trim().length > 0 ? value : null
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
 function mapChecklist(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {}
+    return {};
   }
 
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).map(([key, current]) => [key, current === true])
-  ) as Record<string, boolean>
+    Object.entries(value as Record<string, unknown>).map(([key, current]) => [
+      key,
+      current === true,
+    ])
+  ) as Record<string, boolean>;
 }
 
 function mapOnboardingSummary(metadata: Record<string, unknown>): OnboardingOperativoSummary {
-  const onboarding = normalizeMetadata(metadata.onboarding_operativo)
+  const onboarding = normalizeMetadata(metadata.onboarding_operativo);
   return {
     coordinadorEmpleadoId: mapString(onboarding.coordinador_empleado_id),
     coordinadorNombre: mapString(onboarding.coordinador_nombre),
@@ -156,13 +161,17 @@ function mapOnboardingSummary(metadata: Record<string, unknown>): OnboardingOper
     pdvObjetivoLabel: mapString(onboarding.pdv_objetivo_label),
     fechaIngresoOficial: mapString(onboarding.fecha_ingreso_oficial),
     fechaIsdinizacion: mapString(onboarding.fecha_isdinizacion),
-    accesosExternosStatus: mapString(onboarding.accesos_externos_status) as OnboardingOperativoSummary['accesosExternosStatus'],
+    accesosExternosStatus: mapString(
+      onboarding.accesos_externos_status
+    ) as OnboardingOperativoSummary['accesosExternosStatus'],
     accesosExternosObservaciones: mapString(onboarding.accesos_externos_observaciones),
     expedienteCompletoRecibido: onboarding.expediente_completo_recibido === true,
-    contratoStatus: mapString(onboarding.contrato_status) as OnboardingOperativoSummary['contratoStatus'],
+    contratoStatus: mapString(
+      onboarding.contrato_status
+    ) as OnboardingOperativoSummary['contratoStatus'],
     contratoFirmadoEn: mapString(onboarding.contrato_firmado_en),
     validacionFinalReclutamientoAt: mapString(onboarding.validacion_final_reclutamiento_at),
-  }
+  };
 }
 
 async function buildSignedUrl(
@@ -171,23 +180,25 @@ async function buildSignedUrl(
   path: string | null
 ) {
   if (!bucket || !path) {
-    return null
+    return null;
   }
 
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, SIGNED_URL_EXPIRY_SECONDS)
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .createSignedUrl(path, SIGNED_URL_EXPIRY_SECONDS);
   if (error) {
-    return null
+    return null;
   }
 
-  return data.signedUrl ?? null
+  return data.signedUrl ?? null;
 }
 
 function mapDocumentOptimization(
   metadata: Record<string, unknown> | null | undefined
 ): DocumentoOptimizationSummary | null {
-  const optimization = normalizeMetadata(metadata?.optimization)
+  const optimization = normalizeMetadata(metadata?.optimization);
   if (Object.keys(optimization).length === 0) {
-    return null
+    return null;
   }
 
   return {
@@ -198,15 +209,18 @@ function mapDocumentOptimization(
     originalBytes:
       typeof optimization.original_bytes === 'number' ? optimization.original_bytes : null,
     finalBytes: typeof optimization.final_bytes === 'number' ? optimization.final_bytes : null,
-    targetMet: optimization.target_met === true ? true : optimization.target_met === false ? false : null,
+    targetMet:
+      optimization.target_met === true ? true : optimization.target_met === false ? false : null,
     notes: Array.isArray(optimization.notes)
       ? optimization.notes.filter((item): item is string => typeof item === 'string')
       : [],
-  }
+  };
 }
 
-function mapDocumentOcrResult(value: Record<string, unknown> | null | undefined): DocumentoOcrResultado {
-  const metadata = normalizeMetadata(value)
+function mapDocumentOcrResult(
+  value: Record<string, unknown> | null | undefined
+): DocumentoOcrResultado {
+  const metadata = normalizeMetadata(value);
   return {
     status: mapString(metadata.status),
     provider: mapString(metadata.provider),
@@ -228,34 +242,42 @@ function mapDocumentOcrResult(value: Record<string, unknown> | null | undefined)
     sex: mapString(metadata.sex),
     maritalStatus: mapString(metadata.marital_status),
     originPlace: mapString(metadata.origin_place),
-    dailyBaseSalary: typeof metadata.daily_base_salary === 'number' ? metadata.daily_base_salary : null,
+    dailyBaseSalary:
+      typeof metadata.daily_base_salary === 'number' ? metadata.daily_base_salary : null,
     addressSourceDocumentType: mapString(metadata.address_source_document_type),
     employer: mapString(metadata.employer),
     position: mapString(metadata.position),
     documentNumber: mapString(metadata.document_number),
-    keyDates: Array.isArray(metadata.key_dates) ? metadata.key_dates.filter((item): item is string => typeof item === 'string') : [],
+    keyDates: Array.isArray(metadata.key_dates)
+      ? metadata.key_dates.filter((item): item is string => typeof item === 'string')
+      : [],
     extractedText: mapString(metadata.extracted_text),
     confidenceSummary: mapString(metadata.confidence_summary),
-    mismatchHints: Array.isArray(metadata.mismatch_hints) ? metadata.mismatch_hints.filter((item): item is string => typeof item === 'string') : [],
-    observations: Array.isArray(metadata.observations) ? metadata.observations.filter((item): item is string => typeof item === 'string') : [],
+    mismatchHints: Array.isArray(metadata.mismatch_hints)
+      ? metadata.mismatch_hints.filter((item): item is string => typeof item === 'string')
+      : [],
+    observations: Array.isArray(metadata.observations)
+      ? metadata.observations.filter((item): item is string => typeof item === 'string')
+      : [],
     errorMessage: mapString(metadata.error_message),
     extractedAt: mapString(metadata.extracted_at),
-  }
+  };
 }
 
 async function fetchEmployeeDocuments(
   supabase: SupabaseClient,
   employeeIds: string[]
 ): Promise<Map<string, DocumentoExpedienteItem[]>> {
-  const documentsByEmployee = new Map<string, DocumentoExpedienteItem[]>()
+  const documentsByEmployee = new Map<string, DocumentoExpedienteItem[]>();
 
   if (employeeIds.length === 0) {
-    return documentsByEmployee
+    return documentsByEmployee;
   }
 
   const { data, error } = await supabase
     .from('documento_expediente')
-    .select(`
+    .select(
+      `
       id,
       empleado_id,
       categoria,
@@ -269,17 +291,18 @@ async function fetchEmployeeDocuments(
       metadata,
       created_at,
       archivo:archivo_hash_id(id, sha256, bucket, ruta_archivo)
-    `)
+    `
+    )
     .in('empleado_id', employeeIds)
-    .order('created_at', { ascending: false })
+    .order('created_at', { ascending: false });
 
   if (error) {
-    return documentsByEmployee
+    return documentsByEmployee;
   }
 
   for (const documento of (data ?? []) as DocumentoQueryRow[]) {
-    const archivo = getFirst(documento.archivo)
-    const current = documentsByEmployee.get(documento.empleado_id) ?? []
+    const archivo = getFirst(documento.archivo);
+    const current = documentsByEmployee.get(documento.empleado_id) ?? [];
     current.push({
       id: documento.id,
       categoria: documento.categoria,
@@ -300,8 +323,8 @@ async function fetchEmployeeDocuments(
         typeof documento.metadata?.source_document === 'string'
           ? documento.metadata.source_document
           : null,
-    })
-    documentsByEmployee.set(documento.empleado_id, current)
+    });
+    documentsByEmployee.set(documento.empleado_id, current);
   }
 
   for (const [employeeId, documents] of documentsByEmployee.entries()) {
@@ -310,19 +333,19 @@ async function fetchEmployeeDocuments(
         ...document,
         signedUrl: await buildSignedUrl(supabase, document.bucket, document.rutaArchivo),
       }))
-    )
-    documentsByEmployee.set(employeeId, resolved)
+    );
+    documentsByEmployee.set(employeeId, resolved);
   }
 
-  return documentsByEmployee
+  return documentsByEmployee;
 }
 
 function mapEmpleadoListadoItem(
   row: WorkspaceEmpleadoRow,
   documentos: DocumentoExpedienteItem[]
 ): EmpleadoListadoItem {
-  const metadata = normalizeMetadata(row.metadata)
-  const supervisor = getFirst(row.supervisor)
+  const metadata = normalizeMetadata(row.metadata);
+  const supervisor = getFirst(row.supervisor);
 
   return {
     id: row.id,
@@ -341,6 +364,14 @@ function mapEmpleadoListadoItem(
     fechaBaja: row.fecha_baja,
     domicilioCompleto: row.domicilio_completo,
     codigoPostal: row.codigo_postal,
+    latitudDomicilio:
+      row.latitud_domicilio !== null && row.latitud_domicilio !== undefined
+        ? Number(row.latitud_domicilio)
+        : null,
+    longitudDomicilio:
+      row.longitud_domicilio !== null && row.longitud_domicilio !== undefined
+        ? Number(row.longitud_domicilio)
+        : null,
     edad: row.edad,
     aniosLaborando: row.anios_laborando,
     sexo: row.sexo,
@@ -373,63 +404,67 @@ function mapEmpleadoListadoItem(
     documentos,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-  }
+  };
 }
 
 export interface NominaIncapacidadPendienteItem {
-  id: string
-  cuentaClienteId: string
-  empleadoId: string
-  empleadoNombre: string
-  supervisorEmpleadoId: string | null
-  fechaInicio: string
-  fechaFin: string
-  enviadaEn: string
-  estatus: string
-  motivo: string | null
-  comentarios: string | null
-  justificanteUrl: string | null
-  requesterPuesto: Puesto | null
-  validadaSupervisorEn: string | null
-  validadaReclutamientoEn: string | null
+  id: string;
+  cuentaClienteId: string;
+  empleadoId: string;
+  empleadoNombre: string;
+  supervisorEmpleadoId: string | null;
+  fechaInicio: string;
+  fechaFin: string;
+  enviadaEn: string;
+  estatus: string;
+  motivo: string | null;
+  comentarios: string | null;
+  justificanteUrl: string | null;
+  requesterPuesto: Puesto | null;
+  validadaSupervisorEn: string | null;
+  validadaReclutamientoEn: string | null;
 }
 
 export interface NominaWorkspaceSummary {
-  totalMovimientos: number
-  altasPendientes: number
-  bajasPendientes: number
-  bajasDevueltas: number
-  devueltasAReclutamiento: number
-  movimientosCerrados: number
-  incapacidadesPendientes: number
+  totalMovimientos: number;
+  altasPendientes: number;
+  bajasPendientes: number;
+  bajasDevueltas: number;
+  devueltasAReclutamiento: number;
+  movimientosCerrados: number;
+  incapacidadesPendientes: number;
 }
 
 export interface NominaWorkspaceData {
-  summary: NominaWorkspaceSummary
-  payrollInbox: EmployeePayrollInboxData<EmpleadoListadoItem>
-  incapacidadesPendientes: NominaIncapacidadPendienteItem[]
-  attendanceMonth: string
-  infraestructuraLista: boolean
-  mensajeInfraestructura?: string
+  summary: NominaWorkspaceSummary;
+  payrollInbox: EmployeePayrollInboxData<EmpleadoListadoItem>;
+  incapacidadesPendientes: NominaIncapacidadPendienteItem[];
+  attendanceMonth: string;
+  infraestructuraLista: boolean;
+  mensajeInfraestructura?: string;
 }
 
-const NOMINA_PANEL_REVALIDATE_SECONDS = 60
+const NOMINA_PANEL_REVALIDATE_SECONDS = 60;
 
-function buildNominaCacheKey(actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>) {
+function buildNominaCacheKey(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>
+) {
   return JSON.stringify({
     cuentaClienteId: actor.cuentaClienteId ?? null,
     empleadoId: actor.empleadoId,
     puesto: actor.puesto,
-  })
+  });
 }
 
-function buildNominaCacheTags(actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>) {
+function buildNominaCacheTags(
+  actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>
+) {
   return buildModuleCacheTags({
     module: 'nomina',
     accountId: actor.cuentaClienteId ?? null,
     employeeId: actor.empleadoId,
     supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
-  })
+  });
 }
 
 async function obtenerWorkspaceNominaUncached(
@@ -440,12 +475,13 @@ async function obtenerWorkspaceNominaUncached(
     year: 'numeric',
     month: '2-digit',
     timeZone: 'America/Mexico_City',
-  }).format(new Date())
+  }).format(new Date());
 
   const [employeesResult, incapacidadesResult] = await Promise.all([
     supabase
       .from('empleado')
-      .select(`
+      .select(
+        `
         id,
         id_nomina,
         nombre_completo,
@@ -462,6 +498,8 @@ async function obtenerWorkspaceNominaUncached(
         fecha_baja,
         domicilio_completo,
         codigo_postal,
+        latitud_domicilio,
+        longitud_domicilio,
         edad,
         anios_laborando,
         sexo,
@@ -483,12 +521,14 @@ async function obtenerWorkspaceNominaUncached(
         created_at,
         updated_at,
         supervisor:supervisor_empleado_id(nombre_completo)
-      `)
+      `
+      )
       .order('created_at', { ascending: false }),
     (() => {
       let query = supabase
         .from('solicitud')
-        .select(`
+        .select(
+          `
           id,
           cuenta_cliente_id,
           empleado_id,
@@ -503,67 +543,70 @@ async function obtenerWorkspaceNominaUncached(
           metadata,
           created_at,
           empleado:empleado_id(nombre_completo)
-        `)
+        `
+        )
         .eq('tipo', 'INCAPACIDAD')
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: false });
 
       if (actor.cuentaClienteId) {
-        query = query.eq('cuenta_cliente_id', actor.cuentaClienteId)
+        query = query.eq('cuenta_cliente_id', actor.cuentaClienteId);
       }
 
-      return query
+      return query;
     })(),
-  ])
+  ]);
 
   if (employeesResult.error) {
-      return {
-        summary: {
-          totalMovimientos: 0,
-          altasPendientes: 0,
-          bajasPendientes: 0,
-          bajasDevueltas: 0,
-          devueltasAReclutamiento: 0,
-          movimientosCerrados: 0,
-          incapacidadesPendientes: 0,
-        },
+    return {
+      summary: {
+        totalMovimientos: 0,
+        altasPendientes: 0,
+        bajasPendientes: 0,
+        bajasDevueltas: 0,
+        devueltasAReclutamiento: 0,
+        movimientosCerrados: 0,
+        incapacidadesPendientes: 0,
+      },
       payrollInbox: [],
       incapacidadesPendientes: [],
       attendanceMonth: month,
       infraestructuraLista: false,
       mensajeInfraestructura: employeesResult.error.message,
-    }
+    };
   }
 
-  const employeeRows = (employeesResult.data ?? []) as WorkspaceEmpleadoRow[]
-  const baseEmployees = employeeRows.map((row) => mapEmpleadoListadoItem(row, []))
-  const baseInbox = buildPayrollInbox<EmpleadoListadoItem>(baseEmployees)
+  const employeeRows = (employeesResult.data ?? []) as WorkspaceEmpleadoRow[];
+  const baseEmployees = employeeRows.map((row) => mapEmpleadoListadoItem(row, []));
+  const baseInbox = buildPayrollInbox<EmpleadoListadoItem>(baseEmployees);
   const inboxEmployeeIds = Array.from(
     new Set(baseInbox.flatMap((lane) => lane.items.map((item) => item.employee.id)))
-  )
-  const documentsByEmployee = await fetchEmployeeDocuments(supabase, inboxEmployeeIds)
+  );
+  const documentsByEmployee = await fetchEmployeeDocuments(supabase, inboxEmployeeIds);
   const employeesById = new Map(
-    employeeRows.map((row) => [row.id, mapEmpleadoListadoItem(row, documentsByEmployee.get(row.id) ?? [])] as const)
-  )
+    employeeRows.map(
+      (row) => [row.id, mapEmpleadoListadoItem(row, documentsByEmployee.get(row.id) ?? [])] as const
+    )
+  );
 
   const payrollInbox = buildPayrollInbox<EmpleadoListadoItem>(
     baseEmployees.map((employee) => employeesById.get(employee.id) ?? employee)
-  )
+  );
 
   const incapacidadesPendientes = ((incapacidadesResult.data ?? []) as IncapacidadSolicitudRow[])
     .filter((item) => {
-      const metadata = normalizeMetadata(item.metadata)
-      const requesterPuesto = mapString(metadata.actor_puesto)
+      const metadata = normalizeMetadata(item.metadata);
+      const requesterPuesto = mapString(metadata.actor_puesto);
       return (
         getIncapacidadNextActor({
           estatus: item.estatus as never,
           metadata,
           requesterPuesto: (requesterPuesto as Puesto | null) ?? undefined,
         }) === 'NOMINA'
-      )
+      );
     })
     .map<NominaIncapacidadPendienteItem>((item) => {
-      const metadata = normalizeMetadata(item.metadata)
-      const empleado = getFirst(item.empleado)
+      const metadata = normalizeMetadata(item.metadata);
+      const empleado = getFirst(item.empleado);
       return {
         id: item.id,
         cuentaClienteId: item.cuenta_cliente_id,
@@ -580,15 +623,17 @@ async function obtenerWorkspaceNominaUncached(
         requesterPuesto: mapString(metadata.actor_puesto) as Puesto | null,
         validadaSupervisorEn: mapString(metadata.validada_supervisor_en),
         validadaReclutamientoEn: mapString(metadata.reclutamiento_validada_en),
-      }
-    })
+      };
+    });
 
   return {
     summary: {
       totalMovimientos: payrollInbox.reduce((total, lane) => total + lane.items.length, 0),
       altasPendientes: payrollInbox.find((lane) => lane.key === 'altas-imss')?.items.length ?? 0,
-      bajasPendientes: payrollInbox.find((lane) => lane.key === 'bajas-pendientes')?.items.length ?? 0,
-      bajasDevueltas: payrollInbox.find((lane) => lane.key === 'bajas-devueltas')?.items.length ?? 0,
+      bajasPendientes:
+        payrollInbox.find((lane) => lane.key === 'bajas-pendientes')?.items.length ?? 0,
+      bajasDevueltas:
+        payrollInbox.find((lane) => lane.key === 'bajas-devueltas')?.items.length ?? 0,
       devueltasAReclutamiento:
         payrollInbox.find((lane) => lane.key === 'devueltas-a-reclutamiento')?.items.length ?? 0,
       movimientosCerrados: payrollInbox.find((lane) => lane.key === 'cerradas')?.items.length ?? 0,
@@ -599,7 +644,7 @@ async function obtenerWorkspaceNominaUncached(
     attendanceMonth: month,
     infraestructuraLista: !incapacidadesResult.error,
     mensajeInfraestructura: incapacidadesResult.error?.message,
-  }
+  };
 }
 
 export async function obtenerWorkspaceNomina(
@@ -607,33 +652,30 @@ export async function obtenerWorkspaceNomina(
   actorOrCustomSupabase?: ActorActual | SupabaseClient
 ): Promise<NominaWorkspaceData> {
   if (isSupabaseClient(actorOrSupabase)) {
-    return obtenerWorkspaceNominaUncached(actorOrSupabase, actorOrCustomSupabase as ActorActual)
+    return obtenerWorkspaceNominaUncached(actorOrSupabase, actorOrCustomSupabase as ActorActual);
   }
 
-  const actor = actorOrSupabase
-  const customSupabase = actorOrCustomSupabase && isSupabaseClient(actorOrCustomSupabase)
-    ? actorOrCustomSupabase
-    : undefined
+  const actor = actorOrSupabase;
+  const customSupabase =
+    actorOrCustomSupabase && isSupabaseClient(actorOrCustomSupabase)
+      ? actorOrCustomSupabase
+      : undefined;
 
   if (customSupabase) {
-    return obtenerWorkspaceNominaUncached(customSupabase, actor)
+    return obtenerWorkspaceNominaUncached(customSupabase, actor);
   }
 
-  const cacheKey = buildNominaCacheKey(actor)
+  const cacheKey = buildNominaCacheKey(actor);
 
   return unstable_cache(
     async () => {
-      const service = createServiceClient() as unknown as SupabaseClient
-      return obtenerWorkspaceNominaUncached(service, actor)
+      const service = createServiceClient() as unknown as SupabaseClient;
+      return obtenerWorkspaceNominaUncached(service, actor);
     },
     ['nomina:panel', cacheKey],
     {
       tags: buildNominaCacheTags(actor),
       revalidate: NOMINA_PANEL_REVALIDATE_SECONDS,
     }
-  )()
+  )();
 }
-
-
-
-

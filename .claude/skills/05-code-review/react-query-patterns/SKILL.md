@@ -6,6 +6,7 @@ description: Patrones de React Query para caching y sincronización
 # React Query Patterns
 
 ## Setup
+
 ```typescript
 // app/providers.tsx
 'use client';
@@ -31,33 +32,35 @@ export function Providers({ children }: { children: React.ReactNode }) {
 ```
 
 ## Queries
+
 ```typescript
 import { useQuery } from '@tanstack/react-query';
 
 function useAssignments(dcId: string) {
   return useQuery({
     queryKey: ['assignments', dcId],
-    queryFn: () => pb.collection('assignments_daily').getList(1, 50, {
-      filter: `dc_id = "${dcId}"`
-    }),
-    staleTime: 5 * 60 * 1000
+    queryFn: () =>
+      pb.collection('assignments_daily').getList(1, 50, {
+        filter: `dc_id = "${dcId}"`,
+      }),
+    staleTime: 5 * 60 * 1000,
   });
 }
 ```
 
 ## Mutations
+
 ```typescript
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 function useCreateAttendance() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: (data: AttendanceData) => 
-      pb.collection('attendance').create(data),
+    mutationFn: (data: AttendanceData) => pb.collection('attendance').create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['attendance'] });
-    }
+    },
   });
 }
 ```

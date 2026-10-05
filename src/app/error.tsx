@@ -1,24 +1,24 @@
-'use client'
+'use client';
 
-import { useEffect } from 'react'
-import { Button } from '@/components/ui/button'
+import { useEffect } from 'react';
+import { Button } from '@/components/ui/button';
 import {
   recoverFromChunkLoadError,
   shouldRecoverFromChunkLoadError,
-} from '@/lib/runtime/chunkRecovery'
+} from '@/lib/runtime/chunkRecovery';
 
 export default function RootError({
   error,
   reset,
 }: {
-  error: Error & { digest?: string }
-  reset: () => void
+  error: Error & { digest?: string };
+  reset: () => void;
 }) {
   useEffect(() => {
     if (shouldRecoverFromChunkLoadError(error.message)) {
-      void recoverFromChunkLoadError()
+      void recoverFromChunkLoadError();
     }
-  }, [error.message])
+  }, [error.message]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
@@ -39,8 +39,8 @@ export default function RootError({
           <Button
             type="button"
             onClick={() => {
-              reset()
-              window.location.reload()
+              reset();
+              window.location.reload();
             }}
           >
             Recargar aplicacion
@@ -49,7 +49,7 @@ export default function RootError({
             type="button"
             variant="outline"
             onClick={() => {
-              reset()
+              reset();
             }}
           >
             Reintentar
@@ -57,10 +57,10 @@ export default function RootError({
         </div>
 
         <p className="mt-5 text-xs leading-6 text-slate-500">
-          Si vuelve a ocurrir varias veces, cierra la pestaña y vuelve a entrar. Si sigue igual,
-          el navegador puede tener caché vieja del sitio.
+          Si vuelve a ocurrir varias veces, cierra la pestaña y vuelve a entrar. Si sigue igual, el
+          navegador puede tener caché vieja del sitio.
         </p>
       </div>
     </div>
-  )
+  );
 }

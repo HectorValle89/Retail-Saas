@@ -1,8 +1,8 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test';
 import {
   buildEmpleadoOcrSnapshot,
   deriveYearsFromAgencyStartDate,
-} from '../src/features/empleados/lib/ocrMapping'
+} from '../src/features/empleados/lib/ocrMapping';
 
 test('normaliza snapshot OCR de empleados en mayusculas y no usa fecha de ingreso OCR para altas', () => {
   const snapshot = buildEmpleadoOcrSnapshot({
@@ -39,7 +39,7 @@ test('normaliza snapshot OCR de empleados en mayusculas y no usa fecha de ingres
     errorMessage: null,
     extractedAt: '2026-03-20T00:00:00.000Z',
     usage: null,
-  })
+  });
 
   expect(snapshot).toMatchObject({
     nombreCompleto: 'SARA LUZ RAMIREZ DEL TORO',
@@ -54,12 +54,12 @@ test('normaliza snapshot OCR de empleados en mayusculas y no usa fecha de ingres
     estadoCivil: 'SOLTERO',
     originario: 'GUADALAJARA, JALISCO',
     fuenteDireccion: 'COMPROBANTE_DOMICILIO',
-  })
-})
+  });
+});
 
 test('calcula anios laborando desde la fecha operativa de ingreso', () => {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = new Date().toISOString().slice(0, 10);
 
-  expect(deriveYearsFromAgencyStartDate(today)).toBe(0)
-  expect(deriveYearsFromAgencyStartDate(null)).toBeNull()
-})
+  expect(deriveYearsFromAgencyStartDate(today)).toBe(0);
+  expect(deriveYearsFromAgencyStartDate(null)).toBeNull();
+});

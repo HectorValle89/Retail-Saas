@@ -8,6 +8,7 @@
   - [x] 0.1.3 Instalar y configurar shadcn/ui con tema personalizado be te ele (`#1A7FD4`, `#8A9BA8`, `#0A0A0A`)
   - [x] 0.1.4 Configurar ESLint + Prettier con reglas de proyecto
   - [x] 0.1.5 Configurar estructura Feature-First: `src/features/{feature}/`, `src/shared/`, `src/app/`
+  - [x] 0.1.6 Shell administrativo con riel persistente de íconos y sidebar superpuesto expandible en escritorio
 
 - [x] Configurar Supabase (proyecto, variables de entorno, cliente)
   - [x] 0.2.1 Crear proyecto Supabase y obtener `SUPABASE_URL` + `SUPABASE_ANON_KEY` + `SUPABASE_SERVICE_ROLE_KEY`
@@ -128,11 +129,28 @@
   - [x] 3.1.6 Vista de asignaciones del día para SUPERVISOR y COORDINADOR
   - [x] 3.1.7 Capa maestra de rotación de PDVs con propuesta XLSX, conversión desde archivo legacy, importación como reemplazo total y revisión ligera dentro de `Asignaciones > PDVs`
 
-- [x] Módulo 10 — Ruta Semanal
-  - [x] 3.2.1 Crear ruta semanal para SUPERVISOR: lista ordenada de PDVs por día
+- [x] Módulo 10 — Ruta Mensual
+  - [x] 3.2.1 Crear ruta mensual para SUPERVISOR: lista ordenada de PDVs por fecha
   - [x] 3.2.2 Validar que PDVs de la ruta tienen asignaciones activas
   - [x] 3.2.3 Vista de ruta en mapa con orden de visitas
   - [x] 3.2.4 Marcar visita como completada con evidencia opcional
+  - [x] 3.2.5 Matriz mensual por supervisor y día con letras L/M/X/J/V/S/D y semanas solapadas
+  - [x] 3.2.6 Detalle diario lazy de tiendas planeadas, realizadas, pendientes y reposiciones
+  - [x] 3.2.7 Endpoints de resumen y detalle con alcance por cuenta/rol e índices específicos
+  - [x] 3.2.8 Compatibilidad temporal de cortes semanales y validación por fecha efectiva
+  - [x] 3.2.9 Aprobación mensual limitada a COORDINADOR y sin aprobación automática de cambios solicitados
+  - [x] 3.2.10 Pruebas E2E de matriz/modal, auditoría visual móvil y medición P95 de consultas
+  - [x] 3.2.11 Vista compacta de los 28 a 31 días sin scroll horizontal en escritorio
+  - [x] 3.2.12 Cuotas recurrentes por cuenta, supervisor y PDV con vigencia mensual e historial inmutable
+  - [x] 3.2.13 Backfill de cuotas legadas e inicialización de todos los pares supervisor-PDV operativos
+  - [x] 3.2.14 Editor compacto con filtros inmediatos, asignación masiva y permisos ADMINISTRADOR/COORDINADOR
+  - [x] 3.2.15 Lectura compartida en War Room/alcance/cobertura/ranking y proyección ligera cacheable de cuotas
+  - [x] 3.2.16 Liberación y aprobación mensual transaccional con previsualización, protección de ejecución y auditoría por ruta
+  - [x] 3.2.17 Acciones mensuales en la cabecera del calendario, confirmación accesible y notificación consolidada por supervisor
+  - [x] 3.2.18 Entidad `ruta_mensual_envio` y RPC atómico de envío mensual con revisión optimista
+  - [x] 3.2.19 Calendario editable día por día en la aplicación del SUPERVISOR
+  - [x] 3.2.20 Catálogo mensual cacheado por vigencia exacta de PDV, asignación y supervisor
+  - [x] 3.2.21 Notificación y auditoría únicas por envío mensual, conservando ejecución e historial
 
 - [x] Módulo 6 — Campañas
   - [x] 3.3.1 Crear campaña: nombre, fechas, PDVs objetivo, tareas requeridas
@@ -208,7 +226,7 @@
   - [x] 5.1.2 Flujo de aprobación: DERMOCONSEJERO crea → SUPERVISOR valida o rechaza (sin editar)
   - [x] 5.1.3 Notificación al solicitante del resultado (aprobado/rechazado con motivo)
   - [x] 5.1.4 Impacto en asistencias: días aprobados no generan falta
-  - [x] 5.1.5 Las vacaciones e incapacidades NO eximen al DC de sus cuotas (cuotas se mantienen)
+  - [x] 5.1.5 Vacaciones e incapacidades excluyen la cuota diaria individual; sólo una cobertura efectiva asigna esa cuota a otra DC
   - [x] 5.1.6 Listado de solicitudes con filtros por tipo, estado, empleado, fecha
   - [x] 5.1.7 Vista de calendario de ausencias para SUPERVISOR y COORDINADOR
   - [x] 5.1.8 Bandeja de registros extemporáneos con aprobación/rechazo, recurrencia mensual y consolidación hacia Ventas / LOVE ISDIN
@@ -227,7 +245,7 @@
   - [x] 5.3.1 Definición de cuotas por empleado/periodo: ventas, afiliaciones LOVE, visitas
   - [x] 5.3.2 Cálculo de avance en tiempo real: ventas registradas vs. cuota del periodo
   - [x] 5.3.3 Indicador visual de cumplimiento: semáforo (rojo <70%, amarillo 70–99%, verde ≥100%)
-  - [x] 5.3.4 Cuotas no se reducen por vacaciones o incapacidades (regla de negocio irrompible)
+  - [x] 5.3.4 Cuota individual igual a la suma de cuotas diarias de PDVs efectivamente laborados; días sin cobertura quedan no atribuidos
   - [x] 5.3.5 Ranking de cumplimiento de cuotas por zona/región (visible para SUPERVISOR y COORDINADOR)
   - [x] 5.3.6 Alerta automática cuando DC lleva <70% de cuota a mitad del periodo
 
@@ -352,5 +370,59 @@
   - [x] 7.9.4 AGENT_HISTORY.md con resumen de decisiones de arquitectura y desvíos documentados
   - [x] 7.9.5 Lighthouse PWA score ≥90 en mobile (performance, accesibilidad, PWA checklist)
 
-- [ ] 7.10 Automatización diaria de asignaciones en Cloudflare
-  - [ ] 7.10.1 Al desplegar en Cloudflare, configurar un Cron Trigger/Worker seguro que invoque `GET /api/asignaciones/scheduled-publication` con `x-asignaciones-cron-secret`, en frecuencia diaria, para recalcular `mes actual + siguiente` sin depender del frontend.
+- [x] 7.10 Automatización diaria de asignaciones en Cloudflare
+  - [x] 7.10.1 Al desplegar en Cloudflare, configurar un Cron Trigger/Worker seguro que invoque `GET /api/asignaciones/scheduled-publication` con `x-asignaciones-cron-secret`, en frecuencia diaria, para recalcular `mes actual + siguiente` sin depender del frontend.
+  - [x] 7.10.2 Permitir el endpoint técnico a través de la frontera de sesión sin omitir su secreto propio y saltar materialización/snapshots únicamente cuando la proyección rodante esté completa y no existan cambios efectivos.
+
+## Fase 8 — Planeación mensual de asignaciones
+
+- [x] 8.1 Fundación transaccional y contratos
+  - [x] 8.1.1 Normalizar `asignacion.naturaleza` a `BASE`, `COBERTURA_TEMPORAL` y `COBERTURA_PERMANENTE`
+  - [x] 8.1.2 Crear lotes, operaciones, vigencias de PDV/rotación, catálogo de turnos, snapshots mensuales y outbox con RLS e índices
+  - [x] 8.1.3 Implementar RPC transaccional de vista previa y aplicación con idempotencia, versión optimista y validación de doble asignación
+  - [x] 8.1.4 Recalcular incrementalmente `asignacion_diaria_resuelta` por empleados y fechas afectados
+
+- [x] 8.2 Matriz mensual de consulta
+  - [x] 8.2.1 Crear vista/RPC agregada por cuenta y mes con Cadena, PDV, rol, DC, supervisor, vigencias, turno, descanso, días laborados y cuotas
+  - [x] 8.2.2 Implementar una consulta general cacheada por versión, sin polling ni refresco por foco
+  - [x] 8.2.3 Construir matriz desktop y móvil con columnas congeladas, scroll, filtros, leyenda accesible y detalle diferido
+  - [x] 8.2.4 Mostrar códigos operativos y turnos `M`, `TCM`, `TC`, `TC_12`, `TCV`, `V1`, `V`, `ES1/ACT`, `CAP`, `VC` o `HH:MM-HH:MM`
+  - [x] 8.2.5 Compactar inicialmente cabecera y matriz para mostrar el mes completo sin scroll horizontal en escritorio, conservando objetivos táctiles móviles (criterio sustituido por 8.2.7)
+  - [x] 8.2.6 Reorganizar la cabecera en dos franjas compactas de escritorio, integrando mes, KPIs y filtros antes de la matriz sin nuevas lecturas
+  - [x] 8.2.7 Sustituir la compresión mensual por tres zonas: siete columnas maestras fijas, calendario central legible de 14 días con salto quincenal y arrastre sin clic accidental, y tres totales fijos a la derecha
+
+- [x] 8.3 Edición y propagación
+  - [x] 8.3.1 Implementar liberar, asignar y mover DC por fecha efectiva con preview de conflictos e impactos
+  - [x] 8.3.2 Implementar alta/baja de DC; alta/pausa/inactivación de PDV; cambio de rotación, descanso y horario
+  - [x] 8.3.3 Integrar eventos independientes y prioridad del resolvedor con Asistencias
+  - [x] 8.3.4 Reasignar PDVs al sustituir supervisor y propagar visibilidad móvil, formularios públicos, LOVE ISDIN, productos, canjes y reportes
+  - [x] 8.3.5 Heredar vigencias abiertas en meses futuros y abrir la edición maestra desde PDV, DC o supervisor con inicio efectivo y fin opcional
+  - [x] 8.3.6 Programar bajas por último día laborado, activar el primer día inactivo y resolver el catálogo de rutas futuras por supervisor, semana y día exacto
+  - [x] 8.3.7 Reemplazar el cambio aislado de factor por un editor atómico de grupo centrado en PDV con pareja, DC, patrón de días, turno y jerarquía efectiva
+  - [x] 8.3.8 Seleccionar PDVs únicos y publicar liberaciones de DC o reasignaciones selectivas de supervisor como lotes masivos atómicos
+  - [x] 8.3.9 Heredar la planeación maestra en un horizonte rodante de cinco meses, detectar snapshots parcialmente materializados y reconstruirlos por lotes sin generar vacantes ficticias
+  - [x] 8.3.10 Enlazar la confirmación masiva e individual al token `ui_change_version` devuelto por su propia previsualización, sin confundirlo con la revisión del snapshot
+  - [x] 8.3.11 Versionar la importación del catálogo maestro de PDVs por fecha efectiva, conservar ausentes y campos vacíos, y reconciliar asignaciones, visitas futuras y cuotas de ruta con el supervisor resultante
+
+- [x] 8.4 Cuotas diarias
+  - [x] 8.4.1 Crear importador XLSX con preview, validación, idempotencia y aplicación por lote
+  - [x] 8.4.2 Persistir `cuotas_diarias_pdv` y calcular la cuota individual desde asignaciones efectivas realmente laboradas
+  - [x] 8.4.3 Integrar la vista agregada de cuotas en dashboards y exportaciones sin recalcular al leer
+
+- [x] 8.5 Incapacidades `I/IS`
+  - [x] 8.5.1 Retirar `IP/ISP` de asistencia y exportaciones y exigir clasificación documental `INICIAL | SUBSECUENTE`
+  - [x] 8.5.2 Registrar autor, puesto, instante y fuente de la clasificación; bloquear `REGISTRADA_RH` cuando falte
+  - [x] 8.5.3 Aplicar `I/IS` en Solicitudes, Asistencias, Reportes y Nómina sin inferencia por duración o continuidad
+
+- [x] 8.6 Calidad, seguridad y despliegue
+  - [x] 8.6.1 Pruebas unitarias y de propiedades para conflictos, prioridades, rangos efectivos, cuotas e idempotencia
+  - [x] 8.6.2 Pruebas E2E desktop/móvil de edición, preview, rollback y actualización de la matriz
+  - [x] 8.6.3 Validar EXPLAIN, aislamiento multi-tenant, permisos, costo de lecturas, `build`, `cf:build` y encoding
+
+## Auditoría de limpieza — 2026-09-14
+
+Reconciliación de mantenimiento sobre Fases 0 y 7: se eliminaron 99 declaraciones privadas sin referencias, 93 imports sin uso, un wrapper mensual redundante, el ejemplo temporal de tipado y una página duplicada en carpeta privada. Se simplificaron middleware y arranque PWA conservando contratos, límites de sesión, rutas y sincronización. Dos verificaciones operativas históricas que cargaban credenciales locales se conservaron como texto en cuarentena y salieron de la suite automática.
+
+Validación: TypeScript sin errores, 481 pruebas unitarias, 13 pruebas de servicios con Playwright, `npm run build` y `npm run cf:build` correctos. Sin nuevas consultas, migraciones, suscripciones ni refreshes. Se mantienen 351/352 checkboxes; no se cierran funcionalidades adicionales.
+
+Pendientes: lint general con 349 errores y 143 advertencias; la optimización documental del servidor continúa en passthrough y requiere reconciliación funcional respecto de 7.1. Retirar su código inalcanzable no la restaura. Detalle en `docs/auditoria-refactor-2026-09-14.md`.

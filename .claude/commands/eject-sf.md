@@ -1,5 +1,5 @@
 ---
-description: "DESTRUCTIVO: Elimina toda la configuracion de SaaS Factory y deja solo el software funcional. Usar antes de distribuir el proyecto."
+description: 'DESTRUCTIVO: Elimina toda la configuracion de SaaS Factory y deja solo el software funcional. Usar antes de distribuir el proyecto.'
 ---
 
 # Eject SaaS Factory
@@ -37,6 +37,7 @@ Para confirmar, escribe exactamente: EJECT
 Modifica estos archivos para quitar referencias a SaaS Factory:
 
 **`src/app/page.tsx`** - Cambiar el titulo:
+
 ```tsx
 // ANTES
 <h1>SaaS Factory</h1>
@@ -46,21 +47,23 @@ Modifica estos archivos para quitar referencias a SaaS Factory:
 ```
 
 **`src/app/layout.tsx`** - Limpiar metadata:
+
 ```tsx
 // ANTES
 export const metadata: Metadata = {
   title: 'SaaS Factory App',
   description: 'Built with SaaS Factory',
-}
+};
 
 // DESPUES
 export const metadata: Metadata = {
   title: 'Mi Aplicacion',
   description: 'Aplicacion web moderna',
-}
+};
 ```
 
 **`package.json`** - Cambiar el nombre:
+
 ```json
 // ANTES
 "name": "saas-factory-app"
@@ -88,29 +91,31 @@ Aplicacion web construida con Next.js 16 + Supabase.
 ## Quick Start
 
 1. Instalar dependencias:
-\`\`\`bash
-npm install
-\`\`\`
+   \`\`\`bash
+   npm install
+   \`\`\`
 
 2. Configurar variables de entorno:
-\`\`\`bash
-cp .env.local.example .env.local
+   \`\`\`bash
+   cp .env.local.example .env.local
+
 # Editar con tus credenciales de Supabase
+
 \`\`\`
 
 3. Iniciar desarrollo:
-\`\`\`bash
-npm run dev
-\`\`\`
+   \`\`\`bash
+   npm run dev
+   \`\`\`
 
 ## Estructura
 
 \`\`\`
 src/
-├── app/          # Next.js App Router
-├── features/     # Codigo organizado por funcionalidad
-├── shared/       # Codigo compartido
-└── lib/          # Configuraciones (Supabase, etc.)
+├── app/ # Next.js App Router
+├── features/ # Codigo organizado por funcionalidad
+├── shared/ # Codigo compartido
+└── lib/ # Configuraciones (Supabase, etc.)
 \`\`\`
 
 ## Comandos

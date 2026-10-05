@@ -11,6 +11,7 @@
 ## El Cambio de Paradigma
 
 ### Chat Tradicional (Bloque 01)
+
 ```
 Usuario: "¿Cuanto me cuesta no automatizar?"
 Bot: "Estas perdiendo $4,500/mes"
@@ -18,6 +19,7 @@ Usuario: "¿De donde sacaste ese numero?"
 ```
 
 ### Action Stream (Este bloque)
+
 ```
 Usuario: "¿Cuanto me cuesta no automatizar?"
 
@@ -73,51 +75,51 @@ Usuario: (no puede discutir, VIO el calculo)
  * Permite procesar respuestas mientras llegan en streaming.
  */
 export function closeAndParseJson(str: string): any | null {
-  const stack: string[] = []
-  let i = 0
+  const stack: string[] = [];
+  let i = 0;
 
   while (i < str.length) {
-    const char = str[i]
-    const last = stack.at(-1)
+    const char = str[i];
+    const last = stack.at(-1);
 
     if (char === '"') {
       if (i > 0 && str[i - 1] === '\\') {
-        i++
-        continue
+        i++;
+        continue;
       }
       if (last === '"') {
-        stack.pop()
+        stack.pop();
       } else {
-        stack.push('"')
+        stack.push('"');
       }
     }
 
     if (last === '"') {
-      i++
-      continue
+      i++;
+      continue;
     }
 
     if (char === '{' || char === '[') {
-      stack.push(char)
+      stack.push(char);
     }
-    if (char === '}' && last === '{') stack.pop()
-    if (char === ']' && last === '[') stack.pop()
+    if (char === '}' && last === '{') stack.pop();
+    if (char === ']' && last === '[') stack.pop();
 
-    i++
+    i++;
   }
 
-  let closed = str
+  let closed = str;
   for (let j = stack.length - 1; j >= 0; j--) {
-    const opening = stack[j]
-    if (opening === '{') closed += '}'
-    if (opening === '[') closed += ']'
-    if (opening === '"') closed += '"'
+    const opening = stack[j];
+    if (opening === '{') closed += '}';
+    if (opening === '[') closed += ']';
+    if (opening === '"') closed += '"';
   }
 
   try {
-    return JSON.parse(closed)
+    return JSON.parse(closed);
   } catch {
-    return null
+    return null;
   }
 }
 ```
@@ -130,19 +132,19 @@ export function closeAndParseJson(str: string): any | null {
 // lib/ai/actionSchemas.ts
 // MODIFICAR: Añade tus acciones especificas
 
-import { z } from 'zod'
+import { z } from 'zod';
 
 // === ACCIONES BASE (siempre incluir) ===
 
 export const ThinkAction = z.object({
   _type: z.literal('think'),
   text: z.string(),
-})
+});
 
 export const MessageAction = z.object({
   _type: z.literal('message'),
   text: z.string(),
-})
+});
 
 // === ACCIONES PERSONALIZADAS ===
 
@@ -151,7 +153,7 @@ export const AskAction = z.object({
   _type: z.literal('ask'),
   question: z.string(),
   field: z.string(),
-})
+});
 
 // Mostrar un calculo
 export const CalculateAction = z.object({
@@ -160,7 +162,7 @@ export const CalculateAction = z.object({
   formula: z.string(),
   result: z.number(),
   unit: z.string().optional(),
-})
+});
 
 // Ejecutar una tool/busqueda
 export const ToolAction = z.object({
@@ -168,7 +170,7 @@ export const ToolAction = z.object({
   name: z.string(),
   args: z.record(z.any()),
   result: z.any().optional(),
-})
+});
 
 // === UNION DE TODAS LAS ACCIONES ===
 
@@ -178,14 +180,14 @@ export const ActionSchema = z.discriminatedUnion('_type', [
   AskAction,
   CalculateAction,
   ToolAction,
-])
+]);
 
-export type Action = z.infer<typeof ActionSchema>
+export type Action = z.infer<typeof ActionSchema>;
 
 // Schema de respuesta completa
 export const ResponseSchema = z.object({
   actions: z.array(ActionSchema),
-})
+});
 ```
 
 ---
@@ -196,9 +198,9 @@ export const ResponseSchema = z.object({
 // app/api/agent/route.ts
 // MODIFICAR: Solo el SYSTEM_PROMPT y acciones disponibles
 
-import { openrouter, MODELS } from '@/lib/ai/openrouter'
-import { streamText } from 'ai'
-import { closeAndParseJson } from '@/lib/ai/closeAndParseJson'
+import { openrouter, MODELS } from '@/lib/ai/openrouter';
+import { streamText } from 'ai';
+import { closeAndParseJson } from '@/lib/ai/closeAndParseJson';
 
 // MODIFICAR: Tu system prompt
 const SYSTEM_PROMPT = `Eres un agente que responde con acciones estructuradas.
@@ -223,17 +225,17 @@ REGLAS:
 1. Usa multiples acciones en secuencia
 2. Siempre muestra tu razonamiento con "think"
 3. Cada calculo debe mostrar la formula y el resultado
-4. Se transparente en cada paso`
+4. Se transparente en cada paso`;
 
 export async function POST(req: Request) {
-  const { prompt, context } = await req.json()
+  const { prompt, context } = await req.json();
 
-  const encoder = new TextEncoder()
-  const stream = new TransformStream()
-  const writer = stream.writable.getWriter()
+  const encoder = new TextEncoder();
+  const stream = new TransformStream();
+  const writer = stream.writable.getWriter();
 
   // Forzar inicio de JSON
-  const forceStart = '{"actions": [{"_type":'
+  const forceStart = '{"actions": [{"_type":';
 
   const { textStream } = streamText({
     model: openrouter(MODELS.balanced),
@@ -243,51 +245,49 @@ export async function POST(req: Request) {
       { role: 'user', content: prompt },
     ],
     temperature: 0,
-  })
+  });
 
-  ;(async () => {
-    let buffer = forceStart
-    let cursor = 0
+  (async () => {
+    let buffer = forceStart;
+    let cursor = 0;
 
     try {
       for await (const text of textStream) {
-        buffer += text
+        buffer += text;
 
-        const parsed = closeAndParseJson(buffer)
-        if (!parsed?.actions) continue
+        const parsed = closeAndParseJson(buffer);
+        if (!parsed?.actions) continue;
 
-        const actions = parsed.actions
+        const actions = parsed.actions;
 
         while (cursor < actions.length) {
-          const action = actions[cursor]
-          const isComplete = cursor < actions.length - 1 || buffer.endsWith(']}')
+          const action = actions[cursor];
+          const isComplete = cursor < actions.length - 1 || buffer.endsWith(']}');
 
           await writer.write(
             encoder.encode(`data: ${JSON.stringify({ ...action, complete: isComplete })}\n\n`)
-          )
+          );
 
-          if (isComplete) cursor++
-          else break
+          if (isComplete) cursor++;
+          else break;
         }
       }
 
-      await writer.write(encoder.encode('data: [DONE]\n\n'))
+      await writer.write(encoder.encode('data: [DONE]\n\n'));
     } catch (error) {
-      await writer.write(
-        encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`)
-      )
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`));
     } finally {
-      await writer.close()
+      await writer.close();
     }
-  })()
+  })();
 
   return new Response(stream.readable, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
     },
-  })
+  });
 }
 ```
 
@@ -299,77 +299,80 @@ export async function POST(req: Request) {
 // features/agent/hooks/useActionStream.ts
 // NUNCA MODIFICAR - Core del cliente
 
-'use client'
+'use client';
 
-import { useState, useCallback } from 'react'
-import type { Action } from '@/lib/ai/actionSchemas'
+import { useState, useCallback } from 'react';
+import type { Action } from '@/lib/ai/actionSchemas';
 
-export type StreamingAction = Action & { complete: boolean }
+export type StreamingAction = Action & { complete: boolean };
 
 export function useActionStream(endpoint = '/api/agent') {
-  const [actions, setActions] = useState<StreamingAction[]>([])
-  const [isStreaming, setIsStreaming] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [actions, setActions] = useState<StreamingAction[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const sendPrompt = useCallback(async (prompt: string, context?: any) => {
-    setIsStreaming(true)
-    setError(null)
-    setActions([])
+  const sendPrompt = useCallback(
+    async (prompt: string, context?: any) => {
+      setIsStreaming(true);
+      setError(null);
+      setActions([]);
 
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, context }),
-      })
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, context }),
+        });
 
-      const reader = res.body?.getReader()
-      const decoder = new TextDecoder()
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
 
-      if (!reader) throw new Error('No reader')
+        if (!reader) throw new Error('No reader');
 
-      let buffer = ''
+        let buffer = '';
 
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n\n')
-        buffer = lines.pop() || ''
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          const match = line.match(/^data: (.+)$/)
-          if (!match) continue
-          if (match[1] === '[DONE]') break
+          for (const line of lines) {
+            const match = line.match(/^data: (.+)$/);
+            if (!match) continue;
+            if (match[1] === '[DONE]') break;
 
-          try {
-            const action: StreamingAction = JSON.parse(match[1])
+            try {
+              const action: StreamingAction = JSON.parse(match[1]);
 
-            setActions(prev => {
-              if (prev.length > 0 && !prev[prev.length - 1].complete) {
-                return [...prev.slice(0, -1), action]
-              }
-              return [...prev, action]
-            })
-          } catch (e) {
-            console.error('Parse error:', e)
+              setActions((prev) => {
+                if (prev.length > 0 && !prev[prev.length - 1].complete) {
+                  return [...prev.slice(0, -1), action];
+                }
+                return [...prev, action];
+              });
+            } catch (e) {
+              console.error('Parse error:', e);
+            }
           }
         }
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setIsStreaming(false);
       }
-    } catch (e) {
-      setError(String(e))
-    } finally {
-      setIsStreaming(false)
-    }
-  }, [endpoint])
+    },
+    [endpoint]
+  );
 
   const reset = useCallback(() => {
-    setActions([])
-    setError(null)
-  }, [])
+    setActions([]);
+    setError(null);
+  }, []);
 
-  return { actions, isStreaming, error, sendPrompt, reset }
+  return { actions, isStreaming, error, sendPrompt, reset };
 }
 ```
 
@@ -613,26 +616,26 @@ export function AgentChat() {
 
 ## Casos de Uso Ideales
 
-| Caso | Por que Action Stream |
-|------|----------------------|
-| **Calculadoras ROI** | Usuario VE cada calculo |
-| **Auditorias** | Cada verificacion es trazable |
-| **Due Diligence** | Cada fuente visible |
-| **Diagnosticos** | "Por que llegue a esta conclusion" |
-| **Cotizadores** | Desglose transparente |
-| **Investigacion** | Cada busqueda mostrada |
+| Caso                 | Por que Action Stream              |
+| -------------------- | ---------------------------------- |
+| **Calculadoras ROI** | Usuario VE cada calculo            |
+| **Auditorias**       | Cada verificacion es trazable      |
+| **Due Diligence**    | Cada fuente visible                |
+| **Diagnosticos**     | "Por que llegue a esta conclusion" |
+| **Cotizadores**      | Desglose transparente              |
+| **Investigacion**    | Cada busqueda mostrada             |
 
 ---
 
 ## Complejidad
 
-| Componente | Lineas | Se modifica? |
-|------------|--------|--------------|
-| closeAndParseJson.ts | ~50 | NUNCA |
-| useActionStream.ts | ~70 | NUNCA |
-| API route | ~60 | Solo SYSTEM_PROMPT |
-| actionSchemas.ts | ~15/accion | Añadir acciones |
-| ActionFeed.tsx | ~20/accion | Personalizar UI |
+| Componente           | Lineas     | Se modifica?       |
+| -------------------- | ---------- | ------------------ |
+| closeAndParseJson.ts | ~50        | NUNCA              |
+| useActionStream.ts   | ~70        | NUNCA              |
+| API route            | ~60        | Solo SYSTEM_PROMPT |
+| actionSchemas.ts     | ~15/accion | Añadir acciones    |
+| ActionFeed.tsx       | ~20/accion | Personalizar UI    |
 
 **Total core fijo:** ~180 lineas (copiar una vez)
 **Por accion nueva:** ~35 lineas
@@ -659,4 +662,4 @@ export function AgentChat() {
 
 ---
 
-*"No le digas el resultado. Muestrale como llegaste a el."*
+_"No le digas el resultado. Muestrale como llegaste a el."_

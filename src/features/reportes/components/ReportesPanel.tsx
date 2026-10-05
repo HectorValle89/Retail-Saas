@@ -12,7 +12,6 @@ import { useScopedWidgetData } from '@/lib/ui-change/client';
 import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
 import type { AsistenciaReporteItem, ReportesPanelData } from '../services/reporteService';
 import type { ExportFormat, ExportSectionKey } from '../services/reporteExport';
-import { ExportLastMilePptButton } from './ExportLastMilePptButton';
 import { MecanicasReportSection } from './MecanicasReportSection';
 import { CapturaPublicaReportSection } from './CapturaPublicaReportSection';
 
@@ -34,31 +33,6 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function formatFriendlyPeriod(period: string) {
-  if (!period) return '';
-  const parts = period.split('-');
-  const yearNum = Number(parts[0]);
-  const monthNum = Number(parts[1]);
-  const monthNames = [
-    'Enero',
-    'Febrero',
-    'Marzo',
-    'Abril',
-    'Mayo',
-    'Junio',
-    'Julio',
-    'Agosto',
-    'Septiembre',
-    'Octubre',
-    'Noviembre',
-    'Diciembre',
-  ];
-  if (yearNum && monthNum && monthNum >= 1 && monthNum <= 12) {
-    return `${monthNames[monthNum - 1]} ${yearNum}`;
-  }
-  return period;
-}
-
 function buildPageHref(periodo: string, pageSize: number, page: number, tipoDispersion?: string) {
   const params = new URLSearchParams({ periodo, pageSize: String(pageSize), page: String(page) });
   if (tipoDispersion) {
@@ -70,18 +44,6 @@ function buildPageHref(periodo: string, pageSize: number, page: number, tipoDisp
 function buildExportHref(section: ExportSectionKey, periodo: string, format: ExportFormat) {
   const params = new URLSearchParams({ section, periodo, format });
   return `/api/reportes/export?${params.toString()}`;
-}
-
-function buildLastMileExcelHref(periodo: string, cuentaClienteId?: string | null, tipoDispersion?: string) {
-  const params = new URLSearchParams({ periodo });
-  if (cuentaClienteId) {
-    params.set('cuentaClienteId', cuentaClienteId);
-  }
-  if (tipoDispersion) {
-    params.set('tipoDispersion', tipoDispersion);
-  }
-
-  return `/api/reportes/ultima-milla-xlsx?${params.toString()}`;
 }
 
 export function ReportesPanel({
@@ -124,7 +86,9 @@ export function ReportesPanel({
   });
 
   const [localPeriodo, setLocalPeriodo] = useState(data.filtros.periodo);
-  const [localTipoDispersion, setLocalTipoDispersion] = useState(data.filtros.tipoDispersion || 'MENSUAL');
+  const [localTipoDispersion, setLocalTipoDispersion] = useState(
+    data.filtros.tipoDispersion || 'MENSUAL'
+  );
   const [showMecanicas, setShowMecanicas] = useState(false);
 
   useEffect(() => {
@@ -207,7 +171,10 @@ export function ReportesPanel({
             </p>
           </div>
           <div>
-            <label htmlFor="tipoDispersion" className="mb-1.5 block text-sm font-medium text-slate-900">
+            <label
+              htmlFor="tipoDispersion"
+              className="mb-1.5 block text-sm font-medium text-slate-900"
+            >
               Tipo de dispersión
             </label>
             <select
@@ -216,12 +183,12 @@ export function ReportesPanel({
               defaultValue={data.filtros.tipoDispersion || 'MENSUAL'}
               className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-slate-900 focus:outline-none focus:border-slate-400"
             >
-              <option value="MENSUAL">Mensual</option>
-              <option value="ADICIONAL">Campaña Adicional</option>
+              <option value="MENSUAL">Mensual (Ordinaria)</option>
+              <option value="ADICIONAL">Por campaña</option>
               <option value="EXCLUSIVA_CANJES">Exclusiva Canjes</option>
               <option value="EXCLUSIVA_TESTERS">Exclusiva Testers</option>
               <option value="EXCLUSIVA_REGALOS">Exclusiva Regalos</option>
-              <option value="OTRA">Otra</option>
+              <option value="ENTREGA_RESGUARDO">Entrega de paquete en resguardo</option>
             </select>
           </div>
           <div>
@@ -346,76 +313,27 @@ export function ReportesPanel({
         </div>
       </Card>
 
-      <Card className="overflow-hidden border-slate-200 bg-white">
-        <SectionHeader
-          title="Evidencias de Última Milla"
-          description="Exportación de reportes fotográficos y detalle completo de dispersiones en presentación o Excel."
-          summary={`Periodo ${formatFriendlyPeriod(localPeriodo)}. El PPT genera una diapositiva por entrega y el Excel incluye dispersiones, cantidades, entregas y evidencias.`}
-          exportAction={
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                <label htmlFor="last-mile-month" className="text-xs font-medium text-slate-500">
-                  Mes:
-                </label>
-                <select
-                  id="last-mile-month"
-                  value={localPeriodo}
-                  onChange={(e) => setLocalPeriodo(e.target.value)}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-slate-400 focus:outline-none"
-                >
-                  {periodOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <label htmlFor="last-mile-type" className="text-xs font-medium text-slate-500">
-                  Tipo:
-                </label>
-                <select
-                  id="last-mile-type"
-                  value={localTipoDispersion}
-                  onChange={(e) => setLocalTipoDispersion(e.target.value)}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-slate-400 focus:outline-none"
-                >
-                  <option value="MENSUAL">Mensual</option>
-                  <option value="ADICIONAL">Campaña Adicional</option>
-                  <option value="EXCLUSIVA_CANJES">Exclusiva Canjes</option>
-                  <option value="EXCLUSIVA_TESTERS">Exclusiva Testers</option>
-                  <option value="EXCLUSIVA_REGALOS">Exclusiva Regalos</option>
-                  <option value="OTRA">Otra</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <ExportLastMilePptButton
-                  periodo={localPeriodo}
-                  cuentaClienteId={actor.cuentaClienteId}
-                  tipoDispersion={localTipoDispersion}
-                />
-                <ExportLink
-                  href={buildLastMileExcelHref(localPeriodo, actor.cuentaClienteId, localTipoDispersion)}
-                  label="Excel"
-                />
-              </div>
+      <Card className="border-sky-200 bg-gradient-to-br from-sky-50/70 via-white to-slate-50 p-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xl">📸</span>
+              <h2 className="text-lg font-bold text-slate-950">
+                Modulo Dedicado: Entregas y Evidencias
+              </h2>
             </div>
-          }
-        />
-        <div className="px-6 py-5 text-sm text-slate-600">
-          <p className="font-medium text-slate-900">El reporte incluye:</p>
-          <ul className="mt-2 list-disc pl-5 space-y-1">
-            <li>Diapositiva por cada recepción completada en el periodo.</li>
-            <li>
-              Excel con renglón por dispersión y material, cantidades teóricas, reales y
-              diferencias.
-            </li>
-            <li>Fotografía de acuse de recibido (formato vertical).</li>
-            <li>Fotografía con la colaboradora (formato vertical).</li>
-            <li>
-              Información del Punto de Venta (PDV) y de la Dermoconsejera que firmó la recepción.
-            </li>
-          </ul>
+            <p className="mt-1 text-sm text-slate-600">
+              Todas las descargas ejecutivas en Excel (XLSX) y presentaciones en PowerPoint (PPTX)
+              de materiales, evidencias en PDV y entregas de uniformes se trasladaron a su nuevo
+              módulo independiente en el menú lateral izquierdo.
+            </p>
+          </div>
+          <Link
+            href="/evidencias-entregas"
+            className="inline-flex items-center gap-2 rounded-xl bg-sky-700 px-4 py-2.5 text-xs font-bold text-white shadow-xs transition hover:bg-sky-800"
+          >
+            Ir a Entregas y Evidencias →
+          </Link>
         </div>
       </Card>
 
@@ -749,9 +667,12 @@ export function ReportesPanel({
         <Card className="p-6 overflow-hidden border-slate-200 bg-white transition-all duration-300">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
             <div>
-              <h2 className="text-lg font-semibold text-slate-950">Levantamiento de Uniformes de Supervisores</h2>
+              <h2 className="text-lg font-semibold text-slate-950">
+                Levantamiento de Uniformes de Supervisores
+              </h2>
               <p className="text-sm text-slate-500">
-                Confirmaciones de prendas, géneros y tallas enviadas por el equipo de 19 supervisores oficiales.
+                Confirmaciones de prendas, géneros y tallas enviadas por el equipo de 19
+                supervisores oficiales.
               </p>
             </div>
             <Button
@@ -768,9 +689,12 @@ export function ReportesPanel({
       ) : (
         <Card className="p-6 border-slate-200 bg-white flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center transition-all duration-300 hover:border-slate-300">
           <div>
-            <h2 className="text-lg font-semibold text-slate-950">Levantamiento de Uniformes de Supervisores</h2>
+            <h2 className="text-lg font-semibold text-slate-950">
+              Levantamiento de Uniformes de Supervisores
+            </h2>
             <p className="text-sm text-slate-500 mt-1">
-              Visualiza la participación, el consolidado de proveeduría y el desglose de uniformes en tiempo real.
+              Visualiza la participación, el consolidado de proveeduría y el desglose de uniformes
+              en tiempo real.
             </p>
           </div>
           <Button

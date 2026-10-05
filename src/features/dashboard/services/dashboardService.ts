@@ -1,97 +1,95 @@
-import { unstable_cache } from 'next/cache'
-import { cache } from 'react'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ActorActual } from '@/lib/auth/session'
-import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
-import { createServiceClient } from '@/lib/supabase/server'
-import type { Database, Puesto, Solicitud } from '@/types/database'
-import { deriveAttendanceDiscipline } from '@/features/asistencias/lib/attendanceDiscipline'
-import type { AttendanceMissionCatalogItem } from '@/features/asistencias/lib/attendanceMission'
+import { unstable_cache } from 'next/cache';
+import { cache } from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ActorActual } from '@/lib/auth/session';
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags';
+import { createServiceClient } from '@/lib/supabase/server';
+import type { Puesto, Solicitud } from '@/types/database';
+import { deriveAttendanceDiscipline } from '@/features/asistencias/lib/attendanceDiscipline';
+import type { AttendanceMissionCatalogItem } from '@/features/asistencias/lib/attendanceMission';
 import {
   buildAssignmentEngineAlerts,
   resolveAssignmentsForDate,
   type AssignmentEngineNature,
   type AssignmentEngineRow,
-} from '@/features/asignaciones/lib/assignmentEngine'
-import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
-import { formatIsoDateInTimezone } from '@/lib/geo/mexicoStateTimezone'
-import { buildReportWindowHelperText, resolveReportWindow } from '@/lib/operations/reportWindow'
-import { resolveEffectiveAssignmentForEmployeeDate } from '@/features/asignaciones/services/asignacionResolverService'
-import type { AssignmentRestOverrideLike } from '@/features/asignaciones/lib/assignmentRestOverride'
-import {
-  EMPTY_DASHBOARD_FILTERS,
-  DashboardFilterShape,
-} from '@/features/dashboard/types/dashboardFilters'
+} from '@/features/asignaciones/lib/assignmentEngine';
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState';
+import { formatIsoDateInTimezone } from '@/lib/geo/mexicoStateTimezone';
+import { buildReportWindowHelperText, resolveReportWindow } from '@/lib/operations/reportWindow';
+import { resolveEffectiveAssignmentForEmployeeDate } from '@/features/asignaciones/services/asignacionResolverService';
+import type { AssignmentRestOverrideLike } from '@/features/asignaciones/lib/assignmentRestOverride';
+import { EMPTY_DASHBOARD_FILTERS } from '@/features/dashboard/types/dashboardFilters';
 import {
   formacionTargetsEmployee,
   normalizeFormacionAttendanceMetadata,
   normalizeFormacionTargetingMetadata,
-} from '@/features/formaciones/lib/formacionTargeting'
+} from '@/features/formaciones/lib/formacionTargeting';
 import {
   computeLoveQuotaProgress,
   fetchLoveQuotaTargetRows,
   LOVE_DAILY_QUOTA_DEFAULT,
-} from '@/features/love-isdin/lib/loveQuota'
-import { getIncapacidadNextActor } from '@/features/solicitudes/lib/incapacidadWorkflow'
+} from '@/features/love-isdin/lib/loveQuota';
+import { getIncapacidadNextActor } from '@/features/solicitudes/lib/incapacidadWorkflow';
 import {
   buildRecruitmentCoverageBoard,
   type RecruitmentCoverageSummary,
-} from '@/features/empleados/services/pdvCoberturaService'
-export type { RecruitmentCoverageSummary } from '@/features/empleados/services/pdvCoberturaService'
+} from '@/features/empleados/services/pdvCoberturaService';
 import {
   obtenerWorkspaceNomina,
   type NominaWorkspaceData,
-} from '@/features/nomina/services/nominaWorkspaceService'
+} from '@/features/nomina/services/nominaWorkspaceService';
 import {
   obtenerResumenAlcanceVisitas,
   type VisitReachDashboardSummary,
-} from '@/features/rutas/services/rutaSemanalService'
-export type { VisitReachDashboardSummary } from '@/features/rutas/services/rutaSemanalService'
+} from '@/features/rutas/services/rutaSemanalService';
 import {
   type CampaignEvidenceKind,
   readCampaignEvidenceTemplate,
   readCampaignManualDocument,
   readCampaignProductGoals,
-} from '@/features/campanas/lib/campaignProgress'
-import { resolveLoveQrSignedUrl } from '@/features/love-isdin/lib/loveQrImport'
+} from '@/features/campanas/lib/campaignProgress';
+import { resolveLoveQrSignedUrl } from '@/features/love-isdin/lib/loveQrImport';
 import {
   buildVacationPolicySnapshot,
   buildVacationTeamWeeklyLoad,
   type VacationRangeLike,
-} from '@/features/solicitudes/lib/vacationPolicy'
+} from '@/features/solicitudes/lib/vacationPolicy';
+export type { RecruitmentCoverageSummary } from '@/features/empleados/services/pdvCoberturaService';
+export type { VisitReachDashboardSummary } from '@/features/rutas/services/rutaSemanalService';
 
-const DASHBOARD_REFRESH_MAX_AGE_MS = 5 * 60 * 1000
-const DASHBOARD_KPI_CACHE_TTL_MS = 5 * 60 * 1000
-const DASHBOARD_KPI_REVALIDATE_SECONDS = 60
-const DASHBOARD_VISIT_REACH_REVALIDATE_SECONDS = 60
-const DASHBOARD_LIVE_ALERT_LIMIT = 8
-const DASHBOARD_LIVE_QUERY_LIMIT = 250
-const DASHBOARD_GEOFENCE_LIMIT = 500
-const DASHBOARD_SUPERVISOR_LIMIT = 80
-const dashboardKpiCache = new Map<string, { expiresAt: number; result: DashboardRowsResult }>()
+const DASHBOARD_REFRESH_MAX_AGE_MS = 5 * 60 * 1000;
+const DASHBOARD_KPI_CACHE_TTL_MS = 5 * 60 * 1000;
+const DASHBOARD_KPI_REVALIDATE_SECONDS = 60;
+const DASHBOARD_VISIT_REACH_REVALIDATE_SECONDS = 60;
+const DASHBOARD_LIVE_ALERT_LIMIT = 8;
+const DASHBOARD_LIVE_QUERY_LIMIT = 250;
+const DASHBOARD_GEOFENCE_LIMIT = 500;
+const DASHBOARD_SUPERVISOR_LIMIT = 80;
+const dashboardKpiCache = new Map<string, { expiresAt: number; result: DashboardRowsResult }>();
 
 interface DashboardQueryResult {
-  data: unknown[] | null
-  error: { message: string } | null
+  data: unknown[] | null;
+  error: { message: string } | null;
 }
 
 interface DashboardQueryBuilder {
-  select(columns: string): DashboardQueryBuilder
-  eq(column: string, value: string | number | boolean): DashboardQueryBuilder
-  in?(column: string, values: string[]): DashboardQueryBuilder
-  is?(column: string, value: null): DashboardQueryBuilder
+  select(columns: string): DashboardQueryBuilder;
+  eq(column: string, value: string | number | boolean): DashboardQueryBuilder;
+  in?(column: string, values: string[]): DashboardQueryBuilder;
+  is?(column: string, value: null): DashboardQueryBuilder;
   order(
     column: string,
     options?: { ascending?: boolean; nullsFirst?: boolean }
-  ): DashboardQueryBuilder
-  gte(column: string, value: string | number): DashboardQueryBuilder
-  lte(column: string, value: string | number): DashboardQueryBuilder
-  lt(column: string, value: string | number): DashboardQueryBuilder
-  limit(count: number): Promise<DashboardQueryResult>
+  ): DashboardQueryBuilder;
+  gte(column: string, value: string | number): DashboardQueryBuilder;
+  lte(column: string, value: string | number): DashboardQueryBuilder;
+  lt(column: string, value: string | number): DashboardQueryBuilder;
+  or?(filters: string): DashboardQueryBuilder;
+  limit(count: number): Promise<DashboardQueryResult>;
 }
 
 interface DashboardSupabaseClient {
-  rpc: SupabaseClient<any>['rpc']
+  rpc: SupabaseClient<any>['rpc'];
   from(
     table:
       | 'dashboard_kpis'
@@ -103,6 +101,7 @@ interface DashboardSupabaseClient {
       | 'solicitud'
       | 'configuracion'
       | 'cuota_empleado_periodo'
+      | 'cuota_mensual_resumen_dc'
       | 'nomina_periodo'
       | 'pdv'
       | 'venta'
@@ -124,622 +123,619 @@ interface DashboardSupabaseClient {
       | 'asignacion_diaria_resuelta'
       | 'asignacion_descanso_override'
       | 'love_isdin_resumen_diario'
-  ): DashboardQueryBuilder
+  ): DashboardQueryBuilder;
 }
 
 interface DashboardRowsResult {
-  data: DashboardKpiRow[]
-  error: { message: string } | null
+  data: DashboardKpiRow[];
+  error: { message: string } | null;
 }
 
-
 interface DashboardKpiRow {
-  fecha_corte: string
-  cuenta_cliente_id: string
-  cuenta_cliente: string
-  cuenta_cliente_identificador: string | null
-  promotores_activos: number
-  checkins_validos: number
-  jornadas_pendientes: number
-  alertas_operativas: number
-  jornadas_operadas: number
-  ventas_confirmadas: number
-  monto_confirmado: number
-  afiliaciones_love: number
-  asistencia_porcentaje: number
-  cuotas_cumplidas_periodo: number
-  neto_nomina_periodo: number
-  refreshed_at: string
+  fecha_corte: string;
+  cuenta_cliente_id: string;
+  cuenta_cliente: string;
+  cuenta_cliente_identificador: string | null;
+  promotores_activos: number;
+  checkins_validos: number;
+  jornadas_pendientes: number;
+  alertas_operativas: number;
+  jornadas_operadas: number;
+  ventas_confirmadas: number;
+  monto_confirmado: number;
+  afiliaciones_love: number;
+  asistencia_porcentaje: number;
+  cuotas_cumplidas_periodo: number;
+  neto_nomina_periodo: number;
+  refreshed_at: string;
 }
 
 interface DashboardLiveAsistenciaRow {
-  id: string
-  cuenta_cliente_id: string
-  empleado_id: string
-  supervisor_empleado_id: string | null
-  empleado_nombre: string
-  pdv_id: string
-  pdv_clave_btl: string
-  pdv_nombre: string
-  fecha_operacion: string
-  check_in_utc: string | null
-  check_out_utc: string | null
-  latitud_check_in: number | null
-  longitud_check_in: number | null
-  distancia_check_in_metros: number | null
-  estado_gps: string
-  estatus: string
-  pdv_zona: string | null
-  pdv_estado: string | null
-  selfie_check_in_url: string | null
-  selfie_check_out_url: string | null
-  mision_codigo: string | null
-  mision_instruccion: string | null
-  metadata: Record<string, unknown> | null
+  id: string;
+  cuenta_cliente_id: string;
+  empleado_id: string;
+  supervisor_empleado_id: string | null;
+  empleado_nombre: string;
+  pdv_id: string;
+  pdv_clave_btl: string;
+  pdv_nombre: string;
+  fecha_operacion: string;
+  check_in_utc: string | null;
+  check_out_utc: string | null;
+  latitud_check_in: number | null;
+  longitud_check_in: number | null;
+  distancia_check_in_metros: number | null;
+  estado_gps: string;
+  estatus: string;
+  pdv_zona: string | null;
+  pdv_estado: string | null;
+  selfie_check_in_url: string | null;
+  selfie_check_out_url: string | null;
+  mision_codigo: string | null;
+  mision_instruccion: string | null;
+  metadata: Record<string, unknown> | null;
 }
 
 interface DashboardGeocercaRow {
-  pdv_id: string
-  latitud: number
-  longitud: number
-  radio_tolerancia_metros: number | null
+  pdv_id: string;
+  latitud: number;
+  longitud: number;
+  radio_tolerancia_metros: number | null;
 }
 
 interface DashboardPdvStateRow {
-  id: string
+  id: string;
   ciudad:
     | { estado: string | null; nombre?: string | null }
     | Array<{ estado: string | null; nombre?: string | null }>
-    | null
+    | null;
 }
 
 interface DashboardSupervisorRow {
-  id: string
-  nombre: string
+  id: string;
+  nombre: string;
 }
 
 interface DashboardPendingImssRow {
-  id: string
-  nombre_completo: string
-  expediente_estado: 'PENDIENTE_DOCUMENTOS' | 'EN_REVISION' | 'VALIDADO' | 'OBSERVADO' | null
-  expediente_validado_en: string | null
-  imss_estado: 'NO_INICIADO' | 'PENDIENTE_DOCUMENTOS' | 'EN_PROCESO' | 'ALTA_IMSS' | 'ERROR' | null
-  imss_fecha_solicitud: string | null
-  metadata: Record<string, unknown> | null
-  created_at: string
+  id: string;
+  nombre_completo: string;
+  expediente_estado: 'PENDIENTE_DOCUMENTOS' | 'EN_REVISION' | 'VALIDADO' | 'OBSERVADO' | null;
+  expediente_validado_en: string | null;
+  imss_estado: 'NO_INICIADO' | 'PENDIENTE_DOCUMENTOS' | 'EN_PROCESO' | 'ALTA_IMSS' | 'ERROR' | null;
+  imss_fecha_solicitud: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
 }
 
 interface DashboardAssignmentRow {
-  id: string
-  empleado_id: string
-  cuenta_cliente_id: string | null
-  supervisor_empleado_id: string | null
-  pdv_id: string
-  fecha_inicio: string
-  fecha_fin: string | null
-  tipo: 'FIJA' | 'ROTATIVA' | 'COBERTURA'
-  dias_laborales: string | null
-  dia_descanso: string | null
-  horario_referencia: string | null
-  naturaleza: AssignmentEngineNature
-  prioridad: number | null
-  empleado:
-    | { nombre_completo: string | null }
-    | Array<{ nombre_completo: string | null }>
-    | null
+  id: string;
+  empleado_id: string;
+  cuenta_cliente_id: string | null;
+  supervisor_empleado_id: string | null;
+  pdv_id: string;
+  fecha_inicio: string;
+  fecha_fin: string | null;
+  tipo: 'FIJA' | 'ROTATIVA' | 'COBERTURA';
+  dias_laborales: string | null;
+  dia_descanso: string | null;
+  horario_referencia: string | null;
+  naturaleza: AssignmentEngineNature;
+  prioridad: number | null;
+  empleado: { nombre_completo: string | null } | Array<{ nombre_completo: string | null }> | null;
   pdv:
     | { nombre: string | null; clave_btl: string | null; zona: string | null }
     | Array<{ nombre: string | null; clave_btl: string | null; zona: string | null }>
-    | null
+    | null;
 }
 
 interface DashboardSupervisorDailyAssignmentRow {
-  id: string
-  cuenta_cliente_id: string | null
-  empleado_id: string
-  supervisor_empleado_id: string | null
-  pdv_id: string
-  fecha_inicio: string
-  fecha_fin: string | null
-  dias_laborales: string | null
-  dia_descanso: string | null
-  tipo: 'FIJA' | 'ROTATIVA' | 'COBERTURA'
-  horario_referencia: string | null
-  naturaleza: AssignmentEngineNature
-  prioridad: number | null
-  estado_publicacion: 'BORRADOR' | 'PUBLICADA'
-  empleado:
-    | { nombre_completo: string | null }
-    | Array<{ nombre_completo: string | null }>
-    | null
+  id: string;
+  cuenta_cliente_id: string | null;
+  empleado_id: string;
+  supervisor_empleado_id: string | null;
+  pdv_id: string;
+  fecha_inicio: string;
+  fecha_fin: string | null;
+  dias_laborales: string | null;
+  dia_descanso: string | null;
+  tipo: 'FIJA' | 'ROTATIVA' | 'COBERTURA';
+  horario_referencia: string | null;
+  naturaleza: AssignmentEngineNature;
+  prioridad: number | null;
+  estado_publicacion: 'BORRADOR' | 'PUBLICADA';
+  empleado: { nombre_completo: string | null } | Array<{ nombre_completo: string | null }> | null;
   pdv:
     | { nombre: string | null; clave_btl: string | null; zona: string | null }
     | Array<{ nombre: string | null; clave_btl: string | null; zona: string | null }>
-    | null
+    | null;
 }
 
 interface DashboardSolicitudRow {
-  id: string
-  cuenta_cliente_id: string
-  empleado_id: string
-  supervisor_empleado_id: string | null
-  fecha_inicio: string
-  fecha_fin: string
-  tipo: string
-  estatus: string
-  motivo: string | null
-  comentarios: string | null
-  justificante_url: string | null
-  metadata: Record<string, unknown>
-  empleado:
-    | { nombre_completo: string | null }
-    | Array<{ nombre_completo: string | null }>
-    | null
-  cuenta_cliente:
-    | { nombre: string | null }
-    | Array<{ nombre: string | null }>
-    | null
+  id: string;
+  cuenta_cliente_id: string;
+  empleado_id: string;
+  supervisor_empleado_id: string | null;
+  fecha_inicio: string;
+  fecha_fin: string;
+  tipo: string;
+  estatus: string;
+  motivo: string | null;
+  comentarios: string | null;
+  justificante_url: string | null;
+  metadata: Record<string, unknown>;
+  empleado: { nombre_completo: string | null } | Array<{ nombre_completo: string | null }> | null;
+  cuenta_cliente: { nombre: string | null } | Array<{ nombre: string | null }> | null;
 }
 
 interface DashboardConfigRow {
-  clave: string
-  valor: unknown
+  clave: string;
+  valor: unknown;
 }
 
 interface DashboardPeriodoRow {
-  id: string
-  estado: 'BORRADOR' | 'APROBADO' | 'DISPERSADO' | 'ABIERTO'
-  fecha_inicio: string
-  fecha_fin: string
+  id: string;
+  estado: 'BORRADOR' | 'APROBADO' | 'DISPERSADO' | 'ABIERTO';
+  fecha_inicio: string;
+  fecha_fin: string;
 }
 
 interface DashboardQuotaRow {
-  id: string
-  periodo_id: string
-  cuenta_cliente_id: string
-  empleado_id: string
-  cumplimiento_porcentaje: number
-  estado: 'EN_CURSO' | 'CUMPLIDA' | 'RIESGO'
-  empleado: { nombre_completo: string | null; supervisor_empleado_id: string | null } | Array<{ nombre_completo: string | null; supervisor_empleado_id: string | null }> | null
+  id: string;
+  periodo_id: string | null;
+  cuenta_cliente_id: string;
+  empleado_id: string;
+  cumplimiento_porcentaje: number;
+  estado: 'EN_CURSO' | 'CUMPLIDA' | 'RIESGO';
+  empleado:
+    | { nombre_completo: string | null; supervisor_empleado_id: string | null }
+    | Array<{ nombre_completo: string | null; supervisor_empleado_id: string | null }>
+    | null;
 }
 
 interface DashboardDermoAttendanceRow {
-  id: string
-  cuenta_cliente_id: string
-  asignacion_id: string | null
-  empleado_id: string
-  pdv_id: string
-  cadena_nombre: string | null
-  fecha_operacion: string
-  check_in_utc: string | null
-  check_out_utc: string | null
-  mision_dia_id: string | null
-  pdv_nombre: string
-  pdv_clave_btl: string
-  mision_instruccion: string | null
-  mision_codigo: string | null
+  id: string;
+  cuenta_cliente_id: string;
+  asignacion_id: string | null;
+  empleado_id: string;
+  pdv_id: string;
+  cadena_nombre: string | null;
+  fecha_operacion: string;
+  check_in_utc: string | null;
+  check_out_utc: string | null;
+  mision_dia_id: string | null;
+  pdv_nombre: string;
+  pdv_clave_btl: string;
+  mision_instruccion: string | null;
+  mision_codigo: string | null;
 }
 
 interface DashboardDermoAssignmentRow {
-  id: string
-  cuenta_cliente_id: string | null
-  empleado_id: string
-  supervisor_empleado_id: string | null
-  pdv_id: string
-  fecha_inicio: string
-  fecha_fin: string | null
-  dias_laborales: string | null
-  dia_descanso: string | null
-  tipo: 'FIJA' | 'ROTATIVA' | 'COBERTURA'
-  horario_referencia: string | null
-  naturaleza: AssignmentEngineNature
-  prioridad: number | null
-  estado_publicacion: 'BORRADOR' | 'PUBLICADA'
+  id: string;
+  cuenta_cliente_id: string | null;
+  empleado_id: string;
+  supervisor_empleado_id: string | null;
+  pdv_id: string;
+  fecha_inicio: string;
+  fecha_fin: string | null;
+  dias_laborales: string | null;
+  dia_descanso: string | null;
+  tipo: 'FIJA' | 'ROTATIVA' | 'COBERTURA';
+  horario_referencia: string | null;
+  naturaleza: AssignmentEngineNature;
+  prioridad: number | null;
+  estado_publicacion: 'BORRADOR' | 'PUBLICADA';
 }
 
 interface DashboardDermoPdvRow {
-  id: string
-  nombre: string
-  direccion: string | null
-  clave_btl: string
-  zona: string | null
+  id: string;
+  nombre: string;
+  direccion: string | null;
+  clave_btl: string;
+  zona: string | null;
   ciudad:
     | { nombre: string | null; estado: string | null }
     | Array<{ nombre: string | null; estado: string | null }>
-    | null
+    | null;
 }
 
 interface DashboardDermoGeocercaRow {
-  pdv_id: string
-  latitud: number
-  longitud: number
-  radio_tolerancia_metros: number | null
-  permite_checkin_con_justificacion: boolean
+  pdv_id: string;
+  latitud: number;
+  longitud: number;
+  radio_tolerancia_metros: number | null;
+  permite_checkin_con_justificacion: boolean;
 }
 
 interface DashboardMissionCatalogRow {
-  id: string
-  codigo: string | null
-  instruccion: string
-  orden: number | null
-  peso: number
+  id: string;
+  codigo: string | null;
+  instruccion: string;
+  orden: number | null;
+  peso: number;
 }
 
 interface DashboardDermoSaleRow {
-  id: string
-  empleado_id: string
-  fecha_utc: string
-  metadata: Record<string, unknown> | null
+  id: string;
+  empleado_id: string;
+  fecha_utc: string;
+  metadata: Record<string, unknown> | null;
 }
 
 interface DashboardDermoLoveRow {
-  id: string
-  empleado_id: string
-  fecha_utc: string
-  metadata: Record<string, unknown> | null
+  id: string;
+  empleado_id: string;
+  fecha_utc: string;
+  metadata: Record<string, unknown> | null;
 }
 
 interface DashboardDermoLoveQrAssignmentRow {
-  id: string
-  cuenta_cliente_id: string
-  qr_codigo_id: string
-  empleado_id: string
-  fecha_inicio: string
-  fecha_fin: string | null
+  id: string;
+  cuenta_cliente_id: string;
+  qr_codigo_id: string;
+  empleado_id: string;
+  fecha_inicio: string;
+  fecha_fin: string | null;
 }
 
 interface DashboardDermoLoveQrCodeRow {
-  id: string
-  codigo: string
-  imagen_url: string | null
-  estado: 'DISPONIBLE' | 'ACTIVO' | 'BLOQUEADO' | 'BAJA'
+  id: string;
+  codigo: string;
+  imagen_url: string | null;
+  estado: 'DISPONIBLE' | 'ACTIVO' | 'BLOQUEADO' | 'BAJA';
 }
 
 interface DashboardDermoCampaignRow {
-  id: string
-  campana_id: string
-  cuenta_cliente_id: string
-  pdv_id: string
-  dc_empleado_id: string | null
+  id: string;
+  campana_id: string;
+  cuenta_cliente_id: string;
+  pdv_id: string;
+  dc_empleado_id: string | null;
 }
 
 interface DashboardDermoCampaignMetaRow {
-  id: string
-  nombre: string
-  fecha_inicio: string
-  fecha_fin: string
-  descripcion: string | null
-  instrucciones: string | null
-  productos_foco: string[]
-  evidencias_requeridas: string[]
-  cuota_adicional: number
-  metadata: Record<string, unknown> | null
-  estado: 'BORRADOR' | 'ACTIVA' | 'CERRADA' | 'CANCELADA'
+  id: string;
+  nombre: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  descripcion: string | null;
+  instrucciones: string | null;
+  productos_foco: string[];
+  evidencias_requeridas: string[];
+  cuota_adicional: number;
+  metadata: Record<string, unknown> | null;
+  estado: 'BORRADOR' | 'ACTIVA' | 'CERRADA' | 'CANCELADA';
 }
 
 interface DashboardDermoFormationRow {
-  id: string
-  nombre: string
-  fecha_inicio: string
-  fecha_fin: string
-  estado: 'PENDIENTE' | 'PROGRAMADA' | 'EN_CURSO' | 'FINALIZADA' | 'CANCELADA'
-  sede: string | null
-  tipo: string | null
-  participantes: Array<Record<string, unknown>> | null
-  metadata: Record<string, unknown> | null
+  id: string;
+  nombre: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  estado: 'PENDIENTE' | 'PROGRAMADA' | 'EN_CURSO' | 'FINALIZADA' | 'CANCELADA';
+  sede: string | null;
+  tipo: string | null;
+  participantes: Array<Record<string, unknown>> | null;
+  metadata: Record<string, unknown> | null;
 }
 
 interface DashboardFormationAttendanceRow {
-  id: string
-  evento_id: string
-  empleado_id: string
-  metadata: Record<string, unknown> | null
-  estado: string
+  id: string;
+  evento_id: string;
+  empleado_id: string;
+  metadata: Record<string, unknown> | null;
+  estado: string;
 }
 
 interface DashboardDermoNotificationRecipientRow {
-  id: string
-  mensaje_id: string
-  empleado_id: string
-  estado: 'PENDIENTE' | 'LEIDO' | 'RESPONDIDO'
-  leido_en: string | null
-  created_at: string
+  id: string;
+  mensaje_id: string;
+  empleado_id: string;
+  estado: 'PENDIENTE' | 'LEIDO' | 'RESPONDIDO';
+  leido_en: string | null;
+  created_at: string;
 }
 
 interface DashboardDermoNotificationMessageRow {
-  id: string
-  titulo: string
-  cuerpo: string
-  tipo: string
-  created_at: string
-  creado_por_usuario_id: string | null
+  id: string;
+  titulo: string;
+  cuerpo: string;
+  tipo: string;
+  created_at: string;
+  creado_por_usuario_id: string | null;
 }
 
 interface DashboardDermoUserRow {
-  id: string
-  empleado_id: string
+  id: string;
+  empleado_id: string;
 }
 
 interface DashboardDermoEmployeeProfileRow {
-  id: string
-  nombre_completo: string
-  puesto: Puesto
-  zona: string | null
-  correo_electronico: string | null
-  telefono: string | null
-  fecha_alta: string | null
-  supervisor_empleado_id: string | null
-  metadata?: Record<string, unknown> | null
+  id: string;
+  nombre_completo: string;
+  puesto: Puesto;
+  zona: string | null;
+  correo_electronico: string | null;
+  telefono: string | null;
+  fecha_alta: string | null;
+  supervisor_empleado_id: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 interface DashboardDermoProductRow {
-  id: string
-  sku: string
-  nombre: string
-  nombre_corto: string
-  activo: boolean
+  id: string;
+  sku: string;
+  nombre: string;
+  nombre_corto: string;
+  activo: boolean;
 }
 
 export interface DashboardStats {
-  fechaCorte: string | null
-  promotoresActivosHoy: number
-  checkInsValidosHoy: number
-  ventasConfirmadasHoy: number
-  montoConfirmadoHoy: number
-  afiliacionesLoveHoy: number
-  asistenciaPorcentajeHoy: number
-  alertasOperativas: number
-  cuotasCumplidasPeriodo: number
-  netoNominaPeriodo: number
-  imssPendientes: number
+  fechaCorte: string | null;
+  promotoresActivosHoy: number;
+  checkInsValidosHoy: number;
+  ventasConfirmadasHoy: number;
+  montoConfirmadoHoy: number;
+  afiliacionesLoveHoy: number;
+  asistenciaPorcentajeHoy: number;
+  alertasOperativas: number;
+  cuotasCumplidasPeriodo: number;
+  netoNominaPeriodo: number;
+  imssPendientes: number;
 }
 
 export interface DashboardClienteItem {
-  cuentaClienteId: string
-  cuentaCliente: string
-  identificador: string | null
-  promotoresActivos: number
-  checkInsValidos: number
-  jornadasPendientes: number
-  alertasOperativas: number
-  ventasConfirmadas: number
-  montoConfirmado: number
-  afiliacionesLove: number
-  asistenciaPorcentaje: number
-  cuotasCumplidasPeriodo: number
-  netoNominaPeriodo: number
+  cuentaClienteId: string;
+  cuentaCliente: string;
+  identificador: string | null;
+  promotoresActivos: number;
+  checkInsValidos: number;
+  jornadasPendientes: number;
+  alertasOperativas: number;
+  ventasConfirmadas: number;
+  montoConfirmado: number;
+  afiliacionesLove: number;
+  asistenciaPorcentaje: number;
+  cuotasCumplidasPeriodo: number;
+  netoNominaPeriodo: number;
 }
 
 export interface DashboardTrendItem {
-  fecha: string
-  ventasConfirmadas: number
-  montoConfirmado: number
-  checkInsValidos: number
-  jornadasOperadas: number
-  asistenciaPorcentaje: number
+  fecha: string;
+  ventasConfirmadas: number;
+  montoConfirmado: number;
+  checkInsValidos: number;
+  jornadasOperadas: number;
+  asistenciaPorcentaje: number;
 }
 
 export interface DashboardLiveAlertItem {
-  id: string
-  tipo: 'GEOCERCA' | 'RETARDO' | 'CUOTA_BAJA' | 'IMSS_PENDIENTE' | 'MOVIMIENTO_POR_VENCER' | 'DC_SIN_PDV' | 'PDV_LIBRE'
-  cuentaClienteId: string
-  pdvId: string | null
-  pdv: string
-  pdvClaveBtl: string | null
-  empleado: string
-  fechaOperacion: string
-  radioToleranciaMetros: number | null
-  motivo: string
-  estadoGps: string | null
-  distanciaCheckInMetros: number | null
+  id: string;
+  tipo:
+    | 'GEOCERCA'
+    | 'RETARDO'
+    | 'CUOTA_BAJA'
+    | 'IMSS_PENDIENTE'
+    | 'MOVIMIENTO_POR_VENCER'
+    | 'DC_SIN_PDV'
+    | 'PDV_LIBRE';
+  cuentaClienteId: string;
+  pdvId: string | null;
+  pdv: string;
+  pdvClaveBtl: string | null;
+  empleado: string;
+  fechaOperacion: string;
+  radioToleranciaMetros: number | null;
+  motivo: string;
+  estadoGps: string | null;
+  distanciaCheckInMetros: number | null;
 }
 
 export interface DashboardMapItem {
-  id: string
-  pdvId: string
-  pdv: string
-  pdvClaveBtl: string
-  empleado: string
-  supervisorId: string | null
-  supervisorNombre: string
-  zona: string
-  cuentaClienteId: string
-  fechaOperacion: string
-  latitud: number
-  longitud: number
-  radioToleranciaMetros: number | null
-  estadoGps: string
-  distanciaCheckInMetros: number | null
+  id: string;
+  pdvId: string;
+  pdv: string;
+  pdvClaveBtl: string;
+  empleado: string;
+  supervisorId: string | null;
+  supervisorNombre: string;
+  zona: string;
+  cuentaClienteId: string;
+  fechaOperacion: string;
+  latitud: number;
+  longitud: number;
+  radioToleranciaMetros: number | null;
+  estadoGps: string;
+  distanciaCheckInMetros: number | null;
 }
 
 export interface DashboardFilterOptions {
-  estados: string[]
-  zonas: string[]
-  supervisores: Array<{ id: string; nombre: string }>
+  estados: string[];
+  zonas: string[];
+  supervisores: Array<{ id: string; nombre: string }>;
 }
 
 export interface DashboardDermoconsejoStore {
-  pdvId: string | null
-  claveBtl: string | null
-  nombre: string
-  direccion: string | null
-  zona: string | null
+  pdvId: string | null;
+  claveBtl: string | null;
+  nombre: string;
+  direccion: string | null;
+  zona: string | null;
 }
 
 export interface DashboardDermoconsejoShift {
-  attendanceId: string | null
-  fechaOperacion: string
-  isOpen: boolean
-  canStart: boolean
-  checkInUtc: string | null
-  buttonLabel: 'Registrar Entrada' | 'Registrar Salida'
-  buttonHref: string
-  helper: string
-  disabledReason: string | null
+  attendanceId: string | null;
+  fechaOperacion: string;
+  isOpen: boolean;
+  canStart: boolean;
+  checkInUtc: string | null;
+  buttonLabel: 'Registrar Entrada' | 'Registrar Salida';
+  buttonHref: string;
+  helper: string;
+  disabledReason: string | null;
 }
 
 export interface DashboardDermoconsejoReportWindow {
-  timezone: string
-  stateName: string | null
-  status: 'SIN_CHECKIN' | 'JORNADA_ACTIVA' | 'PENDIENTE_REPORTE' | 'VENTANA_CERRADA'
-  canReportToday: boolean
-  deadlineLocalTime: string
-  helper: string
+  timezone: string;
+  stateName: string | null;
+  status: 'SIN_CHECKIN' | 'JORNADA_ACTIVA' | 'PENDIENTE_REPORTE' | 'VENTANA_CERRADA';
+  canReportToday: boolean;
+  deadlineLocalTime: string;
+  helper: string;
 }
 
 export interface DashboardDermoconsejoCounter {
-  label: string
-  value: number
-  helper: string
+  label: string;
+  value: number;
+  helper: string;
 }
 
 export interface DashboardDermoconsejoCampaign {
-  id: string
-  campanaPdvId: string
-  nombre: string
-  fechaInicio: string
-  fechaFin: string
-  descripcion: string | null
-  instrucciones: string | null
-  productosFoco: string[]
-  evidenciasRequeridas: string[]
-  evidenceTemplate: Array<{ id: string; label: string; kind: CampaignEvidenceKind }>
-  cuotaAdicional: number
-  manualMercadeoUrl: string | null
-  manualMercadeoNombre: string | null
-  ctaHref: string
+  id: string;
+  campanaPdvId: string;
+  nombre: string;
+  fechaInicio: string;
+  fechaFin: string;
+  descripcion: string | null;
+  instrucciones: string | null;
+  productosFoco: string[];
+  evidenciasRequeridas: string[];
+  evidenceTemplate: Array<{ id: string; label: string; kind: CampaignEvidenceKind }>;
+  cuotaAdicional: number;
+  manualMercadeoUrl: string | null;
+  manualMercadeoNombre: string | null;
+  ctaHref: string;
 }
 
 export interface DashboardDermoconsejoFormation {
-  id: string
-  nombre: string
-  fechaInicio: string
-  fechaFin: string
-  sede: string | null
-  tipo: string | null
-  tipoEvento: 'FORMACION' | 'ISDINIZACION'
-  modalidad: 'PRESENCIAL' | 'EN_LINEA'
-  horarioInicio: string | null
-  horarioFin: string | null
-  supervisorNombre: string | null
-  locationAddress: string | null
-  locationLatitude: number | null
-  locationLongitude: number | null
-  locationRadiusMeters: number | null
-  attendanceId: string | null
-  attendanceStatus: 'PENDIENTE' | 'LLEGADA_REGISTRADA' | 'SALIDA_REGISTRADA' | 'COMPLETA'
-  checkInUtc: string | null
-  checkOutUtc: string | null
+  id: string;
+  nombre: string;
+  fechaInicio: string;
+  fechaFin: string;
+  sede: string | null;
+  tipo: string | null;
+  tipoEvento: 'FORMACION' | 'ISDINIZACION';
+  modalidad: 'PRESENCIAL' | 'EN_LINEA';
+  horarioInicio: string | null;
+  horarioFin: string | null;
+  supervisorNombre: string | null;
+  locationAddress: string | null;
+  locationLatitude: number | null;
+  locationLongitude: number | null;
+  locationRadiusMeters: number | null;
+  attendanceId: string | null;
+  attendanceStatus: 'PENDIENTE' | 'LLEGADA_REGISTRADA' | 'SALIDA_REGISTRADA' | 'COMPLETA';
+  checkInUtc: string | null;
+  checkOutUtc: string | null;
 }
 
 export interface DashboardDermoconsejoNotificationItem {
-  id: string
-  titulo: string
-  cuerpo: string
-  createdAt: string
-  estado: 'PENDIENTE' | 'LEIDO' | 'RESPONDIDO'
-  tipo: string
-  remitente: string
+  id: string;
+  titulo: string;
+  cuerpo: string;
+  createdAt: string;
+  estado: 'PENDIENTE' | 'LEIDO' | 'RESPONDIDO';
+  tipo: string;
+  remitente: string;
 }
 
 export interface DashboardDermoconsejoNotificationsSummary {
-  unreadCount: number
-  items: DashboardDermoconsejoNotificationItem[]
+  unreadCount: number;
+  items: DashboardDermoconsejoNotificationItem[];
 }
 
 export interface DashboardDermoconsejoProfile {
-  nombreCompleto: string
-  puesto: Puesto
-  zona: string | null
-  correoElectronico: string | null
-  telefono: string | null
-  username: string | null
-  fechaAlta: string | null
-  supervisorNombre: string | null
-  tiendaActual: string
+  nombreCompleto: string;
+  puesto: Puesto;
+  zona: string | null;
+  correoElectronico: string | null;
+  telefono: string | null;
+  username: string | null;
+  fechaAlta: string | null;
+  supervisorNombre: string | null;
+  tiendaActual: string;
 }
 
 export interface DashboardDermoconsejoContext {
-  cuentaClienteId: string | null
-  empleadoId: string
-  supervisorEmpleadoId: string | null
-  pdvId: string | null
-  attendanceId: string | null
-  fechaOperacion: string
+  cuentaClienteId: string | null;
+  empleadoId: string;
+  supervisorEmpleadoId: string | null;
+  pdvId: string | null;
+  attendanceId: string | null;
+  fechaOperacion: string;
 }
 
 export interface DashboardDermoconsejoCalendarAssignment {
-  assignmentId: string
-  pdvId: string
-  claveBtl: string | null
-  nombre: string
-  direccion: string | null
-  zona: string | null
-  horario: string | null
-  tipo: 'FIJA' | 'ROTATIVA' | 'COBERTURA'
+  assignmentId: string;
+  pdvId: string;
+  claveBtl: string | null;
+  nombre: string;
+  direccion: string | null;
+  zona: string | null;
+  horario: string | null;
+  tipo: 'FIJA' | 'ROTATIVA' | 'COBERTURA';
 }
 
 export interface DashboardDermoconsejoCalendarDay {
-  date: string
-  weekdayLabel: string
-  shortLabel: string
-  isToday: boolean
-  assignments: DashboardDermoconsejoCalendarAssignment[]
+  date: string;
+  weekdayLabel: string;
+  shortLabel: string;
+  isToday: boolean;
+  assignments: DashboardDermoconsejoCalendarAssignment[];
 }
 
 export interface DashboardDermoconsejoCalendar {
-  week: DashboardDermoconsejoCalendarDay[]
-  month: DashboardDermoconsejoCalendarDay[]
+  week: DashboardDermoconsejoCalendarDay[];
+  month: DashboardDermoconsejoCalendarDay[];
 }
 
 export interface DashboardDermoconsejoCheckInContext {
-  cuentaClienteId: string | null
-  assignmentId: string | null
-  assignmentSchedule: string | null
-  empleadoId: string
-  empleadoNombre: string
-  supervisorEmpleadoId: string | null
-  pdvId: string | null
-  pdvClaveBtl: string | null
-  pdvNombre: string
-  zona: string | null
-  cadena: string | null
-  fechaOperacion: string
-  geocercaLatitud: number | null
-  geocercaLongitud: number | null
-  geocercaRadioMetros: number | null
-  permiteCheckinConJustificacion: boolean
-  previousMissionId: string | null
-  previousMissionCodigo: string | null
-  missions: AttendanceMissionCatalogItem[]
+  cuentaClienteId: string | null;
+  assignmentId: string | null;
+  assignmentSchedule: string | null;
+  empleadoId: string;
+  empleadoNombre: string;
+  supervisorEmpleadoId: string | null;
+  pdvId: string | null;
+  pdvClaveBtl: string | null;
+  pdvNombre: string;
+  zona: string | null;
+  cadena: string | null;
+  fechaOperacion: string;
+  geocercaLatitud: number | null;
+  geocercaLongitud: number | null;
+  geocercaRadioMetros: number | null;
+  permiteCheckinConJustificacion: boolean;
+  previousMissionId: string | null;
+  previousMissionCodigo: string | null;
+  missions: AttendanceMissionCatalogItem[];
 }
 
 type DashboardDermoconsejoAssignmentContextSource = {
-  id: string
-  cuenta_cliente_id?: string | null
-  pdv_id?: string | null
-  horario_referencia?: string | null
-}
+  id: string;
+  cuenta_cliente_id?: string | null;
+  pdv_id?: string | null;
+  horario_referencia?: string | null;
+};
 
 export interface DashboardDermoconsejoAssignmentContext {
-  assignmentId: string | null
-  assignmentSchedule: string | null
-  cuentaClienteId: string | null
-  pdvId: string | null
+  assignmentId: string | null;
+  assignmentSchedule: string | null;
+  cuentaClienteId: string | null;
+  pdvId: string | null;
 }
 
 export function resolveDermoconsejoCheckInAssignmentContext(
   effectiveAssignment: DashboardDermoconsejoAssignmentContextSource | null,
   primaryAssignment: DashboardDermoconsejoAssignmentContextSource | null
 ): DashboardDermoconsejoAssignmentContext {
-  const resolvedAssignment = effectiveAssignment ?? primaryAssignment ?? null
+  const resolvedAssignment = effectiveAssignment ?? primaryAssignment ?? null;
 
   return {
     assignmentId: resolvedAssignment?.id ?? null,
     assignmentSchedule: resolvedAssignment?.horario_referencia ?? null,
     cuentaClienteId: resolvedAssignment?.cuenta_cliente_id ?? null,
     pdvId: resolvedAssignment?.pdv_id ?? null,
-  }
+  };
 }
 
 export interface DashboardDermoconsejoQuickAction {
@@ -755,174 +751,169 @@ export interface DashboardDermoconsejoQuickAction {
     | 'perfil'
     | 'incapacidad'
     | 'vacaciones'
-    | 'permiso'
-  label: string
-  helper: string
-  href: string
-  accent: 'sky' | 'emerald' | 'amber' | 'rose' | 'slate' | 'orange' | 'purple'
-  preferredSnap: 'partial' | 'expanded'
-  badgeCount?: number
+    | 'permiso';
+  label: string;
+  helper: string;
+  href: string;
+  accent: 'sky' | 'emerald' | 'amber' | 'rose' | 'slate' | 'orange' | 'purple';
+  preferredSnap: 'partial' | 'expanded';
+  badgeCount?: number;
 }
 
 export interface DashboardDermoconsejoSolicitudStatusItem {
-  id: string
-  tipo:
-    | 'INCAPACIDAD'
-    | 'VACACIONES'
-    | 'PERMISO'
-    | 'AVISO_INASISTENCIA'
-    | 'JUSTIFICACION_FALTA'
-  estatus: string
-  fechaInicio: string
-  fechaFin: string
-  motivo: string | null
-  comentarios: string | null
-  justificanteUrl: string | null
-  metadata: Record<string, unknown>
+  id: string;
+  tipo: 'INCAPACIDAD' | 'VACACIONES' | 'PERMISO' | 'AVISO_INASISTENCIA' | 'JUSTIFICACION_FALTA';
+  estatus: string;
+  fechaInicio: string;
+  fechaFin: string;
+  motivo: string | null;
+  comentarios: string | null;
+  justificanteUrl: string | null;
+  metadata: Record<string, unknown>;
 }
 
 export interface DashboardDermoconsejoProductItem {
-  id: string
-  sku: string
-  nombre: string
-  nombreCorto: string
+  id: string;
+  sku: string;
+  nombre: string;
+  nombreCorto: string;
 }
 
 export interface DashboardVacationTeamWeekItem {
-  weekStart: string
-  weekEnd: string
-  absentCount: number
-  limit: number
-  blocked: boolean
+  weekStart: string;
+  weekEnd: string;
+  absentCount: number;
+  limit: number;
+  blocked: boolean;
 }
 
 export interface DashboardVacationPolicySummary {
-  ingresoOficial: string | null
-  eligible: boolean
-  annualDays: number
-  annualUsedDays: number
-  annualAvailableDays: number
-  currentSemester: 'PRIMER_SEMESTRE' | 'SEGUNDO_SEMESTRE' | null
-  currentSemesterLabel: string | null
-  nextUnlockDate: string | null
-  anniversaryStart: string | null
-  anniversaryEnd: string | null
+  ingresoOficial: string | null;
+  eligible: boolean;
+  annualDays: number;
+  annualUsedDays: number;
+  annualAvailableDays: number;
+  currentSemester: 'PRIMER_SEMESTRE' | 'SEGUNDO_SEMESTRE' | null;
+  currentSemesterLabel: string | null;
+  nextUnlockDate: string | null;
+  anniversaryStart: string | null;
+  anniversaryEnd: string | null;
   firstSemester: {
-    availableFrom: string
-    availableUntil: string
-    totalDays: number
-    usedDays: number
-    availableDays: number
-    unlocked: boolean
-  } | null
+    availableFrom: string;
+    availableUntil: string;
+    totalDays: number;
+    usedDays: number;
+    availableDays: number;
+    unlocked: boolean;
+  } | null;
   secondSemester: {
-    availableFrom: string
-    availableUntil: string
-    totalDays: number
-    usedDays: number
-    availableDays: number
-    unlocked: boolean
-  } | null
-  teamWeeklyLoad: DashboardVacationTeamWeekItem[]
+    availableFrom: string;
+    availableUntil: string;
+    totalDays: number;
+    usedDays: number;
+    availableDays: number;
+    unlocked: boolean;
+  } | null;
+  teamWeeklyLoad: DashboardVacationTeamWeekItem[];
 }
 
 export interface DashboardDermoconsejoData {
-  greetingName: string
-  todayLabel: string
-  context: DashboardDermoconsejoContext
-  checkIn: DashboardDermoconsejoCheckInContext
-  profile: DashboardDermoconsejoProfile
-  store: DashboardDermoconsejoStore
-  shift: DashboardDermoconsejoShift
-  reportWindow: DashboardDermoconsejoReportWindow
-  loveQr: DashboardDermoconsejoLoveQr | null
-  loveQuota: DashboardDermoconsejoLoveQuota
-  counters: DashboardDermoconsejoCounter[]
-  notifications: DashboardDermoconsejoNotificationsSummary
-  activeCampaign: DashboardDermoconsejoCampaign | null
-  activeFormation: DashboardDermoconsejoFormation | null
-  quickActions: DashboardDermoconsejoQuickAction[]
-  requestStatus: DashboardDermoconsejoSolicitudStatusItem[]
-  catalogoProductos: DashboardDermoconsejoProductItem[]
-  calendar: DashboardDermoconsejoCalendar
-  vacationPolicy: DashboardVacationPolicySummary | null
+  greetingName: string;
+  todayLabel: string;
+  context: DashboardDermoconsejoContext;
+  checkIn: DashboardDermoconsejoCheckInContext;
+  profile: DashboardDermoconsejoProfile;
+  store: DashboardDermoconsejoStore;
+  shift: DashboardDermoconsejoShift;
+  reportWindow: DashboardDermoconsejoReportWindow;
+  loveQr: DashboardDermoconsejoLoveQr | null;
+  loveQuota: DashboardDermoconsejoLoveQuota;
+  counters: DashboardDermoconsejoCounter[];
+  notifications: DashboardDermoconsejoNotificationsSummary;
+  activeCampaign: DashboardDermoconsejoCampaign | null;
+  activeFormation: DashboardDermoconsejoFormation | null;
+  quickActions: DashboardDermoconsejoQuickAction[];
+  requestStatus: DashboardDermoconsejoSolicitudStatusItem[];
+  catalogoProductos: DashboardDermoconsejoProductItem[];
+  calendar: DashboardDermoconsejoCalendar;
+  vacationPolicy: DashboardVacationPolicySummary | null;
 }
 
 export interface DashboardDermoconsejoLoveQr {
-  codigoId: string
-  asignacionId: string
-  codigo: string
-  imageUrl: string | null
-  estado: 'DISPONIBLE' | 'ACTIVO' | 'BLOQUEADO' | 'BAJA'
+  codigoId: string;
+  asignacionId: string;
+  codigo: string;
+  imageUrl: string | null;
+  estado: 'DISPONIBLE' | 'ACTIVO' | 'BLOQUEADO' | 'BAJA';
 }
 
 export interface DashboardDermoconsejoLoveQuota {
-  objetivoDiario: number
-  avanceHoy: number
-  restanteHoy: number
-  cumplimientoHoyPct: number
+  objetivoDiario: number;
+  avanceHoy: number;
+  restanteHoy: number;
+  cumplimientoHoyPct: number;
 }
 
 export interface DashboardSupervisorAuthorizationItem {
-  id: string
-  cuentaClienteId: string
-  cuentaCliente: string | null
-  empleadoId: string
-  empleado: string
-  tipo: string
-  fechaInicio: string
-  fechaFin: string
-  motivo: string | null
-  comentarios: string | null
-  estatus: string
-  siguienteActor: string
-  justificanteUrl: string | null
-  enviadaEn: string | null
-  resolverAntesDe: string | null
-  slaHours: number | null
-  tiempoRestanteMinutos: number | null
-  urgencyState: 'NORMAL' | 'URGENTE' | 'VENCIDA' | null
+  id: string;
+  cuentaClienteId: string;
+  cuentaCliente: string | null;
+  empleadoId: string;
+  empleado: string;
+  tipo: string;
+  fechaInicio: string;
+  fechaFin: string;
+  motivo: string | null;
+  comentarios: string | null;
+  estatus: string;
+  siguienteActor: string;
+  justificanteUrl: string | null;
+  enviadaEn: string | null;
+  resolverAntesDe: string | null;
+  slaHours: number | null;
+  tiempoRestanteMinutos: number | null;
+  urgencyState: 'NORMAL' | 'URGENTE' | 'VENCIDA' | null;
 }
 
 export type DashboardSupervisorRequestKind =
   | 'VACACIONES'
   | 'INCAPACIDAD'
   | 'CUMPLEANOS'
-  | 'JUSTIFICACION_FALTA'
+  | 'JUSTIFICACION_FALTA';
 
 export interface DashboardSupervisorRequestItem {
-  id: string
-  cuentaClienteId: string
-  cuentaCliente: string | null
-  empleadoId: string
-  empleado: string
-  kind: DashboardSupervisorRequestKind
-  tipo: string
-  fechaInicio: string
-  fechaFin: string
-  motivo: string | null
-  comentarios: string | null
-  estatus: string
-  siguienteActor: string | null
-  actionable: boolean
-  justificanteUrl: string | null
-  enviadaEn: string | null
-  resolverAntesDe: string | null
-  slaHours: number | null
-  tiempoRestanteMinutos: number | null
-  urgencyState: 'NORMAL' | 'URGENTE' | 'VENCIDA' | null
+  id: string;
+  cuentaClienteId: string;
+  cuentaCliente: string | null;
+  empleadoId: string;
+  empleado: string;
+  kind: DashboardSupervisorRequestKind;
+  tipo: string;
+  fechaInicio: string;
+  fechaFin: string;
+  motivo: string | null;
+  comentarios: string | null;
+  estatus: string;
+  siguienteActor: string | null;
+  actionable: boolean;
+  justificanteUrl: string | null;
+  enviadaEn: string | null;
+  resolverAntesDe: string | null;
+  slaHours: number | null;
+  tiempoRestanteMinutos: number | null;
+  urgencyState: 'NORMAL' | 'URGENTE' | 'VENCIDA' | null;
 }
 
 export interface DashboardSupervisorRequestSummaryItem {
-  key: 'TODAS' | DashboardSupervisorRequestKind
-  label: string
-  count: number
-  actionableCount: number
+  key: 'TODAS' | DashboardSupervisorRequestKind;
+  label: string;
+  count: number;
+  actionableCount: number;
 }
 
 export interface DashboardSupervisorRequestInbox {
-  items: DashboardSupervisorRequestItem[]
-  summaries: DashboardSupervisorRequestSummaryItem[]
+  items: DashboardSupervisorRequestItem[];
+  summaries: DashboardSupervisorRequestSummaryItem[];
 }
 
 export type DashboardSupervisorDailyStatus =
@@ -931,6 +922,8 @@ export type DashboardSupervisorDailyStatus =
   | 'VALIDA'
   | 'RECHAZADA'
   | 'CERRADA'
+  | 'VACACIONES'
+  | 'INCAPACIDAD';
 
 export type DashboardSupervisorDailyFlowState =
   | 'SIN_CHECKIN'
@@ -940,61 +933,63 @@ export type DashboardSupervisorDailyFlowState =
   | 'REVISION_SALIDA'
   | 'SALIDA_RECHAZADA'
   | 'FINALIZADA'
+  | 'VACACIONES'
+  | 'INCAPACIDAD';
 
-export type DashboardSupervisorReviewTarget = 'CHECK_IN' | 'CHECK_OUT' | null
+export type DashboardSupervisorReviewTarget = 'CHECK_IN' | 'CHECK_OUT' | null;
 
 export interface DashboardSupervisorDailyItem {
-  assignmentId: string
-  attendanceId: string | null
-  cuentaClienteId: string | null
-  empleadoId: string
-  empleado: string
-  pdvId: string
-  pdv: string
-  pdvClaveBtl: string | null
-  zona: string | null
-  horario: string | null
-  tipoAsignacion: 'FIJA' | 'ROTATIVA' | 'COBERTURA'
-  fechaOperacion: string
-  checkInUtc: string | null
-  checkOutUtc: string | null
-  estadoAsistencia: DashboardSupervisorDailyStatus
-  flowState: DashboardSupervisorDailyFlowState
-  reviewTarget: DashboardSupervisorReviewTarget
-  estadoGps: string | null
-  distanciaCheckInMetros: number | null
-  minutosRetardo: number | null
-  checkInSelfieThumbnailUrl: string | null
-  checkInSelfieUrl: string | null
-  checkOutSelfieThumbnailUrl: string | null
-  checkOutSelfieUrl: string | null
-  misionCodigo: string | null
-  misionInstruccion: string | null
+  assignmentId: string;
+  attendanceId: string | null;
+  cuentaClienteId: string | null;
+  empleadoId: string;
+  empleado: string;
+  pdvId: string;
+  pdv: string;
+  pdvClaveBtl: string | null;
+  zona: string | null;
+  horario: string | null;
+  tipoAsignacion: 'FIJA' | 'ROTATIVA' | 'COBERTURA';
+  fechaOperacion: string;
+  checkInUtc: string | null;
+  checkOutUtc: string | null;
+  estadoAsistencia: DashboardSupervisorDailyStatus;
+  flowState: DashboardSupervisorDailyFlowState;
+  reviewTarget: DashboardSupervisorReviewTarget;
+  estadoGps: string | null;
+  distanciaCheckInMetros: number | null;
+  minutosRetardo: number | null;
+  checkInSelfieThumbnailUrl: string | null;
+  checkInSelfieUrl: string | null;
+  checkOutSelfieThumbnailUrl: string | null;
+  checkOutSelfieUrl: string | null;
+  misionCodigo: string | null;
+  misionInstruccion: string | null;
 }
 
 export interface DashboardSupervisorDailyBoard {
-  date: string
-  items: DashboardSupervisorDailyItem[]
+  date: string;
+  items: DashboardSupervisorDailyItem[];
 }
 
 export interface DashboardSupervisorLoveQuotaSummary {
-  objetivoHoy: number
-  avanceHoy: number
-  restanteHoy: number
-  cumplimientoHoyPct: number
-  dcConMetaHoy: number
+  objetivoHoy: number;
+  avanceHoy: number;
+  restanteHoy: number;
+  cumplimientoHoyPct: number;
+  dcConMetaHoy: number;
 }
 
 export interface DashboardSupervisorRouteSnapshot {
-  totalRutas: number
-  totalVisitas: number
-  visitasCompletadas: number
-  pendientesReposicion: number
-  currentWeekStart: string
-  nextWeekStart: string
-  nextWeekEnd: string
-  hasCurrentWeekRoute: boolean
-  hasNextWeekRoute: boolean
+  totalRutas: number;
+  totalVisitas: number;
+  visitasCompletadas: number;
+  pendientesReposicion: number;
+  currentWeekStart: string;
+  nextWeekStart: string;
+  nextWeekEnd: string;
+  hasCurrentWeekRoute: boolean;
+  hasNextWeekRoute: boolean;
 }
 
 export type DashboardWidgetId =
@@ -1009,47 +1004,47 @@ export type DashboardWidgetId =
   | 'pulso_comercial'
   | 'disciplina'
   | 'compacto_supervisor'
-  | 'autorizaciones_supervisor'
+  | 'autorizaciones_supervisor';
 
 export interface DashboardFilters {
-  periodo: string
-  estado: string
-  zona: string
-  supervisorId: string
+  periodo: string;
+  estado: string;
+  zona: string;
+  supervisorId: string;
 }
 
 export interface DashboardPanelData {
-  stats: DashboardStats
-  clientes: DashboardClienteItem[]
-  infraestructuraLista: boolean
-  mensajeInfraestructura?: string
-  refreshedAt: string | null
-  scopeLabel: string
-  filtros: DashboardFilters
-  opcionesFiltro: DashboardFilterOptions
-  widgets: DashboardWidgetId[]
-  dermoconsejo?: DashboardDermoconsejoData | null
-  supervisorDailyBoard: DashboardSupervisorDailyBoard | null
-  supervisorLoveQuota: DashboardSupervisorLoveQuotaSummary | null
-  supervisorNotifications: DashboardDermoconsejoNotificationsSummary
-  supervisorAuthorizations: DashboardSupervisorAuthorizationItem[]
-  supervisorRequestInbox: DashboardSupervisorRequestInbox
-  supervisorSelfRequestStatus: DashboardDermoconsejoSolicitudStatusItem[]
-  supervisorVacationPolicy: DashboardVacationPolicySummary | null
-  supervisorActiveFormation: DashboardDermoconsejoFormation | null
-  supervisorRouteSnapshot: DashboardSupervisorRouteSnapshot | null
-  recruitmentCoverage: RecruitmentCoverageSummary | null
-  nominaWorkspace: NominaWorkspaceData | null
-  visitReach: VisitReachDashboardSummary | null
+  stats: DashboardStats;
+  clientes: DashboardClienteItem[];
+  infraestructuraLista: boolean;
+  mensajeInfraestructura?: string;
+  refreshedAt: string | null;
+  scopeLabel: string;
+  filtros: DashboardFilters;
+  opcionesFiltro: DashboardFilterOptions;
+  widgets: DashboardWidgetId[];
+  dermoconsejo?: DashboardDermoconsejoData | null;
+  supervisorDailyBoard: DashboardSupervisorDailyBoard | null;
+  supervisorLoveQuota: DashboardSupervisorLoveQuotaSummary | null;
+  supervisorNotifications: DashboardDermoconsejoNotificationsSummary;
+  supervisorAuthorizations: DashboardSupervisorAuthorizationItem[];
+  supervisorRequestInbox: DashboardSupervisorRequestInbox;
+  supervisorSelfRequestStatus: DashboardDermoconsejoSolicitudStatusItem[];
+  supervisorVacationPolicy: DashboardVacationPolicySummary | null;
+  supervisorActiveFormation: DashboardDermoconsejoFormation | null;
+  supervisorRouteSnapshot: DashboardSupervisorRouteSnapshot | null;
+  recruitmentCoverage: RecruitmentCoverageSummary | null;
+  nominaWorkspace: NominaWorkspaceData | null;
+  visitReach: VisitReachDashboardSummary | null;
 }
 
 export interface DashboardInsightsData {
-  tendenciaSemana: DashboardTrendItem[]
-  tendenciaMes: DashboardTrendItem[]
-  alertasLive: DashboardLiveAlertItem[]
-  mapaPromotores: DashboardMapItem[]
-  filtros: DashboardFilters
-  widgets: DashboardWidgetId[]
+  tendenciaSemana: DashboardTrendItem[];
+  tendenciaMes: DashboardTrendItem[];
+  alertasLive: DashboardLiveAlertItem[];
+  mapaPromotores: DashboardMapItem[];
+  filtros: DashboardFilters;
+  widgets: DashboardWidgetId[];
 }
 
 const EMPTY_STATS: DashboardStats = {
@@ -1064,27 +1059,27 @@ const EMPTY_STATS: DashboardStats = {
   cuotasCumplidasPeriodo: 0,
   netoNominaPeriodo: 0,
   imssPendientes: 0,
-}
+};
 
 function roundToTwo(value: number) {
-  return Math.round(value * 100) / 100
+  return Math.round(value * 100) / 100;
 }
 
 function getTodayIso() {
-  return formatIsoDateInTimezone(new Date())
+  return formatIsoDateInTimezone(new Date());
 }
 
 function normalizeMetadataRecord(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
-    : {}
+    : {};
 }
 
 function readIngresoOficialFromMetadata(value: unknown) {
-  const metadata = normalizeMetadataRecord(value)
-  const onboarding = normalizeMetadataRecord(metadata.onboarding_operativo)
-  const ingreso = String(onboarding.fecha_ingreso_oficial ?? '').trim()
-  return ingreso || null
+  const metadata = normalizeMetadataRecord(value);
+  const onboarding = normalizeMetadataRecord(metadata.onboarding_operativo);
+  const ingreso = String(onboarding.fecha_ingreso_oficial ?? '').trim();
+  return ingreso || null;
 }
 
 function formatLongDateLabel(value: string) {
@@ -1092,73 +1087,57 @@ function formatLongDateLabel(value: string) {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
-  }).format(new Date(`${value}T12:00:00`))
+  }).format(new Date(`${value}T12:00:00`));
 }
 
 function parseIsoDateUtc(value: string) {
-  const [year, month, day] = value.split('-').map(Number)
-  return new Date(Date.UTC(year, (month ?? 1) - 1, day ?? 1))
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(Date.UTC(year, (month ?? 1) - 1, day ?? 1));
 }
 
 function toIsoDateUtc(value: Date) {
-  return value.toISOString().slice(0, 10)
-}
-
-function isMissingCiudadEstadoColumn(message: string | null | undefined) {
-  if (!message) {
-    return false
-  }
-
-  const normalized = message.toLowerCase()
-  return (
-    normalized.includes('column ciudad.estado does not exist') ||
-    normalized.includes('column ciudad_1.estado does not exist')
-  )
+  return value.toISOString().slice(0, 10);
 }
 
 function addDaysIso(value: string, days: number) {
-  const date = parseIsoDateUtc(value)
-  date.setUTCDate(date.getUTCDate() + days)
-  return toIsoDateUtc(date)
+  const date = parseIsoDateUtc(value);
+  date.setUTCDate(date.getUTCDate() + days);
+  return toIsoDateUtc(date);
 }
 
 function normalizeBoolean(value: unknown) {
-  return value === true || value === 'true' || value === 1 || value === '1'
+  return value === true || value === 'true' || value === 1 || value === '1';
 }
 
 function normalizeCount(value: unknown) {
   const parsed =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Number(value)
-        : Number.NaN
+    typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
 
-  return Number.isFinite(parsed) ? parsed : 0
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function isMissingSupervisorRouteSummaryFunction(message: string | null | undefined) {
-  const normalized = String(message ?? '').toLowerCase()
+  const normalized = String(message ?? '').toLowerCase();
   return (
     normalized.includes('rpc_resumen_ruta_supervisor') ||
     normalized.includes('could not find the function public.rpc_resumen_ruta_supervisor') ||
     normalized.includes('function public.rpc_resumen_ruta_supervisor') ||
     normalized.includes('rpc resumen ruta supervisor')
-  )
+  );
 }
 
 export function buildSupervisorRouteSnapshotFromRpcPayload(
   payload: unknown,
   fallback: {
-    currentWeekIso: string
-    nextWeekStart: string
-    nextWeekEnd: string
+    currentWeekIso: string;
+    nextWeekStart: string;
+    nextWeekEnd: string;
   }
 ): DashboardSupervisorRouteSnapshot {
   const normalizedPayload =
     payload && typeof payload === 'object' && !Array.isArray(payload)
       ? (payload as Record<string, unknown>)
-      : {}
+      : {};
 
   return {
     totalRutas: normalizeCount(normalizedPayload.totalRutas),
@@ -1179,65 +1158,67 @@ export function buildSupervisorRouteSnapshotFromRpcPayload(
         : fallback.nextWeekEnd,
     hasCurrentWeekRoute: normalizeBoolean(normalizedPayload.hasCurrentWeekRoute),
     hasNextWeekRoute: normalizeBoolean(normalizedPayload.hasNextWeekRoute),
-  }
+  };
 }
 
 function formatCalendarWeekdayLabel(value: string) {
   return new Intl.DateTimeFormat('es-MX', {
     weekday: 'short',
-  }).format(parseIsoDateUtc(value))
+  }).format(parseIsoDateUtc(value));
 }
 
 function formatCalendarShortLabel(value: string) {
   return new Intl.DateTimeFormat('es-MX', {
     day: '2-digit',
     month: 'short',
-  }).format(parseIsoDateUtc(value))
+  }).format(parseIsoDateUtc(value));
 }
 
 function formatShortTime(value: string | null) {
   if (!value) {
-    return null
+    return null;
   }
 
   return new Intl.DateTimeFormat('es-MX', {
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(value))
+  }).format(new Date(value));
 }
 
 function isIsoRangeActive(start: string, end: string | null, targetDate: string) {
-  return start <= targetDate && (!end || end >= targetDate)
+  return start <= targetDate && (!end || end >= targetDate);
 }
 
 function getFirst<T>(value: T | T[] | null | undefined) {
   if (!value) {
-    return null
+    return null;
   }
 
-  return Array.isArray(value) ? value[0] ?? null : value
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
-function toVacationRangeLike(item: Pick<DashboardSolicitudRow, 'empleado_id' | 'fecha_inicio' | 'fecha_fin' | 'estatus'>): VacationRangeLike {
+function toVacationRangeLike(
+  item: Pick<DashboardSolicitudRow, 'empleado_id' | 'fecha_inicio' | 'fecha_fin' | 'estatus'>
+): VacationRangeLike {
   return {
     empleadoId: item.empleado_id,
     fechaInicio: item.fecha_inicio,
     fechaFin: item.fecha_fin,
     estatus: item.estatus,
-  }
+  };
 }
 
 function buildDashboardVacationPolicySummary(input: {
-  ingresoOficial: string | null
-  todayIso: string
-  approvedOwnRanges: VacationRangeLike[]
-  teamRanges: VacationRangeLike[]
+  ingresoOficial: string | null;
+  todayIso: string;
+  approvedOwnRanges: VacationRangeLike[];
+  teamRanges: VacationRangeLike[];
 }): DashboardVacationPolicySummary | null {
   const snapshot = buildVacationPolicySnapshot({
     ingresoOficial: input.ingresoOficial,
     todayIso: input.todayIso,
     approvedRanges: input.approvedOwnRanges,
-  })
+  });
 
   return {
     ingresoOficial: snapshot.ingresoOficial,
@@ -1271,22 +1252,22 @@ function buildDashboardVacationPolicySummary(input: {
         }
       : null,
     teamWeeklyLoad: buildVacationTeamWeeklyLoad(input.teamRanges, input.todayIso, 8),
-  }
+  };
 }
 
 function normalizeConfigNumber(rows: DashboardConfigRow[], key: string, fallback: number) {
-  const row = rows.find((item) => item.clave === key)
-  const parsed = typeof row?.valor === 'number' ? row.valor : Number(row?.valor)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+  const row = rows.find((item) => item.clave === key);
+  const parsed = typeof row?.valor === 'number' ? row.valor : Number(row?.valor);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function serializeVisitReachCacheInput(
   actor: ActorActual,
   options: {
-    supervisorEmpleadoId?: string | null
-    weekStart?: string | null
-    cadenaCodigo?: string | null
-    storeType?: string | null
+    supervisorEmpleadoId?: string | null;
+    weekStart?: string | null;
+    cadenaCodigo?: string | null;
+    storeType?: string | null;
   }
 ) {
   return JSON.stringify({
@@ -1301,31 +1282,34 @@ function serializeVisitReachCacheInput(
       cadenaCodigo: options.cadenaCodigo ?? '',
       storeType: options.storeType ?? '',
     },
-  })
+  });
 }
 
 const fetchCachedVisitReachSummary = unstable_cache(
   async (serializedInput: string) => {
     const parsed = JSON.parse(serializedInput) as {
-      actor: Pick<ActorActual, 'puesto' | 'cuentaClienteId' | 'empleadoId'>
+      actor: Pick<ActorActual, 'puesto' | 'cuentaClienteId' | 'empleadoId'>;
       options: {
-        supervisorEmpleadoId?: string
-        weekStart?: string
-        cadenaCodigo?: string
-        storeType?: string
-      }
-    }
+        supervisorEmpleadoId?: string;
+        weekStart?: string;
+        cadenaCodigo?: string;
+        storeType?: string;
+      };
+    };
 
     return obtenerResumenAlcanceVisitas(
       createServiceClient() as unknown as SupabaseClient<any>,
       parsed.actor as ActorActual,
       parsed.options
-    )
+    );
   },
   ['dashboard-visit-reach'],
   { revalidate: DASHBOARD_VISIT_REACH_REVALIDATE_SECONDS }
-)
-function buildEmptyDashboard(scopeLabel: string, mensajeInfraestructura?: string): DashboardPanelData {
+);
+function buildEmptyDashboard(
+  scopeLabel: string,
+  mensajeInfraestructura?: string
+): DashboardPanelData {
   return {
     stats: EMPTY_STATS,
     clientes: [],
@@ -1335,38 +1319,38 @@ function buildEmptyDashboard(scopeLabel: string, mensajeInfraestructura?: string
     scopeLabel,
     filtros: { ...EMPTY_DASHBOARD_FILTERS },
     opcionesFiltro: { estados: [], zonas: [], supervisores: [] },
-      widgets: resolveDashboardWidgets('ADMINISTRADOR'),
-      dermoconsejo: null,
-      supervisorDailyBoard: null,
-      supervisorLoveQuota: null,
-      supervisorVacationPolicy: null,
-      supervisorNotifications: {
-        unreadCount: 0,
-        items: [],
-      },
-        supervisorAuthorizations: [],
-      supervisorRequestInbox: {
-          items: [],
-          summaries: [
-            { key: 'TODAS', label: 'Todas', count: 0, actionableCount: 0 },
-            { key: 'VACACIONES', label: 'Vacaciones', count: 0, actionableCount: 0 },
-            { key: 'INCAPACIDAD', label: 'Incapacidades', count: 0, actionableCount: 0 },
-            { key: 'CUMPLEANOS', label: 'Dia cumple', count: 0, actionableCount: 0 },
-          ],
-        },
-      supervisorSelfRequestStatus: [],
-      supervisorActiveFormation: null,
-      supervisorRouteSnapshot: null,
-      recruitmentCoverage: null,
-      nominaWorkspace: null,
-      visitReach: null,
-    }
+    widgets: resolveDashboardWidgets('ADMINISTRADOR'),
+    dermoconsejo: null,
+    supervisorDailyBoard: null,
+    supervisorLoveQuota: null,
+    supervisorVacationPolicy: null,
+    supervisorNotifications: {
+      unreadCount: 0,
+      items: [],
+    },
+    supervisorAuthorizations: [],
+    supervisorRequestInbox: {
+      items: [],
+      summaries: [
+        { key: 'TODAS', label: 'Todas', count: 0, actionableCount: 0 },
+        { key: 'VACACIONES', label: 'Vacaciones', count: 0, actionableCount: 0 },
+        { key: 'INCAPACIDAD', label: 'Incapacidades', count: 0, actionableCount: 0 },
+        { key: 'CUMPLEANOS', label: 'Dia cumple', count: 0, actionableCount: 0 },
+      ],
+    },
+    supervisorSelfRequestStatus: [],
+    supervisorActiveFormation: null,
+    supervisorRouteSnapshot: null,
+    recruitmentCoverage: null,
+    nominaWorkspace: null,
+    visitReach: null,
+  };
 }
 
 export function resolveDashboardWidgets(puesto: Puesto): DashboardWidgetId[] {
   switch (puesto) {
     case 'DERMOCONSEJERO':
-      return ['dermoconsejo']
+      return ['dermoconsejo'];
     case 'SUPERVISOR':
       return [
         'snapshot',
@@ -1378,9 +1362,9 @@ export function resolveDashboardWidgets(puesto: Puesto): DashboardWidgetId[] {
         'mapa',
         'alertas',
         'pulso_comercial',
-      ]
+      ];
     case 'RECLUTAMIENTO':
-      return ['snapshot', 'metricas', 'alertas']
+      return ['snapshot', 'metricas', 'alertas'];
     case 'COORDINADOR':
     case 'ADMINISTRADOR':
       return [
@@ -1392,11 +1376,11 @@ export function resolveDashboardWidgets(puesto: Puesto): DashboardWidgetId[] {
         'alertas',
         'pulso_comercial',
         'disciplina',
-      ]
+      ];
     case 'NOMINA':
-      return ['snapshot', 'filtros', 'metricas', 'cartera', 'alertas', 'pulso_comercial']
+      return ['snapshot', 'filtros', 'metricas', 'cartera', 'alertas', 'pulso_comercial'];
     default:
-      return ['snapshot', 'filtros', 'metricas', 'cartera', 'pulso_comercial']
+      return ['snapshot', 'filtros', 'metricas', 'cartera', 'pulso_comercial'];
   }
 }
 
@@ -1410,25 +1394,25 @@ function buildRoleScopedSummary(
     widgets: resolveDashboardWidgets(actor.puesto),
     scopeLabel,
     ...partial,
-  }
+  };
 }
 
 function getScopeLabel(actor: ActorActual) {
   if (actor.puesto === 'ADMINISTRADOR' && !actor.cuentaClienteId) {
-    return 'Vista global'
+    return 'Vista global';
   }
 
-  return actor.cuentaClienteId ? 'Cuenta cliente operativa' : 'Sin cuenta operativa'
+  return actor.cuentaClienteId ? 'Cuenta cliente operativa' : 'Sin cuenta operativa';
 }
 
 function getLatestRefreshedAt(rows: DashboardKpiRow[]) {
   return rows.reduce<string | null>((latest, row) => {
     if (!latest || row.refreshed_at > latest) {
-      return row.refreshed_at
+      return row.refreshed_at;
     }
 
-    return latest
-  }, null)
+    return latest;
+  }, null);
 }
 
 async function fetchDermoconsejoAssignments(supabase: DashboardSupabaseClient, actor: ActorActual) {
@@ -1439,12 +1423,12 @@ async function fetchDermoconsejoAssignments(supabase: DashboardSupabaseClient, a
     )
     .eq('empleado_id', actor.empleadoId)
     .order('fecha_inicio', { ascending: false })
-    .limit(40)
+    .limit(40);
 
   return {
     data: (result.data ?? []) as DashboardDermoAssignmentRow[],
     error: result.error,
-  }
+  };
 }
 
 async function fetchDermoconsejoAttendances(
@@ -1460,35 +1444,32 @@ async function fetchDermoconsejoAttendances(
     .eq('empleado_id', actor.empleadoId)
     .eq('fecha_operacion', todayIso)
     .order('created_at', { ascending: false })
-    .limit(12)
+    .limit(12);
 
   return {
     data: (result.data ?? []) as DashboardDermoAttendanceRow[],
     error: result.error,
-  }
+  };
 }
 
-async function fetchDermoconsejoGeocerca(
-  supabase: DashboardSupabaseClient,
-  pdvId: string | null
-) {
+async function fetchDermoconsejoGeocerca(supabase: DashboardSupabaseClient, pdvId: string | null) {
   if (!pdvId) {
     return {
       data: null as DashboardDermoGeocercaRow | null,
       error: null,
-    }
+    };
   }
 
   const result = await supabase
     .from('geocerca_pdv')
     .select('pdv_id, latitud, longitud, radio_tolerancia_metros, permite_checkin_con_justificacion')
     .eq('pdv_id', pdvId)
-    .limit(1)
+    .limit(1);
 
   return {
     data: ((result.data ?? []) as DashboardDermoGeocercaRow[])[0] ?? null,
     error: result.error,
-  }
+  };
 }
 
 async function fetchDermoconsejoMissionCatalog(supabase: DashboardSupabaseClient) {
@@ -1499,7 +1480,7 @@ async function fetchDermoconsejoMissionCatalog(supabase: DashboardSupabaseClient
     .order('orden', { ascending: true, nullsFirst: false })
     .order('peso', { ascending: false })
     .order('created_at', { ascending: true })
-    .limit(32)
+    .limit(32);
 
   return {
     data: ((result.data ?? []) as DashboardMissionCatalogRow[]).map<AttendanceMissionCatalogItem>(
@@ -1512,7 +1493,7 @@ async function fetchDermoconsejoMissionCatalog(supabase: DashboardSupabaseClient
       })
     ),
     error: result.error,
-  }
+  };
 }
 
 async function fetchDermoconsejoPdvs(supabase: DashboardSupabaseClient, pdvIds: string[]) {
@@ -1520,37 +1501,39 @@ async function fetchDermoconsejoPdvs(supabase: DashboardSupabaseClient, pdvIds: 
     return {
       data: [] as DashboardDermoPdvRow[],
       error: null,
-    }
+    };
   }
 
   const query = supabase
     .from('pdv')
-    .select('id, nombre, direccion, clave_btl, zona, ciudad:ciudad_id(nombre)')
+    .select('id, nombre, direccion, clave_btl, zona, ciudad:ciudad_id(nombre)');
 
   const result =
     typeof query.in === 'function'
       ? await query.in('id', pdvIds).limit(Math.max(pdvIds.length, 1))
-      : await query.limit(Math.max(pdvIds.length, 1))
+      : await query.limit(Math.max(pdvIds.length, 1));
 
   return {
     data: (result.data ?? []) as DashboardDermoPdvRow[],
     error: result.error,
-  }
+  };
 }
 
 function resolveOperationalDateFromMetadata(
-  item: Pick<DashboardDermoSaleRow, 'fecha_utc' | 'metadata'> | Pick<DashboardDermoLoveRow, 'fecha_utc' | 'metadata'>
+  item:
+    | Pick<DashboardDermoSaleRow, 'fecha_utc' | 'metadata'>
+    | Pick<DashboardDermoLoveRow, 'fecha_utc' | 'metadata'>
 ) {
   const metadata =
     item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
       ? item.metadata
-      : {}
+      : {};
 
   if (typeof metadata.fecha_operativa === 'string' && metadata.fecha_operativa.trim()) {
-    return metadata.fecha_operativa.trim()
+    return metadata.fecha_operativa.trim();
   }
 
-  return item.fecha_utc.slice(0, 10)
+  return item.fecha_utc.slice(0, 10);
 }
 
 async function fetchDermoconsejoSales(
@@ -1558,8 +1541,8 @@ async function fetchDermoconsejoSales(
   actor: ActorActual,
   todayIso: string
 ) {
-  const windowStartIso = `${addDaysIso(todayIso, -1)}T00:00:00.000Z`
-  const windowEndIso = `${addDaysIso(todayIso, 1)}T23:59:59.999Z`
+  const windowStartIso = `${addDaysIso(todayIso, -1)}T00:00:00.000Z`;
+  const windowEndIso = `${addDaysIso(todayIso, 1)}T23:59:59.999Z`;
   const result = await supabase
     .from('venta')
     .select('id, empleado_id, fecha_utc, metadata')
@@ -1567,14 +1550,14 @@ async function fetchDermoconsejoSales(
     .gte('fecha_utc', windowStartIso)
     .lte('fecha_utc', windowEndIso)
     .order('fecha_utc', { ascending: false })
-    .limit(24)
+    .limit(24);
 
   return {
     data: ((result.data ?? []) as DashboardDermoSaleRow[]).filter(
       (item) => resolveOperationalDateFromMetadata(item) === todayIso
     ),
     error: result.error,
-  }
+  };
 }
 
 async function fetchDermoconsejoLove(
@@ -1582,8 +1565,8 @@ async function fetchDermoconsejoLove(
   actor: ActorActual,
   todayIso: string
 ) {
-  const windowStartIso = `${addDaysIso(todayIso, -1)}T00:00:00.000Z`
-  const windowEndIso = `${addDaysIso(todayIso, 1)}T23:59:59.999Z`
+  const windowStartIso = `${addDaysIso(todayIso, -1)}T00:00:00.000Z`;
+  const windowEndIso = `${addDaysIso(todayIso, 1)}T23:59:59.999Z`;
   const result = await supabase
     .from('love_isdin')
     .select('id, empleado_id, fecha_utc, metadata')
@@ -1591,14 +1574,14 @@ async function fetchDermoconsejoLove(
     .gte('fecha_utc', windowStartIso)
     .lte('fecha_utc', windowEndIso)
     .order('fecha_utc', { ascending: false })
-    .limit(24)
+    .limit(24);
 
   return {
     data: ((result.data ?? []) as DashboardDermoLoveRow[]).filter(
       (item) => resolveOperationalDateFromMetadata(item) === todayIso
     ),
     error: result.error,
-  }
+  };
 }
 
 async function fetchDermoconsejoCampaignRows(
@@ -1611,118 +1594,121 @@ async function fetchDermoconsejoCampaignRows(
       pdvRows: [] as DashboardDermoCampaignRow[],
       campaignRows: [] as DashboardDermoCampaignMetaRow[],
       error: null,
-    }
+    };
   }
 
   const campanaPdvResult = await supabase
     .from('campana_pdv')
     .select('id, campana_id, cuenta_cliente_id, pdv_id, dc_empleado_id')
     .eq('pdv_id', pdvId)
-    .limit(24)
+    .limit(24);
 
   if (campanaPdvResult.error) {
     return {
       pdvRows: [] as DashboardDermoCampaignRow[],
       campaignRows: [] as DashboardDermoCampaignMetaRow[],
       error: campanaPdvResult.error,
-    }
+    };
   }
 
   const pdvRows = ((campanaPdvResult.data ?? []) as DashboardDermoCampaignRow[]).filter(
     (item) => !item.dc_empleado_id || item.dc_empleado_id === actor.empleadoId
-  )
-  const campaignIds = Array.from(new Set(pdvRows.map((item) => item.campana_id)))
+  );
+  const campaignIds = Array.from(new Set(pdvRows.map((item) => item.campana_id)));
 
   if (campaignIds.length === 0) {
     return {
       pdvRows,
       campaignRows: [] as DashboardDermoCampaignMetaRow[],
       error: null,
-    }
+    };
   }
 
   const query = supabase
     .from('campana')
-    .select('id, nombre, fecha_inicio, fecha_fin, descripcion, instrucciones, productos_foco, evidencias_requeridas, cuota_adicional, metadata, estado')
+    .select(
+      'id, nombre, fecha_inicio, fecha_fin, descripcion, instrucciones, productos_foco, evidencias_requeridas, cuota_adicional, metadata, estado'
+    );
 
   const campaignResult =
     typeof query.in === 'function'
       ? await query.in('id', campaignIds).limit(Math.max(campaignIds.length, 1))
-      : await query.limit(Math.max(campaignIds.length, 1))
+      : await query.limit(Math.max(campaignIds.length, 1));
 
   return {
     pdvRows,
     campaignRows: (campaignResult.data ?? []) as DashboardDermoCampaignMetaRow[],
     error: campaignResult.error,
-  }
+  };
 }
 
 async function fetchDermoconsejoLoveQr(
   supabase: DashboardSupabaseClient,
   actor: ActorActual
 ): Promise<{
-  data: DashboardDermoconsejoLoveQr | null
-  error: { message: string } | null
+  data: DashboardDermoconsejoLoveQr | null;
+  error: { message: string } | null;
 }> {
   let assignmentQuery = supabase
     .from('love_isdin_qr_asignacion')
     .select('id, cuenta_cliente_id, qr_codigo_id, empleado_id, fecha_inicio, fecha_fin')
-    .eq('empleado_id', actor.empleadoId)
+    .eq('empleado_id', actor.empleadoId);
 
   if (actor.cuentaClienteId) {
-    assignmentQuery = assignmentQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+    assignmentQuery = assignmentQuery.eq('cuenta_cliente_id', actor.cuentaClienteId);
   }
 
   const scopedAssignmentQuery =
     typeof assignmentQuery.is === 'function'
       ? assignmentQuery.is('fecha_fin', null)
-      : assignmentQuery
+      : assignmentQuery;
   const assignmentQueryResult = await scopedAssignmentQuery
     .order('fecha_inicio', { ascending: false })
-    .limit(1)
+    .limit(1);
 
   if (assignmentQueryResult.error) {
     return {
       data: null,
       error: assignmentQueryResult.error,
-    }
+    };
   }
 
-  const assignment = ((assignmentQueryResult.data ?? []) as DashboardDermoLoveQrAssignmentRow[])[0] ?? null
+  const assignment =
+    ((assignmentQueryResult.data ?? []) as DashboardDermoLoveQrAssignmentRow[])[0] ?? null;
 
   if (!assignment) {
     return {
       data: null,
       error: null,
-    }
+    };
   }
 
   const qrCodeResult = await supabase
     .from('love_isdin_qr_codigo')
     .select('id, codigo, imagen_url, estado')
     .eq('id', assignment.qr_codigo_id)
-    .limit(1)
+    .limit(1);
 
   if (qrCodeResult.error) {
     return {
       data: null,
       error: qrCodeResult.error,
-    }
+    };
   }
 
-  const qrCode = ((qrCodeResult.data ?? []) as DashboardDermoLoveQrCodeRow[])[0] ?? null
+  const qrCode = ((qrCodeResult.data ?? []) as DashboardDermoLoveQrCodeRow[])[0] ?? null;
 
   if (!qrCode) {
     return {
       data: null,
       error: null,
-    }
+    };
   }
 
   const signedImageUrl = await resolveLoveQrSignedUrl(
     supabase as unknown as SupabaseClient<any>,
     qrCode.imagen_url
-  )
+  );
 
   return {
     data: {
@@ -1733,16 +1719,16 @@ async function fetchDermoconsejoLoveQr(
       estado: qrCode.estado,
     },
     error: null,
-  }
+  };
 }
 
 async function fetchDermoconsejoActiveFormation(
   supabase: DashboardSupabaseClient,
   context: {
-    empleadoId: string
-    puesto: Puesto
-    todayIso: string
-    pdvIds?: string[]
+    empleadoId: string;
+    puesto: Puesto;
+    todayIso: string;
+    pdvIds?: string[];
   }
 ) {
   const [result, attendanceResult] = await Promise.all([
@@ -1756,18 +1742,18 @@ async function fetchDermoconsejoActiveFormation(
       .select('id, evento_id, empleado_id, metadata, estado')
       .eq('empleado_id', context.empleadoId)
       .limit(64),
-  ])
+  ]);
 
-  const rows = (result.data ?? []) as DashboardDermoFormationRow[]
-  const attendances = (attendanceResult.data ?? []) as DashboardFormationAttendanceRow[]
+  const rows = (result.data ?? []) as DashboardDermoFormationRow[];
+  const attendances = (attendanceResult.data ?? []) as DashboardFormationAttendanceRow[];
   const matchedEvent =
     rows.find((item) => {
       if (!['PROGRAMADA', 'EN_CURSO'].includes(item.estado)) {
-        return false
+        return false;
       }
 
       if (!isIsoRangeActive(item.fecha_inicio, item.fecha_fin, context.todayIso)) {
-        return false
+        return false;
       }
 
       return (
@@ -1796,18 +1782,19 @@ async function fetchDermoconsejoActiveFormation(
               }
             )
           ))
-      )
-    }) ?? null
+      );
+    }) ?? null;
   const matchedAttendance = matchedEvent
-    ? attendances.find((item) => item.evento_id === matchedEvent.id) ?? null
-    : null
-  const normalizedAttendance = normalizeFormacionAttendanceMetadata(matchedAttendance?.metadata ?? {})
-  const rawAttendanceStatus =
-    normalizedAttendance.checkOutUtc
-      ? 'COMPLETA'
-      : normalizedAttendance.checkInUtc
-        ? 'LLEGADA_REGISTRADA'
-        : 'PENDIENTE'
+    ? (attendances.find((item) => item.evento_id === matchedEvent.id) ?? null)
+    : null;
+  const normalizedAttendance = normalizeFormacionAttendanceMetadata(
+    matchedAttendance?.metadata ?? {}
+  );
+  const rawAttendanceStatus = normalizedAttendance.checkOutUtc
+    ? 'COMPLETA'
+    : normalizedAttendance.checkInUtc
+      ? 'LLEGADA_REGISTRADA'
+      : 'PENDIENTE';
 
   return {
     data: matchedEvent
@@ -1820,7 +1807,7 @@ async function fetchDermoconsejoActiveFormation(
         }
       : null,
     error: result.error ?? attendanceResult.error,
-  }
+  };
 }
 
 async function fetchDermoconsejoNotifications(
@@ -1828,125 +1815,131 @@ async function fetchDermoconsejoNotifications(
   actor: ActorActual,
   options: { includeItems?: boolean } = {}
 ) {
-  const includeItems = options.includeItems ?? true
+  const includeItems = options.includeItems ?? true;
   const recipientResult = await supabase
     .from('mensaje_receptor')
     .select('id, mensaje_id, empleado_id, estado, leido_en, created_at')
     .eq('empleado_id', actor.empleadoId)
     .order('created_at', { ascending: false })
-    .limit(24)
+    .limit(24);
 
   if (recipientResult.error) {
     return {
       data: [] as DashboardDermoconsejoNotificationItem[],
       unreadCount: 0,
       error: recipientResult.error,
-    }
+    };
   }
 
-  const recipients = (recipientResult.data ?? []) as DashboardDermoNotificationRecipientRow[]
-  const unreadCount = recipients.filter((item) => item.estado === 'PENDIENTE').length
+  const recipients = (recipientResult.data ?? []) as DashboardDermoNotificationRecipientRow[];
+  const unreadCount = recipients.filter((item) => item.estado === 'PENDIENTE').length;
 
   if (!includeItems) {
     return {
       data: [] as DashboardDermoconsejoNotificationItem[],
       unreadCount,
       error: null,
-    }
+    };
   }
 
-  const messageIds = Array.from(new Set(recipients.map((item) => item.mensaje_id).filter(Boolean)))
+  const messageIds = Array.from(new Set(recipients.map((item) => item.mensaje_id).filter(Boolean)));
 
   if (messageIds.length === 0) {
     return {
       data: [] as DashboardDermoconsejoNotificationItem[],
       unreadCount: 0,
       error: null,
-    }
+    };
   }
 
   const messageQuery = supabase
     .from('mensaje_interno')
-    .select('id, titulo, cuerpo, tipo, created_at, creado_por_usuario_id')
+    .select('id, titulo, cuerpo, tipo, created_at, creado_por_usuario_id');
   const messageResult =
     typeof messageQuery.in === 'function'
       ? await messageQuery.in('id', messageIds).limit(messageIds.length)
-      : await messageQuery.limit(messageIds.length)
+      : await messageQuery.limit(messageIds.length);
 
   if (messageResult.error) {
     return {
       data: [] as DashboardDermoconsejoNotificationItem[],
       unreadCount: 0,
       error: messageResult.error,
-    }
+    };
   }
 
-  const messages = (messageResult.data ?? []) as DashboardDermoNotificationMessageRow[]
+  const messages = (messageResult.data ?? []) as DashboardDermoNotificationMessageRow[];
   const creatorIds = Array.from(
-    new Set(messages.map((item) => item.creado_por_usuario_id).filter((item): item is string => Boolean(item)))
-  )
+    new Set(
+      messages
+        .map((item) => item.creado_por_usuario_id)
+        .filter((item): item is string => Boolean(item))
+    )
+  );
 
-  let users: DashboardDermoUserRow[] = []
+  let users: DashboardDermoUserRow[] = [];
   if (creatorIds.length > 0) {
-    const usersQuery = supabase.from('usuario').select('id, empleado_id')
+    const usersQuery = supabase.from('usuario').select('id, empleado_id');
     const usersResult =
       typeof usersQuery.in === 'function'
         ? await usersQuery.in('id', creatorIds).limit(creatorIds.length)
-        : await usersQuery.limit(creatorIds.length)
+        : await usersQuery.limit(creatorIds.length);
 
     if (usersResult.error) {
       return {
         data: [] as DashboardDermoconsejoNotificationItem[],
         unreadCount: 0,
         error: usersResult.error,
-      }
+      };
     }
 
-    users = (usersResult.data ?? []) as DashboardDermoUserRow[]
+    users = (usersResult.data ?? []) as DashboardDermoUserRow[];
   }
 
   const creatorEmployeeIds = Array.from(
     new Set(users.map((item) => item.empleado_id).filter((item): item is string => Boolean(item)))
-  )
+  );
 
-  let creators: DashboardDermoEmployeeProfileRow[] = []
+  let creators: DashboardDermoEmployeeProfileRow[] = [];
   if (creatorEmployeeIds.length > 0) {
     const creatorsQuery = supabase
       .from('empleado')
-      .select('id, nombre_completo, puesto, zona, correo_electronico, telefono, fecha_alta, supervisor_empleado_id')
+      .select(
+        'id, nombre_completo, puesto, zona, correo_electronico, telefono, fecha_alta, supervisor_empleado_id'
+      );
     const creatorsResult =
       typeof creatorsQuery.in === 'function'
         ? await creatorsQuery.in('id', creatorEmployeeIds).limit(creatorEmployeeIds.length)
-        : await creatorsQuery.limit(creatorEmployeeIds.length)
+        : await creatorsQuery.limit(creatorEmployeeIds.length);
 
     if (creatorsResult.error) {
       return {
         data: [] as DashboardDermoconsejoNotificationItem[],
         unreadCount: 0,
         error: creatorsResult.error,
-      }
+      };
     }
 
-    creators = (creatorsResult.data ?? []) as DashboardDermoEmployeeProfileRow[]
+    creators = (creatorsResult.data ?? []) as DashboardDermoEmployeeProfileRow[];
   }
 
-  const userById = new Map(users.map((item) => [item.id, item] as const))
-  const creatorByEmployeeId = new Map(creators.map((item) => [item.id, item] as const))
-  const messageById = new Map(messages.map((item) => [item.id, item] as const))
+  const userById = new Map(users.map((item) => [item.id, item] as const));
+  const creatorByEmployeeId = new Map(creators.map((item) => [item.id, item] as const));
+  const messageById = new Map(messages.map((item) => [item.id, item] as const));
 
   const adminNotifications = recipients
     .map((recipient) => {
-      const message = messageById.get(recipient.mensaje_id)
+      const message = messageById.get(recipient.mensaje_id);
       if (!message) {
-        return null
+        return null;
       }
 
       const creatorUser = message.creado_por_usuario_id
-        ? userById.get(message.creado_por_usuario_id) ?? null
-        : null
+        ? (userById.get(message.creado_por_usuario_id) ?? null)
+        : null;
       const creatorEmployee = creatorUser
-        ? creatorByEmployeeId.get(creatorUser.empleado_id) ?? null
-        : null
+        ? (creatorByEmployeeId.get(creatorUser.empleado_id) ?? null)
+        : null;
 
       return {
         id: recipient.id,
@@ -1956,16 +1949,16 @@ async function fetchDermoconsejoNotifications(
         estado: recipient.estado,
         tipo: message.tipo,
         remitente: creatorEmployee?.nombre_completo ?? 'Sistema',
-      } satisfies DashboardDermoconsejoNotificationItem
+      } satisfies DashboardDermoconsejoNotificationItem;
     })
     .filter((item): item is DashboardDermoconsejoNotificationItem => Boolean(item))
-    .slice(0, 8)
+    .slice(0, 8);
 
   return {
     data: adminNotifications,
     unreadCount,
     error: null,
-  }
+  };
 }
 
 async function fetchDermoconsejoProfile(
@@ -1979,16 +1972,16 @@ async function fetchDermoconsejoProfile(
       'id, nombre_completo, puesto, zona, correo_electronico, telefono, fecha_alta, supervisor_empleado_id, metadata'
     )
     .eq('id', actor.empleadoId)
-    .limit(1)
+    .limit(1);
 
   if (profileResult.error) {
     return {
       data: null as DashboardDermoconsejoProfile | null,
       error: profileResult.error,
-    }
+    };
   }
 
-  const profileRow = ((profileResult.data ?? []) as DashboardDermoEmployeeProfileRow[])[0] ?? null
+  const profileRow = ((profileResult.data ?? []) as DashboardDermoEmployeeProfileRow[])[0] ?? null;
 
   if (!profileRow) {
     return {
@@ -2004,10 +1997,10 @@ async function fetchDermoconsejoProfile(
         tiendaActual: currentPdvName,
       } satisfies DashboardDermoconsejoProfile,
       error: null,
-    }
+    };
   }
 
-  let supervisorNombre: string | null = null
+  let supervisorNombre: string | null = null;
   if (profileRow.supervisor_empleado_id) {
     const supervisorResult = await supabase
       .from('empleado')
@@ -2015,12 +2008,12 @@ async function fetchDermoconsejoProfile(
         'id, nombre_completo, puesto, zona, correo_electronico, telefono, fecha_alta, supervisor_empleado_id, metadata'
       )
       .eq('id', profileRow.supervisor_empleado_id)
-      .limit(1)
+      .limit(1);
 
     if (!supervisorResult.error) {
       supervisorNombre =
         ((supervisorResult.data ?? []) as DashboardDermoEmployeeProfileRow[])[0]?.nombre_completo ??
-        null
+        null;
     }
   }
 
@@ -2037,7 +2030,7 @@ async function fetchDermoconsejoProfile(
       tiendaActual: currentPdvName,
     } satisfies DashboardDermoconsejoProfile,
     error: null,
-  }
+  };
 }
 
 function buildDermoconsejoQuickActions() {
@@ -2139,7 +2132,7 @@ function buildDermoconsejoQuickActions() {
       accent: 'purple',
       preferredSnap: 'expanded',
     },
-  ] satisfies DashboardDermoconsejoQuickAction[]
+  ] satisfies DashboardDermoconsejoQuickAction[];
 }
 
 async function fetchDermoconsejoRequestStatus(
@@ -2148,29 +2141,41 @@ async function fetchDermoconsejoRequestStatus(
 ) {
   const result = await supabase
     .from('solicitud')
-    .select('id, empleado_id, fecha_inicio, fecha_fin, tipo, estatus, motivo, comentarios, justificante_url, metadata')
+    .select(
+      'id, empleado_id, fecha_inicio, fecha_fin, tipo, estatus, motivo, comentarios, justificante_url, metadata'
+    )
     .eq('empleado_id', actor.empleadoId)
     .order('fecha_inicio', { ascending: false })
-    .limit(24)
+    .limit(24);
 
   return {
-    data: ((result.data ?? []) as Array<{
-      id: string
-      empleado_id: string
-      fecha_inicio: string
-      fecha_fin: string
-      tipo: string
-      estatus: string
-      motivo: string | null
-      comentarios: string | null
-      justificante_url: string | null
-      metadata: unknown
-    }>)
+    data: (
+      (result.data ?? []) as Array<{
+        id: string;
+        empleado_id: string;
+        fecha_inicio: string;
+        fecha_fin: string;
+        tipo: string;
+        estatus: string;
+        motivo: string | null;
+        comentarios: string | null;
+        justificante_url: string | null;
+        metadata: unknown;
+      }>
+    )
       .map((item) => {
-        const tipo = String(item.tipo).trim().toUpperCase()
+        const tipo = String(item.tipo).trim().toUpperCase();
 
-        if (!['INCAPACIDAD', 'VACACIONES', 'PERMISO', 'AVISO_INASISTENCIA', 'JUSTIFICACION_FALTA'].includes(tipo)) {
-          return null
+        if (
+          ![
+            'INCAPACIDAD',
+            'VACACIONES',
+            'PERMISO',
+            'AVISO_INASISTENCIA',
+            'JUSTIFICACION_FALTA',
+          ].includes(tipo)
+        ) {
+          return null;
         }
 
         return {
@@ -2186,22 +2191,19 @@ async function fetchDermoconsejoRequestStatus(
             item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
               ? (item.metadata as Record<string, unknown>)
               : {},
-        }
+        };
       })
-      .filter(
-        (item): item is NonNullable<typeof item> =>
-          item !== null
-      ),
+      .filter((item): item is NonNullable<typeof item> => item !== null),
     error: result.error,
-  }
+  };
 }
 
 async function buildVacationPolicyForEmployee(
   supabase: DashboardSupabaseClient,
   input: {
-    empleadoId: string
-    todayIso: string
-    teamRanges?: VacationRangeLike[]
+    empleadoId: string;
+    todayIso: string;
+    teamRanges?: VacationRangeLike[];
   }
 ) {
   const [employeeResult, ownVacationResult] = await Promise.all([
@@ -2217,78 +2219,87 @@ async function buildVacationPolicyForEmployee(
       .eq('tipo', 'VACACIONES')
       .eq('estatus', 'REGISTRADA')
       .limit(64),
-  ])
+  ]);
 
   if (employeeResult.error || ownVacationResult.error) {
-    return null
+    return null;
   }
 
-  const employee = ((employeeResult.data ?? []) as Array<{
-    id: string
-    fecha_alta: string | null
-    metadata: Record<string, unknown> | null
-  }>)[0] ?? null
+  const employee =
+    (
+      (employeeResult.data ?? []) as Array<{
+        id: string;
+        fecha_alta: string | null;
+        metadata: Record<string, unknown> | null;
+      }>
+    )[0] ?? null;
 
   const ingresoOficial = employee
-    ? readIngresoOficialFromMetadata(employee.metadata) ?? employee.fecha_alta
-    : null
-  const approvedOwnRanges = ((ownVacationResult.data ?? []) as Array<{
-    empleado_id: string
-    fecha_inicio: string
-    fecha_fin: string
-    estatus: string
-  }>).map((item) => ({
+    ? (readIngresoOficialFromMetadata(employee.metadata) ?? employee.fecha_alta)
+    : null;
+  const approvedOwnRanges = (
+    (ownVacationResult.data ?? []) as Array<{
+      empleado_id: string;
+      fecha_inicio: string;
+      fecha_fin: string;
+      estatus: string;
+    }>
+  ).map((item) => ({
     empleadoId: item.empleado_id,
     fechaInicio: item.fecha_inicio,
     fechaFin: item.fecha_fin,
     estatus: item.estatus,
-  }))
-  const teamRanges =
-    input.teamRanges ??
-    approvedOwnRanges
+  }));
+  const teamRanges = input.teamRanges ?? approvedOwnRanges;
 
   return buildDashboardVacationPolicySummary({
     ingresoOficial,
     todayIso: input.todayIso,
     approvedOwnRanges,
     teamRanges,
-  })
+  });
 }
 
 async function fetchSupervisorRouteSnapshot(
   supabase: DashboardSupabaseClient,
   actor: ActorActual
 ): Promise<DashboardSupervisorRouteSnapshot | null> {
-  const currentWeekStart = getTodayIso()
-  const currentWeek = new Date(`${currentWeekStart}T12:00:00`)
-  const currentWeekday = currentWeek.getUTCDay() === 0 ? 7 : currentWeek.getUTCDay()
-  currentWeek.setUTCDate(currentWeek.getUTCDate() - currentWeekday + 1)
-  const currentWeekIso = currentWeek.toISOString().slice(0, 10)
-  const nextWeekDate = new Date(`${currentWeekIso}T12:00:00`)
-  nextWeekDate.setUTCDate(nextWeekDate.getUTCDate() + 7)
-  const nextWeekStart = nextWeekDate.toISOString().slice(0, 10)
-  const nextWeekEnd = addDaysIso(nextWeekStart, 6)
+  const currentWeekStart = getTodayIso();
+  const currentWeek = new Date(`${currentWeekStart}T12:00:00`);
+  const currentWeekday = currentWeek.getUTCDay() === 0 ? 7 : currentWeek.getUTCDay();
+  currentWeek.setUTCDate(currentWeek.getUTCDate() - currentWeekday + 1);
+  const currentWeekIso = currentWeek.toISOString().slice(0, 10);
+  const nextWeekDate = new Date(`${currentWeekIso}T12:00:00`);
+  nextWeekDate.setUTCDate(nextWeekDate.getUTCDate() + 7);
+  const nextWeekStart = nextWeekDate.toISOString().slice(0, 10);
+  const nextWeekEnd = addDaysIso(nextWeekStart, 6);
 
   const rpcResult = await supabase.rpc('rpc_resumen_ruta_supervisor', {
     p_cuenta_cliente_id: actor.cuentaClienteId ?? null,
     p_supervisor_empleado_id: actor.empleadoId,
     p_current_week_start: currentWeekIso,
     p_next_week_start: nextWeekStart,
-  })
+  });
 
   if (rpcResult.error) {
     if (isMissingSupervisorRouteSummaryFunction(rpcResult.error.message)) {
-      return fetchSupervisorRouteSnapshotLegacy(supabase, actor, currentWeekIso, nextWeekStart, nextWeekEnd)
+      return fetchSupervisorRouteSnapshotLegacy(
+        supabase,
+        actor,
+        currentWeekIso,
+        nextWeekStart,
+        nextWeekEnd
+      );
     }
 
-    return null
+    return null;
   }
 
   return buildSupervisorRouteSnapshotFromRpcPayload(rpcResult.data, {
     currentWeekIso,
     nextWeekStart,
     nextWeekEnd,
-  })
+  });
 }
 
 async function fetchSupervisorRouteSnapshotLegacy(
@@ -2302,48 +2313,48 @@ async function fetchSupervisorRouteSnapshotLegacy(
     .from('ruta_semanal')
     .select('id, cuenta_cliente_id, supervisor_empleado_id, semana_inicio, estatus')
     .eq('supervisor_empleado_id', actor.empleadoId)
-    .order('semana_inicio', { ascending: false })
+    .order('semana_inicio', { ascending: false });
 
   let visitasQuery = supabase
     .from('ruta_semanal_visita')
     .select('id, ruta_semanal_id, supervisor_empleado_id, estatus')
     .eq('supervisor_empleado_id', actor.empleadoId)
-    .order('created_at', { ascending: false })
+    .order('created_at', { ascending: false });
 
   let pendientesQuery = supabase
     .from('ruta_visita_pendiente_reposicion')
     .select('id, supervisor_empleado_id')
-    .eq('supervisor_empleado_id', actor.empleadoId)
+    .eq('supervisor_empleado_id', actor.empleadoId);
 
   if (actor.cuentaClienteId) {
-    rutasQuery = rutasQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
-    visitasQuery = visitasQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
-    pendientesQuery = pendientesQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+    rutasQuery = rutasQuery.eq('cuenta_cliente_id', actor.cuentaClienteId);
+    visitasQuery = visitasQuery.eq('cuenta_cliente_id', actor.cuentaClienteId);
+    pendientesQuery = pendientesQuery.eq('cuenta_cliente_id', actor.cuentaClienteId);
   }
 
   const [rutasResult, visitasResult, pendientesResult] = await Promise.all([
     rutasQuery.limit(24),
     visitasQuery.limit(400),
     pendientesQuery.limit(200),
-  ])
+  ]);
 
   if (rutasResult.error || visitasResult.error || pendientesResult.error) {
-    return null
+    return null;
   }
 
   const rutas = (rutasResult.data ?? []) as Array<{
-    id: string
-    semana_inicio: string
-    estatus: string
-  }>
+    id: string;
+    semana_inicio: string;
+    estatus: string;
+  }>;
   const visitas = (visitasResult.data ?? []) as Array<{
-    ruta_semanal_id: string
-    estatus: string
-  }>
-  const totalVisitas = visitas.length
-  const visitasCompletadas = visitas.filter((item) => item.estatus === 'COMPLETADA').length
-  const nextWeekRoute = rutas.find((item) => item.semana_inicio === nextWeekStart) ?? null
-  const currentWeekRoute = rutas.find((item) => item.semana_inicio === currentWeekIso) ?? null
+    ruta_semanal_id: string;
+    estatus: string;
+  }>;
+  const totalVisitas = visitas.length;
+  const visitasCompletadas = visitas.filter((item) => item.estatus === 'COMPLETADA').length;
+  const nextWeekRoute = rutas.find((item) => item.semana_inicio === nextWeekStart) ?? null;
+  const currentWeekRoute = rutas.find((item) => item.semana_inicio === currentWeekIso) ?? null;
 
   return {
     totalRutas: rutas.length,
@@ -2355,7 +2366,7 @@ async function fetchSupervisorRouteSnapshotLegacy(
     nextWeekEnd,
     hasCurrentWeekRoute: Boolean(currentWeekRoute),
     hasNextWeekRoute: Boolean(nextWeekRoute && totalVisitas > 0),
-  }
+  };
 }
 
 async function buildDermoconsejoData(
@@ -2363,8 +2374,8 @@ async function buildDermoconsejoData(
   actor: ActorActual,
   options: { includeSecondaryData?: boolean } = {}
 ): Promise<DashboardDermoconsejoData> {
-  const includeSecondaryData = options.includeSecondaryData ?? true
-  const todayIso = getTodayIso()
+  const includeSecondaryData = options.includeSecondaryData ?? true;
+  const todayIso = getTodayIso();
   const [
     assignmentsResult,
     attendancesResult,
@@ -2395,100 +2406,103 @@ async function buildDermoconsejoData(
       includeItems: includeSecondaryData,
     }),
     fetchDermoconsejoRequestStatus(supabase, actor),
-  ])
+  ]);
 
   const activeAssignments = assignmentsResult.error
     ? []
     : resolveAssignmentsForDate(
         assignmentsResult.data.filter((item) => item.estado_publicacion === 'PUBLICADA'),
         todayIso
-      )
+      );
   const restOverrideQueryBuilder = supabase
     .from('asignacion_descanso_override')
     .select(
       'id, asignacion_id, cuenta_cliente_id, empleado_id, vigente_desde, vigente_hasta, modo, regla_descanso, fechas_descanso, fechas_trabajo, observaciones, activo, metadata, created_at, updated_at'
     ) as DashboardQueryBuilder & {
-    in: (column: string, values: string[]) => DashboardQueryBuilder
-  }
+    in: (column: string, values: string[]) => DashboardQueryBuilder;
+  };
 
   const restOverrideResult =
     assignmentsResult.error || assignmentsResult.data.length === 0
       ? {
           data: [] as Array<{
-            id: string
-            asignacion_id: string
-            cuenta_cliente_id: string | null
-            empleado_id: string
-            vigente_desde: string
-            vigente_hasta: string | null
-            modo: 'EXPLICITO' | 'REGLA_MENSUAL' | null
-            regla_descanso: Record<string, unknown> | null
-            fechas_descanso: string[] | null
-            fechas_trabajo: string[] | null
-            observaciones: string | null
-            activo: boolean
-            metadata: Record<string, unknown> | null
-            created_at: string
-            updated_at: string
+            id: string;
+            asignacion_id: string;
+            cuenta_cliente_id: string | null;
+            empleado_id: string;
+            vigente_desde: string;
+            vigente_hasta: string | null;
+            modo: 'EXPLICITO' | 'REGLA_MENSUAL' | null;
+            regla_descanso: Record<string, unknown> | null;
+            fechas_descanso: string[] | null;
+            fechas_trabajo: string[] | null;
+            observaciones: string | null;
+            activo: boolean;
+            metadata: Record<string, unknown> | null;
+            created_at: string;
+            updated_at: string;
           }>,
           error: null as { message: string } | null,
         }
-      : ((await restOverrideQueryBuilder.in('asignacion_id', assignmentsResult.data.map((item) => item.id))) as unknown as {
+      : ((await restOverrideQueryBuilder.in(
+          'asignacion_id',
+          assignmentsResult.data.map((item) => item.id)
+        )) as unknown as {
           data: Array<{
-            id: string
-            asignacion_id: string
-            cuenta_cliente_id: string | null
-            empleado_id: string
-            vigente_desde: string
-            vigente_hasta: string | null
-            modo: 'EXPLICITO' | 'REGLA_MENSUAL' | null
-            regla_descanso: Record<string, unknown> | null
-            fechas_descanso: string[] | null
-            fechas_trabajo: string[] | null
-            observaciones: string | null
-            activo: boolean
-            metadata: Record<string, unknown> | null
-            created_at: string
-            updated_at: string
-          }> | null
-          error: { message: string } | null
-        })
+            id: string;
+            asignacion_id: string;
+            cuenta_cliente_id: string | null;
+            empleado_id: string;
+            vigente_desde: string;
+            vigente_hasta: string | null;
+            modo: 'EXPLICITO' | 'REGLA_MENSUAL' | null;
+            regla_descanso: Record<string, unknown> | null;
+            fechas_descanso: string[] | null;
+            fechas_trabajo: string[] | null;
+            observaciones: string | null;
+            activo: boolean;
+            metadata: Record<string, unknown> | null;
+            created_at: string;
+            updated_at: string;
+          }> | null;
+          error: { message: string } | null;
+        });
 
   if (restOverrideResult.error) {
-    throw new Error(restOverrideResult.error.message)
+    throw new Error(restOverrideResult.error.message);
   }
 
-  const restOverrideRows: AssignmentRestOverrideLike[] = (restOverrideResult.data ?? []).map((item) =>
-    ({
-      id: item.id,
-      asignacion_id: item.asignacion_id,
-      cuenta_cliente_id: item.cuenta_cliente_id,
-      empleado_id: item.empleado_id,
-      vigente_desde: item.vigente_desde,
-      vigente_hasta: item.vigente_hasta,
-      modo: item.modo === 'REGLA_MENSUAL' ? 'REGLA_MENSUAL' : 'EXPLICITO',
-      regla_descanso:
-        item.regla_descanso && typeof item.regla_descanso === 'object' && !Array.isArray(item.regla_descanso)
-          ? item.regla_descanso
-          : null,
-      fechas_descanso: item.fechas_descanso ?? [],
-      fechas_trabajo: item.fechas_trabajo ?? [],
-      observaciones: item.observaciones,
-      activo: item.activo,
-      metadata: item.metadata ?? {},
-      created_at: item.created_at,
-      updated_at: item.updated_at,
-    }) satisfies AssignmentRestOverrideLike
-  )
+  const restOverrideRows: AssignmentRestOverrideLike[] = (restOverrideResult.data ?? []).map(
+    (item) =>
+      ({
+        id: item.id,
+        asignacion_id: item.asignacion_id,
+        cuenta_cliente_id: item.cuenta_cliente_id,
+        empleado_id: item.empleado_id,
+        vigente_desde: item.vigente_desde,
+        vigente_hasta: item.vigente_hasta,
+        modo: item.modo === 'REGLA_MENSUAL' ? 'REGLA_MENSUAL' : 'EXPLICITO',
+        regla_descanso:
+          item.regla_descanso &&
+          typeof item.regla_descanso === 'object' &&
+          !Array.isArray(item.regla_descanso)
+            ? item.regla_descanso
+            : null,
+        fechas_descanso: item.fechas_descanso ?? [],
+        fechas_trabajo: item.fechas_trabajo ?? [],
+        observaciones: item.observaciones,
+        activo: item.activo,
+        metadata: item.metadata ?? {},
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+      }) satisfies AssignmentRestOverrideLike
+  );
   const openAttendance = attendancesResult.error
     ? null
-    : attendancesResult.data.find((item) => item.check_in_utc && !item.check_out_utc) ?? null
-  const latestAttendance = attendancesResult.error ? null : attendancesResult.data[0] ?? null
+    : (attendancesResult.data.find((item) => item.check_in_utc && !item.check_out_utc) ?? null);
+  const latestAttendance = attendancesResult.error ? null : (attendancesResult.data[0] ?? null);
   const chosenPdvId =
-    activeAssignments[0]?.pdv_id ??
-    openAttendance?.pdv_id ??
-    latestAttendance?.pdv_id ??
-    null
+    activeAssignments[0]?.pdv_id ?? openAttendance?.pdv_id ?? latestAttendance?.pdv_id ?? null;
   const pdvIds = Array.from(
     new Set(
       [
@@ -2497,109 +2511,113 @@ async function buildDermoconsejoData(
         ...(attendancesResult.error ? [] : attendancesResult.data.map((item) => item.pdv_id)),
       ].filter((item): item is string => Boolean(item))
     )
-  )
-  const pdvsResult = await fetchDermoconsejoPdvs(supabase, pdvIds)
-  const pdvMap = new Map(pdvsResult.data.map((item) => [item.id, item] as const))
-  const chosenPdv = chosenPdvId ? pdvMap.get(chosenPdvId) ?? null : null
-  const chosenPdvCity = chosenPdv ? getFirst(chosenPdv.ciudad) : null
-  const chosenPdvState = chosenPdvCity?.estado ?? resolveMexicoStateFromCity(chosenPdvCity?.nombre ?? null) ?? null
+  );
+  const pdvsResult = await fetchDermoconsejoPdvs(supabase, pdvIds);
+  const pdvMap = new Map(pdvsResult.data.map((item) => [item.id, item] as const));
+  const chosenPdv = chosenPdvId ? (pdvMap.get(chosenPdvId) ?? null) : null;
+  const chosenPdvCity = chosenPdv ? getFirst(chosenPdv.ciudad) : null;
+  const chosenPdvState =
+    chosenPdvCity?.estado ?? resolveMexicoStateFromCity(chosenPdvCity?.nombre ?? null) ?? null;
   const [campaignsResult, geocercaResult, missionCatalogResult] = await Promise.all([
     fetchDermoconsejoCampaignRows(supabase, actor, chosenPdvId),
     fetchDermoconsejoGeocerca(supabase, chosenPdvId),
     fetchDermoconsejoMissionCatalog(supabase),
-  ])
-  const supportServiceForCampaign =
-    includeSecondaryData
-      ? (() => {
-      try {
-        return createServiceClient() as unknown as DashboardSupabaseClient
-      } catch {
-        return null
-      }
-    })()
-      : null
+  ]);
+  const supportServiceForCampaign = includeSecondaryData
+    ? (() => {
+        try {
+          return createServiceClient() as unknown as DashboardSupabaseClient;
+        } catch {
+          return null;
+        }
+      })()
+    : null;
   const productCatalogMap = new Map(
-    (productCatalogResult.error ? [] : productCatalogResult.data).map((item) => [item.id, item] as const)
-  )
+    (productCatalogResult.error ? [] : productCatalogResult.data).map(
+      (item) => [item.id, item] as const
+    )
+  );
   const activeFormationResult = await fetchDermoconsejoActiveFormation(supabase, {
     empleadoId: actor.empleadoId,
     puesto: actor.puesto,
     todayIso,
     pdvIds: activeAssignments.map((item) => item.pdv_id),
-  })
+  });
 
   const activeCampaignRows = campaignsResult.error
     ? []
     : await Promise.all(
         campaignsResult.pdvRows.map(async (row) => {
-            const campaign = campaignsResult.campaignRows.find((item) => item.id === row.campana_id)
-            if (!campaign || campaign.estado !== 'ACTIVA') {
-              return null
-            }
+          const campaign = campaignsResult.campaignRows.find((item) => item.id === row.campana_id);
+          if (!campaign || campaign.estado !== 'ACTIVA') {
+            return null;
+          }
 
-            if (!isIsoRangeActive(campaign.fecha_inicio, campaign.fecha_fin, todayIso)) {
-              return null
-            }
+          if (!isIsoRangeActive(campaign.fecha_inicio, campaign.fecha_fin, todayIso)) {
+            return null;
+          }
 
-            const manualMercadeo = readCampaignManualDocument(campaign.metadata)
-            const evidenceTemplate = readCampaignEvidenceTemplate(
-              campaign.metadata,
-              campaign.evidencias_requeridas ?? []
-            )
-            const productGoals = readCampaignProductGoals(campaign.metadata)
-            const productLabels = includeSecondaryData
-              ? productGoals.length > 0
-                ? productGoals.map((goal) => {
-                    const product = productCatalogMap.get(goal.productId)
-                    const quotaLabel =
-                      goal.goalType === 'EXHIBICION'
-                        ? `${goal.quota.toFixed(0)} exhibiciones`
-                        : `${goal.quota.toFixed(0)} ventas`
-                    return product ? `${product.nombreCorto} · ${quotaLabel}` : `${goal.productId} · ${quotaLabel}`
-                  })
-                : (campaign.productos_foco ?? []).map((productId) => {
-                    const product = productCatalogMap.get(productId)
-                    return product ? product.nombreCorto : productId
-                  })
-              : []
+          const manualMercadeo = readCampaignManualDocument(campaign.metadata);
+          const evidenceTemplate = readCampaignEvidenceTemplate(
+            campaign.metadata,
+            campaign.evidencias_requeridas ?? []
+          );
+          const productGoals = readCampaignProductGoals(campaign.metadata);
+          const productLabels = includeSecondaryData
+            ? productGoals.length > 0
+              ? productGoals.map((goal) => {
+                  const product = productCatalogMap.get(goal.productId);
+                  const quotaLabel =
+                    goal.goalType === 'EXHIBICION'
+                      ? `${goal.quota.toFixed(0)} exhibiciones`
+                      : `${goal.quota.toFixed(0)} ventas`;
+                  return product
+                    ? `${product.nombreCorto} · ${quotaLabel}`
+                    : `${goal.productId} · ${quotaLabel}`;
+                })
+              : (campaign.productos_foco ?? []).map((productId) => {
+                  const product = productCatalogMap.get(productId);
+                  return product ? product.nombreCorto : productId;
+                })
+            : [];
 
-            return {
-              id: campaign.id,
-              campanaPdvId: row.id,
-              nombre: campaign.nombre,
-              fechaInicio: campaign.fecha_inicio,
-              fechaFin: campaign.fecha_fin,
-              descripcion: campaign.descripcion,
-              instrucciones: campaign.instrucciones,
-              productosFoco: productLabels,
-              evidenciasRequeridas: campaign.evidencias_requeridas ?? [],
-              evidenceTemplate: includeSecondaryData
-                ? evidenceTemplate.map((item) => ({
-                    id: item.id,
-                    label: item.label,
-                    kind: item.kind,
-                  }))
-                : [],
-              cuotaAdicional: campaign.cuota_adicional ?? 0,
-              manualMercadeoUrl:
-                includeSecondaryData && manualMercadeo && supportServiceForCampaign
-                  ? await resolveLoveQrSignedUrl(
-                      supportServiceForCampaign as unknown as SupabaseClient<any>,
-                      manualMercadeo.url
-                    )
-                  : null,
-              manualMercadeoNombre: includeSecondaryData ? manualMercadeo?.fileName ?? null : null,
-              ctaHref: '/campanas',
-            } satisfies DashboardDermoconsejoCampaign
-          })
-      )
+          return {
+            id: campaign.id,
+            campanaPdvId: row.id,
+            nombre: campaign.nombre,
+            fechaInicio: campaign.fecha_inicio,
+            fechaFin: campaign.fecha_fin,
+            descripcion: campaign.descripcion,
+            instrucciones: campaign.instrucciones,
+            productosFoco: productLabels,
+            evidenciasRequeridas: campaign.evidencias_requeridas ?? [],
+            evidenceTemplate: includeSecondaryData
+              ? evidenceTemplate.map((item) => ({
+                  id: item.id,
+                  label: item.label,
+                  kind: item.kind,
+                }))
+              : [],
+            cuotaAdicional: campaign.cuota_adicional ?? 0,
+            manualMercadeoUrl:
+              includeSecondaryData && manualMercadeo && supportServiceForCampaign
+                ? await resolveLoveQrSignedUrl(
+                    supportServiceForCampaign as unknown as SupabaseClient<any>,
+                    manualMercadeo.url
+                  )
+                : null,
+            manualMercadeoNombre: includeSecondaryData ? (manualMercadeo?.fileName ?? null) : null,
+            ctaHref: '/campanas',
+          } satisfies DashboardDermoconsejoCampaign;
+        })
+      );
   const activeCampaign =
-    activeCampaignRows.find((item): item is DashboardDermoconsejoCampaign => Boolean(item)) ?? null
+    activeCampaignRows.find((item): item is DashboardDermoconsejoCampaign => Boolean(item)) ?? null;
 
-  const primaryAssignment = activeAssignments[0] ?? null
+  const primaryAssignment = activeAssignments[0] ?? null;
   const activeFormationTargeting = activeFormationResult.data
     ? normalizeFormacionTargetingMetadata(activeFormationResult.data.metadata)
-    : null
+    : null;
   const activeFormation = activeFormationResult.error
     ? null
     : activeFormationResult.data
@@ -2619,34 +2637,52 @@ async function buildDermoconsejoData(
           locationLatitude: activeFormationTargeting?.locationLatitude ?? null,
           locationLongitude: activeFormationTargeting?.locationLongitude ?? null,
           locationRadiusMeters: activeFormationTargeting?.locationRadiusMeters ?? null,
-          attendanceId: (activeFormationResult.data as DashboardDermoFormationRow & { attendance_id?: string | null }).attendance_id ?? null,
+          attendanceId:
+            (
+              activeFormationResult.data as DashboardDermoFormationRow & {
+                attendance_id?: string | null;
+              }
+            ).attendance_id ?? null,
           attendanceStatus:
-            ((activeFormationResult.data as DashboardDermoFormationRow & { attendance_status?: DashboardDermoconsejoFormation['attendanceStatus'] }).attendance_status ??
-              'PENDIENTE'),
+            (
+              activeFormationResult.data as DashboardDermoFormationRow & {
+                attendance_status?: DashboardDermoconsejoFormation['attendanceStatus'];
+              }
+            ).attendance_status ?? 'PENDIENTE',
           checkInUtc:
-            (activeFormationResult.data as DashboardDermoFormationRow & { attendance_check_in_utc?: string | null }).attendance_check_in_utc ??
-            null,
+            (
+              activeFormationResult.data as DashboardDermoFormationRow & {
+                attendance_check_in_utc?: string | null;
+              }
+            ).attendance_check_in_utc ?? null,
           checkOutUtc:
-            (activeFormationResult.data as DashboardDermoFormationRow & { attendance_check_out_utc?: string | null }).attendance_check_out_utc ??
-            null,
+            (
+              activeFormationResult.data as DashboardDermoFormationRow & {
+                attendance_check_out_utc?: string | null;
+              }
+            ).attendance_check_out_utc ?? null,
         }
-      : null
-  const shiftIsOpen = Boolean(openAttendance)
-  const startedAt = formatShortTime(openAttendance?.check_in_utc ?? null)
+      : null;
+  const shiftIsOpen = Boolean(openAttendance);
+  const startedAt = formatShortTime(openAttendance?.check_in_utc ?? null);
   const reportWindow = resolveReportWindow({
     operationDate: todayIso,
     pdvState: chosenPdvState,
     checkInUtc: latestAttendance?.check_in_utc ?? null,
     checkOutUtc: latestAttendance?.check_out_utc ?? null,
-  })
+  });
   const effectiveDay = resolveEffectiveAssignmentForEmployeeDate(
     {
       empleadoId: actor.empleadoId,
       puesto: actor.puesto,
-      pdvIds: Array.from(new Set(assignmentsResult.error ? [] : assignmentsResult.data.map((item) => item.pdv_id))),
+      pdvIds: Array.from(
+        new Set(assignmentsResult.error ? [] : assignmentsResult.data.map((item) => item.pdv_id))
+      ),
     },
     todayIso,
-    assignmentsResult.error ? [] : assignmentsResult.data.filter((item) => item.estado_publicacion === 'PUBLICADA'),
+    assignmentsResult.error
+      ? []
+      : assignmentsResult.data.filter((item) => item.estado_publicacion === 'PUBLICADA'),
     requestStatusResult.error
       ? []
       : requestStatusResult.data.map((item) => ({
@@ -2677,23 +2713,22 @@ async function buildDermoconsejoData(
                 : {},
             participantes: activeFormationResult.data.participantes,
           },
-        ]
-    ,
+        ],
     restOverrideRows
-  )
+  );
   const checkInAssignmentContext = resolveDermoconsejoCheckInAssignmentContext(
     effectiveDay.assignment ?? null,
     primaryAssignment
-  )
+  );
   const canStartShift = Boolean(
     !activeFormation &&
-      effectiveDay.estadoOperativo !== 'INCAPACIDAD' &&
-      effectiveDay.estadoOperativo !== 'VACACIONES' &&
-      effectiveDay.estadoOperativo !== 'FALTA_JUSTIFICADA' &&
-      checkInAssignmentContext.assignmentId &&
-      checkInAssignmentContext.pdvId &&
-      checkInAssignmentContext.assignmentSchedule
-  )
+    effectiveDay.estadoOperativo !== 'INCAPACIDAD' &&
+    effectiveDay.estadoOperativo !== 'VACACIONES' &&
+    effectiveDay.estadoOperativo !== 'FALTA_JUSTIFICADA' &&
+    checkInAssignmentContext.assignmentId &&
+    checkInAssignmentContext.pdvId &&
+    checkInAssignmentContext.assignmentSchedule
+  );
   const disabledReason = shiftIsOpen
     ? null
     : activeFormation
@@ -2706,9 +2741,9 @@ async function buildDermoconsejoData(
             ? 'La falta de este dia ya fue justificada y no genera jornada operativa en tienda.'
             : canStartShift
               ? null
-              : 'Necesitas una asignacion activa con PDV y horario para registrar la llegada.'
-  const previousMissionId = latestAttendance?.mision_dia_id ?? null
-  const previousMissionCodigo = latestAttendance?.mision_codigo ?? null
+              : 'Necesitas una asignacion activa con PDV y horario para registrar la llegada.';
+  const previousMissionId = latestAttendance?.mision_dia_id ?? null;
+  const previousMissionCodigo = latestAttendance?.mision_codigo ?? null;
   const [profileResult, vacationPolicy] = await Promise.all([
     fetchDermoconsejoProfile(
       supabase,
@@ -2721,19 +2756,21 @@ async function buildDermoconsejoData(
           todayIso,
         })
       : Promise.resolve(null),
-  ])
+  ]);
   const quickActions = buildDermoconsejoQuickActions().map((item) =>
-    item.key === 'comunicacion'
-      ? { ...item, badgeCount: notificationsResult.unreadCount }
-      : item
-  )
-  const calendar = buildDermoconsejoCalendar(assignmentsResult.error ? [] : assignmentsResult.data, pdvMap, todayIso)
+    item.key === 'comunicacion' ? { ...item, badgeCount: notificationsResult.unreadCount } : item
+  );
+  const calendar = buildDermoconsejoCalendar(
+    assignmentsResult.error ? [] : assignmentsResult.data,
+    pdvMap,
+    todayIso
+  );
   const loveQuotaResult = await fetchLoveQuotaTargetRows(supabase, {
     accountId: actor.cuentaClienteId ?? null,
     dateFrom: todayIso,
     dateTo: todayIso,
     employeeIds: [actor.empleadoId],
-  })
+  });
   const loveQuota = computeLoveQuotaProgress(
     loveResult.error ? 0 : loveResult.data.length,
     loveQuotaResult.error
@@ -2741,7 +2778,7 @@ async function buildDermoconsejoData(
       : loveQuotaResult.data.length > 0
         ? loveQuotaResult.data.reduce((acc, item) => acc + item.objetivo, 0)
         : LOVE_DAILY_QUOTA_DEFAULT
-  )
+  );
 
   return {
     greetingName: actor.nombreCompleto,
@@ -2754,7 +2791,8 @@ async function buildDermoconsejoData(
         latestAttendance?.cuenta_cliente_id ??
         null,
       empleadoId: actor.empleadoId,
-      supervisorEmpleadoId: effectiveDay.supervisorEmpleadoId ?? primaryAssignment?.supervisor_empleado_id ?? null,
+      supervisorEmpleadoId:
+        effectiveDay.supervisorEmpleadoId ?? primaryAssignment?.supervisor_empleado_id ?? null,
       pdvId: checkInAssignmentContext.pdvId ?? chosenPdv?.id ?? chosenPdvId ?? null,
       attendanceId: openAttendance?.id ?? latestAttendance?.id ?? null,
       fechaOperacion: todayIso,
@@ -2771,14 +2809,13 @@ async function buildDermoconsejoData(
       assignmentSchedule: checkInAssignmentContext.assignmentSchedule,
       empleadoId: actor.empleadoId,
       empleadoNombre: actor.nombreCompleto,
-      supervisorEmpleadoId: effectiveDay.supervisorEmpleadoId ?? primaryAssignment?.supervisor_empleado_id ?? null,
+      supervisorEmpleadoId:
+        effectiveDay.supervisorEmpleadoId ?? primaryAssignment?.supervisor_empleado_id ?? null,
       pdvId: checkInAssignmentContext.pdvId ?? chosenPdv?.id ?? chosenPdvId ?? null,
       pdvClaveBtl: chosenPdv?.clave_btl ?? latestAttendance?.pdv_clave_btl ?? null,
       pdvNombre: chosenPdv?.nombre ?? latestAttendance?.pdv_nombre ?? 'Sin sucursal asignada hoy',
       zona: chosenPdv?.zona ?? null,
-      cadena:
-        latestAttendance?.cadena_nombre ??
-        (actor.cuentaClienteId ? 'ISDIN' : null),
+      cadena: latestAttendance?.cadena_nombre ?? (actor.cuentaClienteId ? 'ISDIN' : null),
       fechaOperacion: todayIso,
       geocercaLatitud: geocercaResult.data?.latitud ?? null,
       geocercaLongitud: geocercaResult.data?.longitud ?? null,
@@ -2789,18 +2826,18 @@ async function buildDermoconsejoData(
       previousMissionCodigo,
       missions: missionCatalogResult.error ? [] : missionCatalogResult.data,
     },
-    profile:
-      profileResult.data ?? {
-        nombreCompleto: actor.nombreCompleto,
-        puesto: actor.puesto,
-        zona: null,
-        correoElectronico: actor.correoElectronico,
-        telefono: null,
-        username: actor.username,
-        fechaAlta: null,
-        supervisorNombre: null,
-        tiendaActual: chosenPdv?.nombre ?? latestAttendance?.pdv_nombre ?? 'Sin sucursal asignada hoy',
-      },
+    profile: profileResult.data ?? {
+      nombreCompleto: actor.nombreCompleto,
+      puesto: actor.puesto,
+      zona: null,
+      correoElectronico: actor.correoElectronico,
+      telefono: null,
+      username: actor.username,
+      fechaAlta: null,
+      supervisorNombre: null,
+      tiendaActual:
+        chosenPdv?.nombre ?? latestAttendance?.pdv_nombre ?? 'Sin sucursal asignada hoy',
+    },
     store: {
       pdvId: chosenPdv?.id ?? null,
       claveBtl: chosenPdv?.clave_btl ?? latestAttendance?.pdv_clave_btl ?? null,
@@ -2820,7 +2857,8 @@ async function buildDermoconsejoData(
         ? `Jornada iniciada${startedAt ? ` a las ${startedAt}` : ''}.`
         : canStartShift
           ? 'Todavia no registras tu entrada de hoy.'
-          : effectiveDay.mensajeOperativo ?? 'Sin asignacion operativa activa para iniciar jornada.',
+          : (effectiveDay.mensajeOperativo ??
+            'Sin asignacion operativa activa para iniciar jornada.'),
       disabledReason,
     },
     reportWindow: {
@@ -2861,7 +2899,7 @@ async function buildDermoconsejoData(
     catalogoProductos: productCatalogResult.error ? [] : productCatalogResult.data,
     calendar,
     vacationPolicy,
-  }
+  };
 }
 
 async function buildSupervisorLoveQuotaSummary(
@@ -2870,7 +2908,7 @@ async function buildSupervisorLoveQuotaSummary(
   dateIso: string
 ): Promise<DashboardSupervisorLoveQuotaSummary | null> {
   if (actor.puesto !== 'SUPERVISOR') {
-    return null
+    return null;
   }
 
   const [targetResult, actualResult] = await Promise.all([
@@ -2886,10 +2924,10 @@ async function buildSupervisorLoveQuotaSummary(
       .eq('fecha_operacion', dateIso)
       .eq('supervisor_empleado_id', actor.empleadoId)
       .limit(1000),
-  ])
+  ]);
 
   if (targetResult.error || actualResult.error) {
-    return null
+    return null;
   }
 
   const progress = computeLoveQuotaProgress(
@@ -2898,7 +2936,7 @@ async function buildSupervisorLoveQuotaSummary(
       0
     ),
     targetResult.data.reduce((acc, item) => acc + item.objetivo, 0)
-  )
+  );
 
   return {
     objetivoHoy: progress.objetivo,
@@ -2906,7 +2944,7 @@ async function buildSupervisorLoveQuotaSummary(
     restanteHoy: progress.restante,
     cumplimientoHoyPct: progress.cumplimientoPct,
     dcConMetaHoy: new Set(targetResult.data.map((item) => item.empleadoId)).size,
-  }
+  };
 }
 
 async function fetchDermoconsejoProductCatalog(supabase: DashboardSupabaseClient) {
@@ -2915,7 +2953,7 @@ async function fetchDermoconsejoProductCatalog(supabase: DashboardSupabaseClient
     .select('id, sku, nombre, nombre_corto, activo')
     .eq('activo', true)
     .order('nombre_corto', { ascending: true })
-    .limit(500)
+    .limit(500);
 
   return {
     data: ((result.data ?? []) as DashboardDermoProductRow[]).map((item) => ({
@@ -2925,7 +2963,7 @@ async function fetchDermoconsejoProductCatalog(supabase: DashboardSupabaseClient
       nombreCorto: item.nombre_corto,
     })),
     error: result.error,
-  }
+  };
 }
 
 function buildDermoconsejoCalendar(
@@ -2933,64 +2971,65 @@ function buildDermoconsejoCalendar(
   pdvMap: Map<string, DashboardDermoPdvRow>,
   todayIso: string
 ): DashboardDermoconsejoCalendar {
-  const publishedAssignments = assignments.filter((item) => item.estado_publicacion === 'PUBLICADA')
+  const publishedAssignments = assignments.filter(
+    (item) => item.estado_publicacion === 'PUBLICADA'
+  );
 
   const buildDay = (dateIso: string): DashboardDermoconsejoCalendarDay => ({
     date: dateIso,
     weekdayLabel: formatCalendarWeekdayLabel(dateIso),
     shortLabel: formatCalendarShortLabel(dateIso),
     isToday: dateIso === todayIso,
-    assignments: resolveAssignmentsForDate(publishedAssignments, dateIso)
-      .map((item) => {
-        const pdv = pdvMap.get(item.pdv_id)
+    assignments: resolveAssignmentsForDate(publishedAssignments, dateIso).map((item) => {
+      const pdv = pdvMap.get(item.pdv_id);
 
-        return {
-          assignmentId: item.id,
-          pdvId: item.pdv_id,
-          claveBtl: pdv?.clave_btl ?? null,
-          nombre: pdv?.nombre ?? 'PDV sin catalogo',
-          direccion: pdv?.direccion ?? null,
-          zona: pdv?.zona ?? null,
-          horario: item.horario_referencia,
-          tipo: item.tipo,
-        } satisfies DashboardDermoconsejoCalendarAssignment
-      }),
-  })
+      return {
+        assignmentId: item.id,
+        pdvId: item.pdv_id,
+        claveBtl: pdv?.clave_btl ?? null,
+        nombre: pdv?.nombre ?? 'PDV sin catalogo',
+        direccion: pdv?.direccion ?? null,
+        zona: pdv?.zona ?? null,
+        horario: item.horario_referencia,
+        tipo: item.tipo,
+      } satisfies DashboardDermoconsejoCalendarAssignment;
+    }),
+  });
 
   return {
     week: Array.from({ length: 7 }, (_, index) => buildDay(addDaysIso(todayIso, index))),
     month: Array.from({ length: 30 }, (_, index) => buildDay(addDaysIso(todayIso, index))),
-  }
+  };
 }
 
 function parseSupervisorScheduledStartMinutes(horario: string | null) {
-  const normalized = String(horario ?? '').trim()
+  const normalized = String(horario ?? '').trim();
   if (!normalized) {
-    return null
+    return null;
   }
 
-  const match = normalized.match(/(\d{1,2}):(\d{2})/)
+  const match = normalized.match(/(\d{1,2}):(\d{2})/);
   if (!match) {
-    return null
+    return null;
   }
 
-  const hours = Number(match[1])
-  const minutes = Number(match[2])
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
-    return null
+    return null;
   }
 
-  return hours * 60 + minutes
+  return hours * 60 + minutes;
 }
 
 function extractSupervisorLocalMinutes(isoValue: string | null) {
   if (!isoValue) {
-    return null
+    return null;
   }
 
-  const date = new Date(isoValue)
+  const date = new Date(isoValue);
   if (Number.isNaN(date.getTime())) {
-    return null
+    return null;
   }
 
   const formatter = new Intl.DateTimeFormat('en-GB', {
@@ -2998,16 +3037,16 @@ function extractSupervisorLocalMinutes(isoValue: string | null) {
     minute: '2-digit',
     hour12: false,
     timeZone: 'America/Mexico_City',
-  })
-  const parts = formatter.formatToParts(date)
-  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? Number.NaN)
-  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? Number.NaN)
+  });
+  const parts = formatter.formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? Number.NaN);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? Number.NaN);
 
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
-    return null
+    return null;
   }
 
-  return hour * 60 + minute
+  return hour * 60 + minute;
 }
 
 async function buildSupervisorDailyBoard(
@@ -3018,26 +3057,26 @@ async function buildSupervisorDailyBoard(
   toleranceMinutes: number
 ): Promise<DashboardSupervisorDailyBoard | null> {
   if (actor.puesto !== 'SUPERVISOR') {
-    return null
+    return null;
   }
 
-  const attendanceByKey = new Map<string, DashboardLiveAsistenciaRow>()
+  const attendanceByKey = new Map<string, DashboardLiveAsistenciaRow>();
   for (const attendance of attendances) {
     if (attendance.fecha_operacion !== todayIso) {
-      continue
+      continue;
     }
 
-    const key = `${attendance.empleado_id}::${attendance.pdv_id}::${attendance.fecha_operacion}`
-    const current = attendanceByKey.get(key)
+    const key = `${attendance.empleado_id}::${attendance.pdv_id}::${attendance.fecha_operacion}`;
+    const current = attendanceByKey.get(key);
     if (!current) {
-      attendanceByKey.set(key, attendance)
-      continue
+      attendanceByKey.set(key, attendance);
+      continue;
     }
 
-    const nextTimestamp = attendance.check_in_utc ?? attendance.check_out_utc ?? ''
-    const currentTimestamp = current.check_in_utc ?? current.check_out_utc ?? ''
+    const nextTimestamp = attendance.check_in_utc ?? attendance.check_out_utc ?? '';
+    const currentTimestamp = current.check_in_utc ?? current.check_out_utc ?? '';
     if (nextTimestamp > currentTimestamp) {
-      attendanceByKey.set(key, attendance)
+      attendanceByKey.set(key, attendance);
     }
   }
 
@@ -3049,16 +3088,16 @@ async function buildSupervisorDailyBoard(
       todayIso
     ).map(async (item): Promise<DashboardSupervisorDailyItem> => {
       const attendance =
-        attendanceByKey.get(`${item.empleado_id}::${item.pdv_id}::${todayIso}`) ?? null
-      const empleado = getFirst(item.empleado)?.nombre_completo?.trim() || 'Sin dermoconsejero'
-      const pdv = getFirst(item.pdv)
-      const scheduledStart = parseSupervisorScheduledStartMinutes(item.horario_referencia)
-      const actualStart = extractSupervisorLocalMinutes(attendance?.check_in_utc ?? null)
+        attendanceByKey.get(`${item.empleado_id}::${item.pdv_id}::${todayIso}`) ?? null;
+      const empleado = getFirst(item.empleado)?.nombre_completo?.trim() || 'Sin dermoconsejero';
+      const pdv = getFirst(item.pdv);
+      const scheduledStart = parseSupervisorScheduledStartMinutes(item.horario_referencia);
+      const actualStart = extractSupervisorLocalMinutes(attendance?.check_in_utc ?? null);
       const minutesLate =
         scheduledStart !== null && actualStart !== null
           ? Math.max(0, actualStart - scheduledStart)
-          : null
-      const flow = readSupervisorFlowState(attendance)
+          : null;
+      const flow = readSupervisorFlowState(attendance);
 
       return {
         assignmentId: item.id,
@@ -3075,27 +3114,41 @@ async function buildSupervisorDailyBoard(
         fechaOperacion: todayIso,
         checkInUtc: attendance?.check_in_utc ?? null,
         checkOutUtc: attendance?.check_out_utc ?? null,
-        estadoAsistencia: attendance
-          ? (attendance.estatus as DashboardSupervisorDailyStatus)
-          : 'SIN_CHECKIN',
+        estadoAsistencia: (() => {
+          if (!attendance) return 'SIN_CHECKIN';
+          const meta =
+            attendance.metadata &&
+            typeof attendance.metadata === 'object' &&
+            !Array.isArray(attendance.metadata)
+              ? (attendance.metadata as Record<string, any>)
+              : {};
+          if (meta.subtipo_captura === 'VACACIONES') return 'VACACIONES';
+          if (meta.subtipo_captura === 'INCAPACIDAD') return 'INCAPACIDAD';
+          return attendance.estatus as DashboardSupervisorDailyStatus;
+        })(),
         flowState: flow.flowState,
         reviewTarget: flow.reviewTarget,
         estadoGps: attendance?.estado_gps ?? null,
         distanciaCheckInMetros: attendance?.distancia_check_in_metros ?? null,
-        minutosRetardo:
-          minutesLate !== null && minutesLate > toleranceMinutes ? minutesLate : null,
-        checkInSelfieThumbnailUrl: buildAttendanceEvidenceUrl(attendance?.id ?? null, 'check-in-thumbnail'),
+        minutosRetardo: minutesLate !== null && minutesLate > toleranceMinutes ? minutesLate : null,
+        checkInSelfieThumbnailUrl: buildAttendanceEvidenceUrl(
+          attendance?.id ?? null,
+          'check-in-thumbnail'
+        ),
         checkInSelfieUrl: buildAttendanceEvidenceUrl(attendance?.id ?? null, 'check-in'),
-        checkOutSelfieThumbnailUrl: buildAttendanceEvidenceUrl(attendance?.id ?? null, 'check-out-thumbnail'),
+        checkOutSelfieThumbnailUrl: buildAttendanceEvidenceUrl(
+          attendance?.id ?? null,
+          'check-out-thumbnail'
+        ),
         checkOutSelfieUrl: buildAttendanceEvidenceUrl(attendance?.id ?? null, 'check-out'),
         misionCodigo: attendance?.mision_codigo ?? null,
         misionInstruccion: attendance?.mision_instruccion ?? null,
-      }
+      };
     })
-  )
+  );
   const itemKeys = new Set(
     items.map((item) => `${item.empleadoId}::${item.pdvId}::${item.fechaOperacion}`)
-  )
+  );
 
   const attendanceFallbackItems = await Promise.all(
     attendances
@@ -3103,50 +3156,60 @@ async function buildSupervisorDailyBoard(
         (attendance) =>
           attendance.fecha_operacion === todayIso &&
           attendance.supervisor_empleado_id === actor.empleadoId &&
-          !itemKeys.has(`${attendance.empleado_id}::${attendance.pdv_id}::${attendance.fecha_operacion}`)
+          !itemKeys.has(
+            `${attendance.empleado_id}::${attendance.pdv_id}::${attendance.fecha_operacion}`
+          )
       )
-      .map(async (attendance): Promise<DashboardSupervisorDailyItem> => ({
-        assignmentId: `attendance:${attendance.id}`,
-        attendanceId: attendance.id,
-        cuentaClienteId: attendance.cuenta_cliente_id,
-        empleadoId: attendance.empleado_id,
-        empleado: attendance.empleado_nombre?.trim() || 'Sin dermoconsejero',
-        pdvId: attendance.pdv_id,
-        pdv: attendance.pdv_nombre?.trim() || 'PDV sin catalogo',
-        pdvClaveBtl: attendance.pdv_clave_btl ?? null,
-        zona: attendance.pdv_zona ?? null,
-        horario: null,
-        tipoAsignacion: 'FIJA',
-        fechaOperacion: attendance.fecha_operacion,
-        checkInUtc: attendance.check_in_utc ?? null,
-        checkOutUtc: attendance.check_out_utc ?? null,
-        estadoAsistencia: attendance.estatus as DashboardSupervisorDailyStatus,
-        ...readSupervisorFlowState(attendance),
-        estadoGps: attendance.estado_gps ?? null,
-        distanciaCheckInMetros: attendance.distancia_check_in_metros ?? null,
-        minutosRetardo: null,
-        checkInSelfieThumbnailUrl: buildAttendanceEvidenceUrl(attendance.id, 'check-in-thumbnail'),
-        checkInSelfieUrl: buildAttendanceEvidenceUrl(attendance.id, 'check-in'),
-        checkOutSelfieThumbnailUrl: buildAttendanceEvidenceUrl(attendance.id, 'check-out-thumbnail'),
-        checkOutSelfieUrl: buildAttendanceEvidenceUrl(attendance.id, 'check-out'),
-        misionCodigo: attendance.mision_codigo ?? null,
-        misionInstruccion: attendance.mision_instruccion ?? null,
-      }))
-  )
+      .map(
+        async (attendance): Promise<DashboardSupervisorDailyItem> => ({
+          assignmentId: `attendance:${attendance.id}`,
+          attendanceId: attendance.id,
+          cuentaClienteId: attendance.cuenta_cliente_id,
+          empleadoId: attendance.empleado_id,
+          empleado: attendance.empleado_nombre?.trim() || 'Sin dermoconsejero',
+          pdvId: attendance.pdv_id,
+          pdv: attendance.pdv_nombre?.trim() || 'PDV sin catalogo',
+          pdvClaveBtl: attendance.pdv_clave_btl ?? null,
+          zona: attendance.pdv_zona ?? null,
+          horario: null,
+          tipoAsignacion: 'FIJA',
+          fechaOperacion: attendance.fecha_operacion,
+          checkInUtc: attendance.check_in_utc ?? null,
+          checkOutUtc: attendance.check_out_utc ?? null,
+          estadoAsistencia: attendance.estatus as DashboardSupervisorDailyStatus,
+          ...readSupervisorFlowState(attendance),
+          estadoGps: attendance.estado_gps ?? null,
+          distanciaCheckInMetros: attendance.distancia_check_in_metros ?? null,
+          minutosRetardo: null,
+          checkInSelfieThumbnailUrl: buildAttendanceEvidenceUrl(
+            attendance.id,
+            'check-in-thumbnail'
+          ),
+          checkInSelfieUrl: buildAttendanceEvidenceUrl(attendance.id, 'check-in'),
+          checkOutSelfieThumbnailUrl: buildAttendanceEvidenceUrl(
+            attendance.id,
+            'check-out-thumbnail'
+          ),
+          checkOutSelfieUrl: buildAttendanceEvidenceUrl(attendance.id, 'check-out'),
+          misionCodigo: attendance.mision_codigo ?? null,
+          misionInstruccion: attendance.mision_instruccion ?? null,
+        })
+      )
+  );
 
   const mergedItems = [...items, ...attendanceFallbackItems].sort((left, right) => {
-      const pdvCompare = left.pdv.localeCompare(right.pdv, 'es')
-      if (pdvCompare !== 0) {
-        return pdvCompare
-      }
+    const pdvCompare = left.pdv.localeCompare(right.pdv, 'es');
+    if (pdvCompare !== 0) {
+      return pdvCompare;
+    }
 
-      return left.empleado.localeCompare(right.empleado, 'es')
-    })
+    return left.empleado.localeCompare(right.empleado, 'es');
+  });
 
   return {
     date: todayIso,
     items: mergedItems,
-  }
+  };
 }
 
 function buildAttendanceEvidenceUrl(
@@ -3154,68 +3217,83 @@ function buildAttendanceEvidenceUrl(
   kind: 'check-in' | 'check-in-thumbnail' | 'check-out' | 'check-out-thumbnail'
 ) {
   if (!attendanceId) {
-    return null
+    return null;
   }
 
-  return `/api/asistencias/evidencia?attendanceId=${encodeURIComponent(attendanceId)}&kind=${encodeURIComponent(kind)}`
+  return `/api/asistencias/evidencia?attendanceId=${encodeURIComponent(attendanceId)}&kind=${encodeURIComponent(kind)}`;
 }
 
 function normalizeSupervisorMetadata(
   metadata: Record<string, unknown> | null | undefined
 ): Record<string, unknown> {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
-    return {}
+    return {};
   }
 
-  const candidate = metadata['supervision']
+  const candidate = metadata['supervision'];
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
-    return {}
+    return {};
   }
 
-  return candidate as Record<string, unknown>
+  return candidate as Record<string, unknown>;
 }
 
-function readSupervisorFlowState(
-  attendance: DashboardLiveAsistenciaRow | null
-): {
-  flowState: DashboardSupervisorDailyFlowState
-  reviewTarget: DashboardSupervisorReviewTarget
+function readSupervisorFlowState(attendance: DashboardLiveAsistenciaRow | null): {
+  flowState: DashboardSupervisorDailyFlowState;
+  reviewTarget: DashboardSupervisorReviewTarget;
 } {
-  if (!attendance?.check_in_utc) {
-    return { flowState: 'SIN_CHECKIN', reviewTarget: null }
+  if (!attendance) {
+    return { flowState: 'SIN_CHECKIN', reviewTarget: null };
   }
 
-  const supervision = normalizeSupervisorMetadata(attendance.metadata)
+  const metadataObj =
+    attendance.metadata &&
+    typeof attendance.metadata === 'object' &&
+    !Array.isArray(attendance.metadata)
+      ? (attendance.metadata as Record<string, any>)
+      : {};
+
+  if (metadataObj.subtipo_captura === 'VACACIONES') {
+    return { flowState: 'VACACIONES', reviewTarget: null };
+  }
+  if (metadataObj.subtipo_captura === 'INCAPACIDAD') {
+    return { flowState: 'INCAPACIDAD', reviewTarget: null };
+  }
+
+  // Verificar si es una falta registrada por el supervisor
+  const isFaltaManual = metadataObj.registro_manual_supervisor?.tipo_registro === 'FALTA';
+
+  if (isFaltaManual || (attendance.estatus === 'RECHAZADA' && !attendance.check_in_utc)) {
+    return { flowState: 'FINALIZADA', reviewTarget: null };
+  }
+
+  if (!attendance.check_in_utc) {
+    return { flowState: 'SIN_CHECKIN', reviewTarget: null };
+  }
+
+  const supervision = normalizeSupervisorMetadata(attendance.metadata);
   const entryStatus =
     typeof supervision['entry_status'] === 'string'
       ? supervision['entry_status']
       : typeof supervision['supervisor_resolucion'] === 'string'
         ? supervision['supervisor_resolucion']
-        : attendance.estatus
+        : attendance.estatus;
   const checkoutStatus =
-    typeof supervision['checkout_status'] === 'string' ? supervision['checkout_status'] : null
+    typeof supervision['checkout_status'] === 'string' ? supervision['checkout_status'] : null;
 
   if (!attendance.check_out_utc) {
-    if (entryStatus === 'PENDIENTE_VALIDACION') {
-      return { flowState: 'REVISION_ENTRADA', reviewTarget: 'CHECK_IN' }
-    }
-
     if (entryStatus === 'RECHAZADA') {
-      return { flowState: 'ENTRADA_RECHAZADA', reviewTarget: null }
+      return { flowState: 'ENTRADA_RECHAZADA', reviewTarget: null };
     }
 
-    return { flowState: 'ESPERA_SALIDA', reviewTarget: null }
-  }
-
-  if (checkoutStatus === 'VALIDA' || attendance.estatus === 'CERRADA') {
-    return { flowState: 'FINALIZADA', reviewTarget: null }
+    return { flowState: 'ESPERA_SALIDA', reviewTarget: null };
   }
 
   if (checkoutStatus === 'RECHAZADA') {
-    return { flowState: 'SALIDA_RECHAZADA', reviewTarget: null }
+    return { flowState: 'SALIDA_RECHAZADA', reviewTarget: null };
   }
 
-  return { flowState: 'REVISION_SALIDA', reviewTarget: 'CHECK_OUT' }
+  return { flowState: 'FINALIZADA', reviewTarget: null };
 }
 
 async function fetchDashboardRows(
@@ -3224,7 +3302,8 @@ async function fetchDashboardRows(
 ): Promise<DashboardRowsResult> {
   let query = supabase
     .from('dashboard_kpis')
-    .select(`
+    .select(
+      `
       fecha_corte,
       cuenta_cliente_id,
       cuenta_cliente,
@@ -3241,35 +3320,36 @@ async function fetchDashboardRows(
       cuotas_cumplidas_periodo,
       neto_nomina_periodo,
       refreshed_at
-    `)
-    .order('fecha_corte', { ascending: false })
+    `
+    )
+    .order('fecha_corte', { ascending: false });
 
   if (cuentaClienteId) {
-    query = query.eq('cuenta_cliente_id', cuentaClienteId)
+    query = query.eq('cuenta_cliente_id', cuentaClienteId);
   }
 
-  const result = await query.limit(180)
+  const result = await query.limit(180);
 
   return {
     data: (result.data ?? []) as DashboardKpiRow[],
     error: result.error,
-  }
+  };
 }
 
 const fetchCachedDashboardRows = unstable_cache(
   async (cuentaClienteId: string | null) => {
-    const supabase = createServiceClient() as unknown as DashboardSupabaseClient
-    return fetchDashboardRows(supabase, cuentaClienteId)
+    const supabase = createServiceClient() as unknown as DashboardSupabaseClient;
+    return fetchDashboardRows(supabase, cuentaClienteId);
   },
   ['dashboard-kpis-rows'],
   {
     revalidate: DASHBOARD_KPI_REVALIDATE_SECONDS,
     tags: ['dashboard-kpis'],
   }
-)
+);
 
 function getDashboardCacheKey(cuentaClienteId: string | null) {
-  return cuentaClienteId ?? 'global'
+  return cuentaClienteId ?? 'global';
 }
 
 async function fetchFreshDashboardRows(
@@ -3277,53 +3357,55 @@ async function fetchFreshDashboardRows(
   cuentaClienteId: string | null,
   allowCache: boolean
 ): Promise<DashboardRowsResult> {
-  const cacheKey = getDashboardCacheKey(cuentaClienteId)
+  const cacheKey = getDashboardCacheKey(cuentaClienteId);
 
   if (allowCache) {
-    const cached = dashboardKpiCache.get(cacheKey)
+    const cached = dashboardKpiCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      return cached.result
+      return cached.result;
     }
   }
 
   const initial = allowCache
     ? await fetchCachedDashboardRows(cuentaClienteId)
-    : await fetchDashboardRows(supabase, cuentaClienteId)
+    : await fetchDashboardRows(supabase, cuentaClienteId);
 
   if (initial.error) {
-    return initial
+    return initial;
   }
 
-  const latestRefreshedAt = getLatestRefreshedAt(initial.data)
+  const latestRefreshedAt = getLatestRefreshedAt(initial.data);
   const snapshotIsFresh =
     initial.data.length > 0 &&
     Boolean(latestRefreshedAt) &&
-    Date.now() - Date.parse(latestRefreshedAt as string) <= DASHBOARD_REFRESH_MAX_AGE_MS
+    Date.now() - Date.parse(latestRefreshedAt as string) <= DASHBOARD_REFRESH_MAX_AGE_MS;
 
   const result = snapshotIsFresh
     ? initial
     : {
         data: initial.data,
         error: null,
-      }
+      };
 
   if (allowCache) {
     dashboardKpiCache.set(cacheKey, {
       expiresAt: Date.now() + DASHBOARD_KPI_CACHE_TTL_MS,
       result,
-    })
+    });
   }
 
-  return result
+  return result;
 }
 async function fetchLiveAssistances(
   supabase: DashboardSupabaseClient,
   actor: ActorActual,
-  allowGlobalScope: boolean
+  allowGlobalScope: boolean,
+  targetDateIso?: string
 ) {
   let query = supabase
     .from('asistencia')
-    .select(`
+    .select(
+      `
       id,
       cuenta_cliente_id,
       empleado_id,
@@ -3346,160 +3428,153 @@ async function fetchLiveAssistances(
       estado_gps,
       estatus,
       pdv_zona
-    `)
-    .order('fecha_operacion', { ascending: false })
+    `
+    )
+    .order('fecha_operacion', { ascending: false });
 
   if (!allowGlobalScope && actor.cuentaClienteId) {
-    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId)
+    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId);
   }
 
   if (actor.puesto === 'SUPERVISOR') {
-    query = query.eq('supervisor_empleado_id', actor.empleadoId)
+    query = query.eq('supervisor_empleado_id', actor.empleadoId);
+    query = query.eq('fecha_operacion', targetDateIso || getTodayIso());
   }
 
-  const result = await query.limit(DASHBOARD_LIVE_QUERY_LIMIT)
+  const result = await query.limit(DASHBOARD_LIVE_QUERY_LIMIT);
   const baseRows = ((result.data ?? []) as DashboardLiveAsistenciaRow[])
     .filter((item) => (allowGlobalScope ? true : item.cuenta_cliente_id === actor.cuentaClienteId))
-    .filter((item) => (actor.puesto === 'SUPERVISOR' ? item.supervisor_empleado_id === actor.empleadoId : true))
-  const pdvIds = Array.from(new Set(baseRows.map((item) => item.pdv_id).filter(Boolean)))
-  let pdvStatesById = new Map<string, string | null>()
+    .filter((item) =>
+      actor.puesto === 'SUPERVISOR' ? item.supervisor_empleado_id === actor.empleadoId : true
+    );
+  const pdvIds = Array.from(new Set(baseRows.map((item) => item.pdv_id).filter(Boolean)));
+  let pdvStatesById = new Map<string, string | null>();
 
   if (pdvIds.length > 0) {
-    const withStateQuery = supabase.from('pdv').select('id, ciudad:ciudad_id(nombre)')
+    const withStateQuery = supabase.from('pdv').select('id, ciudad:ciudad_id(nombre)');
     const pdvStateResult =
       typeof withStateQuery.in === 'function'
         ? await withStateQuery.in('id', pdvIds).limit(DASHBOARD_LIVE_QUERY_LIMIT)
-        : await withStateQuery.limit(DASHBOARD_LIVE_QUERY_LIMIT)
+        : await withStateQuery.limit(DASHBOARD_LIVE_QUERY_LIMIT);
 
-    let pdvStateData = pdvStateResult.data
-    let pdvStateError = pdvStateResult.error
+    let pdvStateData = pdvStateResult.data;
+    let pdvStateError = pdvStateResult.error;
 
     if (!pdvStateError) {
       pdvStatesById = new Map(
         ((pdvStateData ?? []) as DashboardPdvStateRow[])
           .filter((item) => pdvIds.includes(item.id))
           .map((item) => {
-            const city = getFirst(item.ciudad)
+            const city = getFirst(item.ciudad);
             return [
               item.id,
               city?.estado ?? resolveMexicoStateFromCity(city?.nombre ?? null) ?? null,
-            ] as const
+            ] as const;
           })
-      )
+      );
     }
   }
 
   const data = baseRows.map((item) => ({
     ...item,
     pdv_estado: pdvStatesById.get(item.pdv_id) ?? null,
-  }))
+  }));
 
   return {
     data,
     error: result.error,
-  }
+  };
 }
 
 async function fetchGeocercas(supabase: DashboardSupabaseClient, accountId?: string | null) {
   let query = supabase
     .from('geocerca_pdv')
-    .select('pdv_id, latitud, longitud, radio_tolerancia_metros')
+    .select('pdv_id, latitud, longitud, radio_tolerancia_metros');
 
   // Si tenemos cuenta, filtramos por PDVs de esa cuenta para no traer basura
   // Nota: Esto asume que el usuario quiere ver solo geocercas de su cuenta operativa.
   if (accountId) {
-    // Intentamos un join o una subquery si la tabla pdv es accesible, 
+    // Intentamos un join o una subquery si la tabla pdv es accesible,
     // pero para mantenerlo simple y rapido en el dashboard, usamos un limit alto
     // o un filtro directo si el pdv_id esta indexado (que lo esta).
   }
 
-  const result = await query.limit(DASHBOARD_GEOFENCE_LIMIT)
+  const result = await query.limit(DASHBOARD_GEOFENCE_LIMIT);
 
   return {
     data: (result.data ?? []) as DashboardGeocercaRow[],
     error: result.error,
-  }
+  };
 }
 
-
-async function fetchSupervisores(
-  supabase: DashboardSupabaseClient,
-  supervisorIds: string[]
-) {
+async function fetchSupervisores(supabase: DashboardSupabaseClient, supervisorIds: string[]) {
   if (supervisorIds.length === 0) {
     return {
       data: [] as DashboardSupervisorRow[],
       error: null,
-    }
+    };
   }
 
-  const query = supabase
-    .from('empleado')
-    .select('id, nombre_completo')
+  const query = supabase.from('empleado').select('id, nombre_completo');
 
-  const result = typeof query.in === 'function'
-    ? await query.in('id', supervisorIds).limit(DASHBOARD_SUPERVISOR_LIMIT)
-    : await query.limit(DASHBOARD_SUPERVISOR_LIMIT)
+  const result =
+    typeof query.in === 'function'
+      ? await query.in('id', supervisorIds).limit(DASHBOARD_SUPERVISOR_LIMIT)
+      : await query.limit(DASHBOARD_SUPERVISOR_LIMIT);
 
   return {
-    data: ((result.data ?? []) as Array<{ id: string; nombre_completo: string | null }> )
+    data: ((result.data ?? []) as Array<{ id: string; nombre_completo: string | null }>)
       .filter((item) => supervisorIds.includes(item.id))
       .map((item) => ({ id: item.id, nombre: item.nombre_completo ?? '' })),
     error: result.error,
-  }
+  };
 }
 
 function normalizePeriodo(periodo: string | undefined) {
   if (!periodo) {
-    return ''
+    return '';
   }
 
-  const normalized = periodo.trim()
-  return /^\d{4}-\d{2}$/.test(normalized) ? normalized : ''
+  const normalized = periodo.trim();
+  return /^\d{4}-\d{2}$/.test(normalized) ? normalized : '';
 }
 
 function normalizeFilterValue(value: string | undefined) {
-  return value?.trim() ?? ''
+  return value?.trim() ?? '';
 }
 
 function matchesPeriodo(fecha: string, periodo: string) {
-  return !periodo || fecha.startsWith(periodo)
+  return !periodo || fecha.startsWith(periodo);
 }
 
-function applyDashboardFilters(
-  rows: DashboardKpiRow[],
-  filters: DashboardFilters
-) {
-  return rows.filter((row) => matchesPeriodo(row.fecha_corte, filters.periodo))
+function applyDashboardFilters(rows: DashboardKpiRow[], filters: DashboardFilters) {
+  return rows.filter((row) => matchesPeriodo(row.fecha_corte, filters.periodo));
 }
 
-function applyLiveFilters(
-  rows: DashboardLiveAsistenciaRow[],
-  filters: DashboardFilters
-) {
+function applyLiveFilters(rows: DashboardLiveAsistenciaRow[], filters: DashboardFilters) {
   return rows.filter((row) => {
     if (filters.periodo && !matchesPeriodo(row.fecha_operacion, filters.periodo)) {
-      return false
+      return false;
     }
 
     if (filters.estado && (row.pdv_estado ?? 'Sin estado') !== filters.estado) {
-      return false
+      return false;
     }
 
     if (filters.zona && (row.pdv_zona ?? 'Sin zona') !== filters.zona) {
-      return false
+      return false;
     }
 
     if (filters.supervisorId && row.supervisor_empleado_id !== filters.supervisorId) {
-      return false
+      return false;
     }
 
-    return true
-  })
+    return true;
+  });
 }
 
 function aggregateTrend(rows: DashboardKpiRow[]) {
-  const aggregated = new Map<string, DashboardTrendItem>()
+  const aggregated = new Map<string, DashboardTrendItem>();
 
   for (const row of rows) {
     const current = aggregated.get(row.fecha_corte) ?? {
@@ -3509,13 +3584,13 @@ function aggregateTrend(rows: DashboardKpiRow[]) {
       checkInsValidos: 0,
       jornadasOperadas: 0,
       asistenciaPorcentaje: 0,
-    }
+    };
 
-    current.ventasConfirmadas += row.ventas_confirmadas
-    current.montoConfirmado += row.monto_confirmado
-    current.checkInsValidos += row.checkins_validos
-    current.jornadasOperadas += row.jornadas_operadas
-    aggregated.set(row.fecha_corte, current)
+    current.ventasConfirmadas += row.ventas_confirmadas;
+    current.montoConfirmado += row.monto_confirmado;
+    current.checkInsValidos += row.checkins_validos;
+    current.jornadasOperadas += row.jornadas_operadas;
+    aggregated.set(row.fecha_corte, current);
   }
 
   return Array.from(aggregated.values())
@@ -3527,25 +3602,25 @@ function aggregateTrend(rows: DashboardKpiRow[]) {
         item.jornadasOperadas === 0
           ? 0
           : roundToTwo((item.checkInsValidos / item.jornadasOperadas) * 100),
-    }))
+    }));
 }
 
 function buildLiveAlerts(
   asistencias: DashboardLiveAsistenciaRow[],
   geocercas: DashboardGeocercaRow[],
   options: {
-    assignments: DashboardAssignmentRow[]
-    solicitudes: DashboardSolicitudRow[]
-    quotas: DashboardQuotaRow[]
-    activePeriods: DashboardPeriodoRow[]
-    pendingImss: DashboardPendingImssRow[]
-    toleranceMinutes: number
+    assignments: DashboardAssignmentRow[];
+    solicitudes: DashboardSolicitudRow[];
+    quotas: DashboardQuotaRow[];
+    activePeriods: DashboardPeriodoRow[];
+    pendingImss: DashboardPendingImssRow[];
+    toleranceMinutes: number;
   }
 ) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = new Date().toISOString().slice(0, 10);
   const geocercaByPdv = new Map(
     geocercas.map((item) => [item.pdv_id, item.radio_tolerancia_metros] as const)
-  )
+  );
   const assignmentAlerts = buildAssignmentEngineAlerts(
     options.assignments.map(
       (item) =>
@@ -3569,12 +3644,13 @@ function buildLiveAlerts(
     ),
     today
   ).map<DashboardLiveAlertItem>((item) => {
-    const matchingAssignment = options.assignments.find((assignment) => assignment.id === item.assignmentId) ?? null
+    const matchingAssignment =
+      options.assignments.find((assignment) => assignment.id === item.assignmentId) ?? null;
     const empleadoLabel =
       getFirst(matchingAssignment?.empleado ?? null)?.nombre_completo?.trim() ||
       item.empleadoId ||
-      'Sin dermoconsejera'
-    const pdv = getFirst(matchingAssignment?.pdv ?? null)
+      'Sin dermoconsejera';
+    const pdv = getFirst(matchingAssignment?.pdv ?? null);
 
     return {
       id: `assignment:${item.assignmentId ?? item.empleadoId ?? item.pdvId ?? 'global'}`,
@@ -3594,27 +3670,27 @@ function buildLiveAlerts(
       motivo: item.message,
       estadoGps: null,
       distanciaCheckInMetros: null,
-    }
-  })
+    };
+  });
   const geofenceAlerts = asistencias
     .filter((item) => item.fecha_operacion === today)
     .filter((item) => Boolean(item.check_in_utc) && !item.check_out_utc)
     .filter((item) => item.estatus !== 'RECHAZADA')
     .map((item) => {
-      const radioToleranciaMetros = geocercaByPdv.get(item.pdv_id) ?? null
+      const radioToleranciaMetros = geocercaByPdv.get(item.pdv_id) ?? null;
 
       if (radioToleranciaMetros === null || radioToleranciaMetros === undefined) {
-        return null
+        return null;
       }
 
       if (radioToleranciaMetros >= 50 && radioToleranciaMetros <= 300) {
-        return null
+        return null;
       }
 
       const motivo =
         radioToleranciaMetros < 50
           ? 'Geocerca menor a 50m con jornada activa.'
-          : 'Geocerca mayor a 300m con jornada activa.'
+          : 'Geocerca mayor a 300m con jornada activa.';
 
       return {
         id: item.id,
@@ -3629,20 +3705,20 @@ function buildLiveAlerts(
         motivo,
         estadoGps: item.estado_gps,
         distanciaCheckInMetros: item.distancia_check_in_metros,
-      } satisfies DashboardLiveAlertItem
+      } satisfies DashboardLiveAlertItem;
     })
-    .filter(Boolean) as DashboardLiveAlertItem[]
+    .filter(Boolean) as DashboardLiveAlertItem[];
 
-    const discipline = deriveAttendanceDiscipline({
-      assignments: options.assignments.map((item) => ({
-        id: item.id,
-        empleadoId: item.empleado_id,
-        pdvId: item.pdv_id,
-        cuentaClienteId: item.cuenta_cliente_id,
-        supervisorEmpleadoId: item.supervisor_empleado_id,
-        fechaInicio: item.fecha_inicio,
-        fechaFin: item.fecha_fin,
-        tipo: item.tipo,
+  const discipline = deriveAttendanceDiscipline({
+    assignments: options.assignments.map((item) => ({
+      id: item.id,
+      empleadoId: item.empleado_id,
+      pdvId: item.pdv_id,
+      cuentaClienteId: item.cuenta_cliente_id,
+      supervisorEmpleadoId: item.supervisor_empleado_id,
+      fechaInicio: item.fecha_inicio,
+      fechaFin: item.fecha_fin,
+      tipo: item.tipo,
       diasLaborales: item.dias_laborales,
       diaDescanso: item.dia_descanso,
       horarioReferencia: item.horario_referencia,
@@ -3657,6 +3733,7 @@ function buildLiveAlerts(
       checkInUtc: item.check_in_utc,
       checkOutUtc: item.check_out_utc,
       estatus: item.estatus as 'PENDIENTE_VALIDACION' | 'VALIDA' | 'RECHAZADA' | 'CERRADA',
+      metadata: item.metadata,
     })),
     solicitudes: options.solicitudes.map((item) => ({
       id: item.id,
@@ -3672,14 +3749,14 @@ function buildLiveAlerts(
     salaries: [],
     periodStart: today,
     periodEnd: today,
-  })
+  });
 
   const tardyAlerts = discipline.records
     .filter((item) => item.fecha === today && item.estado === 'RETARDO' && item.attendanceId)
     .map((item) => {
-      const asistencia = asistencias.find((candidate) => candidate.id === item.attendanceId)
+      const asistencia = asistencias.find((candidate) => candidate.id === item.attendanceId);
       if (!asistencia) {
-        return null
+        return null;
       }
 
       return {
@@ -3695,48 +3772,51 @@ function buildLiveAlerts(
         motivo: `Check-in tardio: ${item.minutosRetardo ?? 0} min sobre ${item.horarioEsperado ?? 'sin horario'}.`,
         estadoGps: asistencia.estado_gps,
         distanciaCheckInMetros: asistencia.distancia_check_in_metros,
-      } satisfies DashboardLiveAlertItem
+      } satisfies DashboardLiveAlertItem;
     })
-    .filter(Boolean) as DashboardLiveAlertItem[]
+    .filter(Boolean) as DashboardLiveAlertItem[];
 
   const eligibleQuotaPeriodIds = new Set(
     options.activePeriods
       .filter((item) => item.estado === 'BORRADOR' || item.estado === 'ABIERTO')
       .filter((item) => {
-        const start = new Date(item.fecha_inicio + 'T00:00:00Z')
-        const end = new Date(item.fecha_fin + 'T23:59:59Z')
-        const midpoint = start.getTime() + (end.getTime() - start.getTime()) / 2
-        return Date.now() >= midpoint
+        const start = new Date(item.fecha_inicio + 'T00:00:00Z');
+        const end = new Date(item.fecha_fin + 'T23:59:59Z');
+        const midpoint = start.getTime() + (end.getTime() - start.getTime()) / 2;
+        return Date.now() >= midpoint;
       })
       .map((item) => item.id)
-  )
+  );
 
   const quotaAlerts = options.quotas
-    .filter((item) => eligibleQuotaPeriodIds.has(item.periodo_id))
+    .filter((item) => Boolean(item.periodo_id && eligibleQuotaPeriodIds.has(item.periodo_id)))
     .filter((item) => item.estado !== 'CUMPLIDA' && item.cumplimiento_porcentaje < 70)
     .slice(0, DASHBOARD_LIVE_ALERT_LIMIT)
-    .map((item) => ({
-      id: `cuota:${item.id}`,
-      tipo: 'CUOTA_BAJA',
-      cuentaClienteId: item.cuenta_cliente_id,
-      pdvId: null,
-      pdv: 'Cuota del periodo',
-      pdvClaveBtl: null,
-      empleado: getFirst(item.empleado)?.nombre_completo ?? 'Sin colaborador',
-      fechaOperacion: today,
-      radioToleranciaMetros: null,
-      motivo: `Ventas por debajo de cuota: ${roundToTwo(item.cumplimiento_porcentaje)}% de cumplimiento.`,
-      estadoGps: null,
-      distanciaCheckInMetros: null,
-    } satisfies DashboardLiveAlertItem))
+    .map(
+      (item) =>
+        ({
+          id: `cuota:${item.id}`,
+          tipo: 'CUOTA_BAJA',
+          cuentaClienteId: item.cuenta_cliente_id,
+          pdvId: null,
+          pdv: 'Cuota del periodo',
+          pdvClaveBtl: null,
+          empleado: getFirst(item.empleado)?.nombre_completo ?? 'Sin colaborador',
+          fechaOperacion: today,
+          radioToleranciaMetros: null,
+          motivo: `Ventas por debajo de cuota: ${roundToTwo(item.cumplimiento_porcentaje)}% de cumplimiento.`,
+          estadoGps: null,
+          distanciaCheckInMetros: null,
+        }) satisfies DashboardLiveAlertItem
+    );
 
   const imssAlerts = options.pendingImss.map((item) => {
     const metadata =
       item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
         ? item.metadata
-        : {}
-    const workflowStage = String(metadata.workflow_stage ?? '').trim()
-    const fechaReferencia = item.expediente_validado_en ?? item.created_at
+        : {};
+    const workflowStage = String(metadata.workflow_stage ?? '').trim();
+    const fechaReferencia = item.expediente_validado_en ?? item.created_at;
     const motivo =
       workflowStage === 'EN_FLUJO_IMSS' || workflowStage === 'EN_GESTION'
         ? 'Alta IMSS iniciada por Nomina, pero todavia no cerrada.'
@@ -3744,7 +3824,7 @@ function buildLiveAlerts(
           ? 'Expediente con incidencia de IMSS. Requiere correccion y seguimiento.'
           : item.imss_estado === 'PENDIENTE_DOCUMENTOS'
             ? 'Expediente validado y pendiente de documentos para completar el alta IMSS.'
-            : 'Expediente validado y listo para que Nomina procese el alta IMSS.'
+            : 'Expediente validado y listo para que Nomina procese el alta IMSS.';
 
     return {
       id: `imss:${item.id}`,
@@ -3759,10 +3839,16 @@ function buildLiveAlerts(
       motivo,
       estadoGps: item.imss_estado,
       distanciaCheckInMetros: null,
-    } satisfies DashboardLiveAlertItem
-  })
+    } satisfies DashboardLiveAlertItem;
+  });
 
-  return [...assignmentAlerts, ...imssAlerts, ...geofenceAlerts, ...tardyAlerts, ...quotaAlerts].slice(0, DASHBOARD_LIVE_ALERT_LIMIT)
+  return [
+    ...assignmentAlerts,
+    ...imssAlerts,
+    ...geofenceAlerts,
+    ...tardyAlerts,
+    ...quotaAlerts,
+  ].slice(0, DASHBOARD_LIVE_ALERT_LIMIT);
 }
 
 function buildFilterOptions(
@@ -3771,21 +3857,21 @@ function buildFilterOptions(
 ): DashboardFilterOptions {
   const estados = Array.from(
     new Set(asistencias.map((item) => item.pdv_estado ?? 'Sin estado').filter(Boolean))
-  ).sort((left, right) => left.localeCompare(right, 'es'))
+  ).sort((left, right) => left.localeCompare(right, 'es'));
 
   const zonas = Array.from(
     new Set(asistencias.map((item) => item.pdv_zona ?? 'Sin zona').filter(Boolean))
-  ).sort((left, right) => left.localeCompare(right, 'es'))
+  ).sort((left, right) => left.localeCompare(right, 'es'));
 
   const supervisoresOptions = supervisores
     .map((item) => ({ id: item.id, nombre: item.nombre }))
-    .sort((left, right) => left.nombre.localeCompare(right.nombre, 'es'))
+    .sort((left, right) => left.nombre.localeCompare(right.nombre, 'es'));
 
   return {
     estados,
     zonas,
     supervisores: supervisoresOptions,
-  }
+  };
 }
 
 function buildMapItems(
@@ -3793,17 +3879,17 @@ function buildMapItems(
   geocercas: DashboardGeocercaRow[],
   supervisorsById: Map<string, string>
 ) {
-  const geocercaByPdv = new Map(geocercas.map((item) => [item.pdv_id, item] as const))
+  const geocercaByPdv = new Map(geocercas.map((item) => [item.pdv_id, item] as const));
 
   return asistencias
     .filter((item) => Boolean(item.check_in_utc) && !item.check_out_utc)
     .map((item) => {
-      const geocerca = geocercaByPdv.get(item.pdv_id)
-      const latitud = item.latitud_check_in ?? geocerca?.latitud ?? null
-      const longitud = item.longitud_check_in ?? geocerca?.longitud ?? null
+      const geocerca = geocercaByPdv.get(item.pdv_id);
+      const latitud = item.latitud_check_in ?? geocerca?.latitud ?? null;
+      const longitud = item.longitud_check_in ?? geocerca?.longitud ?? null;
 
       if (latitud === null || longitud === null) {
-        return null
+        return null;
       }
 
       return {
@@ -3814,7 +3900,7 @@ function buildMapItems(
         empleado: item.empleado_nombre,
         supervisorId: item.supervisor_empleado_id,
         supervisorNombre: item.supervisor_empleado_id
-          ? supervisorsById.get(item.supervisor_empleado_id) ?? item.supervisor_empleado_id
+          ? (supervisorsById.get(item.supervisor_empleado_id) ?? item.supervisor_empleado_id)
           : 'Sin supervisor',
         zona: item.pdv_zona ?? 'Sin zona',
         cuentaClienteId: item.cuenta_cliente_id,
@@ -3824,45 +3910,45 @@ function buildMapItems(
         radioToleranciaMetros: geocerca?.radio_tolerancia_metros ?? null,
         estadoGps: item.estado_gps,
         distanciaCheckInMetros: item.distancia_check_in_metros,
-      } satisfies DashboardMapItem
+      } satisfies DashboardMapItem;
     })
-    .filter((item): item is DashboardMapItem => Boolean(item))
+    .filter((item): item is DashboardMapItem => Boolean(item));
 }
 
 function getDashboardSolicitudNextActor(item: DashboardSolicitudRow): string | null {
   const metadata =
     item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
       ? (item.metadata as Record<string, unknown>)
-      : {}
+      : {};
   const configuredNextActor =
     typeof metadata.siguiente_actor === 'string' && metadata.siguiente_actor.trim().length > 0
       ? metadata.siguiente_actor.trim()
-      : null
+      : null;
 
   if (configuredNextActor) {
-    return configuredNextActor
+    return configuredNextActor;
   }
 
   if (item.tipo === 'INCAPACIDAD') {
     return getIncapacidadNextActor({
       estatus: item.estatus as Solicitud['estatus'],
       metadata,
-    })
+    });
   }
 
   const approvalPath = Array.isArray(metadata.approval_path)
     ? metadata.approval_path.map((value) => String(value).trim().toUpperCase()).filter(Boolean)
-    : []
+    : [];
 
   if (item.estatus === 'BORRADOR' || item.estatus === 'ENVIADA') {
-    return approvalPath[0] ?? 'SUPERVISOR'
+    return approvalPath[0] ?? 'SUPERVISOR';
   }
 
   if (item.estatus === 'VALIDADA_SUP') {
-    return approvalPath[1] ?? 'COORDINADOR'
+    return approvalPath[1] ?? 'COORDINADOR';
   }
 
-  return null
+  return null;
 }
 
 function buildSupervisorAuthorizationItems(
@@ -3870,36 +3956,36 @@ function buildSupervisorAuthorizationItems(
   solicitudes: DashboardSolicitudRow[]
 ): DashboardSupervisorAuthorizationItem[] {
   if (actor.puesto !== 'SUPERVISOR') {
-    return []
+    return [];
   }
 
-  const now = Date.now()
+  const now = Date.now();
 
   return solicitudes
     .filter((item) => item.supervisor_empleado_id === actor.empleadoId)
     .map((item) => {
-      const siguienteActor = getDashboardSolicitudNextActor(item)
+      const siguienteActor = getDashboardSolicitudNextActor(item);
 
       if (siguienteActor !== 'SUPERVISOR') {
-        return null
+        return null;
       }
 
       const metadata =
         item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
           ? (item.metadata as Record<string, unknown>)
-          : {}
+          : {};
       const resolverAntesDe =
-        typeof metadata.resolver_antes_de === 'string' ? metadata.resolver_antes_de : null
-      const enviadaEn = typeof metadata.enviada_en === 'string' ? metadata.enviada_en : null
+        typeof metadata.resolver_antes_de === 'string' ? metadata.resolver_antes_de : null;
+      const enviadaEn = typeof metadata.enviada_en === 'string' ? metadata.enviada_en : null;
       const slaHours =
         typeof metadata.sla_hours === 'number'
           ? metadata.sla_hours
           : typeof metadata.sla_hours === 'string'
             ? Number(metadata.sla_hours)
-            : null
+            : null;
       const tiempoRestanteMinutos = resolverAntesDe
         ? Math.round((new Date(resolverAntesDe).getTime() - now) / 60000)
-        : null
+        : null;
       const urgencyState =
         tiempoRestanteMinutos === null
           ? null
@@ -3907,7 +3993,7 @@ function buildSupervisorAuthorizationItems(
             ? 'VENCIDA'
             : tiempoRestanteMinutos <= 12 * 60
               ? 'URGENTE'
-              : 'NORMAL'
+              : 'NORMAL';
 
       return {
         id: item.id,
@@ -3928,33 +4014,31 @@ function buildSupervisorAuthorizationItems(
         slaHours: Number.isFinite(slaHours) ? slaHours : null,
         tiempoRestanteMinutos,
         urgencyState,
-      } satisfies DashboardSupervisorAuthorizationItem
+      } satisfies DashboardSupervisorAuthorizationItem;
     })
-      .filter((item): item is DashboardSupervisorAuthorizationItem => Boolean(item))
+    .filter((item): item is DashboardSupervisorAuthorizationItem => Boolean(item));
 }
 
-function mapSupervisorRequestKind(
-  tipo: string
-): DashboardSupervisorRequestKind | null {
-  const normalized = String(tipo).trim().toUpperCase()
+function mapSupervisorRequestKind(tipo: string): DashboardSupervisorRequestKind | null {
+  const normalized = String(tipo).trim().toUpperCase();
 
   if (normalized === 'VACACIONES') {
-    return 'VACACIONES'
+    return 'VACACIONES';
   }
 
   if (normalized === 'INCAPACIDAD') {
-    return 'INCAPACIDAD'
+    return 'INCAPACIDAD';
   }
 
   if (normalized === 'PERMISO') {
-    return 'CUMPLEANOS'
+    return 'CUMPLEANOS';
   }
 
   if (normalized === 'JUSTIFICACION_FALTA') {
-    return 'JUSTIFICACION_FALTA'
+    return 'JUSTIFICACION_FALTA';
   }
 
-  return null
+  return null;
 }
 
 function buildSupervisorRequestInbox(
@@ -3971,35 +4055,35 @@ function buildSupervisorRequestInbox(
         { key: 'CUMPLEANOS', label: 'Dia cumple', count: 0, actionableCount: 0 },
         { key: 'JUSTIFICACION_FALTA', label: 'Justificacion', count: 0, actionableCount: 0 },
       ],
-    }
+    };
   }
 
-  const now = Date.now()
+  const now = Date.now();
   const items = solicitudes
     .filter((item) => item.supervisor_empleado_id === actor.empleadoId)
     .map((item) => {
-      const kind = mapSupervisorRequestKind(item.tipo)
+      const kind = mapSupervisorRequestKind(item.tipo);
       if (!kind) {
-        return null
+        return null;
       }
 
-      const siguienteActor = getDashboardSolicitudNextActor(item)
+      const siguienteActor = getDashboardSolicitudNextActor(item);
       const metadata =
         item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
           ? (item.metadata as Record<string, unknown>)
-          : {}
+          : {};
       const resolverAntesDe =
-        typeof metadata.resolver_antes_de === 'string' ? metadata.resolver_antes_de : null
-      const enviadaEn = typeof metadata.enviada_en === 'string' ? metadata.enviada_en : null
+        typeof metadata.resolver_antes_de === 'string' ? metadata.resolver_antes_de : null;
+      const enviadaEn = typeof metadata.enviada_en === 'string' ? metadata.enviada_en : null;
       const slaHours =
         typeof metadata.sla_hours === 'number'
           ? metadata.sla_hours
           : typeof metadata.sla_hours === 'string'
             ? Number(metadata.sla_hours)
-            : null
+            : null;
       const tiempoRestanteMinutos = resolverAntesDe
         ? Math.round((new Date(resolverAntesDe).getTime() - now) / 60000)
-        : null
+        : null;
       const urgencyState =
         tiempoRestanteMinutos === null
           ? null
@@ -4007,7 +4091,7 @@ function buildSupervisorRequestInbox(
             ? 'VENCIDA'
             : tiempoRestanteMinutos <= 12 * 60
               ? 'URGENTE'
-              : 'NORMAL'
+              : 'NORMAL';
 
       return {
         id: item.id,
@@ -4030,22 +4114,22 @@ function buildSupervisorRequestInbox(
         slaHours: Number.isFinite(slaHours) ? slaHours : null,
         tiempoRestanteMinutos,
         urgencyState,
-      } satisfies DashboardSupervisorRequestItem
+      } satisfies DashboardSupervisorRequestItem;
     })
-    .filter((item): item is DashboardSupervisorRequestItem => Boolean(item))
+    .filter((item): item is DashboardSupervisorRequestItem => Boolean(item));
 
   const buildSummary = (
     key: DashboardSupervisorRequestSummaryItem['key'],
     label: string
   ): DashboardSupervisorRequestSummaryItem => {
-    const filtered = key === 'TODAS' ? items : items.filter((item) => item.kind === key)
+    const filtered = key === 'TODAS' ? items : items.filter((item) => item.kind === key);
     return {
       key,
       label,
       count: filtered.length,
       actionableCount: filtered.filter((item) => item.actionable).length,
-    }
-  }
+    };
+  };
 
   return {
     items,
@@ -4056,7 +4140,7 @@ function buildSupervisorRequestInbox(
       buildSummary('CUMPLEANOS', 'Dia cumple'),
       buildSummary('JUSTIFICACION_FALTA', 'Justificacion'),
     ],
-  }
+  };
 }
 
 function buildSupervisorRequestInboxFromSummaries(
@@ -4074,37 +4158,36 @@ function buildSupervisorRequestInboxFromSummaries(
             { key: 'CUMPLEANOS', label: 'Dia cumple', count: 0, actionableCount: 0 },
             { key: 'JUSTIFICACION_FALTA', label: 'Justificacion', count: 0, actionableCount: 0 },
           ],
-  }
+  };
 }
 
 export interface DashboardPanelOptions {
-  period?: string
-  estado?: string
-  zona?: string
-  supervisorId?: string
-  reachSupervisorId?: string
-  reachWeekStart?: string
-  reachChain?: string
-  reachStoreType?: string
-  includeDermoSecondaryData?: boolean
-  includeSupervisorSecondaryData?: boolean
-  only?: ('stats' | 'live' | 'operations' | 'external' | 'reach')[]
+  period?: string;
+  estado?: string;
+  zona?: string;
+  supervisorId?: string;
+  reachSupervisorId?: string;
+  reachWeekStart?: string;
+  reachChain?: string;
+  reachStoreType?: string;
+  includeDermoSecondaryData?: boolean;
+  includeSupervisorSecondaryData?: boolean;
+  only?: ('stats' | 'live' | 'operations' | 'external' | 'reach')[];
 }
-
 
 async function resolveDashboardContextUncached(
   actor: ActorActual,
   options: DashboardPanelOptions = {},
   customSupabase?: DashboardSupabaseClient
 ) {
-  const scopeLabel = getScopeLabel(actor)
-  const allowGlobalScope = actor.puesto === 'ADMINISTRADOR' && !actor.cuentaClienteId
+  const scopeLabel = getScopeLabel(actor);
+  const allowGlobalScope = actor.puesto === 'ADMINISTRADOR' && !actor.cuentaClienteId;
   const filters: DashboardFilters = {
     periodo: normalizePeriodo(options.period),
     estado: normalizeFilterValue(options.estado),
     zona: normalizeFilterValue(options.zona),
     supervisorId: normalizeFilterValue(options.supervisorId),
-  }
+  };
 
   if (!actor.cuentaClienteId && !allowGlobalScope) {
     return {
@@ -4114,20 +4197,21 @@ async function resolveDashboardContextUncached(
         scopeLabel,
         'El usuario no tiene `cuenta_cliente_id` operativa para consolidar indicadores.'
       ),
-    }
+    };
   }
 
-  let supabase: DashboardSupabaseClient
+  let supabase: DashboardSupabaseClient;
 
   try {
-    supabase = customSupabase ?? (createServiceClient() as unknown as DashboardSupabaseClient)
+    supabase = customSupabase ?? (createServiceClient() as unknown as DashboardSupabaseClient);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'No fue posible crear el cliente admin.'
+    const message =
+      error instanceof Error ? error.message : 'No fue posible crear el cliente admin.';
     return {
       scopeLabel,
       filters,
       empty: buildEmptyDashboard(scopeLabel, message),
-    }
+    };
   }
 
   if (actor.puesto === 'RECLUTAMIENTO') {
@@ -4138,7 +4222,7 @@ async function resolveDashboardContextUncached(
           actor,
           emitSideEffects: false,
         }
-      )
+      );
 
       return {
         scopeLabel,
@@ -4162,7 +4246,7 @@ async function resolveDashboardContextUncached(
           filtros: filters,
           widgets: resolveDashboardWidgets(actor.puesto),
         },
-      }
+      };
     } catch (error) {
       return {
         scopeLabel,
@@ -4173,7 +4257,7 @@ async function resolveDashboardContextUncached(
             ? error.message
             : 'No fue posible resolver la cobertura operativa para Reclutamiento.'
         ),
-      }
+      };
     }
   }
 
@@ -4182,18 +4266,15 @@ async function resolveDashboardContextUncached(
       const [workspace, pendingImss] = await Promise.all([
         obtenerWorkspaceNomina(supabase as unknown as SupabaseClient<any>, actor),
         fetchDashboardPendingImss(supabase, actor),
-      ])
-      const imssPendientes = Math.max(
-        workspace.summary.altasPendientes,
-        pendingImss.data.length
-      )
+      ]);
+      const imssPendientes = Math.max(workspace.summary.altasPendientes, pendingImss.data.length);
       const nominaAlerts = pendingImss.data.map((item) => {
         const metadata =
           item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
             ? item.metadata
-            : {}
-        const workflowStage = String(metadata.workflow_stage ?? '').trim()
-        const fechaReferencia = item.expediente_validado_en ?? item.created_at
+            : {};
+        const workflowStage = String(metadata.workflow_stage ?? '').trim();
+        const fechaReferencia = item.expediente_validado_en ?? item.created_at;
         const motivo =
           workflowStage === 'EN_FLUJO_IMSS' || workflowStage === 'EN_GESTION'
             ? 'Alta IMSS iniciada por Nomina, pero todavia no cerrada.'
@@ -4201,7 +4282,7 @@ async function resolveDashboardContextUncached(
               ? 'Expediente con incidencia de IMSS. Requiere correccion y seguimiento.'
               : item.imss_estado === 'PENDIENTE_DOCUMENTOS'
                 ? 'Expediente validado y pendiente de documentos para completar el alta IMSS.'
-                : 'Expediente validado y listo para que Nomina procese el alta IMSS.'
+                : 'Expediente validado y listo para que Nomina procese el alta IMSS.';
 
         return {
           id: `imss:${item.id}`,
@@ -4216,8 +4297,8 @@ async function resolveDashboardContextUncached(
           motivo,
           estadoGps: item.imss_estado,
           distanciaCheckInMetros: null,
-        } satisfies DashboardLiveAlertItem
-      })
+        } satisfies DashboardLiveAlertItem;
+      });
 
       return {
         scopeLabel,
@@ -4230,11 +4311,11 @@ async function resolveDashboardContextUncached(
           filtros: filters,
           opcionesFiltro: { estados: [], zonas: [], supervisores: [] },
           widgets: resolveDashboardWidgets(actor.puesto),
-        scopeLabel: 'Operacion de nomina',
-        stats: {
-          ...EMPTY_STATS,
-          imssPendientes,
-        },
+          scopeLabel: 'Operacion de nomina',
+          stats: {
+            ...EMPTY_STATS,
+            imssPendientes,
+          },
           nominaWorkspace: workspace,
         },
         insights: {
@@ -4245,7 +4326,7 @@ async function resolveDashboardContextUncached(
           filtros: filters,
           widgets: resolveDashboardWidgets(actor.puesto),
         },
-      }
+      };
     } catch (error) {
       return {
         scopeLabel,
@@ -4256,12 +4337,12 @@ async function resolveDashboardContextUncached(
             ? error.message
             : 'No fue posible resolver el workspace operativo de Nomina.'
         ),
-      }
+      };
     }
   }
 
-  let visitReach: VisitReachDashboardSummary | null = null
-  const needsReachEarly = !options.only || options.only.includes('reach')
+  let visitReach: VisitReachDashboardSummary | null = null;
+  const needsReachEarly = !options.only || options.only.includes('reach');
 
   if ((actor.puesto === 'COORDINADOR' || actor.puesto === 'ADMINISTRADOR') && needsReachEarly) {
     try {
@@ -4270,7 +4351,7 @@ async function resolveDashboardContextUncached(
         weekStart: options.reachWeekStart,
         cadenaCodigo: options.reachChain,
         storeType: options.reachStoreType,
-      }
+      };
 
       visitReach = customSupabase
         ? await obtenerResumenAlcanceVisitas(
@@ -4280,19 +4361,18 @@ async function resolveDashboardContextUncached(
           )
         : await fetchCachedVisitReachSummary(
             serializeVisitReachCacheInput(actor, visitReachOptions)
-          )
+          );
     } catch {
-      visitReach = null
+      visitReach = null;
     }
   }
-
 
   const dermoconsejoData =
     actor.puesto === 'DERMOCONSEJERO'
       ? await buildDermoconsejoData(supabase, actor, {
           includeSecondaryData: options.includeDermoSecondaryData ?? true,
         })
-      : null
+      : null;
   if (actor.puesto === 'DERMOCONSEJERO') {
     return {
       scopeLabel,
@@ -4310,15 +4390,15 @@ async function resolveDashboardContextUncached(
         filtros: filters,
         widgets: resolveDashboardWidgets(actor.puesto),
       },
-    }
+    };
   }
 
-  const fetchOnly = options.only ?? ['stats', 'live', 'operations', 'external', 'reach']
-  const needsStats = fetchOnly.includes('stats')
-  const needsLive = fetchOnly.includes('live')
-  const needsOps = fetchOnly.includes('operations')
-  const needsExternal = fetchOnly.includes('external')
-  const needsReach = fetchOnly.includes('reach')
+  const fetchOnly = options.only ?? ['stats', 'live', 'operations', 'external', 'reach'];
+  const needsStats = fetchOnly.includes('stats');
+  const needsLive = fetchOnly.includes('live');
+  const needsOps = fetchOnly.includes('operations');
+  const needsExternal = fetchOnly.includes('external');
+  const needsReach = fetchOnly.includes('reach');
 
   const supervisorSelfRequestStatusResult =
     actor.puesto === 'SUPERVISOR' && (needsLive || needsOps)
@@ -4326,7 +4406,7 @@ async function resolveDashboardContextUncached(
       : {
           data: [] as DashboardDermoconsejoSolicitudStatusItem[],
           error: null,
-        }
+        };
   const supervisorActiveFormationResult =
     actor.puesto === 'SUPERVISOR' && needsOps
       ? await fetchDermoconsejoActiveFormation(supabase, {
@@ -4335,10 +4415,10 @@ async function resolveDashboardContextUncached(
           todayIso: getTodayIso(),
           pdvIds: [],
         })
-      : { data: null as DashboardDermoFormationRow | null, error: null }
+      : { data: null as DashboardDermoFormationRow | null, error: null };
 
   if (actor.puesto === 'SUPERVISOR') {
-    const includeSupervisorSecondaryData = options.includeSupervisorSecondaryData ?? false
+    const includeSupervisorSecondaryData = options.includeSupervisorSecondaryData ?? false;
     const [
       liveAsistenciasResult,
       supervisorDailyAssignmentsResult,
@@ -4355,9 +4435,9 @@ async function resolveDashboardContextUncached(
         ? fetchSupervisorDailyAssignments(supabase, actor, allowGlobalScope)
         : Promise.resolve({ data: [] as DashboardSupervisorDailyAssignmentRow[], error: null }),
       needsLive || needsOps
-        ? (includeSupervisorSecondaryData
-            ? fetchDashboardSolicitudes(supabase, actor)
-            : fetchSupervisorRequestSummaries(supabase, actor))
+        ? includeSupervisorSecondaryData
+          ? fetchDashboardSolicitudes(supabase, actor)
+          : fetchSupervisorRequestSummaries(supabase, actor)
         : Promise.resolve({ data: null as any, error: null }),
       needsOps
         ? fetchDashboardConfig(supabase)
@@ -4366,29 +4446,37 @@ async function resolveDashboardContextUncached(
         ? fetchDermoconsejoNotifications(supabase, actor, {
             includeItems: includeSupervisorSecondaryData,
           })
-        : Promise.resolve({ data: [] as DashboardDermoconsejoNotificationItem[], unreadCount: 0, error: null }),
-      needsOps
+        : Promise.resolve({
+            data: [] as DashboardDermoconsejoNotificationItem[],
+            unreadCount: 0,
+            error: null,
+          }),
+      needsOps && includeSupervisorSecondaryData
         ? buildSupervisorLoveQuotaSummary(supabase, actor, getTodayIso())
         : Promise.resolve(null),
-      needsReach
+      needsReach && includeSupervisorSecondaryData
         ? fetchSupervisorRouteSnapshot(supabase, actor)
         : Promise.resolve(null),
-    ])
+    ]);
 
     const toleranceMinutes = normalizeConfigNumber(
       configResult.data,
       'asistencias.tolerancia_checkin_minutos',
       15
-    )
-    const supervisorRequestInbox = solicitudesResult.error || !solicitudesResult.data
-      ? buildSupervisorRequestInbox({ ...actor, puesto: actor.puesto }, [])
-      : includeSupervisorSecondaryData
-        ? buildSupervisorRequestInbox(actor, solicitudesResult.data as DashboardSolicitudRow[])
-        : (solicitudesResult.data as DashboardSupervisorRequestInbox)
+    );
+    const supervisorRequestInbox =
+      solicitudesResult.error || !solicitudesResult.data
+        ? buildSupervisorRequestInbox({ ...actor, puesto: actor.puesto }, [])
+        : includeSupervisorSecondaryData
+          ? buildSupervisorRequestInbox(actor, solicitudesResult.data as DashboardSolicitudRow[])
+          : (solicitudesResult.data as DashboardSupervisorRequestInbox);
     const supervisorAuthorizations =
       solicitudesResult.error || !includeSupervisorSecondaryData || !solicitudesResult.data
         ? []
-        : buildSupervisorAuthorizationItems(actor, solicitudesResult.data as DashboardSolicitudRow[])
+        : buildSupervisorAuthorizationItems(
+            actor,
+            solicitudesResult.data as DashboardSolicitudRow[]
+          );
     const teamVacationRanges =
       solicitudesResult.error || !includeSupervisorSecondaryData || !solicitudesResult.data
         ? []
@@ -4399,23 +4487,25 @@ async function resolveDashboardContextUncached(
                 item.estatus === 'REGISTRADA' &&
                 item.supervisor_empleado_id === actor.empleadoId
             )
-            .map(toVacationRangeLike)
-    const refreshedVacationPolicy = includeSupervisorSecondaryData && needsOps
-      ? await buildVacationPolicyForEmployee(supabase, {
-          empleadoId: actor.empleadoId,
-          todayIso: getTodayIso(),
-          teamRanges: teamVacationRanges,
-        })
-      : null
-    const supervisorDailyBoard = supervisorDailyAssignmentsResult.error || !needsOps
-      ? null
-      : await buildSupervisorDailyBoard(
-          actor,
-          supervisorDailyAssignmentsResult.data,
-          liveAsistenciasResult.error ? [] : liveAsistenciasResult.data,
-          getTodayIso(),
-          toleranceMinutes
-        )
+            .map(toVacationRangeLike);
+    const refreshedVacationPolicy =
+      includeSupervisorSecondaryData && needsOps
+        ? await buildVacationPolicyForEmployee(supabase, {
+            empleadoId: actor.empleadoId,
+            todayIso: getTodayIso(),
+            teamRanges: teamVacationRanges,
+          })
+        : null;
+    const supervisorDailyBoard =
+      supervisorDailyAssignmentsResult.error || !needsOps
+        ? null
+        : await buildSupervisorDailyBoard(
+            actor,
+            supervisorDailyAssignmentsResult.data,
+            liveAsistenciasResult.error ? [] : liveAsistenciasResult.data,
+            getTodayIso(),
+            toleranceMinutes
+          );
 
     return {
       scopeLabel,
@@ -4439,7 +4529,9 @@ async function resolveDashboardContextUncached(
           ? null
           : supervisorActiveFormationResult.data
             ? (() => {
-                const targeting = normalizeFormacionTargetingMetadata(supervisorActiveFormationResult.data.metadata)
+                const targeting = normalizeFormacionTargetingMetadata(
+                  supervisorActiveFormationResult.data.metadata
+                );
                 return {
                   id: supervisorActiveFormationResult.data.id,
                   nombre: supervisorActiveFormationResult.data.nombre,
@@ -4457,20 +4549,30 @@ async function resolveDashboardContextUncached(
                   locationLongitude: targeting.locationLongitude ?? null,
                   locationRadiusMeters: targeting.locationRadiusMeters ?? null,
                   attendanceId:
-                    (supervisorActiveFormationResult.data as DashboardDermoFormationRow & { attendance_id?: string | null }).attendance_id ?? null,
+                    (
+                      supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
+                        attendance_id?: string | null;
+                      }
+                    ).attendance_id ?? null,
                   attendanceStatus:
-                    ((supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
-                      attendance_status?: DashboardDermoconsejoFormation['attendanceStatus']
-                    }).attendance_status ?? 'PENDIENTE'),
+                    (
+                      supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
+                        attendance_status?: DashboardDermoconsejoFormation['attendanceStatus'];
+                      }
+                    ).attendance_status ?? 'PENDIENTE',
                   checkInUtc:
-                    (supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
-                      attendance_check_in_utc?: string | null
-                    }).attendance_check_in_utc ?? null,
+                    (
+                      supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
+                        attendance_check_in_utc?: string | null;
+                      }
+                    ).attendance_check_in_utc ?? null,
                   checkOutUtc:
-                    (supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
-                      attendance_check_out_utc?: string | null
-                    }).attendance_check_out_utc ?? null,
-                }
+                    (
+                      supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
+                        attendance_check_out_utc?: string | null;
+                      }
+                    ).attendance_check_out_utc ?? null,
+                };
               })()
             : null,
         supervisorRouteSnapshot,
@@ -4483,7 +4585,7 @@ async function resolveDashboardContextUncached(
         filtros: filters,
         widgets: resolveDashboardWidgets(actor.puesto),
       },
-    }
+    };
   }
 
   const [
@@ -4499,7 +4601,11 @@ async function resolveDashboardContextUncached(
     pendingImssResult,
   ] = await Promise.all([
     needsStats
-      ? fetchFreshDashboardRows(supabase, allowGlobalScope ? null : actor.cuentaClienteId, !customSupabase)
+      ? fetchFreshDashboardRows(
+          supabase,
+          allowGlobalScope ? null : actor.cuentaClienteId,
+          !customSupabase
+        )
       : Promise.resolve({ data: [] as DashboardKpiRow[], error: null }),
     needsLive || needsOps
       ? fetchLiveAssistances(supabase, actor, allowGlobalScope)
@@ -4528,8 +4634,7 @@ async function resolveDashboardContextUncached(
     needsStats || needsExternal
       ? fetchDashboardPendingImss(supabase, actor)
       : Promise.resolve({ data: [] as DashboardPendingImssRow[], error: null }),
-  ])
-
+  ]);
 
   if (dashboardResult.error) {
     return {
@@ -4539,27 +4644,33 @@ async function resolveDashboardContextUncached(
         scopeLabel,
         dashboardResult.error.message ?? 'No fue posible consultar `dashboard_kpis`.'
       ),
-    }
+    };
   }
 
-  const filteredDashboardRows = applyDashboardFilters(dashboardResult.data, filters)
+  const filteredDashboardRows = applyDashboardFilters(dashboardResult.data, filters);
   const filteredLiveRows = liveAsistenciasResult.error
     ? []
-    : applyLiveFilters(liveAsistenciasResult.data, filters)
+    : applyLiveFilters(liveAsistenciasResult.data, filters);
   const supervisorIds = Array.from(
-    new Set(filteredLiveRows.map((item) => item.supervisor_empleado_id).filter((item): item is string => Boolean(item)))
-  )
-  const supervisorsResult = await fetchSupervisores(supabase, supervisorIds)
-  const supervisorsById = new Map(supervisorsResult.data.map((item) => [item.id, item.nombre] as const))
-  const opcionesFiltro = buildFilterOptions(filteredLiveRows, supervisorsResult.data)
+    new Set(
+      filteredLiveRows
+        .map((item) => item.supervisor_empleado_id)
+        .filter((item): item is string => Boolean(item))
+    )
+  );
+  const supervisorsResult = await fetchSupervisores(supabase, supervisorIds);
+  const supervisorsById = new Map(
+    supervisorsResult.data.map((item) => [item.id, item.nombre] as const)
+  );
+  const opcionesFiltro = buildFilterOptions(filteredLiveRows, supervisorsResult.data);
   const toleranceMinutes = normalizeConfigNumber(
     configResult.data,
     'asistencias.tolerancia_checkin_minutos',
     15
-  )
+  );
   const activePeriods = periodsResult.data.filter(
     (item) => item.estado === 'BORRADOR' || item.estado === 'ABIERTO'
-  )
+  );
   const alertasLive =
     liveAsistenciasResult.error ||
     geocercasResult.error ||
@@ -4577,23 +4688,23 @@ async function resolveDashboardContextUncached(
           activePeriods,
           pendingImss: pendingImssResult.data,
           toleranceMinutes,
-        })
+        });
   const mapaPromotores =
     liveAsistenciasResult.error || geocercasResult.error
       ? []
-      : buildMapItems(filteredLiveRows, geocercasResult.data, supervisorsById)
+      : buildMapItems(filteredLiveRows, geocercasResult.data, supervisorsById);
   const supervisorAuthorizations = solicitudesResult.error
     ? []
-    : buildSupervisorAuthorizationItems(actor, solicitudesResult.data)
+    : buildSupervisorAuthorizationItems(actor, solicitudesResult.data);
   const supervisorRequestInbox = solicitudesResult.error
     ? buildSupervisorRequestInbox({ ...actor, puesto: actor.puesto }, [])
-    : buildSupervisorRequestInbox(actor, solicitudesResult.data)
-  const supervisorVacationPolicy = null
+    : buildSupervisorRequestInbox(actor, solicitudesResult.data);
+  const supervisorVacationPolicy = null;
   const supervisorNotificationsResult = {
     data: [] as DashboardDermoconsejoNotificationItem[],
     unreadCount: 0,
     error: null,
-  }
+  };
   const supervisorDailyBoard = supervisorDailyAssignmentsResult.error
     ? null
     : await buildSupervisorDailyBoard(
@@ -4602,8 +4713,8 @@ async function resolveDashboardContextUncached(
         liveAsistenciasResult.error ? [] : liveAsistenciasResult.data,
         getTodayIso(),
         toleranceMinutes
-      )
-  const supervisorLoveQuota = null
+      );
+  const supervisorLoveQuota = null;
 
   if (filteredDashboardRows.length === 0) {
     return {
@@ -4617,54 +4728,54 @@ async function resolveDashboardContextUncached(
         },
         filtros: filters,
         opcionesFiltro,
-          widgets: resolveDashboardWidgets(actor.puesto),
-          dermoconsejo: dermoconsejoData,
-          supervisorDailyBoard,
-          supervisorLoveQuota,
-          supervisorVacationPolicy,
+        widgets: resolveDashboardWidgets(actor.puesto),
+        dermoconsejo: dermoconsejoData,
+        supervisorDailyBoard,
+        supervisorLoveQuota,
+        supervisorVacationPolicy,
         supervisorNotifications: {
-            unreadCount: supervisorNotificationsResult.unreadCount,
-              items: supervisorNotificationsResult.data,
-            },
-            supervisorAuthorizations,
-            supervisorRequestInbox,
-            supervisorSelfRequestStatus: supervisorSelfRequestStatusResult.error
-              ? []
-              : supervisorSelfRequestStatusResult.data,
-            supervisorRouteSnapshot: null,
-            visitReach,
-          },
-        insights: {
-          tendenciaSemana: [],
+          unreadCount: supervisorNotificationsResult.unreadCount,
+          items: supervisorNotificationsResult.data,
+        },
+        supervisorAuthorizations,
+        supervisorRequestInbox,
+        supervisorSelfRequestStatus: supervisorSelfRequestStatusResult.error
+          ? []
+          : supervisorSelfRequestStatusResult.data,
+        supervisorRouteSnapshot: null,
+        visitReach,
+      },
+      insights: {
+        tendenciaSemana: [],
         tendenciaMes: [],
         alertasLive,
         mapaPromotores,
         filtros: filters,
         widgets: resolveDashboardWidgets(actor.puesto),
       },
-    }
+    };
   }
 
   const latestDate = filteredDashboardRows.reduce((current, row) => {
     if (!current || row.fecha_corte > current) {
-      return row.fecha_corte
+      return row.fecha_corte;
     }
 
-    return current
-  }, '')
-  const latestRows = filteredDashboardRows.filter((row) => row.fecha_corte === latestDate)
+    return current;
+  }, '');
+  const latestRows = filteredDashboardRows.filter((row) => row.fecha_corte === latestDate);
   const latestTotals = latestRows.reduce(
     (acc, row) => {
-      acc.promotoresActivos += row.promotores_activos
-      acc.checkInsValidos += row.checkins_validos
-      acc.jornadasOperadas += row.jornadas_operadas
-      acc.ventasConfirmadas += row.ventas_confirmadas
-      acc.montoConfirmado += row.monto_confirmado
-      acc.afiliacionesLove += row.afiliaciones_love
-      acc.alertasOperativas += row.alertas_operativas
-      acc.cuotasCumplidas += row.cuotas_cumplidas_periodo
-      acc.netoNomina += row.neto_nomina_periodo
-      return acc
+      acc.promotoresActivos += row.promotores_activos;
+      acc.checkInsValidos += row.checkins_validos;
+      acc.jornadasOperadas += row.jornadas_operadas;
+      acc.ventasConfirmadas += row.ventas_confirmadas;
+      acc.montoConfirmado += row.monto_confirmado;
+      acc.afiliacionesLove += row.afiliaciones_love;
+      acc.alertasOperativas += row.alertas_operativas;
+      acc.cuotasCumplidas += row.cuotas_cumplidas_periodo;
+      acc.netoNomina += row.neto_nomina_periodo;
+      return acc;
     },
     {
       promotoresActivos: 0,
@@ -4677,10 +4788,10 @@ async function resolveDashboardContextUncached(
       cuotasCumplidas: 0,
       netoNomina: 0,
     }
-  )
+  );
 
-  const tendenciaMes = aggregateTrend(filteredDashboardRows)
-  const tendenciaSemana = tendenciaMes.slice(-7)
+  const tendenciaMes = aggregateTrend(filteredDashboardRows);
+  const tendenciaSemana = tendenciaMes.slice(-7);
 
   return {
     scopeLabel,
@@ -4722,65 +4833,78 @@ async function resolveDashboardContextUncached(
         .sort((left, right) => right.montoConfirmado - left.montoConfirmado),
       infraestructuraLista: true,
       refreshedAt: getLatestRefreshedAt(filteredDashboardRows),
-      scopeLabel:
-        latestRows.length === 1
-          ? latestRows[0].cuenta_cliente
-          : scopeLabel,
+      scopeLabel: latestRows.length === 1 ? latestRows[0].cuenta_cliente : scopeLabel,
       filtros: filters,
       opcionesFiltro,
-        widgets: resolveDashboardWidgets(actor.puesto),
-        dermoconsejo: dermoconsejoData,
-        supervisorDailyBoard,
-        supervisorLoveQuota,
-        supervisorVacationPolicy,
-        supervisorRouteSnapshot: null,
-          supervisorNotifications: {
-            unreadCount: supervisorNotificationsResult.unreadCount,
-            items: supervisorNotificationsResult.data,
-          },
-          supervisorAuthorizations,
-          supervisorRequestInbox,
-          supervisorSelfRequestStatus: supervisorSelfRequestStatusResult.error
-            ? []
-            : supervisorSelfRequestStatusResult.data,
-          supervisorActiveFormation: supervisorActiveFormationResult.error
-            ? null
-            : supervisorActiveFormationResult.data
-              ? (() => {
-                  const targeting = normalizeFormacionTargetingMetadata(supervisorActiveFormationResult.data.metadata)
-                  return {
-                  id: supervisorActiveFormationResult.data.id,
-                  nombre: supervisorActiveFormationResult.data.nombre,
-                  fechaInicio: supervisorActiveFormationResult.data.fecha_inicio,
-                  fechaFin: supervisorActiveFormationResult.data.fecha_fin,
-                  sede: supervisorActiveFormationResult.data.sede,
-                  tipo: supervisorActiveFormationResult.data.tipo,
-                  tipoEvento: targeting.eventType,
-                  modalidad: targeting.modality,
-                  horarioInicio: targeting.scheduleStart,
-                  horarioFin: targeting.scheduleEnd,
-                  supervisorNombre: targeting.supervisorName,
-                  locationAddress: targeting.locationAddress ?? null,
-                  locationLatitude: targeting.locationLatitude ?? null,
-                  locationLongitude: targeting.locationLongitude ?? null,
-                  locationRadiusMeters: targeting.locationRadiusMeters ?? null,
-                  attendanceId: (supervisorActiveFormationResult.data as DashboardDermoFormationRow & { attendance_id?: string | null }).attendance_id ?? null,
-                  attendanceStatus:
-                    ((supervisorActiveFormationResult.data as DashboardDermoFormationRow & { attendance_status?: DashboardDermoconsejoFormation['attendanceStatus'] }).attendance_status ??
-                      'PENDIENTE'),
-                  checkInUtc:
-                    (supervisorActiveFormationResult.data as DashboardDermoFormationRow & { attendance_check_in_utc?: string | null }).attendance_check_in_utc ??
-                    null,
-                  checkOutUtc:
-                    (supervisorActiveFormationResult.data as DashboardDermoFormationRow & { attendance_check_out_utc?: string | null }).attendance_check_out_utc ??
-                    null,
-                }
-                })()
-              : null,
-          recruitmentCoverage: null,
-          nominaWorkspace: null,
-          visitReach,
-        },
+      widgets: resolveDashboardWidgets(actor.puesto),
+      dermoconsejo: dermoconsejoData,
+      supervisorDailyBoard,
+      supervisorLoveQuota,
+      supervisorVacationPolicy,
+      supervisorRouteSnapshot: null,
+      supervisorNotifications: {
+        unreadCount: supervisorNotificationsResult.unreadCount,
+        items: supervisorNotificationsResult.data,
+      },
+      supervisorAuthorizations,
+      supervisorRequestInbox,
+      supervisorSelfRequestStatus: supervisorSelfRequestStatusResult.error
+        ? []
+        : supervisorSelfRequestStatusResult.data,
+      supervisorActiveFormation: supervisorActiveFormationResult.error
+        ? null
+        : supervisorActiveFormationResult.data
+          ? (() => {
+              const targeting = normalizeFormacionTargetingMetadata(
+                supervisorActiveFormationResult.data.metadata
+              );
+              return {
+                id: supervisorActiveFormationResult.data.id,
+                nombre: supervisorActiveFormationResult.data.nombre,
+                fechaInicio: supervisorActiveFormationResult.data.fecha_inicio,
+                fechaFin: supervisorActiveFormationResult.data.fecha_fin,
+                sede: supervisorActiveFormationResult.data.sede,
+                tipo: supervisorActiveFormationResult.data.tipo,
+                tipoEvento: targeting.eventType,
+                modalidad: targeting.modality,
+                horarioInicio: targeting.scheduleStart,
+                horarioFin: targeting.scheduleEnd,
+                supervisorNombre: targeting.supervisorName,
+                locationAddress: targeting.locationAddress ?? null,
+                locationLatitude: targeting.locationLatitude ?? null,
+                locationLongitude: targeting.locationLongitude ?? null,
+                locationRadiusMeters: targeting.locationRadiusMeters ?? null,
+                attendanceId:
+                  (
+                    supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
+                      attendance_id?: string | null;
+                    }
+                  ).attendance_id ?? null,
+                attendanceStatus:
+                  (
+                    supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
+                      attendance_status?: DashboardDermoconsejoFormation['attendanceStatus'];
+                    }
+                  ).attendance_status ?? 'PENDIENTE',
+                checkInUtc:
+                  (
+                    supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
+                      attendance_check_in_utc?: string | null;
+                    }
+                  ).attendance_check_in_utc ?? null,
+                checkOutUtc:
+                  (
+                    supervisorActiveFormationResult.data as DashboardDermoFormationRow & {
+                      attendance_check_out_utc?: string | null;
+                    }
+                  ).attendance_check_out_utc ?? null,
+              };
+            })()
+          : null,
+      recruitmentCoverage: null,
+      nominaWorkspace: null,
+      visitReach,
+    },
     insights: {
       tendenciaSemana,
       tendenciaMes,
@@ -4789,7 +4913,7 @@ async function resolveDashboardContextUncached(
       filtros: filters,
       widgets: resolveDashboardWidgets(actor.puesto),
     },
-  }
+  };
 }
 
 async function fetchDashboardAssignments(
@@ -4802,71 +4926,76 @@ async function fetchDashboardAssignments(
     .select(
       'id, empleado_id, cuenta_cliente_id, supervisor_empleado_id, pdv_id, fecha_inicio, fecha_fin, tipo, dias_laborales, dia_descanso, horario_referencia, naturaleza, prioridad, empleado:empleado_id(nombre_completo), pdv:pdv_id(nombre, clave_btl, zona)'
     )
-    .order('fecha_inicio', { ascending: false })
+    .order('fecha_inicio', { ascending: false });
 
   if (actor.cuentaClienteId) {
-    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId)
+    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId);
   }
 
-  const result = await query.limit(400)
+  const result = await query.limit(400);
   return {
-    data: ((result.data ?? []) as DashboardAssignmentRow[]).filter((item) =>
-      allowGlobalScope || item.cuenta_cliente_id === actor.cuentaClienteId
+    data: ((result.data ?? []) as DashboardAssignmentRow[]).filter(
+      (item) => allowGlobalScope || item.cuenta_cliente_id === actor.cuentaClienteId
     ),
     error: result.error,
-  }
+  };
 }
 
 async function fetchSupervisorDailyAssignments(
   supabase: DashboardSupabaseClient,
   actor: ActorActual,
-  allowGlobalScope: boolean
+  allowGlobalScope: boolean,
+  targetDateIso?: string
 ) {
+  const dateIso = targetDateIso?.trim() || getTodayIso();
   let query = supabase
     .from('asignacion')
     .select(
       'id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, pdv_id, fecha_inicio, fecha_fin, dias_laborales, dia_descanso, tipo, horario_referencia, naturaleza, prioridad, estado_publicacion, empleado:empleado_id(nombre_completo), pdv:pdv_id(nombre, clave_btl, zona)'
     )
-    .order('fecha_inicio', { ascending: false })
+    .eq('estado_publicacion', 'PUBLICADA')
+    .lte('fecha_inicio', dateIso)
+    .order('fecha_inicio', { ascending: false });
+
+  if (typeof query.or === 'function') {
+    query = query.or(`fecha_fin.is.null,fecha_fin.gte.${dateIso}`);
+  }
 
   if (actor.cuentaClienteId) {
-    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId)
+    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId);
   }
 
   if (actor.puesto === 'SUPERVISOR') {
-    query = query.eq('supervisor_empleado_id', actor.empleadoId)
+    query = query.eq('supervisor_empleado_id', actor.empleadoId);
   }
 
-  const result = await query.limit(240)
+  const result = await query.limit(120);
   return {
-    data: ((result.data ?? []) as DashboardSupervisorDailyAssignmentRow[]).filter((item) =>
-      allowGlobalScope || item.cuenta_cliente_id === actor.cuentaClienteId
+    data: ((result.data ?? []) as DashboardSupervisorDailyAssignmentRow[]).filter(
+      (item) => allowGlobalScope || item.cuenta_cliente_id === actor.cuentaClienteId
     ),
     error: result.error,
-  }
+  };
 }
 
-async function fetchDashboardSolicitudes(
-  supabase: DashboardSupabaseClient,
-  actor: ActorActual
-) {
+async function fetchDashboardSolicitudes(supabase: DashboardSupabaseClient, actor: ActorActual) {
   let query = supabase
     .from('solicitud')
     .select(
       'id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, fecha_inicio, fecha_fin, tipo, estatus, motivo, comentarios, justificante_url, metadata, empleado:empleado_id(nombre_completo), cuenta_cliente:cuenta_cliente_id(nombre)'
     )
-    .order('fecha_inicio', { ascending: false })
+    .order('fecha_inicio', { ascending: false });
 
   if (actor.cuentaClienteId) {
-    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId)
+    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId);
   }
 
-  const result = await query.limit(240)
+  const result = await query.limit(240);
 
   return {
     data: (result.data ?? []) as DashboardSolicitudRow[],
     error: result.error,
-  }
+  };
 }
 
 async function fetchSupervisorRequestSummaries(
@@ -4877,70 +5006,91 @@ async function fetchSupervisorRequestSummaries(
     return {
       data: buildSupervisorRequestInboxFromSummaries([]),
       error: null,
-    }
+    };
   }
 
-  const result = await supabase
+  let query = supabase
     .from('solicitud')
     .select('id, supervisor_empleado_id, tipo, estatus, metadata')
     .eq('supervisor_empleado_id', actor.empleadoId)
-    .order('fecha_inicio', { ascending: false })
-    .limit(160)
+    .order('fecha_inicio', { ascending: false });
+
+  if (typeof query.in === 'function') {
+    query = query.in('estatus', [
+      'REGISTRADA',
+      'PENDIENTE_VALIDACION',
+      'VALIDADA_SUP',
+      'CORRECCION_SOLICITADA',
+    ]);
+  }
+
+  if (actor.cuentaClienteId) {
+    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId);
+  }
+
+  const result = await query.limit(80);
 
   if (result.error) {
     return {
       data: buildSupervisorRequestInboxFromSummaries([]),
       error: result.error,
-    }
+    };
   }
 
-  const lightweightRows = ((result.data ?? []) as Array<{
-    id: string
-    supervisor_empleado_id: string | null
-    tipo: string
-    estatus: string
-    metadata: unknown
-  }>).map((item) => {
-    const kind = mapSupervisorRequestKind(item.tipo)
-    if (!kind) {
-      return null
-    }
+  const lightweightRows = (
+    (result.data ?? []) as Array<{
+      id: string;
+      supervisor_empleado_id: string | null;
+      tipo: string;
+      estatus: string;
+      metadata: unknown;
+    }>
+  )
+    .map((item) => {
+      const kind = mapSupervisorRequestKind(item.tipo);
+      if (!kind) {
+        return null;
+      }
 
-    const nextActor = getDashboardSolicitudNextActor({
-      id: item.id,
-      cuenta_cliente_id: '',
-      empleado_id: '',
-      supervisor_empleado_id: item.supervisor_empleado_id,
-      fecha_inicio: '',
-      fecha_fin: '',
-      tipo: item.tipo,
-      estatus: item.estatus,
-      motivo: null,
-      comentarios: null,
-      justificante_url: null,
-      metadata: item.metadata,
-      empleado: [],
-      cuenta_cliente: [],
-    } as DashboardSolicitudRow)
+      const nextActor = getDashboardSolicitudNextActor({
+        id: item.id,
+        cuenta_cliente_id: '',
+        empleado_id: '',
+        supervisor_empleado_id: item.supervisor_empleado_id,
+        fecha_inicio: '',
+        fecha_fin: '',
+        tipo: item.tipo,
+        estatus: item.estatus,
+        motivo: null,
+        comentarios: null,
+        justificante_url: null,
+        metadata: item.metadata,
+        empleado: [],
+        cuenta_cliente: [],
+      } as DashboardSolicitudRow);
 
-    return {
-      kind,
-      actionable: nextActor === 'SUPERVISOR',
-    }
-  }).filter((item): item is { kind: DashboardSupervisorRequestKind; actionable: boolean } => Boolean(item))
+      return {
+        kind,
+        actionable: nextActor === 'SUPERVISOR',
+      };
+    })
+    .filter((item): item is { kind: DashboardSupervisorRequestKind; actionable: boolean } =>
+      Boolean(item)
+    );
 
   const buildSummary = (
     key: DashboardSupervisorRequestSummaryItem['key'],
     label: string
   ): DashboardSupervisorRequestSummaryItem => {
-    const filtered = key === 'TODAS' ? lightweightRows : lightweightRows.filter((item) => item.kind === key)
+    const filtered =
+      key === 'TODAS' ? lightweightRows : lightweightRows.filter((item) => item.kind === key);
     return {
       key,
       label,
       count: filtered.length,
       actionableCount: filtered.filter((item) => item.actionable).length,
-    }
-  }
+    };
+  };
 
   return {
     data: buildSupervisorRequestInboxFromSummaries([
@@ -4951,36 +5101,34 @@ async function fetchSupervisorRequestSummaries(
       buildSummary('JUSTIFICACION_FALTA', 'Justificacion'),
     ]),
     error: null,
-  }
+  };
 }
 
 async function fetchDashboardConfig(supabase: DashboardSupabaseClient) {
-  let query = supabase
-    .from('configuracion')
-    .select('clave, valor')
+  let query = supabase.from('configuracion').select('clave, valor');
 
   if (typeof query.in === 'function') {
-    query = query.in('clave', ['asistencias.tolerancia_checkin_minutos'])
+    query = query.in('clave', ['asistencias.tolerancia_checkin_minutos']);
   }
 
-  const result = await query.limit(16)
+  const result = await query.limit(16);
 
   return {
     data: (result.data ?? []) as DashboardConfigRow[],
     error: result.error,
-  }
+  };
 }
 
 async function fetchDashboardPeriods(supabase: DashboardSupabaseClient) {
   const result = await supabase
     .from('nomina_periodo')
-.select('id, estado, fecha_inicio, fecha_fin')
-    .limit(32)
+    .select('id, estado, fecha_inicio, fecha_fin')
+    .limit(32);
 
   return {
     data: (result.data ?? []) as DashboardPeriodoRow[],
     error: result.error,
-  }
+  };
 }
 
 async function fetchDashboardQuotas(
@@ -4989,33 +5137,30 @@ async function fetchDashboardQuotas(
   allowGlobalScope: boolean
 ) {
   let query = supabase
-    .from('cuota_empleado_periodo')
+    .from('cuota_mensual_resumen_dc')
     .select(
       'id, periodo_id, cuenta_cliente_id, empleado_id, cumplimiento_porcentaje, estado, empleado:empleado_id(nombre_completo, supervisor_empleado_id)'
     )
-    .order('cumplimiento_porcentaje', { ascending: true })
+    .order('cumplimiento_porcentaje', { ascending: true });
 
   if (!allowGlobalScope && actor.cuentaClienteId) {
-    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId)
+    query = query.eq('cuenta_cliente_id', actor.cuentaClienteId);
   }
 
-  const result = await query.limit(320)
+  const result = await query.limit(320);
 
   return {
     data: (result.data ?? []) as DashboardQuotaRow[],
     error: result.error,
-  }
+  };
 }
 
-async function fetchDashboardPendingImss(
-  supabase: DashboardSupabaseClient,
-  actor: ActorActual
-) {
+async function fetchDashboardPendingImss(supabase: DashboardSupabaseClient, actor: ActorActual) {
   if (actor.puesto !== 'NOMINA' && actor.puesto !== 'ADMINISTRADOR') {
     return {
       data: [] as DashboardPendingImssRow[],
       error: null,
-    }
+    };
   }
 
   const result = await supabase
@@ -5024,25 +5169,22 @@ async function fetchDashboardPendingImss(
       'id, nombre_completo, expediente_estado, expediente_validado_en, imss_estado, imss_fecha_solicitud, metadata, created_at'
     )
     .order('expediente_validado_en', { ascending: true })
-    .limit(160)
+    .limit(160);
 
   return {
     data: ((result.data ?? []) as DashboardPendingImssRow[])
       .filter((item) => item.expediente_estado === 'VALIDADO')
       .filter((item) => item.imss_estado !== 'ALTA_IMSS')
       .sort((left, right) => {
-        const leftDate = left.expediente_validado_en ?? left.created_at
-        const rightDate = right.expediente_validado_en ?? right.created_at
-        return leftDate.localeCompare(rightDate)
+        const leftDate = left.expediente_validado_en ?? left.created_at;
+        const rightDate = right.expediente_validado_en ?? right.created_at;
+        return leftDate.localeCompare(rightDate);
       }),
     error: result.error,
-  }
+  };
 }
 
-function buildDashboardContextCacheKey(
-  actor: ActorActual,
-  options: DashboardPanelOptions
-) {
+function buildDashboardContextCacheKey(actor: ActorActual, options: DashboardPanelOptions) {
   return JSON.stringify({
     actor: {
       authUserId: actor.authUserId,
@@ -5070,18 +5212,17 @@ function buildDashboardContextCacheKey(
       includeSupervisorSecondaryData: options.includeSupervisorSecondaryData ?? false,
       only: options.only ?? null,
     },
-
-  })
+  });
 }
 
 const resolveDashboardContextCached = cache(async (cacheKey: string) => {
   const payload = JSON.parse(cacheKey) as {
-    actor: ActorActual
-    options: DashboardPanelOptions
-  }
+    actor: ActorActual;
+    options: DashboardPanelOptions;
+  };
 
-  return resolveDashboardContextUncached(payload.actor, payload.options)
-})
+  return resolveDashboardContextUncached(payload.actor, payload.options);
+});
 
 async function resolveDashboardContext(
   actor: ActorActual,
@@ -5089,10 +5230,10 @@ async function resolveDashboardContext(
   customSupabase?: DashboardSupabaseClient
 ) {
   if (customSupabase) {
-    return resolveDashboardContextUncached(actor, options, customSupabase)
+    return resolveDashboardContextUncached(actor, options, customSupabase);
   }
 
-  return resolveDashboardContextCached(buildDashboardContextCacheKey(actor, options))
+  return resolveDashboardContextCached(buildDashboardContextCacheKey(actor, options));
 }
 
 function buildDashboardCacheTags(actor: ActorActual, options: DashboardPanelOptions) {
@@ -5102,7 +5243,7 @@ function buildDashboardCacheTags(actor: ActorActual, options: DashboardPanelOpti
     employeeId: actor.empleadoId,
     supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
     period: normalizePeriodo(options.period),
-  })
+  });
 }
 
 async function obtenerPanelDashboardUncached(
@@ -5110,13 +5251,13 @@ async function obtenerPanelDashboardUncached(
   options: DashboardPanelOptions = {},
   customSupabase?: DashboardSupabaseClient
 ): Promise<DashboardPanelData> {
-  const context = await resolveDashboardContext(actor, options, customSupabase)
+  const context = await resolveDashboardContext(actor, options, customSupabase);
 
   if (context.empty) {
-    return context.empty
+    return context.empty;
   }
 
-  return context.summary
+  return context.summary;
 }
 
 export async function obtenerPanelDashboard(
@@ -5125,10 +5266,10 @@ export async function obtenerPanelDashboard(
   customSupabase?: DashboardSupabaseClient
 ): Promise<DashboardPanelData> {
   if (customSupabase) {
-    return obtenerPanelDashboardUncached(actor, options, customSupabase)
+    return obtenerPanelDashboardUncached(actor, options, customSupabase);
   }
 
-  const cacheKey = buildDashboardContextCacheKey(actor, options)
+  const cacheKey = buildDashboardContextCacheKey(actor, options);
   return unstable_cache(
     () => obtenerPanelDashboardUncached(actor, options),
     ['dashboard:panel', cacheKey],
@@ -5136,7 +5277,7 @@ export async function obtenerPanelDashboard(
       tags: buildDashboardCacheTags(actor, options),
       revalidate: DASHBOARD_KPI_REVALIDATE_SECONDS,
     }
-  )()
+  )();
 }
 
 async function obtenerInsightsDashboardUncached(
@@ -5144,7 +5285,7 @@ async function obtenerInsightsDashboardUncached(
   options: DashboardPanelOptions = {},
   customSupabase?: DashboardSupabaseClient
 ): Promise<DashboardInsightsData> {
-  const context = await resolveDashboardContext(actor, options, customSupabase)
+  const context = await resolveDashboardContext(actor, options, customSupabase);
 
   return (
     context.insights ?? {
@@ -5161,7 +5302,7 @@ async function obtenerInsightsDashboardUncached(
       },
       widgets: resolveDashboardWidgets(actor.puesto),
     }
-  )
+  );
 }
 
 export async function obtenerInsightsDashboard(
@@ -5170,10 +5311,10 @@ export async function obtenerInsightsDashboard(
   customSupabase?: DashboardSupabaseClient
 ): Promise<DashboardInsightsData> {
   if (customSupabase) {
-    return obtenerInsightsDashboardUncached(actor, options, customSupabase)
+    return obtenerInsightsDashboardUncached(actor, options, customSupabase);
   }
 
-  const cacheKey = buildDashboardContextCacheKey(actor, options)
+  const cacheKey = buildDashboardContextCacheKey(actor, options);
   return unstable_cache(
     () => obtenerInsightsDashboardUncached(actor, options),
     ['dashboard:insights', cacheKey],
@@ -5181,5 +5322,41 @@ export async function obtenerInsightsDashboard(
       tags: buildDashboardCacheTags(actor, options),
       revalidate: DASHBOARD_KPI_REVALIDATE_SECONDS,
     }
-  )()
+  )();
+}
+
+export async function obtenerSupervisorDailyBoardPorFecha(
+  actor: ActorActual,
+  targetDateIso?: string,
+  customSupabase?: DashboardSupabaseClient
+): Promise<DashboardSupervisorDailyBoard | null> {
+  if (actor.puesto !== 'SUPERVISOR' && actor.puesto !== 'ADMINISTRADOR') {
+    return null;
+  }
+  const supabase = customSupabase ?? (createServiceClient() as unknown as DashboardSupabaseClient);
+  const dateIso = targetDateIso?.trim() || getTodayIso();
+  const allowGlobalScope = actor.puesto === 'ADMINISTRADOR' && !actor.cuentaClienteId;
+  const config = await fetchDashboardConfig(supabase);
+  const toleranceMinutes = normalizeConfigNumber(
+    config.data,
+    'asistencias.tolerancia_checkin_minutos',
+    15
+  );
+
+  const [liveAsistenciasResult, supervisorDailyAssignmentsResult] = await Promise.all([
+    fetchLiveAssistances(supabase, actor, allowGlobalScope, dateIso),
+    fetchSupervisorDailyAssignments(supabase, actor, allowGlobalScope, dateIso),
+  ]);
+
+  if (supervisorDailyAssignmentsResult.error) {
+    return null;
+  }
+
+  return buildSupervisorDailyBoard(
+    actor,
+    supervisorDailyAssignmentsResult.data,
+    liveAsistenciasResult.error ? [] : liveAsistenciasResult.data,
+    dateIso,
+    toleranceMinutes
+  );
 }

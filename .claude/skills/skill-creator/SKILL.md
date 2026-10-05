@@ -22,11 +22,13 @@ To create specialized skills that extend Claude's capabilities with domain-speci
 ## How to Create a Skill
 
 ### Step 1: Initialize
+
 ```bash
 python scripts/init_skill.py my-skill --path ./my-skill
 ```
 
 This creates:
+
 ```
 my-skill/
 ├── SKILL.md           # Edit this with your skill
@@ -74,6 +76,7 @@ Instructions for step two.
 ### Step 3: Add Content
 
 **For scripts/** (executable code):
+
 ```bash
 scripts/
 ├── helper.py          # Reusable code
@@ -82,6 +85,7 @@ scripts/
 ```
 
 **For references/** (documentation):
+
 ```bash
 references/
 ├── api_docs.md        # API specifications
@@ -90,6 +94,7 @@ references/
 ```
 
 **For assets/** (output resources):
+
 ```bash
 assets/
 ├── template.html      # HTML templates
@@ -98,17 +103,20 @@ assets/
 ```
 
 ### Step 4: Validate
+
 ```bash
 python scripts/quick_validate.py ./my-skill
 ```
 
 Check:
+
 - ✅ SKILL.md has valid YAML frontmatter
 - ✅ Required fields: name, description
 - ✅ Correct file structure
 - ✅ Naming conventions followed
 
 ### Step 5: Package
+
 ```bash
 python scripts/package_skill.py ./my-skill
 ```
@@ -116,6 +124,7 @@ python scripts/package_skill.py ./my-skill
 Output: `my-skill.zip` ready for distribution
 
 ### Step 6: Install in Claude Code
+
 ```bash
 /plugin install ./my-skill.zip
 ```
@@ -123,6 +132,7 @@ Output: `my-skill.zip` ready for distribution
 ## Best Practices
 
 ### ✅ DO
+
 - **Write imperative instructions**: "To create X, do Y"
 - **Keep SKILL.md <5k words**: Move large docs to references/
 - **Name scripts descriptively**: `rotate_pdf.py`, not `util.py`
@@ -130,6 +140,7 @@ Output: `my-skill.zip` ready for distribution
 - **Document everything**: Clear examples and use cases
 
 ### ❌ DON'T
+
 - Use vague names: "tool", "helper", "util"
 - Write in second person: "You should do X"
 - Include thousands of lines of code in SKILL.md
@@ -205,6 +216,7 @@ pdf-processor/
 ## References
 
 See `references/` for:
+
 - Anthropic Skills Specification
 - Best Practices Guide
 - Example Skills

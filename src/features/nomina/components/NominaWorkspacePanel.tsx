@@ -1,13 +1,13 @@
-'use client'
+'use client';
 
-import Link from 'next/link'
-import { useActionState, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Card } from '@/components/ui/card'
-import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
-import { ModalPanel } from '@/components/ui/modal-panel'
-import type { ActorActual } from '@/lib/auth/session'
-import { useScopedWidgetData } from '@/lib/ui-change/client'
-import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
+import Link from 'next/link';
+import { useActionState, useCallback, useEffect, useMemo, useState } from 'react';
+import { Card } from '@/components/ui/card';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
+import { ModalPanel } from '@/components/ui/modal-panel';
+import type { ActorActual } from '@/lib/auth/session';
+import { useScopedWidgetData } from '@/lib/ui-change/client';
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
 import {
   CancelarAltaForm,
   CerrarBajaEmpleadoNominaForm,
@@ -18,45 +18,45 @@ import {
   InfoRow,
   ReadOnlyWorkflowCard,
   StatusPill as WorkflowStatusPill,
-} from '@/features/empleados/components/EmpleadosPanel'
-import { resolverSolicitudDesdeDashboard } from '@/features/solicitudes/actions'
-import { ESTADO_SOLICITUD_INICIAL } from '@/features/solicitudes/state'
+} from '@/features/empleados/components/EmpleadosPanel';
+import { resolverSolicitudDesdeDashboard } from '@/features/solicitudes/actions';
+import { ESTADO_SOLICITUD_INICIAL } from '@/features/solicitudes/state';
 import {
   normalizePayrollInboxKey,
   type PayrollInboxLaneKey,
-} from '@/features/empleados/lib/workflowInbox'
-import type { NominaWorkspaceData } from '@/features/nomina/services/nominaWorkspaceService'
+} from '@/features/empleados/lib/workflowInbox';
+import type { NominaWorkspaceData } from '@/features/nomina/services/nominaWorkspaceService';
 
 function formatDate(value: string | null) {
   if (!value) {
-    return 'Sin fecha'
+    return 'Sin fecha';
   }
 
   return new Intl.DateTimeFormat('es-MX', {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
-  }).format(new Date(value))
+  }).format(new Date(value));
 }
 
 function formatDateTime(value: string | null) {
   if (!value) {
-    return 'Sin fecha'
+    return 'Sin fecha';
   }
 
   return new Intl.DateTimeFormat('es-MX', {
     dateStyle: 'medium',
     timeStyle: 'short',
-  }).format(new Date(value))
+  }).format(new Date(value));
 }
 
 function buildAttendanceExportHref(month: string) {
   const params = new URLSearchParams({
     month,
     format: 'xlsx',
-  })
+  });
 
-  return `/api/asistencias/export?${params.toString()}`
+  return `/api/asistencias/export?${params.toString()}`;
 }
 
 export function NominaWorkspacePanel({
@@ -65,26 +65,26 @@ export function NominaWorkspacePanel({
   initialInbox = 'ALL',
   compact = false,
 }: {
-  actor: ActorActual
-  data: NominaWorkspaceData
-  initialInbox?: string
-  compact?: boolean
+  actor: ActorActual;
+  data: NominaWorkspaceData;
+  initialInbox?: string;
+  compact?: boolean;
 }) {
-  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
   const fetcher = useCallback(async (signal: AbortSignal) => {
     const response = await fetch('/api/nomina/panel', {
       cache: 'no-store',
       credentials: 'same-origin',
       signal,
-    })
-    const payload = (await response.json()) as { data?: NominaWorkspaceData; message?: string }
+    });
+    const payload = (await response.json()) as { data?: NominaWorkspaceData; message?: string };
 
     if (!response.ok || !payload.data) {
-      throw new Error(payload.message ?? 'No fue posible refrescar el panel de nomina.')
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de nomina.');
     }
 
-    return payload.data
-  }, [])
+    return payload.data;
+  }, []);
 
   const { data } = useScopedWidgetData({
     initialData,
@@ -94,20 +94,23 @@ export function NominaWorkspacePanel({
     roleTargets: [actor.puesto],
     fetcher,
     debounceMs: 650,
-  })
+  });
 
   const [inboxFilter, setInboxFilter] = useState<PayrollInboxLaneKey | 'ALL'>(
     normalizePayrollInboxKey(initialInbox)
-  )
-  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null)
-  const [selectedSolicitudId, setSelectedSolicitudId] = useState<string | null>(null)
+  );
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [selectedSolicitudId, setSelectedSolicitudId] = useState<string | null>(null);
 
   const visibleInbox =
-    inboxFilter === 'ALL' ? data.payrollInbox : data.payrollInbox.filter((lane) => lane.key === inboxFilter)
+    inboxFilter === 'ALL'
+      ? data.payrollInbox
+      : data.payrollInbox.filter((lane) => lane.key === inboxFilter);
   const selectedTicket =
-    data.payrollInbox.flatMap((lane) => lane.items).find((item) => item.id === selectedTicketId) ?? null
+    data.payrollInbox.flatMap((lane) => lane.items).find((item) => item.id === selectedTicketId) ??
+    null;
   const selectedSolicitud =
-    data.incapacidadesPendientes.find((item) => item.id === selectedSolicitudId) ?? null
+    data.incapacidadesPendientes.find((item) => item.id === selectedSolicitudId) ?? null;
 
   return (
     <div className="space-y-6">
@@ -118,7 +121,9 @@ export function NominaWorkspacePanel({
         </Card>
       )}
 
-      <div className={`grid gap-4 ${compact ? 'md:grid-cols-2 xl:grid-cols-6' : 'md:grid-cols-3 xl:grid-cols-6'}`}>
+      <div
+        className={`grid gap-4 ${compact ? 'md:grid-cols-2 xl:grid-cols-6' : 'md:grid-cols-3 xl:grid-cols-6'}`}
+      >
         <MetricCard label="Altas pendientes" value={String(data.summary.altasPendientes)} />
         <MetricCard label="Bajas pendientes" value={String(data.summary.bajasPendientes)} />
         <MetricCard label="Bajas devueltas" value={String(data.summary.bajasDevueltas)} />
@@ -130,10 +135,15 @@ export function NominaWorkspacePanel({
       <Card className="space-y-4 border-slate-200 bg-white p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">Canvas de altas</p>
-            <h2 className="mt-2 text-xl font-semibold text-slate-950">Flujo IMSS y handoff de reclutamiento</h2>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
+              Canvas de altas
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">
+              Flujo IMSS y handoff de reclutamiento
+            </h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-500">
-              Este canvas concentra las altas pendientes, bajas pendientes, bajas devueltas, altas devueltas y cierres institucionales.
+              Este canvas concentra las altas pendientes, bajas pendientes, bajas devueltas, altas
+              devueltas y cierres institucionales.
             </p>
           </div>
           <span className="inline-flex items-center justify-center rounded-full bg-[var(--module-primary)] px-4 py-2 text-sm font-semibold text-white">
@@ -152,10 +162,15 @@ export function NominaWorkspacePanel({
       <Card className="space-y-4 border-slate-200 bg-white p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">Calendario mensual</p>
-            <h2 className="mt-2 text-xl font-semibold text-slate-950">Asistencias para prenómina y nómina</h2>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
+              Calendario mensual
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">
+              Asistencias para prenómina y nómina
+            </h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-500">
-              Nómina solo necesita abrir el calendario administrativo y descargar la lista mensual para procesar prenómina y nómina.
+              Nómina solo necesita abrir el calendario administrativo y descargar la lista mensual
+              para procesar prenómina y nómina.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -178,10 +193,13 @@ export function NominaWorkspacePanel({
       <Card className="space-y-4 border-slate-200 bg-white p-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">Incapacidades</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
+              Incapacidades
+            </p>
             <h2 className="mt-2 text-xl font-semibold text-slate-950">Revision final de IMSS</h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-500">
-              Aqui llegan solo las incapacidades ya validadas por Reclutamiento. Nómina puede descargar el documento, revisar IMSS y formalizar el cierre final.
+              Aqui llegan solo las incapacidades ya validadas por Reclutamiento. Nómina puede
+              descargar el documento, revisar IMSS y formalizar el cierre final.
             </p>
           </div>
           <span className="inline-flex items-center justify-center rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
@@ -200,15 +218,27 @@ export function NominaWorkspacePanel({
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <WorkflowStatusPill label="INCAPACIDAD" className="bg-violet-100 text-violet-700" />
-                      <WorkflowStatusPill label={item.estatus} className="bg-sky-100 text-sky-700" />
+                      <WorkflowStatusPill
+                        label="INCAPACIDAD"
+                        className="bg-violet-100 text-violet-700"
+                      />
+                      <WorkflowStatusPill
+                        label={item.estatus}
+                        className="bg-sky-100 text-sky-700"
+                      />
                     </div>
-                    <p className="mt-3 text-sm font-semibold text-slate-950">{item.empleadoNombre}</p>
+                    <p className="mt-3 text-sm font-semibold text-slate-950">
+                      {item.empleadoNombre}
+                    </p>
                     <p className="mt-1 text-xs text-slate-500">
                       {formatDate(item.fechaInicio)} a {formatDate(item.fechaFin)}
                     </p>
-                    <p className="mt-2 text-sm text-slate-600">{item.motivo ?? 'Sin motivo capturado.'}</p>
-                    {item.comentarios ? <p className="mt-2 text-xs text-slate-500">{item.comentarios}</p> : null}
+                    <p className="mt-2 text-sm text-slate-600">
+                      {item.motivo ?? 'Sin motivo capturado.'}
+                    </p>
+                    {item.comentarios ? (
+                      <p className="mt-2 text-xs text-slate-500">{item.comentarios}</p>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap gap-3">
                     {item.justificanteUrl ? (
@@ -236,10 +266,17 @@ export function NominaWorkspacePanel({
         </div>
       </Card>
 
-      {selectedTicket ? <PayrollTicketModal item={selectedTicket} onClose={() => setSelectedTicketId(null)} /> : null}
-      {selectedSolicitud ? <NominaIncapacidadModal item={selectedSolicitud} onClose={() => setSelectedSolicitudId(null)} /> : null}
+      {selectedTicket ? (
+        <PayrollTicketModal item={selectedTicket} onClose={() => setSelectedTicketId(null)} />
+      ) : null}
+      {selectedSolicitud ? (
+        <NominaIncapacidadModal
+          item={selectedSolicitud}
+          onClose={() => setSelectedSolicitudId(null)}
+        />
+      ) : null}
     </div>
-  )
+  );
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
@@ -251,7 +288,7 @@ function MetricCard({ label, value }: { label: string; value: string }) {
       labelClassName="text-xs leading-4 text-center"
       valueClassName="w-full truncate text-[1.1rem] leading-tight tracking-[-0.02em] text-center sm:text-[1.25rem]"
     />
-  )
+  );
 }
 
 function PayrollInboxBoard({
@@ -260,20 +297,22 @@ function PayrollInboxBoard({
   onFilterChange,
   onOpen,
 }: {
-  lanes: NominaWorkspaceData['payrollInbox']
-  activeFilter: PayrollInboxLaneKey | 'ALL'
-  onFilterChange: (value: PayrollInboxLaneKey | 'ALL') => void
-  onOpen: (item: NominaWorkspaceData['payrollInbox'][number]['items'][number]) => void
+  lanes: NominaWorkspaceData['payrollInbox'];
+  activeFilter: PayrollInboxLaneKey | 'ALL';
+  onFilterChange: (value: PayrollInboxLaneKey | 'ALL') => void;
+  onOpen: (item: NominaWorkspaceData['payrollInbox'][number]['items'][number]) => void;
 }) {
   const [selectedLaneKey, setSelectedLaneKey] = useState<PayrollInboxLaneKey | null>(
     activeFilter !== 'ALL' ? activeFilter : null
-  )
-  const totalItems = lanes.reduce((total, lane) => total + lane.items.length, 0)
-  const selectedLane = selectedLaneKey ? lanes.find((lane) => lane.key === selectedLaneKey) ?? null : null
+  );
+  const totalItems = lanes.reduce((total, lane) => total + lane.items.length, 0);
+  const selectedLane = selectedLaneKey
+    ? (lanes.find((lane) => lane.key === selectedLaneKey) ?? null)
+    : null;
 
   function openLane(laneKey: PayrollInboxLaneKey) {
-    setSelectedLaneKey(laneKey)
-    onFilterChange(laneKey)
+    setSelectedLaneKey(laneKey);
+    onFilterChange(laneKey);
   }
 
   return (
@@ -312,14 +351,14 @@ function PayrollInboxBoard({
         <PayrollLaneModal
           lane={selectedLane}
           onClose={() => {
-            setSelectedLaneKey(null)
-            onFilterChange('ALL')
+            setSelectedLaneKey(null);
+            onFilterChange('ALL');
           }}
           onOpen={onOpen}
         />
       ) : null}
     </>
-  )
+  );
 }
 
 function PayrollLaneModal({
@@ -327,12 +366,18 @@ function PayrollLaneModal({
   onClose,
   onOpen,
 }: {
-  lane: NominaWorkspaceData['payrollInbox'][number]
-  onClose: () => void
-  onOpen: (item: NominaWorkspaceData['payrollInbox'][number]['items'][number]) => void
+  lane: NominaWorkspaceData['payrollInbox'][number];
+  onClose: () => void;
+  onOpen: (item: NominaWorkspaceData['payrollInbox'][number]['items'][number]) => void;
 }) {
   return (
-    <ModalPanel open onClose={onClose} title={lane.label} subtitle={lane.description} maxWidthClassName="max-w-6xl">
+    <ModalPanel
+      open
+      onClose={onClose}
+      title={lane.label}
+      subtitle={lane.description}
+      maxWidthClassName="max-w-6xl"
+    >
       <div className="space-y-3">
         {lane.items.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-400">
@@ -350,28 +395,42 @@ function PayrollLaneModal({
                       </span>
                       <WorkflowStatusPill
                         label={item.statusLabel}
-                        className={item.movementType === 'BAJA' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}
+                        className={
+                          item.movementType === 'BAJA'
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-emerald-100 text-emerald-700'
+                        }
                       />
                     </div>
-                    <p className="mt-3 text-sm font-semibold text-slate-950">{item.employeeSummary.nombreCompleto}</p>
+                    <p className="mt-3 text-sm font-semibold text-slate-950">
+                      {item.employeeSummary.nombreCompleto}
+                    </p>
                     <p className="mt-1 text-xs text-slate-500">
                       {item.employeeSummary.nss ?? item.employeeSummary.curp ?? 'Sin NSS/CURP'}
                     </p>
                   </div>
 
                   <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Puesto</p>
-                    <p className="mt-2 text-sm text-slate-700">{item.employeeSummary.puesto.replace(/_/g, ' ')}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      Puesto
+                    </p>
+                    <p className="mt-2 text-sm text-slate-700">
+                      {item.employeeSummary.puesto.replace(/_/g, ' ')}
+                    </p>
                   </div>
 
                   <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Documentos</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      Documentos
+                    </p>
                     <p className="mt-2 text-sm text-slate-700">{item.documentsSummary}</p>
                   </div>
                 </div>
 
                 <div className="flex min-w-0 flex-1 flex-col gap-3 xl:max-w-[340px]">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Observacion</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    Observacion
+                  </p>
                   <p className="text-sm leading-6 text-slate-600">
                     {item.lastObservation ?? 'Sin observaciones registradas.'}
                   </p>
@@ -381,8 +440,8 @@ function PayrollLaneModal({
                   <button
                     type="button"
                     onClick={() => {
-                      onClose()
-                      onOpen(item)
+                      onClose();
+                      onOpen(item);
                     }}
                     className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
                   >
@@ -395,26 +454,26 @@ function PayrollLaneModal({
         )}
       </div>
     </ModalPanel>
-  )
+  );
 }
 
 function PayrollTicketModal({
   item,
   onClose,
 }: {
-  item: NominaWorkspaceData['payrollInbox'][number]['items'][number]
-  onClose: () => void
+  item: NominaWorkspaceData['payrollInbox'][number]['items'][number];
+  onClose: () => void;
 }) {
-  const employee = item.employee
-  const [cancelModalOpen, setCancelModalOpen] = useState(false)
-  const canCancelAlta = item.movementType === 'ALTA' && (
-    item.stage === 'EN_GESTION' ||
-    item.stage === 'ONBOARDING' ||
-    item.stage === 'PENDIENTE_IMSS_NOMINA' ||
-    item.stage === 'EN_FLUJO_IMSS' ||
-    item.stage === 'RECLUTAMIENTO_CORRECCION_ALTA' ||
-    item.stage === 'PENDIENTE_ACCESO_ADMIN'
-  )
+  const employee = item.employee;
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const canCancelAlta =
+    item.movementType === 'ALTA' &&
+    (item.stage === 'EN_GESTION' ||
+      item.stage === 'ONBOARDING' ||
+      item.stage === 'PENDIENTE_IMSS_NOMINA' ||
+      item.stage === 'EN_FLUJO_IMSS' ||
+      item.stage === 'RECLUTAMIENTO_CORRECCION_ALTA' ||
+      item.stage === 'PENDIENTE_ACCESO_ADMIN');
 
   return (
     <ModalPanel
@@ -460,7 +519,10 @@ function PayrollTicketModal({
             ) : null}
           </DetailCard>
 
-          <DetailCard title="Acciones de nomina" description="Solo herramientas de IMSS y cierre institucional.">
+          <DetailCard
+            title="Acciones de nomina"
+            description="Solo herramientas de IMSS y cierre institucional."
+          >
             {item.movementType === 'BAJA' ? (
               item.stage === 'PENDIENTE_BAJA_IMSS' ? (
                 <CerrarBajaEmpleadoNominaForm empleado={employee} />
@@ -473,18 +535,18 @@ function PayrollTicketModal({
                   ]}
                 />
               )
-          ) : item.stage === 'ONBOARDING' || item.stage === 'PENDIENTE_ACCESO_ADMIN' || item.stage === 'ALTA_IMSS_CERRADA' ? (
-            <ReadOnlyWorkflowCard
-              lines={[
-                item.stage === 'ALTA_IMSS_CERRADA'
-                  ? 'Alta finalizada.'
-                  : 'Alta IMSS cerrada.',
-                item.stage === 'ALTA_IMSS_CERRADA'
-                  ? 'Administracion ya genero el acceso provisional y el caso quedo cerrado.'
-                  : 'El expediente ya fue entregado a Administracion para crear usuario, password y QR.',
-                `estado IMSS: ${employee.imssEstado}`,
-              ]}
-            />
+            ) : item.stage === 'ONBOARDING' ||
+              item.stage === 'PENDIENTE_ACCESO_ADMIN' ||
+              item.stage === 'ALTA_IMSS_CERRADA' ? (
+              <ReadOnlyWorkflowCard
+                lines={[
+                  item.stage === 'ALTA_IMSS_CERRADA' ? 'Alta finalizada.' : 'Alta IMSS cerrada.',
+                  item.stage === 'ALTA_IMSS_CERRADA'
+                    ? 'Administracion ya genero el acceso provisional y el caso quedo cerrado.'
+                    : 'El expediente ya fue entregado a Administracion para crear usuario, password y QR.',
+                  `estado IMSS: ${employee.imssEstado}`,
+                ]}
+              />
             ) : (
               <ImssEstadoForm empleado={employee} />
             )}
@@ -524,18 +586,24 @@ function PayrollTicketModal({
         </ModalPanel>
       ) : null}
     </ModalPanel>
-  )
+  );
 }
 
 function NominaIncapacidadModal({
   item,
   onClose,
 }: {
-  item: NominaWorkspaceData['incapacidadesPendientes'][number]
-  onClose: () => void
+  item: NominaWorkspaceData['incapacidadesPendientes'][number];
+  onClose: () => void;
 }) {
   return (
-    <ModalPanel open onClose={onClose} title={item.empleadoNombre} subtitle="Revision final de incapacidad" maxWidthClassName="max-w-3xl">
+    <ModalPanel
+      open
+      onClose={onClose}
+      title={item.empleadoNombre}
+      subtitle="Revision final de incapacidad"
+      maxWidthClassName="max-w-3xl"
+    >
       <div className="space-y-4">
         <div className="rounded-[22px] border border-[var(--module-border)] bg-[var(--module-soft-bg)] p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
@@ -545,9 +613,13 @@ function NominaIncapacidadModal({
           <p className="mt-1 text-sm text-slate-600">
             {formatDate(item.fechaInicio)} a {formatDate(item.fechaFin)}
           </p>
-          <p className="mt-3 text-sm text-slate-600">{item.motivo ?? 'Sin motivo capturado por el colaborador.'}</p>
+          <p className="mt-3 text-sm text-slate-600">
+            {item.motivo ?? 'Sin motivo capturado por el colaborador.'}
+          </p>
           {item.comentarios ? (
-            <p className="mt-3 rounded-[16px] bg-white px-3 py-3 text-sm text-slate-600">{item.comentarios}</p>
+            <p className="mt-3 rounded-[16px] bg-white px-3 py-3 text-sm text-slate-600">
+              {item.comentarios}
+            </p>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
             <span>Enviada: {formatDateTime(item.enviadaEn)}</span>
@@ -571,26 +643,31 @@ function NominaIncapacidadModal({
         <NominaIncapacidadResolutionForm item={item} onResolved={onClose} />
       </div>
     </ModalPanel>
-  )
+  );
 }
 
 function NominaIncapacidadResolutionForm({
   item,
   onResolved,
 }: {
-  item: NominaWorkspaceData['incapacidadesPendientes'][number]
-  onResolved: () => void
+  item: NominaWorkspaceData['incapacidadesPendientes'][number];
+  onResolved: () => void;
 }) {
-  const [state, formAction] = useActionState(resolverSolicitudDesdeDashboard, ESTADO_SOLICITUD_INICIAL)
-  const [submittedStatus, setSubmittedStatus] = useState<'REGISTRADA_RH' | 'RECHAZADA' | 'CORRECCION_SOLICITADA' | null>(null)
+  const [state, formAction] = useActionState(
+    resolverSolicitudDesdeDashboard,
+    ESTADO_SOLICITUD_INICIAL
+  );
+  const [submittedStatus, setSubmittedStatus] = useState<
+    'REGISTRADA_RH' | 'RECHAZADA' | 'CORRECCION_SOLICITADA' | null
+  >(null);
 
   useEffect(() => {
     if (!state.ok || !submittedStatus) {
-      return
+      return;
     }
 
-    onResolved()
-  }, [onResolved, state.ok, submittedStatus])
+    onResolved();
+  }, [onResolved, state.ok, submittedStatus]);
 
   return (
     <form id={`nomina-incapacidad-${item.id}`} action={formAction} className="space-y-4">
@@ -608,7 +685,9 @@ function NominaIncapacidadResolutionForm({
       </label>
 
       {state.message && (
-        <p className={`rounded-[18px] px-4 py-3 text-sm ${state.ok ? 'border border-emerald-200 bg-emerald-50 text-emerald-900' : 'border border-rose-200 bg-rose-50 text-rose-900'}`}>
+        <p
+          className={`rounded-[18px] px-4 py-3 text-sm ${state.ok ? 'border border-emerald-200 bg-emerald-50 text-emerald-900' : 'border border-rose-200 bg-rose-50 text-rose-900'}`}
+        >
           {state.message}
         </p>
       )}
@@ -646,5 +725,5 @@ function NominaIncapacidadResolutionForm({
         </button>
       </div>
     </form>
-  )
+  );
 }

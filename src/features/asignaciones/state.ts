@@ -1,10 +1,10 @@
-import type { AssignmentIssue } from './lib/assignmentValidation'
+import type { AssignmentIssue } from './lib/assignmentValidation';
 
 export interface ActualizarEstadoAsignacionState {
-  ok: boolean
-  message: string | null
-  issues: AssignmentIssue[]
-  redirectTo: string | null
+  ok: boolean;
+  message: string | null;
+  issues: AssignmentIssue[];
+  redirectTo: string | null;
 }
 
 export const ESTADO_ASIGNACION_INICIAL: ActualizarEstadoAsignacionState = {
@@ -12,15 +12,15 @@ export const ESTADO_ASIGNACION_INICIAL: ActualizarEstadoAsignacionState = {
   message: null,
   issues: [],
   redirectTo: null,
-}
+};
 
 export interface ImportarCatalogoAsignacionesState {
-  ok: boolean
-  message: string | null
-  conflicts: AssignmentImportConflict[]
-  summary: AssignmentImportSummary | null
-  previewRows: AssignmentImportPreviewRow[]
-  redirectTo: string | null
+  ok: boolean;
+  message: string | null;
+  conflicts: AssignmentImportConflict[];
+  summary: AssignmentImportSummary | null;
+  previewRows: AssignmentImportPreviewRow[];
+  redirectTo: string | null;
 }
 
 export const ESTADO_IMPORTACION_ASIGNACIONES_INICIAL: ImportarCatalogoAsignacionesState = {
@@ -30,16 +30,16 @@ export const ESTADO_IMPORTACION_ASIGNACIONES_INICIAL: ImportarCatalogoAsignacion
   summary: null,
   previewRows: [],
   redirectTo: null,
-}
+};
 
 export interface PublicarCatalogoAsignacionesState {
-  ok: boolean
-  message: string | null
-  conflicts: AssignmentImportConflict[]
-  publishedRows: number
-  materializedEmployees: number
-  materializedWindowLabel: string | null
-  redirectTo: string | null
+  ok: boolean;
+  message: string | null;
+  conflicts: AssignmentImportConflict[];
+  publishedRows: number;
+  materializedEmployees: number;
+  materializedWindowLabel: string | null;
+  redirectTo: string | null;
 }
 
 export const ESTADO_PUBLICACION_CATALOGO_ASIGNACIONES_INICIAL: PublicarCatalogoAsignacionesState = {
@@ -50,24 +50,24 @@ export const ESTADO_PUBLICACION_CATALOGO_ASIGNACIONES_INICIAL: PublicarCatalogoA
   materializedEmployees: 0,
   materializedWindowLabel: null,
   redirectTo: null,
-}
+};
 
 export interface RestOverridePreviewSummary {
-  mes: string
-  asignacionId: string
-  asignacionLabel: string
-  modo: 'EXPLICITO' | 'REGLA_MENSUAL'
-  reglaLabel: string | null
-  fechasDescanso: string[]
-  fechasTrabajo: string[]
-  diasAfectados: number
+  mes: string;
+  asignacionId: string;
+  asignacionLabel: string;
+  modo: 'EXPLICITO' | 'REGLA_MENSUAL';
+  reglaLabel: string | null;
+  fechasDescanso: string[];
+  fechasTrabajo: string[];
+  diasAfectados: number;
 }
 
 export interface GuardarDescansoPermanenteState {
-  ok: boolean
-  message: string | null
-  preview: RestOverridePreviewSummary | null
-  overrideId: string | null
+  ok: boolean;
+  message: string | null;
+  preview: RestOverridePreviewSummary | null;
+  overrideId: string | null;
 }
 
 export const ESTADO_DESCANSO_PERMANENTE_INICIAL: GuardarDescansoPermanenteState = {
@@ -75,52 +75,53 @@ export const ESTADO_DESCANSO_PERMANENTE_INICIAL: GuardarDescansoPermanenteState 
   message: null,
   preview: null,
   overrideId: null,
-}
+};
 
 export interface ActualizarVacanteOperativaFuturaState {
-  ok: boolean
-  message: string | null
+  ok: boolean;
+  message: string | null;
 }
 
-export const ESTADO_ACTUALIZACION_VACANTE_OPERATIVA_INICIAL: ActualizarVacanteOperativaFuturaState = {
-  ok: false,
-  message: null,
-}
+export const ESTADO_ACTUALIZACION_VACANTE_OPERATIVA_INICIAL: ActualizarVacanteOperativaFuturaState =
+  {
+    ok: false,
+    message: null,
+  };
 
 export interface AssignmentImportConflict {
-  rowNumber: number | null
-  claveBtl: string | null
-  referenciaDc: string | null
-  tipo: string | null
-  severity: AssignmentIssue['severity']
-  code: string
-  label: string
-  message: string
-  source: 'PARSER' | 'RESOLUCION' | 'VALIDACION'
+  rowNumber: number | null;
+  claveBtl: string | null;
+  referenciaDc: string | null;
+  tipo: string | null;
+  severity: AssignmentIssue['severity'];
+  code: string;
+  label: string;
+  message: string;
+  source: 'PARSER' | 'RESOLUCION' | 'VALIDACION';
 }
 
 export interface AssignmentImportSummary {
-  parsedRows: number
-  skippedRows: number
-  insertedRows: number
-  updatedRows: number
-  unresolvedPdvs: number
-  unresolvedEmployees: number
-  conflictCount: number
-  alertCount: number
-  noticeCount: number
+  parsedRows: number;
+  skippedRows: number;
+  insertedRows: number;
+  updatedRows: number;
+  unresolvedPdvs: number;
+  unresolvedEmployees: number;
+  conflictCount: number;
+  alertCount: number;
+  noticeCount: number;
 }
 
 export interface AssignmentImportPreviewRow {
-  rowNumber: number
-  estadoPublicacion: 'BORRADOR'
-  accion: 'NUEVA' | 'ACTUALIZADA'
-  claveBtl: string
-  username: string | null
-  idNomina: string | null
-  nombreDc: string | null
-  horarioReferencia: string | null
-  diasLaborales: string | null
-  diaDescanso: string | null
-  fechaInicio: string
+  rowNumber: number;
+  estadoPublicacion: 'BORRADOR';
+  accion: 'NUEVA' | 'ACTUALIZADA';
+  claveBtl: string;
+  username: string | null;
+  idNomina: string | null;
+  nombreDc: string | null;
+  horarioReferencia: string | null;
+  diasLaborales: string | null;
+  diaDescanso: string | null;
+  fechaInicio: string;
 }

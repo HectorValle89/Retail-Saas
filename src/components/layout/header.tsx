@@ -1,14 +1,14 @@
-'use client'
+'use client';
 
-import { Button } from '../ui/button'
+import { Button } from '../ui/button';
 
 interface HeaderProps {
-  title: string
-  subtitle?: string
+  title: string;
+  subtitle?: string;
   action?: {
-    label: string
-    onClick: () => void
-  }
+    label: string;
+    onClick: () => void;
+  };
 }
 
 export function Header({ title, subtitle, action }: HeaderProps) {
@@ -17,16 +17,10 @@ export function Header({ title, subtitle, action }: HeaderProps) {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">{title}</h1>
-          {subtitle && (
-            <p className="text-foreground-secondary mt-1">{subtitle}</p>
-          )}
+          {subtitle && <p className="text-foreground-secondary mt-1">{subtitle}</p>}
         </div>
-        {action && (
-          <Button onClick={action.onClick}>
-            {action.label}
-          </Button>
-        )}
+        {action && <Button onClick={action.onClick}>{action.label}</Button>}
       </div>
     </header>
-  )
+  );
 }

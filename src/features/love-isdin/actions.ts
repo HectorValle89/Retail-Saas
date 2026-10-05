@@ -1,24 +1,25 @@
-'use server'
-import { requerirPuestosActivos } from '@/lib/auth/session'
-import { EXPEDIENTE_RAW_UPLOAD_MAX_BYTES } from '@/lib/files/documentOptimization'
-import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
-import { computeSHA256 } from '@/lib/files/sha256'
-import { createServiceClient } from '@/lib/supabase/server'
-import { publishUiChanges } from '@/lib/ui-change/server'
+'use server';
+import { requerirPuestosActivos } from '@/lib/auth/session';
+import { EXPEDIENTE_RAW_UPLOAD_MAX_BYTES } from '@/lib/files/documentOptimization';
+import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage';
+import { computeSHA256 } from '@/lib/files/sha256';
+import { createServiceClient } from '@/lib/supabase/server';
+import { publishUiChanges } from '@/lib/ui-change/server';
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types';
 import {
-  buildUiChangeScope,
-  buildUiChangeTargetsFromBusinessEvent,
-} from '@/lib/ui-change/types'
-import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Puesto } from '@/types/database'
-import { ESTADO_LOVE_ISDIN_INICIAL, type LoveIsdinActionState } from './state'
-import { assignAvailableLoveQrToEmployee, processLoveQrImportBatch } from './lib/loveQrImport'
+  hasDirectR2Reference,
+  readDirectR2Reference,
+  registerDirectR2Evidence,
+} from '@/lib/storage/directR2Server';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Puesto } from '@/types/database';
+import { ESTADO_LOVE_ISDIN_INICIAL, type LoveIsdinActionState } from './state';
+import { assignAvailableLoveQrToEmployee, processLoveQrImportBatch } from './lib/loveQrImport';
 import {
   registerLoveAffiliationWithService,
   resolveLoveEffectiveAccount,
   registrarLoveAuditEvent,
-} from './lib/loveRegistration'
+} from './lib/loveRegistration';
 
 const LOVE_WRITE_ROLES = [
   'ADMINISTRADOR',
@@ -26,44 +27,44 @@ const LOVE_WRITE_ROLES = [
   'SUPERVISOR',
   'COORDINADOR',
   'DERMOCONSEJERO',
-] as const satisfies Puesto[]
+] as const satisfies Puesto[];
 
-const LOVE_BUCKET = 'operacion-evidencias'
-const LOVE_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp']
-const LOVE_IMPORTS_BUCKET = 'love-isdin-imports'
+const LOVE_BUCKET = 'operacion-evidencias';
+const LOVE_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const LOVE_IMPORTS_BUCKET = 'love-isdin-imports';
 const LOVE_IMPORT_ALLOWED_MIME_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-excel',
   'text/csv',
   'application/zip',
   'application/x-zip-compressed',
-] as const
-const LOVE_IMPORT_MAX_BYTES = 25 * 1024 * 1024
-const LOVE_ADMIN_ROLES = ['ADMINISTRADOR', 'LOVE_IS', 'COORDINADOR'] as const satisfies Puesto[]
+] as const;
+const LOVE_IMPORT_MAX_BYTES = 25 * 1024 * 1024;
+const LOVE_ADMIN_ROLES = ['ADMINISTRADOR', 'LOVE_IS', 'COORDINADOR'] as const satisfies Puesto[];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TypedSupabaseClient = SupabaseClient<any>
+type TypedSupabaseClient = SupabaseClient<any>;
 
 type LoveEvidenceUpload = {
-  url: string
-  hash: string
-  thumbnailUrl: string | null
-  thumbnailHash: string | null
+  url: string;
+  hash: string;
+  thumbnailUrl: string | null;
+  thumbnailHash: string | null;
   optimization: {
-    kind: string
-    originalBytes: number
-    finalBytes: number
-    targetMet: boolean
-    notes: string[]
-    officialAssetKind: 'optimized' | 'original'
-  }
-}
+    kind: string;
+    originalBytes: number;
+    finalBytes: number;
+    targetMet: boolean;
+    notes: string[];
+    officialAssetKind: 'optimized' | 'original';
+  };
+};
 
 function buildState(partial: Partial<LoveIsdinActionState>): LoveIsdinActionState {
   return {
     ...ESTADO_LOVE_ISDIN_INICIAL,
     ...partial,
-  }
+  };
 }
 
 async function publishLoveUiChanges(
@@ -75,11 +76,11 @@ async function publishLoveUiChanges(
     period,
     eventType,
   }: {
-    cuentaClienteId: string
-    empleadoId: string
-    pdvId: string
-    period: string
-    eventType: string
+    cuentaClienteId: string;
+    empleadoId: string;
+    pdvId: string;
+    period: string;
+    eventType: string;
   }
 ) {
   await publishUiChanges(
@@ -101,30 +102,30 @@ async function publishLoveUiChanges(
       },
     }),
     { service }
-  )
+  );
 }
 
 function normalizeRequiredText(value: FormDataEntryValue | null, label: string) {
-  const normalized = String(value ?? '').trim()
+  const normalized = String(value ?? '').trim();
 
   if (!normalized) {
-    throw new Error(`${label} es obligatorio.`)
+    throw new Error(`${label} es obligatorio.`);
   }
 
-  return normalized
+  return normalized;
 }
 
 function normalizeOptionalText(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
-  return normalized || null
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
 }
 
 function asUploadedFile(value: FormDataEntryValue | null) {
   if (!value || typeof value === 'string' || !(value instanceof File) || value.size === 0) {
-    return null
+    return null;
   }
 
-  return value
+  return value;
 }
 
 async function ensureBucket(service: TypedSupabaseClient) {
@@ -132,10 +133,10 @@ async function ensureBucket(service: TypedSupabaseClient) {
     public: false,
     fileSizeLimit: `${EXPEDIENTE_RAW_UPLOAD_MAX_BYTES}`,
     allowedMimeTypes: LOVE_ALLOWED_MIME_TYPES,
-  })
+  });
 
   if (error && !/already exists|duplicate/i.test(error.message)) {
-    throw error
+    throw error;
   }
 }
 
@@ -144,10 +145,10 @@ async function ensureImportBucket(service: TypedSupabaseClient) {
     public: false,
     fileSizeLimit: `${LOVE_IMPORT_MAX_BYTES}`,
     allowedMimeTypes: [...LOVE_IMPORT_ALLOWED_MIME_TYPES],
-  })
+  });
 
   if (error && !/already exists|duplicate/i.test(error.message)) {
-    throw error
+    throw error;
   }
 }
 
@@ -157,19 +158,19 @@ function validateLoveImportFile(
     label,
     extensions,
   }: {
-    label: string
-    extensions: string[]
+    label: string;
+    extensions: string[];
   }
 ) {
   if (file.size > LOVE_IMPORT_MAX_BYTES) {
-    throw new Error(`${label} excede el limite operativo de 25 MB.`)
+    throw new Error(`${label} excede el limite operativo de 25 MB.`);
   }
 
-  const lowerName = file.name.toLowerCase()
-  const matchesExtension = extensions.some((extension) => lowerName.endsWith(extension))
+  const lowerName = file.name.toLowerCase();
+  const matchesExtension = extensions.some((extension) => lowerName.endsWith(extension));
 
   if (!matchesExtension) {
-    throw new Error(`${label} debe tener formato ${extensions.join(', ')}.`)
+    throw new Error(`${label} debe tener formato ${extensions.join(', ')}.`);
   }
 }
 
@@ -182,27 +183,29 @@ async function uploadLoveImportFile(
     file,
     bytes,
   }: {
-    cuentaClienteId: string
-    actorUsuarioId: string
-    prefix: string
-    file: File
-    bytes?: Buffer
+    cuentaClienteId: string;
+    actorUsuarioId: string;
+    prefix: string;
+    file: File;
+    bytes?: Buffer;
   }
 ) {
-  await ensureImportBucket(service)
-  const uploadBytes = bytes ?? Buffer.from(await file.arrayBuffer())
-  const extension = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase() ?? 'bin' : 'bin'
-  const route = `${cuentaClienteId}/${actorUsuarioId}/${prefix}-${Date.now()}.${extension}`
+  await ensureImportBucket(service);
+  const uploadBytes = bytes ?? Buffer.from(await file.arrayBuffer());
+  const extension = file.name.includes('.')
+    ? (file.name.split('.').pop()?.toLowerCase() ?? 'bin')
+    : 'bin';
+  const route = `${cuentaClienteId}/${actorUsuarioId}/${prefix}-${Date.now()}.${extension}`;
   const { error } = await service.storage.from(LOVE_IMPORTS_BUCKET).upload(route, uploadBytes, {
     upsert: false,
     contentType: file.type || 'application/octet-stream',
-  })
+  });
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
 
-  return route
+  return route;
 }
 
 async function uploadLoveEvidence(
@@ -213,28 +216,28 @@ async function uploadLoveEvidence(
     empleadoId,
     file,
   }: {
-    actorUsuarioId: string
-    cuentaClienteId: string
-    empleadoId: string
-    file: File
+    actorUsuarioId: string;
+    cuentaClienteId: string;
+    empleadoId: string;
+    file: File;
   }
 ): Promise<LoveEvidenceUpload> {
   if (file.size > EXPEDIENTE_RAW_UPLOAD_MAX_BYTES) {
-    throw new Error('La evidencia excede el limite operativo de 12 MB antes de optimizar.')
+    throw new Error('La evidencia excede el limite operativo de 12 MB antes de optimizar.');
   }
 
   if (!LOVE_ALLOWED_MIME_TYPES.includes(file.type)) {
-    throw new Error('La evidencia debe ser una imagen JPEG, PNG o WEBP.')
+    throw new Error('La evidencia debe ser una imagen JPEG, PNG o WEBP.');
   }
 
-  await ensureBucket(service)
+  await ensureBucket(service);
   const stored = await storeOptimizedEvidence({
     service,
     bucket: LOVE_BUCKET,
     actorUsuarioId,
     storagePrefix: `love-isdin/${cuentaClienteId}/${empleadoId}`,
     file,
-  })
+  });
 
   return {
     url: stored.archivo.url,
@@ -249,7 +252,7 @@ async function uploadLoveEvidence(
       notes: stored.optimization.notes,
       officialAssetKind: stored.optimization.officialAssetKind,
     },
-  }
+  };
 }
 
 export async function registrarAfiliacionLoveIsdin(
@@ -257,20 +260,25 @@ export async function registrarAfiliacionLoveIsdin(
   formData: FormData
 ): Promise<LoveIsdinActionState> {
   try {
-    const actor = await requerirPuestosActivos(LOVE_WRITE_ROLES)
-    const service = createServiceClient() as TypedSupabaseClient
-    const cuentaClienteId = normalizeRequiredText(formData.get('cuenta_cliente_id'), 'Cuenta cliente')
-    const empleadoId = normalizeOptionalText(formData.get('empleado_id')) ?? actor.empleadoId
-    const pdvId = normalizeRequiredText(formData.get('pdv_id'), 'PDV')
-    const asistenciaId = normalizeOptionalText(formData.get('asistencia_id'))
-    const afiliadoNombre = normalizeRequiredText(formData.get('afiliado_nombre'), 'Afiliado')
-    const afiliadoContacto = normalizeOptionalText(formData.get('afiliado_contacto'))
-    const ticketFolio = normalizeOptionalText(formData.get('ticket_folio'))
-    const fechaUtc = normalizeOptionalText(formData.get('fecha_utc')) ?? new Date().toISOString()
+    const actor = await requerirPuestosActivos(LOVE_WRITE_ROLES);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const cuentaClienteId = normalizeRequiredText(
+      formData.get('cuenta_cliente_id'),
+      'Cuenta cliente'
+    );
+    const empleadoId = normalizeOptionalText(formData.get('empleado_id')) ?? actor.empleadoId;
+    const pdvId = normalizeRequiredText(formData.get('pdv_id'), 'PDV');
+    const asistenciaId = normalizeOptionalText(formData.get('asistencia_id'));
+    const afiliadoNombre = normalizeRequiredText(formData.get('afiliado_nombre'), 'Afiliado');
+    const afiliadoContacto = normalizeOptionalText(formData.get('afiliado_contacto'));
+    const ticketFolio = normalizeOptionalText(formData.get('ticket_folio'));
+    const fechaUtc = normalizeOptionalText(formData.get('fecha_utc')) ?? new Date().toISOString();
 
     // Phase 2: Intercepcion limpia R2 (Subida Directa)
-    const r2Reference = readDirectR2Reference(formData)
-    const evidencia = asUploadedFile(formData.get('evidencia'))
+    const r2Reference = readDirectR2Reference(formData);
+    const evidencia = asUploadedFile(formData.get('evidencia'));
+    const fotosMetadataRaw = formData.get('fotos_metadata');
+    const fotosMetadata = typeof fotosMetadataRaw === 'string' && fotosMetadataRaw.trim() ? JSON.parse(fotosMetadataRaw) : null;
 
     // Cortafuegos: Si el archivo subio directo a R2, no metemos presion a Vercel ni a Supabase Storage
     if (hasDirectR2Reference(r2Reference)) {
@@ -279,7 +287,7 @@ export async function registrarAfiliacionLoveIsdin(
         modulo: 'love_isdin',
         referenciaEntidadId: empleadoId,
         reference: r2Reference,
-      })
+      });
 
       // 3. Registrar evidencia LOVE ISDIN con R2
       const result = await registerLoveAffiliationWithService(service, {
@@ -296,7 +304,14 @@ export async function registrarAfiliacionLoveIsdin(
         evidenciaHash: registered.hash,
         evidenciaThumbnailUrl: null,
         evidenciaThumbnailHash: null,
-        evidenciaOptimization: { kind: 'r2_direct', originalBytes: registered.size, finalBytes: registered.size, targetMet: true, notes: ['Subida directa via R2'], officialAssetKind: 'original' },
+        evidenciaOptimization: {
+          kind: 'r2_direct',
+          originalBytes: registered.size,
+          finalBytes: registered.size,
+          targetMet: true,
+          notes: ['Subida directa via R2'],
+          officialAssetKind: 'original',
+        },
         metadata: {
           capturado_desde: 'panel_love_isdin',
           actor_puesto: actor.puesto,
@@ -304,7 +319,7 @@ export async function registrarAfiliacionLoveIsdin(
           periodo_operativo: fechaUtc.slice(0, 7),
           uploaded_from: 'r2_direct',
         },
-      })
+      });
 
       await registrarLoveAuditEvent(service, {
         cuentaClienteId: result.context.cuentaClienteId,
@@ -321,7 +336,7 @@ export async function registrarAfiliacionLoveIsdin(
           asistencia_id: result.context.attendanceId,
           evidencia: true,
         },
-      })
+      });
 
       await publishLoveUiChanges(service, {
         cuentaClienteId: result.context.cuentaClienteId,
@@ -329,14 +344,14 @@ export async function registrarAfiliacionLoveIsdin(
         pdvId: result.context.pdvId,
         period: fechaUtc.slice(0, 7),
         eventType: 'love_isdin_registrado_r2_direct',
-      })
+      });
 
       return buildState({
         ok: true,
         message: result.inserted
           ? 'Afiliacion LOVE ISDIN registrada con evidencia en R2 (Cero Egress).'
           : 'Ya existia una captura LOVE ISDIN para este cliente en la fecha operativa. Se mantuvo el registro previo.',
-      })
+      });
     }
 
     const evidenciaUpload = evidencia
@@ -346,7 +361,18 @@ export async function registrarAfiliacionLoveIsdin(
           empleadoId,
           file: evidencia,
         })
-      : null
+      : null;
+
+    // Resolve primary evidence if uploaded via multi-photo evidence flow
+    const primaryEvidenciaUrl = evidenciaUpload?.url ?? 
+      (fotosMetadata?.cerca_producto?.objectKey 
+        ? `/api/storage/r2?key=${encodeURIComponent(fotosMetadata.cerca_producto.objectKey)}` 
+        : fotosMetadata?.acuse_recibo?.objectKey 
+          ? `/api/storage/r2?key=${encodeURIComponent(fotosMetadata.acuse_recibo.objectKey)}` 
+          : null);
+    
+    const primaryEvidenciaHash = evidenciaUpload?.hash ?? 
+      (fotosMetadata?.cerca_producto?.sha256 ?? fotosMetadata?.acuse_recibo?.sha256 ?? null);
 
     const result = await registerLoveAffiliationWithService(service, {
       cuentaClienteId,
@@ -358,18 +384,19 @@ export async function registrarAfiliacionLoveIsdin(
       ticketFolio,
       fechaUtc,
       origen: 'ONLINE',
-      evidenciaUrl: evidenciaUpload?.url ?? null,
-      evidenciaHash: evidenciaUpload?.hash ?? null,
+      evidenciaUrl: primaryEvidenciaUrl,
+      evidenciaHash: primaryEvidenciaHash,
       evidenciaThumbnailUrl: evidenciaUpload?.thumbnailUrl ?? null,
       evidenciaThumbnailHash: evidenciaUpload?.thumbnailHash ?? null,
       evidenciaOptimization: evidenciaUpload?.optimization ?? null,
       metadata: {
         capturado_desde: 'panel_love_isdin',
         actor_puesto: actor.puesto,
-        evidencia: Boolean(evidenciaUpload),
+        evidencia: Boolean(evidenciaUpload || fotosMetadata),
         periodo_operativo: fechaUtc.slice(0, 7),
+        ...(fotosMetadata ? { fotos: fotosMetadata } : {}),
       },
-    })
+    });
 
     await registrarLoveAuditEvent(service, {
       cuentaClienteId: result.context.cuentaClienteId,
@@ -386,7 +413,7 @@ export async function registrarAfiliacionLoveIsdin(
         asistencia_id: result.context.attendanceId,
         evidencia: Boolean(evidenciaUpload),
       },
-    })
+    });
 
     await publishLoveUiChanges(service, {
       cuentaClienteId: result.context.cuentaClienteId,
@@ -394,18 +421,18 @@ export async function registrarAfiliacionLoveIsdin(
       pdvId: result.context.pdvId,
       period: fechaUtc.slice(0, 7),
       eventType: 'love_isdin_registrado',
-    })
+    });
 
     return buildState({
       ok: true,
       message: result.inserted
         ? 'Afiliacion LOVE ISDIN registrada.'
         : 'Ya existia una captura LOVE ISDIN para este cliente en la fecha operativa. Se mantuvo el registro previo.',
-    })
+    });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible registrar la afiliacion.',
-    })
+    });
   }
 }
 
@@ -413,41 +440,44 @@ export async function registrarCargaMasivaQrIncremental(
   _prevState: LoveIsdinActionState,
   formData: FormData
 ): Promise<LoveIsdinActionState> {
-  let lotId: string | null = null
-  let lotAccountId: string | null = null
+  let lotId: string | null = null;
+  let lotAccountId: string | null = null;
 
   try {
-    const actor = await requerirPuestosActivos(LOVE_ADMIN_ROLES)
-    const service = createServiceClient() as TypedSupabaseClient
-    const cuentaSolicitada = normalizeOptionalText(formData.get('cuenta_cliente_id'))
-    const manifiesto = asUploadedFile(formData.get('manifiesto_qr'))
-    const zip = asUploadedFile(formData.get('imagenes_zip'))
+    const actor = await requerirPuestosActivos(LOVE_ADMIN_ROLES);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const cuentaSolicitada = normalizeOptionalText(formData.get('cuenta_cliente_id'));
+    const manifiesto = asUploadedFile(formData.get('manifiesto_qr'));
+    const zip = asUploadedFile(formData.get('imagenes_zip'));
 
     if (!manifiesto) {
-      throw new Error('El manifiesto de QR es obligatorio.')
+      throw new Error('El manifiesto de QR es obligatorio.');
     }
 
     if (!zip) {
-      throw new Error('El archivo ZIP con las imagenes QR es obligatorio.')
+      throw new Error('El archivo ZIP con las imagenes QR es obligatorio.');
     }
 
     validateLoveImportFile(manifiesto, {
       label: 'El manifiesto',
       extensions: ['.xlsx', '.xls', '.csv'],
-    })
+    });
     validateLoveImportFile(zip, {
       label: 'El ZIP de imagenes',
       extensions: ['.zip'],
-    })
+    });
 
-    const cuenta = await resolveLoveEffectiveAccount(service, cuentaSolicitada ?? actor.cuentaClienteId ?? null)
-    lotAccountId = cuenta.id
-    const importedAt = new Date().toISOString().slice(0, 10)
+    const cuenta = await resolveLoveEffectiveAccount(
+      service,
+      cuentaSolicitada ?? actor.cuentaClienteId ?? null
+    );
+    lotAccountId = cuenta.id;
+    const importedAt = new Date().toISOString().slice(0, 10);
     const [manifiestoBytes, zipBytes] = await Promise.all([
       Buffer.from(await manifiesto.arrayBuffer()),
       Buffer.from(await zip.arrayBuffer()),
-    ])
-    const manifiestoHash = await computeSHA256(manifiestoBytes)
+    ]);
+    const manifiestoHash = await computeSHA256(manifiestoBytes);
     const [manifiestoPath, zipPath] = await Promise.all([
       uploadLoveImportFile(service, {
         cuentaClienteId: cuenta.id,
@@ -463,7 +493,7 @@ export async function registrarCargaMasivaQrIncremental(
         file: zip,
         bytes: zipBytes,
       }),
-    ])
+    ]);
 
     const { data: loteInsertado, error: loteError } = await service
       .from('love_isdin_qr_import_lote')
@@ -493,12 +523,12 @@ export async function registrarCargaMasivaQrIncremental(
         advertencias: [],
       })
       .select('id')
-      .maybeSingle()
+      .maybeSingle();
 
     if (loteError || !loteInsertado) {
-      throw new Error(loteError?.message ?? 'No fue posible registrar el lote QR.')
+      throw new Error(loteError?.message ?? 'No fue posible registrar el lote QR.');
     }
-    lotId = loteInsertado.id as string
+    lotId = loteInsertado.id as string;
 
     const processed = await processLoveQrImportBatch(service, {
       cuentaClienteId: cuenta.id,
@@ -509,7 +539,7 @@ export async function registrarCargaMasivaQrIncremental(
       imageBucket: LOVE_BUCKET,
       importLoteId: lotId,
       importedAt,
-    })
+    });
 
     const finalMetadata = {
       tipo_carga: 'INCREMENTAL',
@@ -528,7 +558,7 @@ export async function registrarCargaMasivaQrIncremental(
       error_count: processed.errorCount,
       rows_prepared: processed.rowsPrepared,
       processed: processed.applied,
-    }
+    };
     const finalResumen = processed.applied
       ? {
           manifiesto_nombre: manifiesto.name,
@@ -552,7 +582,7 @@ export async function registrarCargaMasivaQrIncremental(
           manifiesto_hash: manifiestoHash,
           rows_prepared: processed.rowsPrepared,
           error_count: processed.errorCount,
-        }
+        };
 
     const { error: updateLotError } = await service
       .from('love_isdin_qr_import_lote')
@@ -564,10 +594,10 @@ export async function registrarCargaMasivaQrIncremental(
         confirmado_por_usuario_id: processed.applied ? actor.usuarioId : null,
         confirmado_en: processed.applied ? new Date().toISOString() : null,
       })
-      .eq('id', lotId)
+      .eq('id', lotId);
 
     if (updateLotError) {
-      throw new Error(updateLotError.message)
+      throw new Error(updateLotError.message);
     }
 
     await service.from('audit_log').insert({
@@ -590,7 +620,7 @@ export async function registrarCargaMasivaQrIncremental(
         activated_assignments: processed.result?.activatedAssignments ?? 0,
         converted_from_tiff_count: processed.result?.convertedFromTiffCount ?? 0,
       },
-    })
+    });
 
     await publishUiChanges(
       buildUiChangeTargetsFromBusinessEvent({
@@ -610,29 +640,32 @@ export async function registrarCargaMasivaQrIncremental(
         },
       }),
       { service }
-    )
+    );
 
     if (!processed.applied) {
       const firstErrors = processed.warnings
         .filter((warning) => warning.severity === 'error')
         .slice(0, 3)
         .map((warning) => warning.message)
-        .join(' ')
+        .join(' ');
 
       return buildState({
         message:
           firstErrors ||
           'La carga masiva se cancelo porque el manifiesto o el ZIP traen errores operativos.',
-      })
+      });
     }
 
     return buildState({
       ok: true,
       message: `Carga QR aplicada. ${processed.result?.activeCount ?? 0} QR activos quedaron listos para dashboard y se convirtieron ${processed.result?.convertedFromTiffCount ?? 0} imagenes TIFF/TIF.`,
-    })
+    });
   } catch (error) {
     if (lotId && lotAccountId) {
-      const message = error instanceof Error ? error.message : 'No fue posible procesar la carga masiva incremental.'
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'No fue posible procesar la carga masiva incremental.';
       await createServiceClient()
         .from('love_isdin_qr_import_lote')
         .update({
@@ -652,12 +685,15 @@ export async function registrarCargaMasivaQrIncremental(
             error: message,
           },
         })
-        .eq('id', lotId)
+        .eq('id', lotId);
     }
 
     return buildState({
-      message: error instanceof Error ? error.message : 'No fue posible registrar la carga masiva incremental.',
-    })
+      message:
+        error instanceof Error
+          ? error.message
+          : 'No fue posible registrar la carga masiva incremental.',
+    });
   }
 }
 
@@ -666,15 +702,19 @@ export async function asignarQrDisponibleLoveIsdin(
   formData: FormData
 ): Promise<LoveIsdinActionState> {
   try {
-    const actor = await requerirPuestosActivos(LOVE_ADMIN_ROLES)
-    const service = createServiceClient() as TypedSupabaseClient
-    const cuentaSolicitada = normalizeOptionalText(formData.get('cuenta_cliente_id'))
-    const qrCodigoId = normalizeRequiredText(formData.get('qr_codigo_id'), 'QR disponible')
-    const empleadoId = normalizeRequiredText(formData.get('empleado_id'), 'Dermoconsejera')
-    const motivo = normalizeOptionalText(formData.get('motivo')) ?? 'ASIGNACION_NUEVA_CONTRATACION'
-    const observaciones = normalizeOptionalText(formData.get('observaciones'))
-    const fechaInicio = normalizeOptionalText(formData.get('fecha_inicio')) ?? new Date().toISOString().slice(0, 10)
-    const cuenta = await resolveLoveEffectiveAccount(service, cuentaSolicitada ?? actor.cuentaClienteId ?? null)
+    const actor = await requerirPuestosActivos(LOVE_ADMIN_ROLES);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const cuentaSolicitada = normalizeOptionalText(formData.get('cuenta_cliente_id'));
+    const qrCodigoId = normalizeRequiredText(formData.get('qr_codigo_id'), 'QR disponible');
+    const empleadoId = normalizeRequiredText(formData.get('empleado_id'), 'Dermoconsejera');
+    const motivo = normalizeOptionalText(formData.get('motivo')) ?? 'ASIGNACION_NUEVA_CONTRATACION';
+    const observaciones = normalizeOptionalText(formData.get('observaciones'));
+    const fechaInicio =
+      normalizeOptionalText(formData.get('fecha_inicio')) ?? new Date().toISOString().slice(0, 10);
+    const cuenta = await resolveLoveEffectiveAccount(
+      service,
+      cuentaSolicitada ?? actor.cuentaClienteId ?? null
+    );
 
     const assigned = await assignAvailableLoveQrToEmployee(service, {
       cuentaClienteId: cuenta.id,
@@ -684,7 +724,7 @@ export async function asignarQrDisponibleLoveIsdin(
       assignedAt: fechaInicio,
       motivo,
       observaciones,
-    })
+    });
 
     await service.from('audit_log').insert({
       tabla: 'love_isdin_qr_asignacion',
@@ -702,7 +742,7 @@ export async function asignarQrDisponibleLoveIsdin(
       },
       usuario_id: actor.usuarioId,
       cuenta_cliente_id: cuenta.id,
-    })
+    });
 
     await publishUiChanges(
       buildUiChangeTargetsFromBusinessEvent({
@@ -721,16 +761,16 @@ export async function asignarQrDisponibleLoveIsdin(
         },
       }),
       { service }
-    )
+    );
 
     return buildState({
       ok: true,
       message: `QR ${assigned.codigo} asignado a ${assigned.empleadoNombre}.`,
-    })
+    });
   } catch (error) {
     return buildState({
       ok: false,
       message: error instanceof Error ? error.message : 'No fue posible asignar el QR disponible.',
-    })
+    });
   }
 }

@@ -4,22 +4,22 @@ const path = require('node:path');
 
 function loadEnvFile(filePath, { override = false } = {}) {
   if (!fs.existsSync(filePath)) {
-    return
+    return;
   }
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/)
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
   for (const line of lines) {
-    const trimmed = line.trim()
+    const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) {
-      continue
+      continue;
     }
-    const separatorIndex = trimmed.indexOf('=')
+    const separatorIndex = trimmed.indexOf('=');
     if (separatorIndex === -1) {
-      continue
+      continue;
     }
-    const key = trimmed.slice(0, separatorIndex).trim()
-    const value = trimmed.slice(separatorIndex + 1).trim()
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
     if (override || !process.env[key]) {
-      process.env[key] = value
+      process.env[key] = value;
     }
   }
 }
@@ -53,7 +53,10 @@ async function run() {
   const empleadoId = usuario.empleado_id;
 
   // 2. Actualizar Usuario
-  await supabase.from('usuario').update({ cuenta_cliente_id: targetAccountId }).eq('id', usuario.id);
+  await supabase
+    .from('usuario')
+    .update({ cuenta_cliente_id: targetAccountId })
+    .eq('id', usuario.id);
   console.log('Usuario actualizado.');
 
   // 3. Actualizar Empleado (si tiene columna)
@@ -76,8 +79,8 @@ async function run() {
   // 6. Actualizar Relaciones PDV
   await supabase
     .from('supervisor_pdv')
-    .update({ 
-       // cuenta_cliente_id: targetAccountId // Check if this column exists
+    .update({
+      // cuenta_cliente_id: targetAccountId // Check if this column exists
     })
     .eq('empleado_id', empleadoId);
 

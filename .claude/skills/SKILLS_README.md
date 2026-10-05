@@ -43,17 +43,18 @@ Instrucciones paso a paso.
 ## ✅ Principios de Anthropic
 
 ### Progressive Disclosure (Carga Eficiente)
+
 1. **Metadata** (~100 palabras) - Siempre en contexto
 2. **SKILL.md** (<5k palabras) - Cuando se activa
 3. **Resources** (unlimited) - Bajo demanda
 
 ### Organización
 
-| Carpeta | Cuándo Usar | Formato |
-|---------|------------|---------|
-| **scripts/** | Código reutilizable | .py, .sh, .js |
-| **references/** | Documentación >5k | .md, .txt |
-| **assets/** | Recursos de salida | .html, .png, .ttf |
+| Carpeta         | Cuándo Usar         | Formato           |
+| --------------- | ------------------- | ----------------- |
+| **scripts/**    | Código reutilizable | .py, .sh, .js     |
+| **references/** | Documentación >5k   | .md, .txt         |
+| **assets/**     | Recursos de salida  | .html, .png, .ttf |
 
 ### Naming Conventions
 
@@ -64,16 +65,19 @@ Instrucciones paso a paso.
 ## 🛠️ Tools Incluidos
 
 ### skill-creator
+
 Herramienta para crear nuevos skills en SaaS Factory.
 
 **Ubicación**: `.claude/skills/skill-creator/`
 
 **Scripts**:
+
 - `init_skill.py` - Crear nueva skill
 - `quick_validate.py` - Validar skill
 - `package_skill.py` - Empaquetar para distribución
 
 **Uso**:
+
 ```bash
 python init_skill.py my-skill
 python quick_validate.py ./my-skill
@@ -157,5 +161,5 @@ my-skill/
 
 ---
 
-*Sistema de Skills estandardizado para SaaS Factory*
-*Basado en Anthropic Agent Skills Spec v1.0*
+_Sistema de Skills estandardizado para SaaS Factory_
+_Basado en Anthropic Agent Skills Spec v1.0_

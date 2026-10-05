@@ -32,35 +32,33 @@ modelo:online = modelo + busqueda web
 // app/api/chat/route.ts
 // MODIFICAR: Agregar soporte para web search
 
-import { openrouter, MODELS } from '@/lib/ai/openrouter'
-import { streamText, convertToModelMessages, type UIMessage } from 'ai'
+import { openrouter, MODELS } from '@/lib/ai/openrouter';
+import { streamText, convertToModelMessages, type UIMessage } from 'ai';
 
 const SYSTEM_PROMPT = `Eres un asistente util.
-Cuando busques informacion, cita las fuentes.`
+Cuando busques informacion, cita las fuentes.`;
 
 export async function POST(req: Request) {
   const {
     messages,
-    webSearch = false  // Nuevo parametro
+    webSearch = false, // Nuevo parametro
   }: {
-    messages: UIMessage[]
-    webSearch?: boolean
-  } = await req.json()
+    messages: UIMessage[];
+    webSearch?: boolean;
+  } = await req.json();
 
-  const modelMessages = convertToModelMessages(messages)
+  const modelMessages = convertToModelMessages(messages);
 
   // Agregar :online si webSearch esta activo
-  const modelId = webSearch
-    ? `${MODELS.balanced}:online`
-    : MODELS.balanced
+  const modelId = webSearch ? `${MODELS.balanced}:online` : MODELS.balanced;
 
   const result = streamText({
     model: openrouter(modelId),
     system: SYSTEM_PROMPT,
     messages: modelMessages,
-  })
+  });
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse();
 }
 ```
 
@@ -154,10 +152,10 @@ Si quieres que SIEMPRE busque en web:
 // app/api/chat/route.ts
 
 const result = streamText({
-  model: openrouter(`${MODELS.balanced}:online`),  // Siempre online
+  model: openrouter(`${MODELS.balanced}:online`), // Siempre online
   system: SYSTEM_PROMPT,
   messages: modelMessages,
-})
+});
 ```
 
 ---
@@ -168,9 +166,9 @@ Todos los modelos de OpenRouter soportan `:online`:
 
 ```typescript
 // Ejemplos
-'anthropic/claude-3-5-sonnet:online'
-'google/gemini-2.0-flash-exp:free:online'
-'openai/gpt-4o:online'
+'anthropic/claude-3-5-sonnet:online';
+'google/gemini-2.0-flash-exp:free:online';
+'openai/gpt-4o:online';
 ```
 
 ---
@@ -193,7 +191,7 @@ Cuando uses informacion de la web:
 2. Indica si la informacion es reciente
 3. Distingue entre hechos y opiniones
 
-Si no encuentras informacion relevante, dilo claramente.`
+Si no encuentras informacion relevante, dilo claramente.`;
 ```
 
 ---

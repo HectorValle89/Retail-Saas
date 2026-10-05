@@ -53,11 +53,11 @@ export const SUPERVISOR_CHECKLIST_ITEMS = [
     commentInputType: 'textarea',
   },
   { key: 'cierre_profesional', label: 'Cierre la visita con despedida profesional' },
-] as const
+] as const;
 
-export type SupervisorChecklistKey = (typeof SUPERVISOR_CHECKLIST_ITEMS)[number]['key']
+export type SupervisorChecklistKey = (typeof SUPERVISOR_CHECKLIST_ITEMS)[number]['key'];
 
-const ABSENT_DC_CHECKLIST_KEY: SupervisorChecklistKey = 'dc_no_se_encuentra_en_pdv'
+const ABSENT_DC_CHECKLIST_KEY: SupervisorChecklistKey = 'dc_no_se_encuentra_en_pdv';
 
 export const SUPERVISOR_DIRECT_DC_INTERACTION_KEYS = [
   'saludo_personalizado_dc',
@@ -67,45 +67,47 @@ export const SUPERVISOR_DIRECT_DC_INTERACTION_KEYS = [
   'pronunciacion_reforzada',
   'feedback_dc_recibida',
   'cierre_profesional',
-] as const satisfies readonly SupervisorChecklistKey[]
+] as const satisfies readonly SupervisorChecklistKey[];
 
 export interface SupervisorChecklistCompletion {
-  checkedCount: number
-  totalCount: number
-  percentage: number
-  excludedKeys: SupervisorChecklistKey[]
+  checkedCount: number;
+  totalCount: number;
+  percentage: number;
+  excludedKeys: SupervisorChecklistKey[];
 }
 
 export function calculateSupervisorChecklistCompletion(
   checklist: Record<string, boolean> | null | undefined
 ): SupervisorChecklistCompletion {
-  const normalizedChecklist = checklist ?? {}
-  const excludedKeys = new Set<SupervisorChecklistKey>()
-  const dcAbsent = normalizedChecklist[ABSENT_DC_CHECKLIST_KEY] === true
+  const normalizedChecklist = checklist ?? {};
+  const excludedKeys = new Set<SupervisorChecklistKey>();
+  const dcAbsent = normalizedChecklist[ABSENT_DC_CHECKLIST_KEY] === true;
 
   if (dcAbsent) {
     for (const key of SUPERVISOR_DIRECT_DC_INTERACTION_KEYS) {
-      excludedKeys.add(key)
+      excludedKeys.add(key);
     }
   } else {
-    excludedKeys.add(ABSENT_DC_CHECKLIST_KEY)
+    excludedKeys.add(ABSENT_DC_CHECKLIST_KEY);
   }
 
-  const applicableItems = SUPERVISOR_CHECKLIST_ITEMS.filter((item) => !excludedKeys.has(item.key))
-  const checkedCount = applicableItems.filter((item) => normalizedChecklist[item.key] === true).length
-  const totalCount = applicableItems.length
+  const applicableItems = SUPERVISOR_CHECKLIST_ITEMS.filter((item) => !excludedKeys.has(item.key));
+  const checkedCount = applicableItems.filter(
+    (item) => normalizedChecklist[item.key] === true
+  ).length;
+  const totalCount = applicableItems.length;
 
   return {
     checkedCount,
     totalCount,
     percentage: totalCount === 0 ? 0 : Math.round((checkedCount / totalCount) * 100),
     excludedKeys: Array.from(excludedKeys),
-  }
+  };
 }
 
 export function isSupervisorChecklistItemNotApplicable(
   key: SupervisorChecklistKey,
   checklist: Record<string, boolean> | null | undefined
 ) {
-  return calculateSupervisorChecklistCompletion(checklist).excludedKeys.includes(key)
+  return calculateSupervisorChecklistCompletion(checklist).excludedKeys.includes(key);
 }

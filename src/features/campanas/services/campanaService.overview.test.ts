@@ -1,11 +1,11 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { ActorActual } from '@/lib/auth/session'
-import { obtenerInicioCampanas } from './campanaService'
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+import type { ActorActual } from '@/lib/auth/session';
+import { obtenerInicioCampanas } from './campanaService';
 
 type QueryResult = {
-  data: unknown[] | null
-  error: { message: string } | null
-}
+  data: unknown[] | null;
+  error: { message: string } | null;
+};
 
 function applyFilters(
   rows: unknown[],
@@ -14,72 +14,78 @@ function applyFilters(
   isFilters: Array<{ column: string; value: unknown }>
 ) {
   return rows.filter((row) => {
-    const record = row as Record<string, unknown>
-    const eqOk = eqFilters.every((filter) => String(record[filter.column] ?? '') === String(filter.value))
-    const inOk = inFilters.every((filter) => filter.values.includes(String(record[filter.column] ?? '')))
-    const isOk = isFilters.every((filter) => (record[filter.column] ?? null) === filter.value)
-    return eqOk && inOk && isOk
-  })
+    const record = row as Record<string, unknown>;
+    const eqOk = eqFilters.every(
+      (filter) => String(record[filter.column] ?? '') === String(filter.value)
+    );
+    const inOk = inFilters.every((filter) =>
+      filter.values.includes(String(record[filter.column] ?? ''))
+    );
+    const isOk = isFilters.every((filter) => (record[filter.column] ?? null) === filter.value);
+    return eqOk && inOk && isOk;
+  });
 }
 
 function createFakeCampaignServiceClient(results: Record<string, QueryResult>, calls?: string[]) {
   return {
     from(table: string) {
-      calls?.push(table)
-      const eqFilters: Array<{ column: string; value: string }> = []
-      const inFilters: Array<{ column: string; values: string[] }> = []
-      const isFilters: Array<{ column: string; value: unknown }> = []
+      calls?.push(table);
+      const eqFilters: Array<{ column: string; value: string }> = [];
+      const inFilters: Array<{ column: string; values: string[] }> = [];
+      const isFilters: Array<{ column: string; value: unknown }> = [];
 
       const builder = {
         select() {
-          return builder
+          return builder;
         },
         eq(column: string, value: string) {
-          eqFilters.push({ column, value })
-          return builder
+          eqFilters.push({ column, value });
+          return builder;
         },
         in(column: string, values: string[]) {
-          inFilters.push({ column, values })
-          return builder
+          inFilters.push({ column, values });
+          return builder;
         },
         is(column: string, value: unknown) {
-          isFilters.push({ column, value })
-          return builder
+          isFilters.push({ column, value });
+          return builder;
         },
         order() {
-          return builder
+          return builder;
         },
         limit() {
-          return builder
+          return builder;
         },
         update(payload: Record<string, unknown>) {
           return {
             in(column: string, values: string[]) {
-              const result = results[table] ?? { data: [], error: null }
+              const result = results[table] ?? { data: [], error: null };
 
               if (!Array.isArray(result.data)) {
-                return Promise.resolve({ data: null, error: result.error })
+                return Promise.resolve({ data: null, error: result.error });
               }
 
               const updatedRows = result.data.map((row) => {
-                const record = row as Record<string, unknown>
-                return values.includes(String(record[column] ?? '')) ? { ...record, ...payload } : row
-              })
+                const record = row as Record<string, unknown>;
+                return values.includes(String(record[column] ?? ''))
+                  ? { ...record, ...payload }
+                  : row;
+              });
 
               results[table] = {
                 data: updatedRows,
                 error: null,
-              }
+              };
 
-              return Promise.resolve({ data: updatedRows, error: null })
+              return Promise.resolve({ data: updatedRows, error: null });
             },
-          }
+          };
         },
         then(resolve: (value: QueryResult) => unknown, reject?: (reason: unknown) => unknown) {
           try {
-            const result = results[table] ?? { data: [], error: null }
+            const result = results[table] ?? { data: [], error: null };
             if (result.error || !Array.isArray(result.data)) {
-              return Promise.resolve(resolve(result))
+              return Promise.resolve(resolve(result));
             }
 
             return Promise.resolve(
@@ -87,20 +93,20 @@ function createFakeCampaignServiceClient(results: Record<string, QueryResult>, c
                 data: applyFilters(result.data, eqFilters, inFilters, isFilters),
                 error: null,
               })
-            )
+            );
           } catch (error) {
             if (reject) {
-              return Promise.resolve(reject(error))
+              return Promise.resolve(reject(error));
             }
 
-            throw error
+            throw error;
           }
         },
-      }
+      };
 
-      return builder
+      return builder;
     },
-  }
+  };
 }
 
 const actorAdmin: ActorActual = {
@@ -114,16 +120,16 @@ const actorAdmin: ActorActual = {
   estadoCuenta: 'ACTIVA',
   nombreCompleto: 'Admin Uno',
   puesto: 'ADMINISTRADOR',
-}
+};
 
 describe('obtenerInicioCampanas', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-04-12T10:00:00.000Z'))
-  })
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-12T10:00:00.000Z'));
+  });
 
   it('evita cargar PDVs y productos antes de abrir el editor', async () => {
-    const calls: string[] = []
+    const calls: string[] = [];
     const client = createFakeCampaignServiceClient(
       {
         campana: {
@@ -184,30 +190,30 @@ describe('obtenerInicioCampanas', () => {
         },
       },
       calls
-    )
+    );
 
     const data = await obtenerInicioCampanas(actorAdmin, {
       scopeAccountId: 'c1',
       serviceClient: client as never,
-    })
+    });
 
-    expect(data.infraestructuraLista).toBe(true)
+    expect(data.infraestructuraLista).toBe(true);
     expect(data.resumen).toMatchObject({
       totalCampanas: 2,
       activas: 1,
       pdvsObjetivo: 2,
       pdvsCumplidos: 1,
-    })
+    });
     expect(data.campanas.find((item) => item.id === 'cam-1')).toMatchObject({
       totalPdvs: 1,
       tareasPendientes: 1,
       avancePromedio: 50,
-    })
-    expect(calls).toContain('campana')
-    expect(calls).toContain('campana_pdv')
-    expect(calls).toContain('cuenta_cliente')
-    expect(calls).not.toContain('pdv')
-    expect(calls).not.toContain('producto')
-    expect(calls).not.toContain('campana_pdv_producto_meta')
-  })
-})
+    });
+    expect(calls).toContain('campana');
+    expect(calls).toContain('campana_pdv');
+    expect(calls).toContain('cuenta_cliente');
+    expect(calls).not.toContain('pdv');
+    expect(calls).not.toContain('producto');
+    expect(calls).not.toContain('campana_pdv_producto_meta');
+  });
+});

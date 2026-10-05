@@ -7,7 +7,7 @@ export function renderEmailShell(
   const ctaHtml =
     ctaLabel && ctaHref
       ? `<p style="margin:24px 0;"><a href="${ctaHref}" style="display:inline-block;border-radius:999px;background:#156fbd;color:#ffffff;padding:14px 22px;text-decoration:none;font-weight:700;">${ctaLabel}</a></p>`
-      : ''
+      : '';
 
   const fallbackHtml =
     ctaHref && ctaHref.startsWith('http')
@@ -15,7 +15,7 @@ export function renderEmailShell(
            Si el botón no funciona, puedes copiar y pegar este enlace en tu navegador:<br/>
            <span style="word-break:break-all;color:#1e293b;">${ctaHref}</span>
          </p>`
-      : ''
+      : '';
 
   return `
     <div style="font-family:Arial,sans-serif;background:#eff5fb;padding:24px;color:#0f172a;">
@@ -32,5 +32,5 @@ export function renderEmailShell(
         Este es un mensaje automático de Beteele One. Por favor no respondas a este correo.
       </p>
     </div>
-  `
+  `;
 }

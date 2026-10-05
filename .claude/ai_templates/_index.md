@@ -36,16 +36,16 @@ ai_templates/
 
 Bloques que se construyen progresivamente. Ubicados en `agents/`.
 
-| # | Bloque | Prerequisitos |
-|---|--------|---------------|
-| 00 | **Setup Base** | Ninguno |
-| 01 | **Chat Streaming** | 00 |
-| 01-ALT | **Action Stream** | 00 (alternativa a 01) |
-| 02 | **Web Search** | 01 |
-| 03 | **Historial** | 01 + Supabase |
-| 04 | **Vision** | 01 |
-| 05 | **Tools** | 01 |
-| 06 | **RAG Basico** | 03 (Supabase) |
+| #      | Bloque             | Prerequisitos         |
+| ------ | ------------------ | --------------------- |
+| 00     | **Setup Base**     | Ninguno               |
+| 01     | **Chat Streaming** | 00                    |
+| 01-ALT | **Action Stream**  | 00 (alternativa a 01) |
+| 02     | **Web Search**     | 01                    |
+| 03     | **Historial**      | 01 + Supabase         |
+| 04     | **Vision**         | 01                    |
+| 05     | **Tools**          | 01                    |
+| 06     | **RAG Basico**     | 03 (Supabase)         |
 
 **Dos caminos:**
 
@@ -58,23 +58,25 @@ Camino B (Action):  00 → 01-ALT → 02 → 03 → 04 → 06
 
 Capacidades que NO dependen del flujo de agente. En la raiz de `ai_templates/`.
 
-| Template | Descripcion | Estado |
-|----------|-------------|--------|
-| **single-call.md** | Llamada simple a LLM | Listo |
-| **structured-outputs.md** | JSON tipado con Zod | En optimizacion |
-| **generative-ui.md** | Componentes dinamicos | En optimizacion |
+| Template                  | Descripcion           | Estado          |
+| ------------------------- | --------------------- | --------------- |
+| **single-call.md**        | Llamada simple a LLM  | Listo           |
+| **structured-outputs.md** | JSON tipado con Zod   | En optimizacion |
+| **generative-ui.md**      | Componentes dinamicos | En optimizacion |
 
 ---
 
 ## Cuando Usar Cada Uno
 
 ### Usa Agentes cuando:
+
 - Necesitas conversacion continua
 - El usuario interactua multiples veces
 - Requieres memoria/historial
 - El AI debe usar herramientas
 
 ### Usa Standalone cuando:
+
 - Es una accion puntual (boton "Resumir")
 - No hay interaccion de chat
 - Solo necesitas una respuesta
@@ -85,18 +87,21 @@ Capacidades que NO dependen del flujo de agente. En la raiz de `ai_templates/`.
 ## Como Referenciar
 
 ### Agentes (secuenciales)
+
 ```
 @ai_templates/agents/00-setup-base.md
 Configura el setup base para mi proyecto
 ```
 
 ### Standalone (independientes)
+
 ```
 @ai_templates/single-call.md
 Implementa un boton que resuma texto con IA
 ```
 
 ### Combinacion
+
 ```
 @ai_templates/_index.md
 Necesito: Setup + Chat + RAG
@@ -155,26 +160,31 @@ npm install @supabase/supabase-js @supabase/ssr
 ## Combinaciones Recomendadas
 
 ### Chatbot Basico
+
 ```
 agents/00 + agents/01 + agents/02
 ```
 
 ### Asistente con Memoria
+
 ```
 agents/00 + agents/01 + agents/02 + agents/03
 ```
 
 ### Agente con Conocimiento (RAG)
+
 ```
 agents/00 + agents/01 + agents/03 + agents/06
 ```
 
 ### Boton de IA Simple
+
 ```
 single-call.md (sin agente)
 ```
 
 ### Extraccion de Datos
+
 ```
 structured-outputs.md (sin agente)
 ```
@@ -190,4 +200,4 @@ structured-outputs.md (sin agente)
 
 ---
 
-*"No todo necesita ser un agente. A veces un boton es suficiente."*
+_"No todo necesita ser un agente. A veces un boton es suficiente."_

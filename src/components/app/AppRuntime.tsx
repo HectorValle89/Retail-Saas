@@ -1,21 +1,21 @@
-'use client'
+'use client';
 
-import { useEffect } from 'react'
-import dynamic from 'next/dynamic'
-import { usePathname } from 'next/navigation'
+import { useEffect } from 'react';
+import dynamic from 'next/dynamic';
+import { usePathname } from 'next/navigation';
 import {
   recoverFromChunkLoadError,
   shouldRecoverFromChunkLoadError,
-} from '@/lib/runtime/chunkRecovery'
+} from '@/lib/runtime/chunkRecovery';
 
 const AuthSessionMonitor = dynamic(
   () => import('@/components/auth/AuthSessionMonitor').then((module) => module.AuthSessionMonitor),
   { ssr: false }
-)
+);
 const PwaBootstrap = dynamic(
   () => import('@/components/pwa/PwaBootstrap').then((module) => module.PwaBootstrap),
   { ssr: false }
-)
+);
 
 const PUBLIC_PATHS = new Set([
   '/',
@@ -28,89 +28,95 @@ const PUBLIC_PATHS = new Set([
   '/activacion',
   '/enlace-caducado',
   '/primer-acceso',
-])
+]);
+
+function isClientPublicPath(pathname: string) {
+  return (
+    PUBLIC_PATHS.has(pathname) ||
+    pathname.startsWith('/captura/') ||
+    pathname.startsWith('/mecanicas/') ||
+    pathname.startsWith('/formularios/') ||
+    pathname.startsWith('/reporte/')
+  );
+}
 
 export function AppRuntime() {
-  const pathname = usePathname()
+  const pathname = usePathname();
 
   useEffect(() => {
-    if (!pathname || PUBLIC_PATHS.has(pathname)) {
-      return
+    if (!pathname || isClientPublicPath(pathname)) {
+      return;
     }
 
-    const isLocalHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+    const isLocalHost =
+      typeof window !== 'undefined' &&
+      ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
     if (process.env.NODE_ENV === 'production' && !isLocalHost) {
-      return
+      return;
     }
 
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
-      return
+      return;
     }
 
     const clearDevelopmentPwaState = async () => {
-      const registrations = await navigator.serviceWorker.getRegistrations()
+      const registrations = await navigator.serviceWorker.getRegistrations();
 
-      await Promise.all(registrations.map((registration) => registration.unregister()))
+      await Promise.all(registrations.map((registration) => registration.unregister()));
 
       if ('caches' in window) {
-        const cacheKeys = await caches.keys()
+        const cacheKeys = await caches.keys();
         await Promise.all(
-          cacheKeys
-            .filter((key) => key.startsWith('retail-'))
-            .map((key) => caches.delete(key))
-        )
+          cacheKeys.filter((key) => key.startsWith('retail-')).map((key) => caches.delete(key))
+        );
       }
-    }
+    };
 
-    void clearDevelopmentPwaState()
+    void clearDevelopmentPwaState();
 
-    return undefined
-  }, [pathname])
+    return undefined;
+  }, [pathname]);
 
   useEffect(() => {
     if (!pathname) {
-      return
+      return;
     }
 
     if (typeof window === 'undefined') {
-      return
+      return;
     }
 
     const handleError = (event: ErrorEvent) => {
-      const message = String(event?.message ?? '')
+      const message = String(event?.message ?? '');
       if (!message || !shouldRecoverFromChunkLoadError(message)) {
-        return
+        return;
       }
-      void recoverFromChunkLoadError()
-    }
+      void recoverFromChunkLoadError();
+    };
 
     const handleRejection = (event: PromiseRejectionEvent) => {
-      const reason = event?.reason as unknown
+      const reason = event?.reason as unknown;
       const message =
-        reason instanceof Error
-          ? reason.message
-          : typeof reason === 'string'
-            ? reason
-            : ''
+        reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : '';
 
       if (!message || !shouldRecoverFromChunkLoadError(message)) {
-        return
+        return;
       }
-      void recoverFromChunkLoadError()
-    }
+      void recoverFromChunkLoadError();
+    };
 
-    window.addEventListener('error', handleError)
-    window.addEventListener('unhandledrejection', handleRejection)
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
 
     return () => {
-      window.removeEventListener('error', handleError)
-      window.removeEventListener('unhandledrejection', handleRejection)
-    }
-  }, [pathname])
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, [pathname]);
 
-  if (!pathname || PUBLIC_PATHS.has(pathname)) {
-    return null
+  if (!pathname || isClientPublicPath(pathname)) {
+    return null;
   }
 
   return (
@@ -118,5 +124,6 @@ export function AppRuntime() {
       <AuthSessionMonitor />
       <PwaBootstrap />
     </>
-  )
+  );
 }
+

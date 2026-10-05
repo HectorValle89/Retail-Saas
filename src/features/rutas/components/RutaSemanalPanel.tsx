@@ -35,8 +35,7 @@ import { useScopedWidgetData } from '@/lib/ui-change/client';
 import { getUiChangeScopeKeysForActor, type UiChangeVersionRow } from '@/lib/ui-change/types';
 import {
   actualizarControlRutaSemanal,
-  aprobarRutasMesCompleto,
-  guardarPlaneacionRutaSemanalCanvas,
+  guardarCuotasVisitasSupervisor,
   guardarPlaneacionRutaMensualCanvas,
   registrarEvidenciaEventoAgendaRutaSemanal,
   registrarEventoAgendaRutaSemanal,
@@ -47,6 +46,9 @@ import {
   solicitarCambioRutaSemanal,
 } from '../actions';
 import { SupervisorTodayRouteSheet } from './SupervisorTodayRouteSheet';
+import { RutaMensualCalendar } from './RutaMensualCalendar';
+import { RutaMensualPlanner } from './RutaMensualPlanner';
+import { SupervisorMonthlyRouteBoard } from './SupervisorMonthlyRouteBoard';
 import {
   getWeekStartIso,
   getWeekDayLabel,
@@ -60,6 +62,7 @@ import {
   getPlanningMonthOptions,
   formatPlanningMonthLabel,
   cloneWeeklyPlanToMonthVisits,
+  isDateInPlanningMonth,
 } from '../lib/monthPlanning';
 import {
   getCoordinatorInitialWeekStart,
@@ -77,12 +80,14 @@ import type {
   RutaQuotaProgressItem,
   RutaSemanalItem,
   RutaSemanalPanelData,
+  RutaSemanalPdvOption,
   RutaSemanalVisitItem,
   RutaSupervisorWarRoomItem,
 } from '../services/rutaSemanalService';
 
 type WarRoomTab = 'quotas' | 'routes' | 'coverage' | 'reach' | 'ranking' | 'evidencias';
 type SupervisorRouteTab = 'agenda' | 'planning' | 'corrections' | 'history';
+type SupervisorWorkspaceTarget = SupervisorRouteTab | 'today' | 'monthly';
 type CoordinatorKanbanColumnKey = 'FALTANTES' | 'ENVIADAS' | 'AJUSTES' | 'PUBLICADAS' | 'CERRADAS';
 
 type UnifiedDayEditorMode = 'CHANGE' | 'EVENT';
@@ -319,24 +324,31 @@ export function RutaSemanalPanel({
   hideSupervisorTabs?: boolean;
 }) {
   const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
-  const fetcher = useCallback(async (signal: AbortSignal, _change: UiChangeVersionRow) => {
-    void _change;
+  const fetcher = useCallback(
+    async (signal: AbortSignal, _change: UiChangeVersionRow) => {
+      void _change;
+      const params = new URLSearchParams();
+      if (initialTab === 'quotas') {
+        params.set('surface', 'quotas');
+      }
 
-    const response = await fetch('/api/ruta-semanal/panel', {
-      cache: 'no-store',
-      credentials: 'same-origin',
-      signal,
-    });
-    const payload = (await response.json()) as { data?: RutaSemanalPanelData; message?: string };
+      const response = await fetch(`/api/ruta-semanal/panel?${params.toString()}`, {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal,
+      });
+      const payload = (await response.json()) as { data?: RutaSemanalPanelData; message?: string };
 
-    if (!response.ok || !payload.data) {
-      throw new Error(payload.message ?? 'No fue posible refrescar la ruta semanal.');
-    }
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.message ?? 'No fue posible refrescar la ruta mensual.');
+      }
 
-    return payload.data;
-  }, []);
+      return payload.data;
+    },
+    [initialTab]
+  );
 
-  const { data } = useScopedWidgetData({
+  const { data, observedChange } = useScopedWidgetData({
     initialData,
     module: 'ruta-semanal',
     surfaces: ['panel'],
@@ -347,12 +359,17 @@ export function RutaSemanalPanel({
     refreshOnMount: false,
   });
 
+  const routeCalendarRefreshToken = observedChange
+    ? `${observedChange.module}:${observedChange.surface}:${observedChange.scope_key}:${observedChange.role_target}:${observedChange.version}`
+    : null;
+
   if (actorPuesto === 'COORDINADOR' || actorPuesto === 'ADMINISTRADOR') {
     return (
       <CoordinatorWarRoom
         data={data}
         actorPuesto={actorPuesto}
         initialTab={normalizeWarRoomTab(initialTab)}
+        routeCalendarRefreshToken={routeCalendarRefreshToken}
       />
     );
   }
@@ -371,10 +388,12 @@ function CoordinatorWarRoom({
   data,
   actorPuesto,
   initialTab,
+  routeCalendarRefreshToken,
 }: {
   data: RutaSemanalPanelData;
   actorPuesto: string;
   initialTab: WarRoomTab;
+  routeCalendarRefreshToken: string | null;
 }) {
   const minimumVisibleWeekStart = normalizeWeekStart(data.semanaActualInicio);
   const visibleCoordinatorRoutes = useMemo(
@@ -391,13 +410,10 @@ function CoordinatorWarRoom({
     cadena: 'TODAS',
     storeType: 'TODOS',
   });
-  const [appliedQuotaFilters, setAppliedQuotaFilters] = useState({
-    supervisorEmpleadoId: '',
-    cadena: 'TODAS',
-    storeType: 'TODOS',
-    applied: false,
-  });
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>(coordinatorDefaultWeekStart);
+  const [calendarMonth, setCalendarMonth] = useState<string>(() =>
+    getPlanningMonthIso()
+  );
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [selectedCoverageSupervisorId, setSelectedCoverageSupervisorId] = useState<string>(
     data.warRoom.supervisors[0]?.supervisorEmpleadoId ?? ''
@@ -411,7 +427,28 @@ function CoordinatorWarRoom({
   >({});
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isExportingExcelMes, setIsExportingExcelMes] = useState(false);
-  const [isApprovingMes, setIsApprovingMes] = useState(false);
+  const selectWarRoomTab = useCallback(
+    (nextTab: WarRoomTab) => {
+      if (nextTab === 'quotas' || initialTab === 'quotas') {
+        window.location.assign(`${window.location.pathname}?tab=${nextTab}`);
+        return;
+      }
+
+      setActiveTab(nextTab);
+    },
+    [initialTab]
+  );
+  const handlePersistedQuotasChange = useCallback(
+    (supervisorEmpleadoId: string, quotas: Record<string, number>) =>
+      setQuotaOverridesBySupervisor((current) => ({
+        ...current,
+        [supervisorEmpleadoId]: {
+          ...current[supervisorEmpleadoId],
+          ...quotas,
+        },
+      })),
+    []
+  );
 
   const handleExportarExcel = useCallback(async () => {
     try {
@@ -445,9 +482,8 @@ function CoordinatorWarRoom({
     try {
       setIsExportingExcelMes(true);
       const params = new URLSearchParams();
-      if (selectedWeekStart) {
-        const mesIso = selectedWeekStart.substring(0, 7); // Extrae YYYY-MM
-        params.set('semanaInicio', mesIso);
+      if (calendarMonth) {
+        params.set('semanaInicio', calendarMonth);
       }
       const response = await fetch(`/api/rutas/export?${params.toString()}`);
       if (!response.ok) {
@@ -458,7 +494,7 @@ function CoordinatorWarRoom({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const mesIso = selectedWeekStart ? selectedWeekStart.substring(0, 7) : 'general';
+      const mesIso = calendarMonth || 'general';
       a.download = `Reporte_Mensual_Rutas_${mesIso}.xlsx`;
       document.body.appendChild(a);
       a.click();
@@ -469,36 +505,12 @@ function CoordinatorWarRoom({
     } finally {
       setIsExportingExcelMes(false);
     }
-  }, [selectedWeekStart]);
-
-  const handleAprobarMes = useCallback(async () => {
-    if (!selectedWeekStart) return;
-    const mesIso = selectedWeekStart.substring(0, 7);
-    const label = `¿Estás seguro que deseas aprobar TODAS las rutas enviadas para el mes de ${mesIso}? Esta acción no se puede deshacer.`;
-    if (!window.confirm(label)) return;
-
-    try {
-      setIsApprovingMes(true);
-      const result = await aprobarRutasMesCompleto(mesIso);
-      if (result.ok) {
-        alert(result.message);
-        // Podríamos recargar la página o emitir un evento para refrescar los datos
-        window.location.reload();
-      } else {
-        alert(result.message);
-      }
-    } catch (error) {
-      alert('Error inesperado al aprobar el mes.');
-    } finally {
-      setIsApprovingMes(false);
-    }
-  }, [selectedWeekStart]);
+  }, [calendarMonth]);
 
   const supervisors = data.warRoom.supervisors;
   const quotaSupervisor =
-    supervisors.find(
-      (item) => item.supervisorEmpleadoId === appliedQuotaFilters.supervisorEmpleadoId
-    ) ?? null;
+    supervisors.find((item) => item.supervisorEmpleadoId === quotaFilters.supervisorEmpleadoId) ??
+    null;
   const quotaChainOptions = useMemo(() => {
     const source =
       supervisors.find((item) => item.supervisorEmpleadoId === quotaFilters.supervisorEmpleadoId)
@@ -509,22 +521,21 @@ function CoordinatorWarRoom({
     ).sort((left, right) => left.localeCompare(right, 'es'));
   }, [supervisors, quotaFilters.supervisorEmpleadoId]);
   const filteredQuotaItems = useMemo(() => {
-    if (!appliedQuotaFilters.applied || !quotaSupervisor) {
+    if (!quotaSupervisor) {
       return [] as RutaQuotaProgressItem[];
     }
 
     return quotaSupervisor.quotaProgress.filter((item) => {
       const matchesChain =
-        appliedQuotaFilters.cadena === 'TODAS' ||
-        (item.cadena ?? 'Sin cadena') === appliedQuotaFilters.cadena;
+        quotaFilters.cadena === 'TODAS' || (item.cadena ?? 'Sin cadena') === quotaFilters.cadena;
       const matchesStoreType =
-        appliedQuotaFilters.storeType === 'TODOS' ||
-        (appliedQuotaFilters.storeType === 'FIJO' && item.clasificacionMaestra === 'FIJO') ||
-        (appliedQuotaFilters.storeType === 'ROTATIVO' && item.clasificacionMaestra === 'ROTATIVO');
+        quotaFilters.storeType === 'TODOS' ||
+        (quotaFilters.storeType === 'FIJO' && item.clasificacionMaestra === 'FIJO') ||
+        (quotaFilters.storeType === 'ROTATIVO' && item.clasificacionMaestra === 'ROTATIVO');
 
       return matchesChain && matchesStoreType;
     });
-  }, [appliedQuotaFilters, quotaSupervisor]);
+  }, [quotaFilters.cadena, quotaFilters.storeType, quotaSupervisor]);
   const effectiveFilteredQuotaItems = useMemo(() => {
     if (!quotaSupervisor) {
       return filteredQuotaItems;
@@ -628,18 +639,18 @@ function CoordinatorWarRoom({
   }, [expandedCoverageRoute, selectedCoverageDayNumber, selectedCoverageVisitId]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-4">
       {!data.infraestructuraLista && data.mensajeInfraestructura && (
-        <Card className="border-amber-200 bg-amber-50 text-amber-900">
+        <Card className="border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
           <p className="font-medium">Infraestructura pendiente</p>
-          <p className="mt-2 text-sm">{data.mensajeInfraestructura}</p>
+          <p className="mt-1">{data.mensajeInfraestructura}</p>
         </Card>
       )}
 
       {!data.warRoom.metadataColumnAvailable && (
-        <Card className="border-sky-200 bg-sky-50 text-sky-900">
+        <Card className="border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
           <p className="font-medium">War Room en modo compatible</p>
-          <p className="mt-2 text-sm">
+          <p className="mt-1">
             La lectura ya funciona aunque la base local aun no tenga `ruta_semanal.metadata`. La
             aprobacion de quotas y cambios de ruta quedara habilitada al aplicar la migracion de
             workflow.
@@ -648,43 +659,42 @@ function CoordinatorWarRoom({
       )}
 
       {!data.agendaInfrastructureAvailable && data.agendaInfrastructureMessage && (
-        <Card className="border-amber-200 bg-amber-50 text-amber-900">
+        <Card className="border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
           <p className="font-medium">Agenda dinamica en modo compatible</p>
-          <p className="mt-2 text-sm">{data.agendaInfrastructureMessage}</p>
+          <p className="mt-1">{data.agendaInfrastructureMessage}</p>
         </Card>
       )}
 
-      <Card className="border-slate-200 bg-white">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--module-text)]">
+      <Card className="border-slate-200 bg-white p-3 sm:p-3.5">
+        <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
               Planeacion operativa
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-              Ruta semanal para {actorPuesto.toLowerCase()}
+            </span>
+            <h2 className="text-base font-bold text-slate-900 sm:text-lg">
+              Rutas mensuales ({actorPuesto.toLowerCase()})
             </h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Organiza cuotas mensuales, tablero semanal de rutas y cobertura de visitas sin saturar
-              la pantalla.
-            </p>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <Button
               type="button"
               variant="outline"
-              className="border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 hover:text-emerald-950 font-semibold text-xs shadow-sm"
-              onClick={handleExportarExcel}
-              disabled={isExportingExcel}
+              className="h-8 border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 hover:text-emerald-950 shadow-xs"
+              onClick={handleExportarExcelMes}
+              disabled={isExportingExcelMes}
             >
-              {isExportingExcel ? (
+              {isExportingExcelMes ? (
                 <>
-                  <span className="mr-2 h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-700 border-t-transparent inline-block" />
+                  <span className="mr-1.5 h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-700 border-t-transparent inline-block" />
                   Exportando...
                 </>
               ) : (
                 <>
-                  <PremiumLineIcon name="reports" className="mr-1.5 h-4 w-4 text-emerald-700 inline" />
-                  Exportar Rutas a Excel
+                  <PremiumLineIcon
+                    name="reports"
+                    className="mr-1.5 h-3.5 w-3.5 text-emerald-700 inline"
+                  />
+                  Exportar a Excel
                 </>
               )}
             </Button>
@@ -692,57 +702,65 @@ function CoordinatorWarRoom({
               active={activeTab === 'quotas'}
               icon="reports"
               label="Cuotas"
-              onClick={() => setActiveTab('quotas')}
+              onClick={() => selectWarRoomTab('quotas')}
             />
             <WarRoomTabButton
               active={activeTab === 'routes'}
               icon="calendar"
               label="Tablero de rutas"
-              onClick={() => setActiveTab('routes')}
+              onClick={() => selectWarRoomTab('routes')}
             />
             <WarRoomTabButton
               active={activeTab === 'coverage'}
               icon="route"
               label="Cobertura y tiendas sin visita"
-              onClick={() => setActiveTab('coverage')}
+              onClick={() => selectWarRoomTab('coverage')}
             />
             <WarRoomTabButton
               active={activeTab === 'reach'}
               icon="reports"
               label="Alcance mensual"
-              onClick={() => setActiveTab('reach')}
+              onClick={() => selectWarRoomTab('reach')}
             />
             <WarRoomTabButton
               active={activeTab === 'ranking'}
               icon="reports"
               label="Ranking de Visitas"
-              onClick={() => setActiveTab('ranking')}
+              onClick={() => selectWarRoomTab('ranking')}
             />
             <WarRoomTabButton
               active={activeTab === 'evidencias'}
               icon="route"
               label="Visitas y Evidencias"
-              onClick={() => setActiveTab('evidencias')}
+              onClick={() => selectWarRoomTab('evidencias')}
             />
           </div>
         </div>
       </Card>
 
       {activeTab === 'quotas' ? (
-        <section className="space-y-6">
-          <Card className="space-y-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <section className="space-y-3">
+          {!data.warRoom.quotaInfrastructureAvailable && data.warRoom.quotaInfrastructureMessage ? (
+            <Card className="border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              {data.warRoom.quotaInfrastructureMessage}
+            </Card>
+          ) : null}
+
+          <Card className="space-y-2.5 p-3 sm:p-3.5">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-slate-950">Filtros de cuotas</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Selecciona supervisor, cadena y tipo de tienda. Las tiendas solo aparecen cuando
-                  aplicas filtros.
+                <h3 className="text-sm font-semibold text-slate-950">Cuotas por supervisor</h3>
+                <p className="text-xs text-slate-500">
+                  Elige un supervisor para editar sus tiendas. Los filtros actualizan la lista al
+                  instante.
                 </p>
               </div>
             </div>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
               <Select
                 label="Supervisor"
+                labelClassName="!mb-1 !text-[11px]"
+                className="!h-9 !py-1 !px-2.5 !text-xs !rounded-lg"
                 value={quotaFilters.supervisorEmpleadoId}
                 onChange={(event) =>
                   setQuotaFilters((current) => ({
@@ -761,6 +779,8 @@ function CoordinatorWarRoom({
               />
               <Select
                 label="Cadena"
+                labelClassName="!mb-1 !text-[11px]"
+                className="!h-9 !py-1 !px-2.5 !text-xs !rounded-lg"
                 value={quotaFilters.cadena}
                 onChange={(event) =>
                   setQuotaFilters((current) => ({
@@ -776,6 +796,8 @@ function CoordinatorWarRoom({
               />
               <Select
                 label="Tipo de tienda"
+                labelClassName="!mb-1 !text-[11px]"
+                className="!h-9 !py-1 !px-2.5 !text-xs !rounded-lg"
                 value={quotaFilters.storeType}
                 onChange={(event) =>
                   setQuotaFilters((current) => ({
@@ -790,144 +812,56 @@ function CoordinatorWarRoom({
                 ]}
               />
             </div>
-            <div className="flex flex-wrap gap-3">
-              <Button
-                type="button"
-                onClick={() =>
-                  setAppliedQuotaFilters({
-                    ...quotaFilters,
-                    applied: true,
-                  })
-                }
-              >
-                Aplicar filtros
-              </Button>
+            <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => {
-                  const next = {
-                    supervisorEmpleadoId: '',
+                className="h-8 px-2.5 py-1 text-xs font-medium"
+                onClick={() =>
+                  setQuotaFilters((current) => ({
+                    ...current,
                     cadena: 'TODAS',
                     storeType: 'TODOS',
-                  };
-                  setQuotaFilters(next);
-                  setAppliedQuotaFilters({ ...next, applied: false });
-                }}
+                  }))
+                }
               >
-                Limpiar
+                Limpiar cadena y tipo
               </Button>
             </div>
           </Card>
 
-          <Card className="space-y-5">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-950">
-                  {quotaSupervisor?.supervisor ?? 'Cuotas por supervisor'}
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Configura las visitas mensuales por tienda y revisa el mapa de calor solo sobre el
-                  subconjunto filtrado.
-                </p>
-              </div>
-              {appliedQuotaFilters.applied && quotaSupervisor && (
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${getSemaforoTone(quotaSupervisor.semaforo)}`}
-                >
-                  {quotaSupervisor.semaforo}
-                </span>
-              )}
-            </div>
-
-            {appliedQuotaFilters.applied && quotaSupervisor ? (
-              <>
-                <QuotaSummary supervisor={quotaSupervisor} items={effectiveFilteredQuotaItems} />
-                <QuotaProgressList
-                  key={`${quotaSupervisor.supervisorEmpleadoId}-${appliedQuotaFilters.cadena}-${appliedQuotaFilters.storeType}`}
-                  supervisor={quotaSupervisor}
-                  items={effectiveFilteredQuotaItems}
-                  metadataEnabled={data.warRoom.metadataColumnAvailable}
-                  onPersistedQuotasChange={(quotas) =>
-                    setQuotaOverridesBySupervisor((current) => ({
-                      ...current,
-                      [quotaSupervisor.supervisorEmpleadoId]: quotas,
-                    }))
-                  }
-                />
-              </>
+          <Card className="p-0">
+            {quotaSupervisor ? (
+              <QuotaProgressList
+                key={`${quotaSupervisor.supervisorEmpleadoId}-${quotaFilters.cadena}-${quotaFilters.storeType}`}
+                supervisor={quotaSupervisor}
+                items={effectiveFilteredQuotaItems}
+                canManage={actorPuesto === 'ADMINISTRADOR' || actorPuesto === 'COORDINADOR'}
+                infrastructureAvailable={data.warRoom.quotaInfrastructureAvailable ?? true}
+                onPersistedQuotasChange={handlePersistedQuotasChange}
+              />
             ) : (
-              <EmptyState copy="Selecciona un supervisor y aplica filtros para revisar sus tiendas fijas, rotativas y sus cuotas mensuales." />
+              <div className="p-5">
+                <EmptyState copy="Selecciona un supervisor para revisar y editar sus cuotas mensuales." />
+              </div>
             )}
           </Card>
         </section>
       ) : activeTab === 'routes' ? (
-        <section className="space-y-6">
-          <CoordinatorRouteKanban
-            routes={routeBoardRoutes}
-            supervisors={data.warRoom.supervisors}
-            selectedRouteId={selectedRouteId}
-            onSelectRoute={setSelectedRouteId}
-            selectedWeekStart={selectedWeekStart}
-            onPreviousWeek={() =>
-              setSelectedWeekStart((current) =>
-                current <= minimumVisibleWeekStart
-                  ? minimumVisibleWeekStart
-                  : shiftWeekStart(current, -1)
-              )
-            }
-            onNextWeek={() => setSelectedWeekStart((current) => shiftWeekStart(current, 1))}
-            canGoToPreviousWeek={selectedWeekStart > minimumVisibleWeekStart}
-            onExportExcel={handleExportarExcel}
-            isExportingExcel={isExportingExcel}
-            onExportExcelMes={handleExportarExcelMes}
-            isExportingExcelMes={isExportingExcelMes}
-            onAprobarMes={handleAprobarMes}
-            isApprovingMes={isApprovingMes}
+        <section className="space-y-3 sm:space-y-4">
+          <SupervisorMonthlyRouteBoard
+            actorPuesto={actorPuesto}
+            month={calendarMonth}
+            onMonthChange={setCalendarMonth}
+            supervisorOptions={data.warRoom.supervisors.map((item) => ({
+              supervisorEmpleadoId: item.supervisorEmpleadoId,
+              supervisor: item.supervisor,
+              zona: item.zona,
+            }))}
+            onExportMonth={handleExportarExcelMes}
+            isExportingMonth={isExportingExcelMes}
+            refreshToken={routeCalendarRefreshToken}
           />
-
-          <Card className="space-y-5">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-950">
-                  {selectedRoute?.supervisor ?? 'Selecciona una ruta'}
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Aqui solo aparecen las rutas semanales que el supervisor ya programo y envio para
-                  revision.
-                </p>
-              </div>
-              {selectedRoute && (
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${getRouteTone(selectedRoute.estatus)}`}
-                >
-                  {selectedRoute.estatus}
-                </span>
-              )}
-            </div>
-            {selectedRoute ? (
-              <>
-                <RouteWorkflowCard
-                  route={selectedRoute}
-                  canReview={data.warRoom.metadataColumnAvailable || !data.puedeEditar}
-                />
-                <RouteMapByDay route={selectedRoute} />
-                <AgendaApprovalsCard
-                  route={selectedRoute}
-                  events={data.agendaEventosPendientesAprobacion.filter(
-                    (item) => item.routeId === selectedRoute.id
-                  )}
-                  pendingRepositions={data.agendaPendientesReposicion.filter(
-                    (item) => item.routeId === selectedRoute.id
-                  )}
-                  agendaInfrastructureAvailable={data.agendaInfrastructureAvailable}
-                  agendaInfrastructureMessage={data.agendaInfrastructureMessage}
-                />
-              </>
-            ) : (
-              <EmptyState copy="Todavia no hay rutas semanales enviadas por supervisores en esta semana. Las cuotas base no aparecen en este tablero." />
-            )}
-          </Card>
         </section>
       ) : activeTab === 'reach' ? (
         <section className="space-y-6">
@@ -1041,7 +975,9 @@ function CoordinatorWarRoom({
         </section>
       ) : activeTab === 'ranking' ? (
         <div className="space-y-6">
-          <VisitasOperativasDemandCard periodoInicial={data.semanaActualInicio?.slice(0, 7) || resolveCurrentMonth()} />
+          <VisitasOperativasDemandCard
+            periodoInicial={data.semanaActualInicio?.slice(0, 7) || resolveCurrentMonth()}
+          />
         </div>
       ) : activeTab === 'evidencias' ? (
         <div className="space-y-6">
@@ -1076,7 +1012,9 @@ function SupervisorRouteOperations({
   const [selectedHistoryRouteId, setSelectedHistoryRouteId] = useState<string | null>(
     data.rutasHistoricasMesActual[0]?.id ?? null
   );
-  const [activeModal, setActiveModal] = useState<SupervisorRouteTab | 'today' | null>(null);
+  const [activeModal, setActiveModal] = useState<SupervisorWorkspaceTarget | null>(
+    initialTab === 'planning' ? 'monthly' : null
+  );
   const [operationNotice, setOperationNotice] = useState<{
     tone: 'success' | 'error';
     message: string;
@@ -1169,6 +1107,29 @@ function SupervisorRouteOperations({
               setActiveModal(target);
             }}
           />
+
+          <SupervisorWorkspaceModal
+            open={activeModal === 'monthly'}
+            onClose={() => setActiveModal(null)}
+            title="Planificar Ruta Mensual"
+            subtitle="Define las tiendas de cada día y envía el mes completo a coordinación."
+          >
+            {data.puedeEditar ? (
+              <PlanificarRutaCard
+                data={data}
+                onOpenCorrections={(routeId) => {
+                  setSelectedCorrectionRouteId(routeId);
+                  setActiveModal('corrections');
+                }}
+                onOpenHistory={(routeId) => {
+                  setSelectedHistoryRouteId(routeId);
+                  setActiveModal('history');
+                }}
+              />
+            ) : (
+              <EmptyState copy="Solo el supervisor puede definir la ruta mensual." />
+            )}
+          </SupervisorWorkspaceModal>
 
           <SupervisorWorkspaceModal
             open={activeModal === 'today'}
@@ -1273,7 +1234,7 @@ function SupervisorRouteOperations({
             }}
           />
         ) : (
-          <EmptyState copy="Solo el supervisor puede definir la ruta semanal desde esta pestaña." />
+          <EmptyState copy="Solo el supervisor puede definir la ruta mensual desde esta pestaña." />
         )
       ) : activeTab === 'corrections' ? (
         <SupervisorCorrectionsWorkspace
@@ -1327,7 +1288,7 @@ function SupervisorOperationsHub({
 }: {
   data: RutaSemanalPanelData;
   actorPuesto: string;
-  onOpen: (target: SupervisorRouteTab | 'today') => void;
+  onOpen: (target: SupervisorWorkspaceTarget) => void;
 }) {
   const todayCompleted = data.visitasHoy.filter((visit) => visit.estatus === 'COMPLETADA').length;
   const currentMonthVisits = data.rutasHistoricasMesActual.reduce(
@@ -1357,13 +1318,20 @@ function SupervisorOperationsHub({
         </div>
       </div>
 
-      <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <SupervisorHubButton
           title="Mi Ruta Hoy"
           description="Ver ruta aprobada, abrir tiendas y cerrar visitas."
           icon="route"
           metric={`${data.visitasHoy.length} visita(s)`}
           onClick={() => onOpen('today')}
+        />
+        <SupervisorHubButton
+          title="Planificar Mes"
+          description="Definir las tiendas de cada día y enviar el mes."
+          icon="calendar"
+          metric="Envío mensual"
+          onClick={() => onOpen('monthly')}
         />
         <SupervisorHubButton
           title="Modificar Ruta"
@@ -1729,13 +1697,13 @@ function WarRoomTabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${
+      className={`inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
         active
-          ? 'border-[var(--module-border)] bg-[var(--module-soft-bg)] text-[var(--module-text)]'
+          ? 'border-[var(--module-border)] bg-[var(--module-soft-bg)] text-[var(--module-text)] shadow-xs'
           : 'border-slate-200 bg-white text-slate-600 hover:border-[var(--module-border)] hover:text-slate-950'
       }`}
     >
-      <PremiumLineIcon name={icon} className="h-4 w-4" strokeWidth={2} />
+      <PremiumLineIcon name={icon} className="h-3.5 w-3.5" strokeWidth={2} />
       {label}
     </button>
   );
@@ -1759,7 +1727,7 @@ function AgendaDigestCard({
             {agendaHoy ? `${agendaHoy.dayLabel} en ejecucion` : 'Sin agenda del dia'}
           </h2>
           <p className="mt-2 text-sm text-slate-500">
-            La ruta semanal sigue como base, pero aqui vemos lo que realmente vive hoy.
+            La planeación mensual es la base; aquí vemos la agenda que realmente vive hoy.
           </p>
         </div>
         <span className="rounded-full bg-[var(--module-soft-bg)] px-3 py-1 text-xs font-semibold text-[var(--module-text)]">
@@ -2006,10 +1974,6 @@ function CoordinatorRouteKanban({
   canGoToPreviousWeek,
   onExportExcel,
   isExportingExcel,
-  onExportExcelMes,
-  isExportingExcelMes,
-  onAprobarMes,
-  isApprovingMes,
 }: {
   routes: RutaSemanalItem[];
   supervisors: RutaSupervisorWarRoomItem[];
@@ -2021,15 +1985,14 @@ function CoordinatorRouteKanban({
   canGoToPreviousWeek: boolean;
   onExportExcel?: () => void;
   isExportingExcel?: boolean;
-  onExportExcelMes?: () => void;
-  isExportingExcelMes?: boolean;
-  onAprobarMes?: () => void;
-  isApprovingMes?: boolean;
 }) {
   const [activeColumn, setActiveColumn] = useState<CoordinatorKanbanColumnKey | null>(null);
 
   const grouped = useMemo(() => {
-    const initial: Record<CoordinatorKanbanColumnKey, Array<RutaSemanalItem | RutaSupervisorWarRoomItem>> = {
+    const initial: Record<
+      CoordinatorKanbanColumnKey,
+      Array<RutaSemanalItem | RutaSupervisorWarRoomItem>
+    > = {
       FALTANTES: [],
       ENVIADAS: [],
       AJUSTES: [],
@@ -2066,68 +2029,16 @@ function CoordinatorRouteKanban({
     return initial;
   }, [routes, supervisors]);
 
-  const columns: CoordinatorKanbanColumnKey[] = ['FALTANTES', 'ENVIADAS', 'AJUSTES', 'PUBLICADAS', 'CERRADAS'];
-
-  const mesIso = selectedWeekStart ? selectedWeekStart.substring(0, 7) : '';
+  const columns: CoordinatorKanbanColumnKey[] = [
+    'FALTANTES',
+    'ENVIADAS',
+    'AJUSTES',
+    'PUBLICADAS',
+    'CERRADAS',
+  ];
 
   return (
     <>
-      <Card className="border-indigo-200 bg-indigo-50 mb-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between p-5">
-          <div>
-            <h3 className="text-lg font-bold text-indigo-950 flex items-center gap-2">
-              <PremiumLineIcon name="calendar" className="h-5 w-5 text-indigo-700" />
-              Acciones del Mes ({mesIso})
-            </h3>
-            <p className="text-sm text-indigo-800 mt-1">
-              Ahorra tiempo gestionando todas las rutas correspondientes a este mes en un solo click.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {onAprobarMes && (
-              <Button
-                type="button"
-                className="bg-indigo-600 text-white hover:bg-indigo-700 font-semibold shadow-sm"
-                onClick={onAprobarMes}
-                disabled={isApprovingMes}
-              >
-                {isApprovingMes ? (
-                  <>
-                    <span className="mr-1.5 h-4 w-4 animate-spin rounded-full border-2 border-indigo-200 border-t-white inline-block" />
-                    Aprobando Mes...
-                  </>
-                ) : (
-                  <>
-                    Aprobar Rutas del Mes
-                  </>
-                )}
-              </Button>
-            )}
-            {onExportExcelMes && (
-              <Button
-                type="button"
-                variant="outline"
-                className="border-indigo-300 bg-white text-indigo-900 hover:bg-indigo-100 font-semibold shadow-sm"
-                onClick={onExportExcelMes}
-                disabled={isExportingExcelMes}
-              >
-                {isExportingExcelMes ? (
-                  <>
-                    <span className="mr-1.5 h-4 w-4 animate-spin rounded-full border-2 border-indigo-700 border-t-transparent inline-block" />
-                    Exportando...
-                  </>
-                ) : (
-                  <>
-                    <PremiumLineIcon name="reports" className="mr-1.5 h-4 w-4 text-indigo-700 inline" />
-                    Exportar Excel del Mes
-                  </>
-                )}
-              </Button>
-            )}
-          </div>
-        </div>
-      </Card>
-
       <Card className="border-slate-200 bg-white">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -2155,7 +2066,10 @@ function CoordinatorRouteKanban({
                   </>
                 ) : (
                   <>
-                    <PremiumLineIcon name="reports" className="mr-1.5 h-4 w-4 text-emerald-700 inline" />
+                    <PremiumLineIcon
+                      name="reports"
+                      className="mr-1.5 h-4 w-4 text-emerald-700 inline"
+                    />
                     Exportar Excel
                   </>
                 )}
@@ -2249,8 +2163,12 @@ function CoordinatorRouteKanban({
             ) : (
               grouped[activeColumn ?? 'ENVIADAS'].map((item) => {
                 const isMissing = 'supervisorEmpleadoId' in item && !('id' in item);
-                const routeId = isMissing ? (item as RutaSupervisorWarRoomItem).supervisorEmpleadoId : (item as RutaSemanalItem).id;
-                const supervisorName = isMissing ? (item as RutaSupervisorWarRoomItem).supervisor : (item as RutaSemanalItem).supervisor;
+                const routeId = isMissing
+                  ? (item as RutaSupervisorWarRoomItem).supervisorEmpleadoId
+                  : (item as RutaSemanalItem).id;
+                const supervisorName = isMissing
+                  ? (item as RutaSupervisorWarRoomItem).supervisor
+                  : (item as RutaSemanalItem).supervisor;
 
                 return (
                   <button
@@ -2272,7 +2190,9 @@ function CoordinatorRouteKanban({
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
-                        <p className={`truncate text-base font-bold ${isMissing ? 'text-rose-900' : ''}`}>
+                        <p
+                          className={`truncate text-base font-bold ${isMissing ? 'text-rose-900' : ''}`}
+                        >
                           {supervisorName ?? 'Supervisor sin nombre'}
                         </p>
                         {!isMissing && (
@@ -2280,7 +2200,8 @@ function CoordinatorRouteKanban({
                             <p
                               className={`text-xs ${selectedRouteId === routeId ? 'text-slate-300' : 'text-slate-500'}`}
                             >
-                              {formatDate((item as RutaSemanalItem).semanaInicio)} - {formatDate((item as RutaSemanalItem).semanaFin)}
+                              {formatDate((item as RutaSemanalItem).semanaInicio)} -{' '}
+                              {formatDate((item as RutaSemanalItem).semanaFin)}
                             </p>
                             <span className="h-1 w-1 rounded-full bg-slate-400 opacity-30" />
                             <p
@@ -2980,54 +2901,22 @@ function getStoreTypeTone(value: RutaQuotaProgressItem['clasificacionMaestra']) 
   return 'bg-slate-100 text-slate-600';
 }
 
-function QuotaSummary({
-  supervisor,
-  items,
-}: {
-  supervisor: RutaSupervisorWarRoomItem;
-  items: RutaQuotaProgressItem[];
-}) {
-  const fixedStores = items.filter((item) => item.clasificacionMaestra === 'FIJO').length;
-  const rotationalStores = items.filter((item) => item.clasificacionMaestra === 'ROTATIVO').length;
-  const monthlyMinimumVisits = items.reduce((acc, item) => acc + item.quotaMensual, 0);
-
-  return (
-    <div className="space-y-4">
-      <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-          Cuotas minimas mensuales
-        </p>
-        <h4 className="mt-1 text-lg font-semibold text-slate-950">
-          {monthlyMinimumVisits} visitas
-        </h4>
-        <p className="mt-1 text-sm text-slate-500">
-          {supervisor.supervisor} · {supervisor.zona ?? 'Sin zona'}
-        </p>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MiniStat label="Tiendas fijas" value={String(fixedStores)} />
-        <MiniStat label="Tiendas rotativas" value={String(rotationalStores)} />
-        <MiniStat label="Tiendas visibles" value={String(items.length)} />
-        <MiniStat label="Minimas del mes" value={String(monthlyMinimumVisits)} />
-      </div>
-    </div>
-  );
-}
-
 function QuotaProgressList({
   supervisor,
   items,
-  metadataEnabled,
+  canManage,
+  infrastructureAvailable,
   onPersistedQuotasChange,
 }: {
   supervisor: RutaSupervisorWarRoomItem;
   items: RutaQuotaProgressItem[];
-  metadataEnabled: boolean;
-  onPersistedQuotasChange?: (quotas: Record<string, number>) => void;
+  canManage: boolean;
+  infrastructureAvailable: boolean;
+  onPersistedQuotasChange?: (supervisorEmpleadoId: string, quotas: Record<string, number>) => void;
 }) {
-  const [state, formAction] = useActionState(actualizarControlRutaSemanal, ESTADO_RUTA_INICIAL);
+  const [state, formAction] = useActionState(guardarCuotasVisitasSupervisor, ESTADO_RUTA_INICIAL);
   const [draftQuotas, setDraftQuotas] = useState<Record<string, number>>({});
-  const [resolvedRouteId, setResolvedRouteId] = useState(supervisor.rutaId ?? '');
+  const [bulkQuota, setBulkQuota] = useState('4');
   const sortedItems = useMemo(
     () =>
       [...items].sort((left, right) => {
@@ -3052,53 +2941,27 @@ function QuotaProgressList({
       }),
     [items]
   );
-  const fixedItems = useMemo(
-    () => sortedItems.filter((item) => item.clasificacionMaestra !== 'ROTATIVO'),
-    [sortedItems]
+  const initialQuotas = useMemo(
+    () => Object.fromEntries(items.map((item) => [item.pdvId, item.quotaMensual])),
+    [items]
   );
-  const rotationalGroups = useMemo(() => {
-    const grouped = new Map<string, RutaQuotaProgressItem[]>();
-
-    for (const item of sortedItems) {
-      if (item.clasificacionMaestra !== 'ROTATIVO') {
-        continue;
-      }
-
-      const groupKey = item.grupoRotacionCodigo ?? `ROTATIVO-${item.pdvId}`;
-      const current = grouped.get(groupKey) ?? [];
-      current.push(item);
-      grouped.set(groupKey, current);
-    }
-
-    return Array.from(grouped.entries()).map(([groupCode, groupItems]) => ({
-      groupCode,
-      items: groupItems,
-    }));
-  }, [sortedItems]);
-  const canSave = metadataEnabled;
-
-  useEffect(() => {
-    const nextFromItems = Object.fromEntries(items.map((item) => [item.pdvId, item.quotaMensual]));
-
-    return scheduleEffectStateUpdate(() => {
-      setDraftQuotas(() => {
-        if (state.ok && state.savedPdvMonthlyQuotas) {
-          return {
-            ...nextFromItems,
-            ...state.savedPdvMonthlyQuotas,
-          };
-        }
-
-        return nextFromItems;
-      });
-    });
-  }, [items, state.ok, state.savedPdvMonthlyQuotas]);
+  const monthlyVisits = sortedItems.reduce(
+    (total, item) => total + (draftQuotas[item.pdvId] ?? item.quotaMensual),
+    0
+  );
+  const changedCount = sortedItems.filter(
+    (item) => (draftQuotas[item.pdvId] ?? item.quotaMensual) !== initialQuotas[item.pdvId]
+  ).length;
+  const canEdit = canManage && infrastructureAvailable;
+  const canSave = canEdit && changedCount > 0;
+  const effectiveMonthIso = `${supervisor.quotaEffectiveMonth}-01`;
+  const effectiveMonthLabel = formatMonthLabel(effectiveMonthIso);
 
   useEffect(() => {
     return scheduleEffectStateUpdate(() => {
-      setResolvedRouteId(supervisor.rutaId ?? '');
+      setDraftQuotas(initialQuotas);
     });
-  }, [supervisor.rutaId, supervisor.supervisorEmpleadoId, supervisor.weekStart]);
+  }, [initialQuotas]);
 
   useEffect(() => {
     if (!state.ok || !state.savedPdvMonthlyQuotas) {
@@ -3106,231 +2969,232 @@ function QuotaProgressList({
     }
 
     const savedPdvMonthlyQuotas = state.savedPdvMonthlyQuotas;
-    const savedRouteId = state.savedRouteId;
 
     return scheduleEffectStateUpdate(() => {
       setDraftQuotas((current) => ({
         ...current,
         ...savedPdvMonthlyQuotas,
       }));
-      onPersistedQuotasChange?.(savedPdvMonthlyQuotas);
-
-      if (savedRouteId) {
-        setResolvedRouteId(savedRouteId);
-      }
+      onPersistedQuotasChange?.(supervisor.supervisorEmpleadoId, savedPdvMonthlyQuotas);
     });
-  }, [onPersistedQuotasChange, state.ok, state.savedPdvMonthlyQuotas, state.savedRouteId]);
+  }, [
+    onPersistedQuotasChange,
+    state.ok,
+    state.savedPdvMonthlyQuotas,
+    supervisor.supervisorEmpleadoId,
+  ]);
+
+  const applyBulkQuota = () => {
+    const parsed = Number(bulkQuota);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 999) {
+      return;
+    }
+
+    setDraftQuotas((current) => ({
+      ...current,
+      ...Object.fromEntries(sortedItems.map((item) => [item.pdvId, parsed])),
+    }));
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-1">
-        <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-          Tiendas filtradas
-        </h4>
-        <p className="text-sm text-slate-600">
-          Aqui solo asignamos visitas minimas mensuales por PDV.
-        </p>
+    <div data-testid="quota-editor-list" className="overflow-hidden">
+      <div className="border-b border-slate-200 bg-slate-50/80 px-4 py-2.5 sm:px-5">
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-sm font-semibold text-slate-950 sm:text-base">
+                {supervisor.supervisor}
+              </h3>
+              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-800">
+                Vigentes hasta que las cambies
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {supervisor.zona ?? 'Sin zona'} · A partir de {effectiveMonthLabel}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="rounded-md border border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-700">
+              {items.length} tiendas
+            </span>
+            <span className="rounded-md border border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-700">
+              {monthlyVisits} visitas/mes
+            </span>
+            {changedCount > 0 ? (
+              <span className="rounded-md bg-amber-100 px-2.5 py-1 font-semibold text-amber-800">
+                {changedCount} cambios
+              </span>
+            ) : null}
+          </div>
+        </div>
       </div>
+
       {items.length === 0 ? (
-        <EmptyState copy="No hay tiendas visibles con el filtro aplicado." />
+        <div className="p-5">
+          <EmptyState copy="No hay tiendas visibles con los filtros actuales." />
+        </div>
       ) : (
-        <form action={formAction} className="space-y-4">
-          <input type="hidden" name="ruta_id" value={resolvedRouteId} />
+        <form action={formAction}>
+          <input type="hidden" name="cuenta_cliente_id" value={supervisor.cuentaClienteId ?? ''} />
           <input
             type="hidden"
             name="supervisor_empleado_id"
             value={supervisor.supervisorEmpleadoId}
           />
-          <input type="hidden" name="semana_inicio" value={supervisor.weekStart} />
+          <input
+            type="hidden"
+            name="quota_effective_month"
+            value={supervisor.quotaEffectiveMonth ?? ''}
+          />
 
-          <div className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(239,246,255,0.92))] px-5 py-4 shadow-[0_18px_50px_-34px_rgba(15,23,42,0.28)]">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-              <div>
-                <p className="text-lg font-semibold text-slate-950">
-                  Asignacion mensual de visitas
+          <div className="flex flex-col gap-2.5 border-b border-slate-200 px-4 py-2.5 sm:flex-row sm:items-end sm:justify-between sm:px-5">
+            <div className="flex flex-wrap items-end gap-2">
+              <Input
+                label="Cuota para tiendas visibles"
+                type="number"
+                min="0"
+                max="999"
+                inputMode="numeric"
+                value={bulkQuota}
+                onChange={(event) => setBulkQuota(event.target.value)}
+                disabled={!canEdit}
+                className="h-9 w-28 text-xs sm:h-9"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={applyBulkQuota}
+                disabled={!canEdit}
+                className="h-9 px-3 text-xs sm:h-9"
+              >
+                Aplicar a visibles
+              </Button>
+              <SubmitButton
+                label={changedCount > 0 ? `Guardar ${changedCount} cambios` : 'Sin cambios'}
+                disabled={!canSave}
+                className="h-9 px-3 text-xs sm:h-9"
+              />
+            </div>
+            <div className="flex flex-col items-start text-xs sm:items-end">
+              <p className="max-w-xl leading-4 text-[11px] text-slate-500">
+                Un cambio inicia en {effectiveMonthLabel}; los meses anteriores conservan su cuota y
+                los siguientes heredan este valor.
+              </p>
+              {state.message ? (
+                <p
+                  role="status"
+                  className={`mt-1 font-medium ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}
+                >
+                  {state.message}
                 </p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Ajusta la cuota minima de visitas del mes para cada tienda visible y guarda el
-                  bloque solo cuando termine tu filtro.
+              ) : null}
+              {!infrastructureAvailable ? (
+                <p className="mt-1 text-amber-700">
+                  Falta aplicar la infraestructura de cuotas recurrentes.
                 </p>
-                {!metadataEnabled ? (
-                  <p className="mt-3 text-xs text-amber-700">
-                    La lectura del War Room ya funciona, pero para guardar cuotas primero hay que
-                    aplicar la migracion del workflow de ruta semanal.
-                  </p>
-                ) : !supervisor.rutaId ? (
-                  <p className="mt-3 text-xs text-amber-700">
-                    Este supervisor aun no tiene una ruta base visible para la semana seleccionada.
-                    Al guardar las cuotas, el sistema creara la base operativa para que despues el
-                    supervisor arme sus rutas semanales contra ese objetivo mensual.
-                  </p>
-                ) : null}
-                {state.message ? (
-                  <p className={`mt-3 text-xs ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    {state.message}
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex justify-start lg:justify-end">
-                <SubmitButton label="Guardar cuotas" disabled={!canSave} />
-              </div>
+              ) : null}
             </div>
           </div>
 
-          <div className="space-y-5">
-            {fixedItems.length > 0 ? (
-              <section className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <h5 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Tiendas fijas
-                  </h5>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
-                    {fixedItems.length} PDV
-                  </span>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  {fixedItems.map((item) => (
-                    <QuotaPdvCard
-                      key={item.pdvId}
-                      item={item}
-                      quotaValue={draftQuotas[item.pdvId] ?? item.quotaMensual}
-                      canSave={canSave}
-                      onQuotaChange={(nextValue) =>
-                        setDraftQuotas((current) => ({
-                          ...current,
-                          [item.pdvId]: nextValue,
-                        }))
-                      }
-                    />
-                  ))}
-                </div>
-              </section>
-            ) : null}
+          <div className="hidden grid-cols-[minmax(240px,2fr)_minmax(130px,1fr)_minmax(130px,1fr)_120px_170px] gap-3 border-b border-slate-200 bg-slate-50 px-5 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 md:grid">
+            <span>Tienda</span>
+            <span>Cadena / zona</span>
+            <span>Tipo / grupo</span>
+            <span>Vigente desde</span>
+            <span className="text-right">Visitas al mes</span>
+          </div>
 
-            {rotationalGroups.length > 0 ? (
-              <section className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <h5 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Familias rotativas
-                  </h5>
-                  <span className="rounded-full bg-sky-50 px-3 py-1 text-[11px] font-semibold text-sky-700">
-                    {rotationalGroups.length} grupos
-                  </span>
-                </div>
-                <div className="space-y-4">
-                  {rotationalGroups.map((group) => (
-                    <div
-                      key={group.groupCode}
-                      className="rounded-[24px] border border-sky-100 bg-[linear-gradient(180deg,rgba(240,249,255,0.9),rgba(255,255,255,0.95))] px-4 py-4 shadow-[0_20px_40px_-36px_rgba(14,116,144,0.45)]"
+          <div className="divide-y divide-slate-200">
+            {sortedItems.map((item) => {
+              const quotaValue = draftQuotas[item.pdvId] ?? item.quotaMensual;
+              const updateQuota = (nextValue: number) =>
+                setDraftQuotas((current) => ({
+                  ...current,
+                  [item.pdvId]: Math.min(999, Math.max(0, nextValue)),
+                }));
+
+              return (
+                <div
+                  key={item.pdvId}
+                  data-testid="quota-row"
+                  className="grid gap-2 px-4 py-3 transition hover:bg-slate-50 sm:px-5 md:grid-cols-[minmax(240px,2fr)_minmax(130px,1fr)_minmax(130px,1fr)_120px_170px] md:items-center md:gap-3 md:py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-950">{item.nombre}</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-400">{item.claveBtl}</p>
+                  </div>
+                  <p className="truncate text-xs text-slate-600">
+                    {item.cadena ?? 'Sin cadena'} · {item.zona ?? item.formato ?? 'Sin zona'}
+                  </p>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${getStoreTypeTone(item.clasificacionMaestra)}`}
                     >
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-950">{group.groupCode}</p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Pareja o trio rotativo tratado como una mini-familia visual.
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-sky-700">
-                          {group.items.length} PDV
-                        </span>
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                        {group.items.map((item) => (
-                          <QuotaPdvCard
-                            key={item.pdvId}
-                            item={item}
-                            quotaValue={draftQuotas[item.pdvId] ?? item.quotaMensual}
-                            canSave={canSave}
-                            compactGroup
-                            onQuotaChange={(nextValue) =>
-                              setDraftQuotas((current) => ({
-                                ...current,
-                                [item.pdvId]: nextValue,
-                              }))
-                            }
-                          />
-                        ))}
-                      </div>
+                      {getStoreTypeLabel(item.clasificacionMaestra)}
+                    </span>
+                    {item.grupoRotacionCodigo ? (
+                      <span className="truncate text-[11px] text-slate-500">
+                        {item.grupoRotacionCodigo}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {item.quotaVigenteDesde ? formatMonthLabel(item.quotaVigenteDesde) : 'Nueva'}
+                  </p>
+                  <div className="flex items-center justify-between gap-1 md:justify-end">
+                    <span className="text-xs font-medium text-slate-500 md:hidden">
+                      Visitas/mes
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        aria-label={`Disminuir cuota de ${item.nombre}`}
+                        onClick={() => updateQuota(quotaValue - 1)}
+                        disabled={!canEdit || quotaValue <= 0}
+                        className="h-11 w-11 p-0 text-base md:h-9 md:w-9"
+                      >
+                        −
+                      </Button>
+                      <Input
+                        data-testid="quota-input"
+                        aria-label={`Cuota mensual de ${item.nombre}`}
+                        name={`pdv_quota_${item.pdvId}`}
+                        type="number"
+                        min="0"
+                        max="999"
+                        inputMode="numeric"
+                        value={String(quotaValue)}
+                        onChange={(event) =>
+                          updateQuota(Number.parseInt(event.target.value || '0', 10) || 0)
+                        }
+                        disabled={!canEdit}
+                        className="h-11 w-16 px-1 text-center text-sm font-semibold md:h-9"
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        aria-label={`Aumentar cuota de ${item.nombre}`}
+                        onClick={() => updateQuota(quotaValue + 1)}
+                        disabled={!canEdit || quotaValue >= 999}
+                        className="h-11 w-11 p-0 text-base md:h-9 md:w-9"
+                      >
+                        +
+                      </Button>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </section>
-            ) : null}
+              );
+            })}
+          </div>
+
+          <div className="border-t border-slate-200 bg-slate-50/50 px-4 py-3 sm:px-5">
+            <p className="text-xs text-slate-500">
+              El guardado no crea rutas ni altera planeaciones aprobadas.
+            </p>
           </div>
         </form>
       )}
-    </div>
-  );
-}
-
-function QuotaPdvCard({
-  item,
-  quotaValue,
-  canSave,
-  onQuotaChange,
-  compactGroup = false,
-}: {
-  item: RutaQuotaProgressItem;
-  quotaValue: number;
-  canSave: boolean;
-  onQuotaChange: (nextValue: number) => void;
-  compactGroup?: boolean;
-}) {
-  return (
-    <div
-      className={`flex min-h-[188px] flex-col justify-between rounded-[24px] border bg-white px-4 py-4 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.28)] transition hover:border-slate-300 ${
-        compactGroup ? 'border-sky-100' : 'border-slate-200'
-      }`}
-    >
-      <div className="min-w-0 space-y-2.5">
-        <div className="flex flex-wrap items-start gap-2">
-          <p className="min-w-0 flex-1 text-[15px] font-semibold leading-5 text-slate-950">
-            {item.nombre}
-          </p>
-          <span
-            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${getStoreTypeTone(item.clasificacionMaestra)}`}
-          >
-            {getStoreTypeLabel(item.clasificacionMaestra)}
-          </span>
-        </div>
-        <div className="space-y-1 text-sm text-slate-600">
-          <p className="truncate">
-            {item.cadena ?? 'Sin cadena'} · {item.zona ?? item.formato ?? 'Sin zona'}
-          </p>
-          {item.grupoRotacionCodigo ? (
-            <p className="truncate text-xs font-medium uppercase tracking-[0.12em] text-slate-500">
-              {item.grupoRotacionCodigo}
-            </p>
-          ) : null}
-          <p className="truncate text-xs text-slate-400">{item.claveBtl}</p>
-        </div>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-[18px] border border-slate-200 bg-slate-50/80 px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-            Minimas asignadas
-          </p>
-          <p className="mt-3 text-[2rem] font-semibold leading-none text-slate-950">
-            {String(quotaValue)}
-          </p>
-        </div>
-        <label className="grid gap-2 rounded-[18px] border border-slate-200 bg-slate-50/80 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-          Visitas del mes
-          <Input
-            name={`pdv_quota_${item.pdvId}`}
-            type="number"
-            min="0"
-            value={String(quotaValue)}
-            onChange={(event) =>
-              onQuotaChange(Math.max(0, Number.parseInt(event.target.value || '0', 10) || 0))
-            }
-            disabled={!canSave}
-            className="h-12 border-slate-200 bg-white text-center text-2xl font-semibold text-slate-950"
-          />
-        </label>
-      </div>
     </div>
   );
 }
@@ -3914,11 +3778,23 @@ function MetricCard({
   );
 }
 
-function SubmitButton({ label, disabled = false }: { label: string; disabled?: boolean }) {
+function SubmitButton({
+  label,
+  disabled = false,
+  className,
+}: {
+  label: string;
+  disabled?: boolean;
+  className?: string;
+}) {
   const { pending } = useFormStatus();
 
   return (
-    <Button type="submit" className="min-h-11 min-w-36" disabled={pending || disabled}>
+    <Button
+      type="submit"
+      className={className ?? 'h-11 min-w-36 sm:h-10'}
+      disabled={pending || disabled}
+    >
       {pending ? 'Guardando...' : label}
     </Button>
   );
@@ -4029,6 +3905,25 @@ function AgendaOperativaOverviewCard({
   const [eventType, setEventType] =
     useState<RutaAgendaEventoItem['tipoEvento']>('VISITA_ADICIONAL');
   const [selectedDisplacedVisitIds, setSelectedDisplacedVisitIds] = useState<string[]>([]);
+  const [gpsPosition, setGpsPosition] = useState<{
+    latitud: number | null;
+    longitud: number | null;
+  }>({ latitud: null, longitud: null });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && navigator?.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setGpsPosition({
+            latitud: pos.coords.latitude,
+            longitud: pos.coords.longitude,
+          });
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+      );
+    }
+  }, []);
 
   useEffect(() => {
     return scheduleEffectStateUpdate(() => {
@@ -4051,6 +3946,8 @@ function AgendaOperativaOverviewCard({
           name="displaced_visit_ids_json"
           value={JSON.stringify(selectedDisplacedVisitIds)}
         />
+        <input type="hidden" name="latitud" value={gpsPosition.latitud ?? ''} />
+        <input type="hidden" name="longitud" value={gpsPosition.longitud ?? ''} />
         {!agendaInfrastructureAvailable && agendaInfrastructureMessage ? (
           <div className="rounded-[16px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             {agendaInfrastructureMessage}
@@ -4594,162 +4491,14 @@ function AgendaApprovalsCard({
 
 function PlanificarRutaCard({
   data,
-  onOpenCorrections,
-  onOpenHistory,
 }: {
   data: RutaSemanalPanelData;
   onOpenCorrections: (routeId: string) => void;
   onOpenHistory: (routeId: string) => void;
 }) {
-  const minimumWeekStart = getWeekStartIso(data.semanaActualInicio);
-  const [selectedPlanningMonth, setSelectedPlanningMonth] = useState(() =>
-    getPlanningMonthIso(data.semanaActualInicio)
-  );
-  const monthOptions = useMemo(
-    () => getPlanningMonthOptions(data.semanaActualInicio),
-    [data.semanaActualInicio]
-  );
-  const monthWeeks = useMemo(
-    () => getPlanningMonthWeeks(selectedPlanningMonth),
-    [selectedPlanningMonth]
-  );
-  const [selectedWeekStart, setSelectedWeekStart] = useState(
-    () => monthWeeks[0]?.weekStart ?? minimumWeekStart
-  );
-
-  const planningRoute = useMemo(
-    () => getPlanningRouteForWeek(data.rutas, selectedWeekStart),
-    [data.rutas, selectedWeekStart]
-  );
-  const approvedRoute = useMemo(
-    () => (planningRoute && isApprovedOperationalRoute(planningRoute) ? planningRoute : null),
-    [planningRoute]
-  );
-  const editableRoute = useMemo(
-    () => (planningRoute && !isApprovedOperationalRoute(planningRoute) ? planningRoute : null),
-    [planningRoute]
-  );
-  const weekEnd = getWeekEndIso(selectedWeekStart);
-  const pdvMap = useMemo(
-    () =>
-      new Map(
-        data.pdvsDisponibles.map((pdv) => [
-          pdv.id,
-          {
-            label: pdv.nombre,
-            subtitle: pdv.zona ?? pdv.formato ?? 'Sin zona',
-          },
-        ])
-      ),
-    [data.pdvsDisponibles]
-  );
-  const initialDrafts = useMemo<WeeklyCanvasDraftVisit[]>(
-    () =>
-      [...(editableRoute?.visitas ?? [])]
-        .sort((left, right) => left.diaSemana - right.diaSemana || left.orden - right.orden)
-        .map((visit) => ({
-          clientId: visit.id,
-          visitId: visit.id,
-          pdvId: visit.pdvId,
-          day: visit.diaSemana,
-          label: visit.pdv ?? 'PDV sin nombre',
-          subtitle: visit.zona ?? 'Sin zona',
-          notes: '',
-          status: visit.estatus,
-          locked: visit.estatus !== 'PLANIFICADA',
-        })),
-    [editableRoute]
-  );
-
-  const hasApprovedWeek = Boolean(approvedRoute);
-
-  useEffect(() => {
-    if (selectedWeekStart < minimumWeekStart) {
-      return scheduleEffectStateUpdate(() => {
-        setSelectedWeekStart(minimumWeekStart);
-      });
-    }
-  }, [minimumWeekStart, selectedWeekStart]);
-
   return (
-    <Card className="border-slate-200 bg-white">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
-            Mes de Planificacion
-          </p>
-          <h2 className="mt-2 text-xl font-semibold text-slate-950">
-            Planificación de Rutas: {formatPlanningMonthLabel(selectedPlanningMonth)}
-          </h2>
-          <p className="mt-2 max-w-3xl text-sm text-slate-500">
-            Define la programación de todas las semanas del mes con anticipación. Puedes armar una semana patrón y replicarla a todo el mes en 1 clic.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Select
-            value={selectedPlanningMonth}
-            onChange={(e) => {
-              const nextMonth = e.target.value;
-              setSelectedPlanningMonth(nextMonth);
-              const weeks = getPlanningMonthWeeks(nextMonth);
-              if (weeks[0]?.weekStart) {
-                setSelectedWeekStart(weeks[0].weekStart);
-              }
-            }}
-            options={monthOptions.map((opt) => ({
-              value: opt.value,
-              label: opt.label,
-            }))}
-            className="w-48 text-xs font-semibold"
-          />
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-            {data.pdvsDisponibles.length} PDVs disponibles
-          </span>
-        </div>
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center gap-2 border-b border-slate-100 pb-3">
-        <span className="text-xs font-medium text-slate-500 mr-1">Semanas del mes:</span>
-        {monthWeeks.map((week) => {
-          const isSelected = selectedWeekStart === week.weekStart;
-          return (
-            <button
-              key={week.weekStart}
-              type="button"
-              onClick={() => setSelectedWeekStart(week.weekStart)}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                isSelected
-                  ? 'bg-sky-700 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              {week.label}
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-5">
-        {hasApprovedWeek && approvedRoute ? (
-          <ApprovedRouteNotice
-            route={approvedRoute}
-            onOpenCorrections={() => onOpenCorrections(approvedRoute.id)}
-            onOpenHistory={() => onOpenHistory(approvedRoute.id)}
-            onStartPlanning={() => setSelectedWeekStart((current) => shiftWeekStart(current, 1))}
-          />
-        ) : (
-          <WeeklyRouteCanvasPlanner
-            key={`${editableRoute?.id ?? planningRoute?.id ?? 'new'}-${selectedWeekStart}`}
-            weekStart={selectedWeekStart}
-            weekEnd={weekEnd}
-            minimumWeekStart={minimumWeekStart}
-            pdvsDisponibles={data.pdvsDisponibles}
-            pdvMap={pdvMap}
-            initialDrafts={initialDrafts}
-            route={editableRoute}
-            onWeekStartChange={(nextWeekStart) => setSelectedWeekStart(nextWeekStart)}
-          />
-        )}
-      </div>
+    <Card className="border-slate-200 bg-white p-2 sm:p-4" padding="none">
+      <RutaMensualPlanner routes={data.rutas} initialPdvs={data.pdvsDisponibles} />
     </Card>
   );
 }
@@ -4843,6 +4592,7 @@ function buildWeeklyDrafts(
 function WeeklyRouteCanvasPlanner({
   weekStart,
   weekEnd,
+  planningMonth,
   minimumWeekStart,
   pdvsDisponibles,
   pdvMap,
@@ -4852,6 +4602,7 @@ function WeeklyRouteCanvasPlanner({
 }: {
   weekStart: string;
   weekEnd: string;
+  planningMonth: string;
   minimumWeekStart: string;
   pdvsDisponibles: RutaSemanalPanelData['pdvsDisponibles'];
   pdvMap: Map<string, { label: string; subtitle: string }>;
@@ -4860,7 +4611,7 @@ function WeeklyRouteCanvasPlanner({
   onWeekStartChange: (nextWeekStart: string) => void;
 }) {
   const [state, formAction] = useActionState(
-    guardarPlaneacionRutaSemanalCanvas,
+    guardarPlaneacionRutaMensualCanvas,
     ESTADO_RUTA_INICIAL
   );
   const [drafts, setDrafts] = useState<WeeklyCanvasDraftVisit[]>(initialDrafts);
@@ -4875,6 +4626,9 @@ function WeeklyRouteCanvasPlanner({
   }, [initialDrafts]);
 
   const openDayPicker = (day: number) => {
+    if (!isDateInPlanningMonth(addDaysToWeek(weekStart, day), planningMonth)) {
+      return;
+    }
     setSelectedDay(day);
     setStoreSearch('');
     setDayPickerDrafts(drafts.filter((item) => item.day === day));
@@ -4902,7 +4656,12 @@ function WeeklyRouteCanvasPlanner({
   };
 
   const clearWeeklyDrafts = () => {
-    setDrafts((current) => current.filter((item) => item.locked));
+    setDrafts((current) =>
+      current.filter(
+        (item) =>
+          item.locked || !isDateInPlanningMonth(addDaysToWeek(weekStart, item.day), planningMonth)
+      )
+    );
     setDayPickerDrafts((current) => current.filter((item) => item.locked));
   };
 
@@ -4939,6 +4698,7 @@ function WeeklyRouteCanvasPlanner({
   const serializedPlan = JSON.stringify(
     drafts
       .filter((item) => !item.locked)
+      .filter((item) => isDateInPlanningMonth(addDaysToWeek(weekStart, item.day), planningMonth))
       .map((item) => ({
         visitId: item.visitId,
         pdvId: item.pdvId,
@@ -4946,17 +4706,27 @@ function WeeklyRouteCanvasPlanner({
         notes: null,
       }))
   );
-  const filteredPdvs = pdvsDisponibles.filter((pdv) =>
-    normalizeFilterText(`${pdv.nombre} ${pdv.zona ?? ''}`).includes(
-      normalizeFilterText(storeSearch)
-    )
+  const selectedOperationDate = addDaysToWeek(weekStart, selectedDay);
+  const isSelectedDayInPlanningMonth = isDateInPlanningMonth(selectedOperationDate, planningMonth);
+  const filteredPdvs = pdvsDisponibles.filter(
+    (pdv) =>
+      isSelectedDayInPlanningMonth &&
+      (!pdv.diasDisponibles || pdv.diasDisponibles.includes(selectedOperationDate)) &&
+      normalizeFilterText(`${pdv.nombre} ${pdv.zona ?? ''}`).includes(
+        normalizeFilterText(storeSearch)
+      )
   );
   const isWeekEditable = weekStart >= minimumWeekStart;
-  const hasEditableWeeklyDrafts = drafts.some((item) => !item.locked);
+  const planningDrafts = drafts.filter((item) =>
+    isDateInPlanningMonth(addDaysToWeek(weekStart, item.day), planningMonth)
+  );
+  const hasEditableWeeklyDrafts = planningDrafts.some((item) => !item.locked);
   const hasEditableSelectedDayDrafts = dayPickerDrafts.some((item) => !item.locked);
   const weeklyDraftGroups = WEEK_DAY_OPTIONS.map((day) => ({
     day,
-    items: drafts.filter((item) => item.day === day.value),
+    items: isDateInPlanningMonth(addDaysToWeek(weekStart, day.value), planningMonth)
+      ? drafts.filter((item) => item.day === day.value)
+      : [],
   }));
   const buildDaySignature = (items: WeeklyCanvasDraftVisit[]) =>
     JSON.stringify(
@@ -4973,6 +4743,7 @@ function WeeklyRouteCanvasPlanner({
     <form action={formAction} className="space-y-4">
       <input type="hidden" name="semana_inicio" value={weekStart} />
       <input type="hidden" name="route_plan_json" value={serializedPlan} />
+      <input type="hidden" name="planning_month" value={planningMonth} />
 
       <div className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -4982,6 +4753,14 @@ function WeeklyRouteCanvasPlanner({
               Elige primero el lunes de la semana, luego el dia y despues las tiendas. La ruta se
               activa solo cuando coordinacion la aprueba.
             </p>
+            {WEEK_DAY_OPTIONS.some(
+              (day) => !isDateInPlanningMonth(addDaysToWeek(weekStart, day.value), planningMonth)
+            ) ? (
+              <p className="mt-2 text-xs font-medium text-amber-700">
+                Los días marcados como “Fuera del mes” no se incluyen en esta planificación ni usan
+                la cartera del mes anterior.
+              </p>
+            ) : null}
           </div>
           <SubmitActionButton
             label="Enviar ruta a coordinacion"
@@ -5012,7 +4791,7 @@ function WeeklyRouteCanvasPlanner({
               Semana {formatDate(weekStart)} - {formatDate(weekEnd)}
             </span>
             <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
-              {drafts.length} visita(s)
+              {planningDrafts.length} visita(s)
             </span>
             {route && (
               <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
@@ -5020,25 +4799,32 @@ function WeeklyRouteCanvasPlanner({
               </span>
             )}
           </div>
-          {drafts.length > 0 && (
+          {planningDrafts.length > 0 && (
             <Button
               type="button"
               variant="outline"
               className="border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100 text-xs font-semibold shadow-sm"
               onClick={() => {
-                const monthIso = getPlanningMonthIso(weekStart);
+                const monthIso = planningMonth;
                 const monthWeeks = getPlanningMonthWeeks(monthIso);
-                const targetWeeks = monthWeeks.map((w) => w.weekStart);
+                const targetWeeks = monthWeeks
+                  .map((w) => w.weekStart)
+                  .filter((targetWeekStart) => targetWeekStart >= minimumWeekStart);
                 const clonedMap = cloneWeeklyPlanToMonthVisits(
                   drafts.map((d) => ({ visitId: d.visitId, pdvId: d.pdvId, day: d.day })),
-                  targetWeeks
+                  targetWeeks,
+                  planningMonth
                 );
                 const serializedMonthPlan = JSON.stringify(clonedMap);
-                const inputEl = document.getElementById('month_plans_json_input') as HTMLInputElement;
+                const inputEl = document.getElementById(
+                  'month_plans_json_input'
+                ) as HTMLInputElement;
                 if (inputEl) {
                   inputEl.value = serializedMonthPlan;
                 }
-                alert(`¡Éxito! Se ha replicado la estructura de esta semana (${drafts.length} visitas) a todas las semanas de ${formatPlanningMonthLabel(monthIso)}.`);
+                alert(
+                  `Se preparó la estructura de esta semana (${planningDrafts.length} visitas) para las semanas editables de ${formatPlanningMonthLabel(monthIso)}. Envía la ruta para guardar el mes.`
+                );
               }}
             >
               <PremiumLineIcon name="reports" className="mr-1.5 h-3.5 w-3.5 text-sky-700 inline" />
@@ -5098,12 +4884,22 @@ function WeeklyRouteCanvasPlanner({
         {plannerView === 'days' ? (
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {WEEK_DAY_OPTIONS.map((day) => {
-              const dayDrafts = drafts.filter((item) => item.day === day.value);
-              const initialDayDrafts = initialDrafts.filter((item) => item.day === day.value);
+              const operationDate = addDaysToWeek(weekStart, day.value);
+              const isDayInPlanningMonth = isDateInPlanningMonth(operationDate, planningMonth);
+              const dayDrafts = isDayInPlanningMonth
+                ? drafts.filter((item) => item.day === day.value)
+                : [];
+              const initialDayDrafts = isDayInPlanningMonth
+                ? initialDrafts.filter((item) => item.day === day.value)
+                : [];
               const hasDraftChanges =
                 buildDaySignature(dayDrafts) !== buildDaySignature(initialDayDrafts);
               const hasVisits = dayDrafts.length > 0;
-              const dayStateLabel = hasVisits ? 'Con visitas' : 'Sin visitas';
+              const dayStateLabel = !isDayInPlanningMonth
+                ? 'Fuera del mes'
+                : hasVisits
+                  ? 'Con visitas'
+                  : 'Sin visitas';
 
               return (
                 <div
@@ -5111,12 +4907,12 @@ function WeeklyRouteCanvasPlanner({
                   role="button"
                   tabIndex={0}
                   onClick={() => {
-                    if (isWeekEditable) {
+                    if (isWeekEditable && isDayInPlanningMonth) {
                       openDayPicker(day.value);
                     }
                   }}
                   onKeyDown={(event) => {
-                    if (!isWeekEditable) {
+                    if (!isWeekEditable || !isDayInPlanningMonth) {
                       return;
                     }
                     if (event.key === 'Enter' || event.key === ' ') {
@@ -5129,9 +4925,9 @@ function WeeklyRouteCanvasPlanner({
                       ? 'border-emerald-200 bg-emerald-50/80 shadow-[0_12px_30px_-24px_rgba(16,185,129,0.75)]'
                       : 'border-slate-200 bg-slate-50'
                   } ${
-                    isWeekEditable
+                    isWeekEditable && isDayInPlanningMonth
                       ? 'cursor-pointer hover:border-[var(--module-border)] hover:bg-[var(--module-soft-bg)]'
-                      : ''
+                      : 'cursor-not-allowed opacity-60'
                   }`}
                 >
                   <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -5139,9 +4935,7 @@ function WeeklyRouteCanvasPlanner({
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--module-text)]">
                         {day.label}
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {formatDate(addDaysToWeek(weekStart, day.value))}
-                      </p>
+                      <p className="mt-1 text-xs text-slate-500">{formatDate(operationDate)}</p>
                     </div>
                     <div className="flex min-w-0 flex-wrap gap-2">
                       <span
@@ -5175,9 +4969,9 @@ function WeeklyRouteCanvasPlanner({
                         event.stopPropagation();
                         openDayPicker(day.value);
                       }}
-                      disabled={!isWeekEditable}
+                      disabled={!isWeekEditable || !isDayInPlanningMonth}
                     >
-                      Elegir tiendas
+                      {isDayInPlanningMonth ? 'Elegir tiendas' : 'Fuera de este mes'}
                     </Button>
                   </div>
                 </div>
@@ -5524,7 +5318,8 @@ function RouteWorkflowCard({ route, canReview }: { route: RutaSemanalItem; canRe
       </div>
 
       {(() => {
-        const esperadasVisitas = route.totalVisitas > 0 ? route.totalVisitas : (route.expectedMonthlyVisits ?? 0);
+        const esperadasVisitas =
+          route.totalVisitas > 0 ? route.totalVisitas : (route.expectedMonthlyVisits ?? 0);
         const hechasVisitas = route.visitasCompletadas;
         const pendientesVisitas = Math.max(esperadasVisitas - hechasVisitas, 0);
         return (

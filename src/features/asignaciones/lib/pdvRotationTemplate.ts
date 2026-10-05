@@ -1,23 +1,23 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const XLSX = require('xlsx') as typeof import('xlsx')
+const XLSX = require('xlsx') as typeof import('xlsx');
 
-const TEMPLATE_SHEET_NAME = 'Rotacion_Maestra'
-const INSTRUCTIONS_SHEET_NAME = 'Instrucciones'
-const TEMPLATE_FILENAME = 'isdin_plantilla_rotacion_maestra_pdvs.xlsx'
-const PROPOSAL_FILENAME = 'isdin_propuesta_rotacion_maestra_pdvs.xlsx'
+const TEMPLATE_SHEET_NAME = 'Rotacion_Maestra';
+const INSTRUCTIONS_SHEET_NAME = 'Instrucciones';
+const TEMPLATE_FILENAME = 'isdin_plantilla_rotacion_maestra_pdvs.xlsx';
+const PROPOSAL_FILENAME = 'isdin_propuesta_rotacion_maestra_pdvs.xlsx';
 
 export interface PdvRotationTemplateRow {
-  claveBtl: string
-  nombrePdv: string | null
-  estatusPdv: string | null
-  clasificacionMaestra: string | null
-  grupoRotacion: string | null
-  tamanoGrupo: number | null
-  posicion: string | null
-  pdvRelacionado1: string | null
-  pdvRelacionado2: string | null
-  referenciaDcActual: string | null
-  observaciones: string | null
+  claveBtl: string;
+  nombrePdv: string | null;
+  estatusPdv: string | null;
+  clasificacionMaestra: string | null;
+  grupoRotacion: string | null;
+  tamanoGrupo: number | null;
+  posicion: string | null;
+  pdvRelacionado1: string | null;
+  pdvRelacionado2: string | null;
+  referenciaDcActual: string | null;
+  observaciones: string | null;
 }
 
 const TEMPLATE_HEADERS = [
@@ -32,7 +32,7 @@ const TEMPLATE_HEADERS = [
   'PDV RELACIONADO 2',
   'REFERENCIA DC ACTUAL',
   'OBSERVACIONES',
-] as const
+] as const;
 
 const SAMPLE_FIXED_ROW = [
   'BTL-FAH-50SU-ME',
@@ -46,7 +46,7 @@ const SAMPLE_FIXED_ROW = [
   '',
   'ANA PATRICIA ORTEGA RAMIREZ',
   'PDV fijo del catalogo maestro.',
-]
+];
 
 const SAMPLE_ROTATIVE_ROW = [
   'BTL-SPB-CUMBRES-MTY',
@@ -60,7 +60,7 @@ const SAMPLE_ROTATIVE_ROW = [
   '',
   'CARMELITA SANCHEZ MARQUEZ',
   'Pareja rotativa del bloque noreste.',
-]
+];
 
 function buildInstructionRows() {
   return [
@@ -68,7 +68,10 @@ function buildInstructionRows() {
     [''],
     ['Objetivo'],
     ['1.', 'Define la topologia maestra de PDVs FIJOS y ROTATIVOS para la cuenta.'],
-    ['2.', 'Esta capa no reemplaza asignaciones ni cobertura diaria; solo modela la relacion estructural entre PDVs.'],
+    [
+      '2.',
+      'Esta capa no reemplaza asignaciones ni cobertura diaria; solo modela la relacion estructural entre PDVs.',
+    ],
     ['3.', 'La importacion se procesa como reemplazo total de la rotacion maestra de la cuenta.'],
     [''],
     ['Columnas reconocidas'],
@@ -81,7 +84,10 @@ function buildInstructionRows() {
     ['POSICION', 'Obligatoria para ROTATIVO. Solo A, B o C.'],
     ['PDV RELACIONADO 1', 'Opcional de referencia. Clave BTL del PDV hermano.'],
     ['PDV RELACIONADO 2', 'Opcional de referencia. Solo aplica para grupos de 3.'],
-    ['REFERENCIA DC ACTUAL', 'Opcional. Ayuda a revisar si la sugerencia coincide con la operacion actual.'],
+    [
+      'REFERENCIA DC ACTUAL',
+      'Opcional. Ayuda a revisar si la sugerencia coincide con la operacion actual.',
+    ],
     ['OBSERVACIONES', 'Opcional. Notas de revision humana.'],
     [''],
     ['Reglas importantes'],
@@ -90,8 +96,11 @@ function buildInstructionRows() {
     ['3.', 'Un PDV ROTATIVO debe tener grupo, tamano y posicion.'],
     ['4.', 'Los grupos de 2 deben cerrar con A y B; los de 3 deben cerrar con A, B y C.'],
     ['5.', 'No uses PDVs INACTIVOS dentro de grupos rotativos.'],
-    ['6.', 'La propuesta descargable puede traer celdas en blanco para casos pendientes de revision. Antes de importar, todos los PDVs operables deben quedar definidos.'],
-  ]
+    [
+      '6.',
+      'La propuesta descargable puede traer celdas en blanco para casos pendientes de revision. Antes de importar, todos los PDVs operables deben quedar definidos.',
+    ],
+  ];
 }
 
 function toSheetRows(rows: PdvRotationTemplateRow[]) {
@@ -107,43 +116,46 @@ function toSheetRows(rows: PdvRotationTemplateRow[]) {
     'PDV RELACIONADO 2': row.pdvRelacionado2 ?? '',
     'REFERENCIA DC ACTUAL': row.referenciaDcActual ?? '',
     OBSERVACIONES: row.observaciones ?? '',
-  }))
+  }));
 }
 
 function buildWorkbook(rows: PdvRotationTemplateRow[]) {
-  const workbook = XLSX.utils.book_new()
-  const effectiveRows = rows.length > 0 ? rows : [
-    {
-      claveBtl: String(SAMPLE_FIXED_ROW[0]),
-      nombrePdv: String(SAMPLE_FIXED_ROW[1]),
-      estatusPdv: String(SAMPLE_FIXED_ROW[2]),
-      clasificacionMaestra: String(SAMPLE_FIXED_ROW[3]),
-      grupoRotacion: null,
-      tamanoGrupo: null,
-      posicion: null,
-      pdvRelacionado1: null,
-      pdvRelacionado2: null,
-      referenciaDcActual: String(SAMPLE_FIXED_ROW[9]),
-      observaciones: String(SAMPLE_FIXED_ROW[10]),
-    },
-    {
-      claveBtl: String(SAMPLE_ROTATIVE_ROW[0]),
-      nombrePdv: String(SAMPLE_ROTATIVE_ROW[1]),
-      estatusPdv: String(SAMPLE_ROTATIVE_ROW[2]),
-      clasificacionMaestra: String(SAMPLE_ROTATIVE_ROW[3]),
-      grupoRotacion: String(SAMPLE_ROTATIVE_ROW[4]),
-      tamanoGrupo: Number(SAMPLE_ROTATIVE_ROW[5]),
-      posicion: String(SAMPLE_ROTATIVE_ROW[6]),
-      pdvRelacionado1: String(SAMPLE_ROTATIVE_ROW[7]),
-      pdvRelacionado2: null,
-      referenciaDcActual: String(SAMPLE_ROTATIVE_ROW[9]),
-      observaciones: String(SAMPLE_ROTATIVE_ROW[10]),
-    },
-  ]
+  const workbook = XLSX.utils.book_new();
+  const effectiveRows =
+    rows.length > 0
+      ? rows
+      : [
+          {
+            claveBtl: String(SAMPLE_FIXED_ROW[0]),
+            nombrePdv: String(SAMPLE_FIXED_ROW[1]),
+            estatusPdv: String(SAMPLE_FIXED_ROW[2]),
+            clasificacionMaestra: String(SAMPLE_FIXED_ROW[3]),
+            grupoRotacion: null,
+            tamanoGrupo: null,
+            posicion: null,
+            pdvRelacionado1: null,
+            pdvRelacionado2: null,
+            referenciaDcActual: String(SAMPLE_FIXED_ROW[9]),
+            observaciones: String(SAMPLE_FIXED_ROW[10]),
+          },
+          {
+            claveBtl: String(SAMPLE_ROTATIVE_ROW[0]),
+            nombrePdv: String(SAMPLE_ROTATIVE_ROW[1]),
+            estatusPdv: String(SAMPLE_ROTATIVE_ROW[2]),
+            clasificacionMaestra: String(SAMPLE_ROTATIVE_ROW[3]),
+            grupoRotacion: String(SAMPLE_ROTATIVE_ROW[4]),
+            tamanoGrupo: Number(SAMPLE_ROTATIVE_ROW[5]),
+            posicion: String(SAMPLE_ROTATIVE_ROW[6]),
+            pdvRelacionado1: String(SAMPLE_ROTATIVE_ROW[7]),
+            pdvRelacionado2: null,
+            referenciaDcActual: String(SAMPLE_ROTATIVE_ROW[9]),
+            observaciones: String(SAMPLE_ROTATIVE_ROW[10]),
+          },
+        ];
 
   const templateSheet = XLSX.utils.json_to_sheet(toSheetRows(effectiveRows), {
     header: [...TEMPLATE_HEADERS],
-  })
+  });
 
   templateSheet['!cols'] = [
     { wch: 20 },
@@ -157,30 +169,30 @@ function buildWorkbook(rows: PdvRotationTemplateRow[]) {
     { wch: 20 },
     { wch: 30 },
     { wch: 54 },
-  ]
+  ];
 
-  const instructionsSheet = XLSX.utils.aoa_to_sheet(buildInstructionRows())
-  instructionsSheet['!cols'] = [{ wch: 22 }, { wch: 120 }]
+  const instructionsSheet = XLSX.utils.aoa_to_sheet(buildInstructionRows());
+  instructionsSheet['!cols'] = [{ wch: 22 }, { wch: 120 }];
 
-  XLSX.utils.book_append_sheet(workbook, templateSheet, TEMPLATE_SHEET_NAME)
-  XLSX.utils.book_append_sheet(workbook, instructionsSheet, INSTRUCTIONS_SHEET_NAME)
+  XLSX.utils.book_append_sheet(workbook, templateSheet, TEMPLATE_SHEET_NAME);
+  XLSX.utils.book_append_sheet(workbook, instructionsSheet, INSTRUCTIONS_SHEET_NAME);
 
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
-  return Buffer.from(buffer)
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  return Buffer.from(buffer);
 }
 
 export function buildPdvRotationTemplateWorkbook() {
-  return buildWorkbook([])
+  return buildWorkbook([]);
 }
 
 export function buildPdvRotationProposalWorkbook(rows: PdvRotationTemplateRow[]) {
-  return buildWorkbook(rows)
+  return buildWorkbook(rows);
 }
 
 export function getPdvRotationTemplateFilename() {
-  return TEMPLATE_FILENAME
+  return TEMPLATE_FILENAME;
 }
 
 export function getPdvRotationProposalFilename() {
-  return PROPOSAL_FILENAME
+  return PROPOSAL_FILENAME;
 }

@@ -1,18 +1,17 @@
-import { NextResponse } from 'next/server'
-import { obtenerActorActual } from '@/lib/auth/session'
-import { createClient } from '@/lib/supabase/server'
-import { collectPdvsExportPayload } from '@/features/pdvs/services/pdvService'
+import { NextRequest, NextResponse } from 'next/server';
+import { requerirPuestosActivos } from '@/lib/auth/session';
+import { createServiceClient } from '@/lib/supabase/server';
+import {
+  normalizePdvsPanelFilters,
+  obtenerPanelPdvsParaActor,
+} from '@/features/pdvs/services/pdvService';
+import {
+  generarCsvPdvsCobertura,
+  generarExcelPdvsCobertura,
+} from '@/features/pdvs/services/pdvExportService';
 
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
-
-function escapeCsvValue(value: string | number | null) {
-  const normalized = value == null ? '' : String(value)
-  if (normalized.includes('"') || normalized.includes(',') || normalized.includes(String.fromCharCode(10))) {
-    return `"${normalized.replace(/"/g, '""')}"`
-  }
-  return normalized
-}
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 const PDV_EXPORT_ROLES = [
   'ADMINISTRADOR',
@@ -22,34 +21,56 @@ const PDV_EXPORT_ROLES = [
   'LOVE_IS',
   'VENTAS',
   'CLIENTE',
-] as const
+] as const;
 
-export async function GET() {
-  const actor = await obtenerActorActual()
+function pickString(value: string | null) {
+  return value?.trim() || '';
+}
 
-  if (!actor || actor.estadoCuenta !== 'ACTIVA' || !PDV_EXPORT_ROLES.some((role) => role === actor.puesto)) {
-    return NextResponse.json({ error: 'No autorizado.' }, { status: 401 })
-  }
-
+export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const payload = await collectPdvsExportPayload(supabase)
-    const csv = `ï»¿${payload.headers.join(',')}\n${payload.rows
-      .map((row) => row.map((value) => escapeCsvValue(value)).join(','))
-      .join('\n')}${payload.rows.length > 0 ? '\n' : ''}`
+    const actor = await requerirPuestosActivos([...PDV_EXPORT_ROLES]);
+    const { searchParams } = request.nextUrl;
+    const format = (searchParams.get('format') || 'xlsx').toLowerCase();
 
-    return new Response(csv, {
+    const filters = normalizePdvsPanelFilters({
+      month: pickString(searchParams.get('month')),
+      search: pickString(searchParams.get('search')),
+      cadenaId: pickString(searchParams.get('cadenaId') || searchParams.get('cadena')),
+      ciudadId: pickString(searchParams.get('ciudadId') || searchParams.get('ciudad')),
+      estado: pickString(searchParams.get('estado')),
+      zona: pickString(searchParams.get('zona')),
+      supervisorId: pickString(searchParams.get('supervisorId') || searchParams.get('supervisor')),
+      estatus: pickString(searchParams.get('estatus')),
+      publicacionEstado: pickString(searchParams.get('publicacion') || searchParams.get('publicacionEstado')),
+    });
+
+    const data = await obtenerPanelPdvsParaActor(actor, filters, createServiceClient());
+
+    if (format === 'csv') {
+      const { csv, filename } = generarCsvPdvsCobertura(data);
+      return new Response(csv, {
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      });
+    }
+
+    const { buffer, filename } = await generarExcelPdvsCobertura(data);
+    return new Response(Buffer.from(buffer), {
       headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${payload.filenameBase}.csv"`,
-        'Cache-Control': 'no-store',
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
       },
-    })
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'No fue posible exportar PDVs.' },
       { status: 500 }
-    )
+    );
   }
 }
-

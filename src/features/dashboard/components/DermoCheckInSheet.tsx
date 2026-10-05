@@ -1,8 +1,8 @@
-'use client'
+'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog'
-import type { PermissionRecoveryState } from '@/lib/device/permissionRecovery'
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog';
+import type { PermissionRecoveryState } from '@/lib/device/permissionRecovery';
 import {
   calcularHashArchivo,
   captureAttendancePosition,
@@ -10,26 +10,26 @@ import {
   type AttendanceGpsState,
   type CapturedPosition,
   type SelfieCapture,
-} from '@/features/asistencias/lib/attendanceCapture'
-import { selectAttendanceMission } from '@/features/asistencias/lib/attendanceMission'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { useOfflineSync } from '@/hooks/useOfflineSync'
-import type { ActorActual } from '@/lib/auth/session'
-import { queueOfflineAsistencia, syncAsistenciaNow } from '@/lib/offline/syncQueue'
-import type { DashboardDermoconsejoData } from '../services/dashboardService'
+} from '@/features/asistencias/lib/attendanceCapture';
+import { selectAttendanceMission } from '@/features/asistencias/lib/attendanceMission';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { useOfflineSync } from '@/hooks/useOfflineSync';
+import type { ActorActual } from '@/lib/auth/session';
+import { queueOfflineAsistencia, syncAsistenciaNow } from '@/lib/offline/syncQueue';
+import type { DashboardDermoconsejoData } from '../services/dashboardService';
 
 interface DermoCheckInSheetProps {
-  actor: ActorActual
-  data: DashboardDermoconsejoData
-  onClose: () => void
-  onSuccess: (message: string) => void
-  onError: (message: string) => void
+  actor: ActorActual;
+  data: DashboardDermoconsejoData;
+  onClose: () => void;
+  onSuccess: (message: string) => void;
+  onError: (message: string) => void;
 }
 
 interface GpsCaptureResult {
-  position: CapturedPosition
-  estadoGps: AttendanceGpsState
+  position: CapturedPosition;
+  estadoGps: AttendanceGpsState;
 }
 
 export function DermoCheckInSheet({
@@ -39,18 +39,18 @@ export function DermoCheckInSheet({
   onSuccess,
   onError,
 }: DermoCheckInSheetProps) {
-  const offline = useOfflineSync()
-  const [missionAccepted, setMissionAccepted] = useState(false)
-  const [isCameraOpen, setIsCameraOpen] = useState(false)
-  const [isCapturingGps, setIsCapturingGps] = useState(false)
-  const [capturedPosition, setCapturedPosition] = useState<CapturedPosition | null>(null)
-  const [gpsState, setGpsState] = useState<AttendanceGpsState>('PENDIENTE')
-  const [gpsRecoveryState, setGpsRecoveryState] = useState<PermissionRecoveryState | null>(null)
-  const [selfieCapture, setSelfieCapture] = useState<SelfieCapture | null>(null)
-  const [justificacion, setJustificacion] = useState('')
-  const [isPreparingDraft, setIsPreparingDraft] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const gpsPromiseRef = useRef<Promise<GpsCaptureResult> | null>(null)
+  const offline = useOfflineSync();
+  const [missionAccepted, setMissionAccepted] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isCapturingGps, setIsCapturingGps] = useState(false);
+  const [capturedPosition, setCapturedPosition] = useState<CapturedPosition | null>(null);
+  const [gpsState, setGpsState] = useState<AttendanceGpsState>('PENDIENTE');
+  const [gpsRecoveryState, setGpsRecoveryState] = useState<PermissionRecoveryState | null>(null);
+  const [selfieCapture, setSelfieCapture] = useState<SelfieCapture | null>(null);
+  const [justificacion, setJustificacion] = useState('');
+  const [isPreparingDraft, setIsPreparingDraft] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const gpsPromiseRef = useRef<Promise<GpsCaptureResult> | null>(null);
 
   const selectedMission = useMemo(
     () =>
@@ -62,107 +62,107 @@ export function DermoCheckInSheet({
         missions: data.checkIn.missions,
       }).mission,
     [data.checkIn]
-  )
+  );
   const canStartShift = Boolean(
     data.shift.canStart &&
-      data.checkIn.assignmentId &&
-      data.checkIn.assignmentSchedule &&
-      data.checkIn.pdvId
-  )
+    data.checkIn.assignmentId &&
+    data.checkIn.assignmentSchedule &&
+    data.checkIn.pdvId
+  );
   const blockingReason =
     data.shift.disabledReason ??
-    'Necesitas una asignacion activa con PDV y horario para registrar la llegada.'
+    'Necesitas una asignacion activa con PDV y horario para registrar la llegada.';
 
   const buildSyncFallbackMessage = (error: unknown) => {
     const reason =
       error instanceof Error && error.message.trim()
         ? error.message.trim()
-        : 'No fue posible contactar al servidor.'
+        : 'No fue posible contactar al servidor.';
 
-    return `La captura no se sincronizo con el servidor. Motivo: ${reason}. Quedo guardada solo en este telefono y se reenviara automaticamente cuando la app confirme conectividad real.`
-  }
+    return `La captura no se sincronizo con el servidor. Motivo: ${reason}. Quedo guardada solo en este telefono y se reenviara automaticamente cuando la app confirme conectividad real.`;
+  };
 
   useEffect(() => {
     return () => {
       if (selfieCapture?.previewUrl) {
-        URL.revokeObjectURL(selfieCapture.previewUrl)
+        URL.revokeObjectURL(selfieCapture.previewUrl);
       }
-    }
-  }, [selfieCapture])
+    };
+  }, [selfieCapture]);
 
   const beginGpsCapture = () => {
     if (gpsPromiseRef.current) {
-      return gpsPromiseRef.current
+      return gpsPromiseRef.current;
     }
 
-    setIsCapturingGps(true)
+    setIsCapturingGps(true);
     const pendingCapture = captureAttendancePosition({
       geocercaLatitud: data.checkIn.geocercaLatitud,
       geocercaLongitud: data.checkIn.geocercaLongitud,
       geocercaRadioMetros: data.checkIn.geocercaRadioMetros,
     })
       .then((result) => {
-        setCapturedPosition(result.position)
-        setGpsState(result.estadoGps)
-        setGpsRecoveryState(result.recoveryState)
-        return result
+        setCapturedPosition(result.position);
+        setGpsState(result.estadoGps);
+        setGpsRecoveryState(result.recoveryState);
+        return result;
       })
       .finally(() => {
-        setIsCapturingGps(false)
-        gpsPromiseRef.current = null
-      })
+        setIsCapturingGps(false);
+        gpsPromiseRef.current = null;
+      });
 
-    gpsPromiseRef.current = pendingCapture
-    return pendingCapture
-  }
+    gpsPromiseRef.current = pendingCapture;
+    return pendingCapture;
+  };
 
   const resolveGpsCapture = async () => {
     if (gpsPromiseRef.current) {
-      return gpsPromiseRef.current
+      return gpsPromiseRef.current;
     }
 
     if (capturedPosition) {
       return {
         position: capturedPosition,
         estadoGps: gpsState,
-      }
+      };
     }
 
-    return beginGpsCapture()
-  }
+    return beginGpsCapture();
+  };
 
   const handleAcceptMission = () => {
     if (!canStartShift) {
-      onError(blockingReason)
-      return
+      onError(blockingReason);
+      return;
     }
 
     if (!selectedMission) {
-      onError('No hay una mision activa disponible para el check-in de hoy.')
-      return
+      onError('No hay una mision activa disponible para el check-in de hoy.');
+      return;
     }
 
-    setMissionAccepted(true)
-    void beginGpsCapture()
-    setIsCameraOpen(true)
-  }
+    setMissionAccepted(true);
+    void beginGpsCapture();
+    setIsCameraOpen(true);
+  };
 
   const handleCaptureSelfie = async (file: File) => {
-    setIsPreparingDraft(true)
+    setIsPreparingDraft(true);
 
     try {
-      const gpsCapture = await resolveGpsCapture()
-      const capturedAt = new Date().toISOString()
+      const gpsCapture = await resolveGpsCapture();
+      const capturedAt = new Date().toISOString();
       const stampedResult = await stampAttendanceSelfie(file, {
         capturedAt,
         latitude: gpsCapture.position.latitud,
         longitude: gpsCapture.position.longitud,
         flowLabel: 'Check-in',
-      })
-      const hash = await calcularHashArchivo(stampedResult.file)
+      });
+      const hash = await calcularHashArchivo(stampedResult.file);
 
       if (selfieCapture?.previewUrl) {
-        URL.revokeObjectURL(selfieCapture.previewUrl)
+        URL.revokeObjectURL(selfieCapture.previewUrl);
       }
 
       setSelfieCapture({
@@ -180,58 +180,58 @@ export function DermoCheckInSheet({
         originalBytes: file.size,
         targetBytes: stampedResult.targetBytes,
         targetMet: stampedResult.targetMet,
-      })
+      });
 
       if (gpsCapture.estadoGps === 'DENTRO_GEOCERCA') {
-        setJustificacion('')
+        setJustificacion('');
       }
     } finally {
-      setIsPreparingDraft(false)
+      setIsPreparingDraft(false);
     }
-  }
+  };
 
   const handleSubmitDraft = async () => {
     if (!canStartShift || !data.checkIn.assignmentId || !data.checkIn.assignmentSchedule) {
-      onError(blockingReason)
-      return
+      onError(blockingReason);
+      return;
     }
 
-    const resolvedCuentaClienteId = actor.cuentaClienteId ?? data.checkIn.cuentaClienteId
+    const resolvedCuentaClienteId = actor.cuentaClienteId ?? data.checkIn.cuentaClienteId;
 
     if (!data.checkIn.pdvId || !resolvedCuentaClienteId) {
-      onError('No hay un PDV operativo asignado para registrar la llegada.')
-      return
+      onError('No hay un PDV operativo asignado para registrar la llegada.');
+      return;
     }
 
     if (!selectedMission) {
-      onError('No hay una mision del dia disponible para este check-in.')
-      return
+      onError('No hay una mision del dia disponible para este check-in.');
+      return;
     }
 
     if (!missionAccepted) {
-      onError('Primero debes aceptar la mision del dia.')
-      return
+      onError('Primero debes aceptar la mision del dia.');
+      return;
     }
 
     if (!selfieCapture) {
-      onError('Primero toma la fotografia operativa para generar el borrador.')
-      return
+      onError('Primero toma la fotografia operativa para generar el borrador.');
+      return;
     }
 
     if (gpsState === 'FUERA_GEOCERCA' && !data.checkIn.permiteCheckinConJustificacion) {
-      onError('Este PDV no permite check-in fuera de geocerca.')
-      return
+      onError('Este PDV no permite check-in fuera de geocerca.');
+      return;
     }
 
     if (gpsState === 'FUERA_GEOCERCA' && !justificacion.trim()) {
-      onError('Agrega una justificacion para continuar fuera de geocerca.')
-      return
+      onError('Agrega una justificacion para continuar fuera de geocerca.');
+      return;
     }
 
-    setIsSubmitting(true)
+    setIsSubmitting(true);
 
     try {
-      const gpsCapture = await resolveGpsCapture()
+      const gpsCapture = await resolveGpsCapture();
       const attendancePayload = {
         id: crypto.randomUUID(),
         cuenta_cliente_id: resolvedCuentaClienteId,
@@ -305,35 +305,35 @@ export function DermoCheckInSheet({
             target_met: selfieCapture.targetMet,
           },
         },
-      }
+      };
 
       if (offline.isOnline) {
         try {
-          await syncAsistenciaNow(attendancePayload)
-          onSuccess('Check-in enviado correctamente y sincronizado con operacion.')
-          onClose()
-          return
+          await syncAsistenciaNow(attendancePayload);
+          onSuccess('Check-in enviado correctamente y sincronizado con operacion.');
+          onClose();
+          return;
         } catch (error) {
-          await queueOfflineAsistencia(attendancePayload)
-          await offline.refreshSummary()
-          onError(buildSyncFallbackMessage(error))
-          onClose()
-          return
+          await queueOfflineAsistencia(attendancePayload);
+          await offline.refreshSummary();
+          onError(buildSyncFallbackMessage(error));
+          onClose();
+          return;
         }
       }
 
-      await queueOfflineAsistencia(attendancePayload)
-      await offline.refreshSummary()
-      onSuccess('Borrador guardado. Se enviara cuando vuelva la red.')
-      onClose()
+      await queueOfflineAsistencia(attendancePayload);
+      await offline.refreshSummary();
+      onSuccess('Borrador guardado. Se enviara cuando vuelva la red.');
+      onClose();
     } catch (error) {
       onError(
         error instanceof Error ? error.message : 'No fue posible generar el borrador de llegada.'
-      )
+      );
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   return (
     <div className="space-y-4">
@@ -356,10 +356,12 @@ export function DermoCheckInSheet({
         </p>
         {selectedMission ? (
           <>
-            <p className="mt-3 text-base font-semibold text-slate-950">{selectedMission.instruccion}</p>
+            <p className="mt-3 text-base font-semibold text-slate-950">
+              {selectedMission.instruccion}
+            </p>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Acepta la mision para abrir la camara. Mientras tomas la foto, el sistema valida GPS
-              y geocerca en segundo plano.
+              Acepta la mision para abrir la camara. Mientras tomas la foto, el sistema valida GPS y
+              geocerca en segundo plano.
             </p>
           </>
         ) : (
@@ -391,7 +393,8 @@ export function DermoCheckInSheet({
               Estado de captura
             </p>
             <p className="mt-2 text-sm text-slate-600">
-              Sucursal: <span className="font-semibold text-slate-950">{data.checkIn.pdvNombre}</span>
+              Sucursal:{' '}
+              <span className="font-semibold text-slate-950">{data.checkIn.pdvNombre}</span>
             </p>
           </div>
           <span
@@ -452,7 +455,12 @@ export function DermoCheckInSheet({
                 </p>
               ))}
             </div>
-            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => void beginGpsCapture()}>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => void beginGpsCapture()}
+            >
               {gpsRecoveryState.retryLabel}
             </Button>
           </div>
@@ -474,15 +482,15 @@ export function DermoCheckInSheet({
             variant="outline"
             onClick={() => {
               if (!canStartShift) {
-                onError(blockingReason)
-                return
+                onError(blockingReason);
+                return;
               }
               if (!missionAccepted) {
-                onError('Primero acepta la mision del dia.')
-                return
+                onError('Primero acepta la mision del dia.');
+                return;
               }
-              void beginGpsCapture()
-              setIsCameraOpen(true)
+              void beginGpsCapture();
+              setIsCameraOpen(true);
             }}
             isLoading={isPreparingDraft}
             disabled={!canStartShift}
@@ -501,7 +509,9 @@ export function DermoCheckInSheet({
             <div className="grid gap-3 px-4 py-4 text-sm text-slate-600 sm:grid-cols-2">
               <div>
                 <p className="font-semibold text-slate-950">Captura lista</p>
-                <p className="mt-1">Hora: {new Date(selfieCapture.capturadaEn).toLocaleString('es-MX')}</p>
+                <p className="mt-1">
+                  Hora: {new Date(selfieCapture.capturadaEn).toLocaleString('es-MX')}
+                </p>
                 <p className="mt-1">Peso final: {(selfieCapture.fileSize / 1024).toFixed(1)} KB</p>
               </div>
               <div>
@@ -513,8 +523,7 @@ export function DermoCheckInSheet({
                     : 'Sin GPS'}
                 </p>
                 <p className="mt-1">
-                  Compresion objetivo:{' '}
-                  {selfieCapture.targetMet ? 'cumplida' : 'maxima aplicada'}
+                  Compresion objetivo: {selfieCapture.targetMet ? 'cumplida' : 'maxima aplicada'}
                 </p>
               </div>
             </div>
@@ -551,9 +560,9 @@ export function DermoCheckInSheet({
         onClose={() => setIsCameraOpen(false)}
         onCapture={handleCaptureSelfie}
         onRetryPermissions={() => {
-          void beginGpsCapture()
+          void beginGpsCapture();
         }}
       />
     </div>
-  )
+  );
 }

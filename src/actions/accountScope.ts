@@ -1,53 +1,48 @@
-'use server'
+'use server';
 
-import { revalidatePath } from 'next/cache'
-import { cookies } from 'next/headers'
-import { obtenerClienteAdmin } from '@/lib/auth/admin'
-import { requerirAdministradorActivo } from '@/lib/auth/session'
+import { revalidatePath } from 'next/cache';
+import { cookies } from 'next/headers';
+import { obtenerClienteAdmin } from '@/lib/auth/admin';
+import { requerirAdministradorActivo } from '@/lib/auth/session';
 import {
   ACTIVE_ACCOUNT_COOKIE,
   getSingleTenantScopeData,
   normalizeRequestedAccountId,
-} from '@/lib/tenant/accountScope'
-import { isSingleTenantBackendEnabled } from '@/lib/tenant/singleTenant'
-import type { CuentaCliente } from '@/types/database'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import {
-  ESTADO_ACCOUNT_SCOPE_INICIAL,
-  type AccountScopeActionState,
-} from './accountScopeState'
+} from '@/lib/tenant/accountScope';
+import { isSingleTenantBackendEnabled } from '@/lib/tenant/singleTenant';
+import type { CuentaCliente } from '@/types/database';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { ESTADO_ACCOUNT_SCOPE_INICIAL, type AccountScopeActionState } from './accountScopeState';
 
 type AuditLogUploader = {
   from(table: string): {
-    insert(values: Record<string, unknown>): Promise<unknown>
-  }
-}
+    insert(values: Record<string, unknown>): Promise<unknown>;
+  };
+};
 
-function buildState(
-  partial: Partial<AccountScopeActionState>
-): AccountScopeActionState {
+function buildState(partial: Partial<AccountScopeActionState>): AccountScopeActionState {
   return {
     ...ESTADO_ACCOUNT_SCOPE_INICIAL,
     ...partial,
-  }
+  };
 }
 
 function revalidateScopedRoutes() {
-  revalidatePath('/', 'layout')
-  revalidatePath('/dashboard')
-  revalidatePath('/clientes')
-  revalidatePath('/campanas')
-  revalidatePath('/formaciones')
-  revalidatePath('/asignaciones')
-  revalidatePath('/asistencias')
-  revalidatePath('/ventas')
-  revalidatePath('/love-isdin')
-  revalidatePath('/solicitudes')
-  revalidatePath('/mensajes')
-  revalidatePath('/nomina')
-  revalidatePath('/gastos')
-  revalidatePath('/materiales')
-  revalidatePath('/reportes')
+  revalidatePath('/', 'layout');
+  revalidatePath('/dashboard');
+  revalidatePath('/clientes');
+  revalidatePath('/campanas');
+  revalidatePath('/formaciones');
+  revalidatePath('/asignaciones');
+  revalidatePath('/asistencias');
+  revalidatePath('/ventas');
+  revalidatePath('/love-isdin');
+  revalidatePath('/solicitudes');
+  revalidatePath('/mensajes');
+  revalidatePath('/nomina');
+  revalidatePath('/gastos');
+  revalidatePath('/materiales');
+  revalidatePath('/reportes');
 }
 
 export async function actualizarCuentaClienteActiva(
@@ -55,49 +50,48 @@ export async function actualizarCuentaClienteActiva(
   formData: FormData
 ): Promise<AccountScopeActionState> {
   if (isSingleTenantBackendEnabled()) {
-    const scope = getSingleTenantScopeData()
+    const scope = getSingleTenantScopeData();
     return buildState({
       ok: true,
       message: `La cuenta operativa esta fijada en ${scope.currentAccountLabel}.`,
-    })
+    });
   }
 
-  const actor = await requerirAdministradorActivo()
-  const cookieStore = await cookies()
-  const requestedAccountId = normalizeRequestedAccountId(formData.get('account_id'))
+  const actor = await requerirAdministradorActivo();
+  const cookieStore = await cookies();
+  const requestedAccountId = normalizeRequestedAccountId(formData.get('account_id'));
 
   if (!requestedAccountId) {
-    cookieStore.delete(ACTIVE_ACCOUNT_COOKIE)
-    revalidateScopedRoutes()
+    cookieStore.delete(ACTIVE_ACCOUNT_COOKIE);
+    revalidateScopedRoutes();
 
     return buildState({
       ok: true,
       message: 'Vista global activada para el administrador.',
-    })
+    });
   }
 
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AdminServiceClient = SupabaseClient<any>
-  const typedService = service as AdminServiceClient
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type AdminServiceClient = SupabaseClient<any>;
+  const typedService = service as AdminServiceClient;
   const { data: cuentaClienteRaw, error: cuentaError } = await typedService
     .from('cuenta_cliente')
     .select('id, nombre, activa')
     .eq('id', requestedAccountId)
-    .maybeSingle()
+    .maybeSingle();
 
-  const cuentaCliente = cuentaClienteRaw as CuentaCliente | null
- 
+  const cuentaCliente = cuentaClienteRaw as CuentaCliente | null;
+
   if (cuentaError || !cuentaCliente || !cuentaCliente.activa) {
     return buildState({
-      message:
-        cuentaError?.message ?? 'La cuenta cliente seleccionada no existe o no esta activa.',
-    })
+      message: cuentaError?.message ?? 'La cuenta cliente seleccionada no existe o no esta activa.',
+    });
   }
 
   cookieStore.set(ACTIVE_ACCOUNT_COOKIE, requestedAccountId, {
@@ -106,9 +100,9 @@ type AdminServiceClient = SupabaseClient<any>
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     maxAge: 60 * 60 * 24 * 30,
-  })
+  });
 
-  const auditClient = typedService as unknown as AuditLogUploader
+  const auditClient = typedService as unknown as AuditLogUploader;
 
   await auditClient.from('audit_log').insert({
     tabla: 'cuenta_cliente',
@@ -122,12 +116,12 @@ type AdminServiceClient = SupabaseClient<any>
     },
     usuario_id: actor.usuarioId,
     cuenta_cliente_id: cuentaCliente.id,
-  })
+  });
 
-  revalidateScopedRoutes()
+  revalidateScopedRoutes();
 
   return buildState({
     ok: true,
     message: `Vista acotada a ${cuentaCliente.nombre}.`,
-  })
+  });
 }

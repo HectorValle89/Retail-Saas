@@ -1,23 +1,23 @@
-'use client'
+'use client';
 
-import { useState } from 'react'
-import { RecruitmentDashboard } from './RecruitmentDashboard'
-import { ModalPanel } from '@/components/ui/modal-panel'
-import type { EmpleadosPanelData, EmpleadoListadoItem } from '@/features/empleados/services/empleadoService'
-import { EmpleadoDetailModal } from '@/features/empleados/components/EmpleadosPanel' // Reusing for now
-import { CrearEmpleadoForm } from '@/features/empleados/components/EmpleadosPanel' // Reusing for now
-import type { Puesto } from '@/types/database'
+import { useState } from 'react';
+import { RecruitmentDashboard } from './RecruitmentDashboard';
+import { ModalPanel } from '@/components/ui/modal-panel';
+import type { EmpleadosPanelData } from '@/features/empleados/services/empleadoService';
+import { EmpleadoDetailModal } from '@/features/empleados/components/EmpleadosPanel'; // Reusing for now
+import { CrearEmpleadoForm } from '@/features/empleados/components/EmpleadosPanel'; // Reusing for now
+import type { Puesto } from '@/types/database';
 
 interface RecruitmentShellProps {
-  data: EmpleadosPanelData
-  actorPuesto: Puesto
+  data: EmpleadosPanelData;
+  actorPuesto: Puesto;
 }
 
 export function RecruitmentShell({ data, actorPuesto }: RecruitmentShellProps) {
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null)
-  const [recruitingCreateOpen, setRecruitingCreateOpen] = useState(false)
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [recruitingCreateOpen, setRecruitingCreateOpen] = useState(false);
 
-  const selectedEmployee = data.empleados.find((e) => e.id === selectedEmployeeId) ?? null
+  const selectedEmployee = data.empleados.find((e) => e.id === selectedEmployeeId) ?? null;
 
   return (
     <>
@@ -50,7 +50,8 @@ export function RecruitmentShell({ data, actorPuesto }: RecruitmentShellProps) {
             <div>
               <p className="font-semibold text-slate-950">Alta inicial desde Reclutamiento</p>
               <p className="mt-1 max-w-3xl">
-                Aqui arranca el proceso. Solo cargas el CV ya filtrado, verificas los datos minimos y propones el PDV sugerido obligatorio para el candidato.
+                Aqui arranca el proceso. Solo cargas el CV ya filtrado, verificas los datos minimos
+                y propones el PDV sugerido obligatorio para el candidato.
               </p>
             </div>
             <div className="text-sm text-slate-500">
@@ -60,7 +61,9 @@ export function RecruitmentShell({ data, actorPuesto }: RecruitmentShellProps) {
               </p>
               <p className="mt-1">
                 OCR provider:{' '}
-                <span className="font-semibold text-slate-900">{data.ocrProvider ?? 'sin configurar'}</span>
+                <span className="font-semibold text-slate-900">
+                  {data.ocrProvider ?? 'sin configurar'}
+                </span>
               </p>
             </div>
           </div>
@@ -68,5 +71,5 @@ export function RecruitmentShell({ data, actorPuesto }: RecruitmentShellProps) {
         </div>
       </ModalPanel>
     </>
-  )
+  );
 }

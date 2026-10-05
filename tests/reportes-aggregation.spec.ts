@@ -1,34 +1,34 @@
-import { expect, test } from '@playwright/test'
-import { obtenerPanelReportes } from '../src/features/reportes/services/reporteService'
+import { expect, test } from '@playwright/test';
+import { obtenerPanelReportes } from '../src/features/reportes/services/reporteService';
 
 type QueryResult = {
-  data: unknown[] | null
-  error: { message: string } | null
-}
+  data: unknown[] | null;
+  error: { message: string } | null;
+};
 
 function createFakeSupabase(results: Record<string, QueryResult>) {
   return {
     from(table: string) {
       return {
         select() {
-          return this
+          return this;
         },
         gte() {
-          return this
+          return this;
         },
         lt() {
-          return this
+          return this;
         },
         order() {
-          return this
+          return this;
         },
         limit() {
-          const result = results[table] ?? { data: [], error: null }
-          return Promise.resolve(result)
+          const result = results[table] ?? { data: [], error: null };
+          return Promise.resolve(result);
         },
-      }
+      };
     },
-  }
+  };
 }
 
 test('consolida reportes, filtros y subreportes operativos', async () => {
@@ -158,7 +158,7 @@ test('consolida reportes, filtros y subreportes operativos', async () => {
       ],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelReportes(client as never, {
     period: '2026-03',
@@ -213,22 +213,35 @@ test('consolida reportes, filtros y subreportes operativos', async () => {
         },
       ],
     },
-  })
+  });
 
-  expect(data.infraestructuraLista).toBe(true)
-  expect(data.filtros).toEqual({ periodo: '2026-03', page: 1, pageSize: 25 })
-  expect(data.paginacion.totalPages).toBe(1)
-  expect(data.asistencias[0]).toMatchObject({ empleado: 'Ana Uno', pdv: 'LIV-001', totalJornadas: 2 })
-  expect(data.ventas[0]).toMatchObject({ dc: 'Ana Uno', producto: 'Fusion Water', montoConfirmado: 1800 })
-  expect(data.gastos[0]).toMatchObject({ tipo: 'TRANSPORTE', montoReembolsado: 250 })
-  expect(data.love[0]).toMatchObject({ dc: 'Ana Uno', afiliaciones: 1 })
-  expect(data.nomina[0]).toMatchObject({ empleado: 'Ana Uno', percepciones: 1000, neto: 1000 })
-  expect(data.campanas[0]).toMatchObject({ campana: 'Proteccion Solar', pdv: 'LIV-001 - Liverpool Norte', dc: 'Ana Uno', tareasPendientes: 1 })
-  expect(data.bitacora[0]).toMatchObject({ tabla: 'venta', usuario: 'admin' })
-  expect(data.asistencias[0]?.empleadoId).toBe('e1')
-  expect(data.ventas[0]?.empleadoId).toBe('e1')
-  expect(data.nomina[0]?.empleadoId).toBe('e1')
-})
+  expect(data.infraestructuraLista).toBe(true);
+  expect(data.filtros).toEqual({ periodo: '2026-03', page: 1, pageSize: 25 });
+  expect(data.paginacion.totalPages).toBe(1);
+  expect(data.asistencias[0]).toMatchObject({
+    empleado: 'Ana Uno',
+    pdv: 'LIV-001',
+    totalJornadas: 2,
+  });
+  expect(data.ventas[0]).toMatchObject({
+    dc: 'Ana Uno',
+    producto: 'Fusion Water',
+    montoConfirmado: 1800,
+  });
+  expect(data.gastos[0]).toMatchObject({ tipo: 'TRANSPORTE', montoReembolsado: 250 });
+  expect(data.love[0]).toMatchObject({ dc: 'Ana Uno', afiliaciones: 1 });
+  expect(data.nomina[0]).toMatchObject({ empleado: 'Ana Uno', percepciones: 1000, neto: 1000 });
+  expect(data.campanas[0]).toMatchObject({
+    campana: 'Proteccion Solar',
+    pdv: 'LIV-001 - Liverpool Norte',
+    dc: 'Ana Uno',
+    tareasPendientes: 1,
+  });
+  expect(data.bitacora[0]).toMatchObject({ tabla: 'venta', usuario: 'admin' });
+  expect(data.asistencias[0]?.empleadoId).toBe('e1');
+  expect(data.ventas[0]?.empleadoId).toBe('e1');
+  expect(data.nomina[0]?.empleadoId).toBe('e1');
+});
 
 test('mantiene separados a empleados sin nomina usando empleado_id como clave tecnica', async () => {
   const client = createFakeSupabase({
@@ -265,14 +278,18 @@ test('mantiene separados a empleados sin nomina usando empleado_id como clave te
     gasto: { data: [], error: null },
     love_isdin: { data: [], error: null },
     audit_log: { data: [], error: null },
-  })
+  });
 
-  const data = await obtenerPanelReportes(client as never, { period: '2026-03', page: 1, pageSize: 25 })
+  const data = await obtenerPanelReportes(client as never, {
+    period: '2026-03',
+    page: 1,
+    pageSize: 25,
+  });
 
-  expect(data.asistencias).toHaveLength(2)
-  expect(data.asistencias.map((item) => item.empleadoId)).toEqual(['e1', 'e2'])
-  expect(data.asistencias.every((item) => item.idNomina === null)).toBe(true)
-})
+  expect(data.asistencias).toHaveLength(2);
+  expect(data.asistencias.map((item) => item.empleadoId)).toEqual(['e1', 'e2']);
+  expect(data.asistencias.every((item) => item.idNomina === null)).toBe(true);
+});
 
 test('degrada a infraestructura pendiente cuando falla una consulta fuente', async () => {
   const client = createFakeSupabase({
@@ -283,13 +300,17 @@ test('degrada a infraestructura pendiente cuando falla una consulta fuente', asy
     gasto: { data: [], error: null },
     love_isdin: { data: [], error: null },
     audit_log: { data: null, error: { message: 'audit_log unavailable' } },
-  })
+  });
 
-  const data = await obtenerPanelReportes(client as never, { period: '2026-03', page: 1, pageSize: 25 })
+  const data = await obtenerPanelReportes(client as never, {
+    period: '2026-03',
+    page: 1,
+    pageSize: 25,
+  });
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.mensajeInfraestructura).toContain('audit_log unavailable')
-  expect(data.clientes).toEqual([])
-  expect(data.campanas).toEqual([])
-  expect(data.bitacora).toEqual([])
-})
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.mensajeInfraestructura).toContain('audit_log unavailable');
+  expect(data.clientes).toEqual([]);
+  expect(data.campanas).toEqual([]);
+  expect(data.bitacora).toEqual([]);
+});

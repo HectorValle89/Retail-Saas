@@ -1,4 +1,4 @@
-import { normalizeMexicoCatalogText } from './mexicoCityState'
+import { normalizeMexicoCatalogText } from './mexicoCityState';
 
 const MEXICO_STATE_TIMEZONE_MAP = new Map<string, string>([
   ['BAJA CALIFORNIA', 'America/Tijuana'],
@@ -12,10 +12,10 @@ const MEXICO_STATE_TIMEZONE_MAP = new Map<string, string>([
   ['SINALOA', 'America/Mazatlan'],
   ['SONORA', 'America/Hermosillo'],
   ['TAMAULIPAS', 'America/Monterrey'],
-])
+]);
 
-export const DEFAULT_MEXICO_OPERATION_TIMEZONE = 'America/Mexico_City'
-const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+export const DEFAULT_MEXICO_OPERATION_TIMEZONE = 'America/Mexico_City';
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const WEEKDAY_INDEX_BY_SHORT_NAME = new Map([
   ['Sun', 7],
   ['Mon', 1],
@@ -24,15 +24,15 @@ const WEEKDAY_INDEX_BY_SHORT_NAME = new Map([
   ['Thu', 4],
   ['Fri', 5],
   ['Sat', 6],
-])
+]);
 
 export function resolveMexicoTimezoneFromState(stateName: string | null | undefined) {
-  const normalized = normalizeMexicoCatalogText(stateName)
+  const normalized = normalizeMexicoCatalogText(stateName);
   if (!normalized) {
-    return DEFAULT_MEXICO_OPERATION_TIMEZONE
+    return DEFAULT_MEXICO_OPERATION_TIMEZONE;
   }
 
-  return MEXICO_STATE_TIMEZONE_MAP.get(normalized) ?? DEFAULT_MEXICO_OPERATION_TIMEZONE
+  return MEXICO_STATE_TIMEZONE_MAP.get(normalized) ?? DEFAULT_MEXICO_OPERATION_TIMEZONE;
 }
 
 export function formatIsoDateInTimezone(
@@ -44,19 +44,19 @@ export function formatIsoDateInTimezone(
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(typeof value === 'string' ? new Date(value) : value)
+  }).format(typeof value === 'string' ? new Date(value) : value);
 }
 
 export function getIsoDateInMexicoCity(value?: string | Date) {
   if (typeof value === 'string' && ISO_DATE_PATTERN.test(value)) {
-    return value
+    return value;
   }
 
   if (value instanceof Date) {
-    return formatIsoDateInTimezone(value, DEFAULT_MEXICO_OPERATION_TIMEZONE)
+    return formatIsoDateInTimezone(value, DEFAULT_MEXICO_OPERATION_TIMEZONE);
   }
 
-  return formatIsoDateInTimezone(new Date(), DEFAULT_MEXICO_OPERATION_TIMEZONE)
+  return formatIsoDateInTimezone(new Date(), DEFAULT_MEXICO_OPERATION_TIMEZONE);
 }
 
 export function getWeekDayNumberInMexicoCity(value?: string | Date) {
@@ -65,14 +65,14 @@ export function getWeekDayNumberInMexicoCity(value?: string | Date) {
       ? new Date(`${value}T12:00:00.000Z`)
       : value instanceof Date
         ? value
-        : new Date()
+        : new Date();
 
   const shortWeekday = new Intl.DateTimeFormat('en-US', {
     timeZone: DEFAULT_MEXICO_OPERATION_TIMEZONE,
     weekday: 'short',
-  }).format(instant)
+  }).format(instant);
 
-  return WEEKDAY_INDEX_BY_SHORT_NAME.get(shortWeekday) ?? 7
+  return WEEKDAY_INDEX_BY_SHORT_NAME.get(shortWeekday) ?? 7;
 }
 
 export function formatTimeInTimezone(
@@ -83,7 +83,7 @@ export function formatTimeInTimezone(
     timeZone,
     hour: '2-digit',
     minute: '2-digit',
-  }).format(typeof value === 'string' ? new Date(value) : value)
+  }).format(typeof value === 'string' ? new Date(value) : value);
 }
 
 export function extractTimePartsInTimezone(
@@ -96,18 +96,18 @@ export function extractTimePartsInTimezone(
     minute: '2-digit',
     second: '2-digit',
     hour12: false,
-  })
-  const parts = formatter.formatToParts(typeof value === 'string' ? new Date(value) : value)
+  });
+  const parts = formatter.formatToParts(typeof value === 'string' ? new Date(value) : value);
 
-  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? Number.NaN)
-  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? Number.NaN)
-  const second = Number(parts.find((part) => part.type === 'second')?.value ?? Number.NaN)
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? Number.NaN);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? Number.NaN);
+  const second = Number(parts.find((part) => part.type === 'second')?.value ?? Number.NaN);
 
   if (!Number.isFinite(hour) || !Number.isFinite(minute) || !Number.isFinite(second)) {
-    return null
+    return null;
   }
 
-  return { hour, minute, second }
+  return { hour, minute, second };
 }
 
 export function isTimestampWithinOperationDate(
@@ -115,5 +115,5 @@ export function isTimestampWithinOperationDate(
   operationDate: string,
   timeZone: string = DEFAULT_MEXICO_OPERATION_TIMEZONE
 ) {
-  return formatIsoDateInTimezone(value, timeZone) === operationDate
+  return formatIsoDateInTimezone(value, timeZone) === operationDate;
 }

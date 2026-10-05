@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   revalidatePathMock,
@@ -14,88 +14,88 @@ const {
   createServiceClientMock: vi.fn(),
   sendOperationalPushNotificationMock: vi.fn(),
   storeOptimizedEvidenceMock: vi.fn(),
-}))
+}));
 
 vi.mock('next/cache', () => ({
   revalidatePath: revalidatePathMock,
   revalidateTag: revalidateTagMock,
   unstable_cache: vi.fn((fn) => fn),
-}))
+}));
 
 vi.mock('@/lib/auth/session', () => ({
   requerirPuestosActivos: requerirPuestosActivosMock,
-}))
+}));
 
 vi.mock('@/lib/supabase/server', () => ({
   createServiceClient: createServiceClientMock,
-}))
+}));
 
 vi.mock('@/lib/push/pushFanout', () => ({
   sendOperationalPushNotification: sendOperationalPushNotificationMock,
-}))
+}));
 
 vi.mock('@/lib/files/evidenceStorage', () => ({
   storeOptimizedEvidence: storeOptimizedEvidenceMock,
-}))
+}));
 
 vi.mock('@/lib/files/documentOptimization', () => ({
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES: 12 * 1024 * 1024,
   optimizeExpedienteDocument: vi.fn(),
   exceedsOperationalDocumentUploadLimit: vi.fn().mockReturnValue(false),
   buildOperationalDocumentUploadLimitMessage: vi.fn().mockReturnValue('Error de limite'),
-}))
+}));
 
-import { actualizarEstatusSolicitud, registrarSolicitudOperativa } from './actions'
+import { actualizarEstatusSolicitud, registrarSolicitudOperativa } from './actions';
 
 type UpdatePayload = Record<string, unknown> & {
   metadata?: Record<string, unknown> & {
-    notificaciones?: unknown[]
-  }
-}
+    notificaciones?: unknown[];
+  };
+};
 
 describe('solicitudes actions', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
   it('formaliza una incapacidad validada por reclutamiento en REGISTRADA_RH y genera notificacion', async () => {
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-1',
       puesto: 'NOMINA',
-    })
+    });
 
-    const auditEvents: Array<Record<string, unknown>> = []
-    const updates: UpdatePayload[] = []
+    const auditEvents: Array<Record<string, unknown>> = [];
+    const updates: UpdatePayload[] = [];
 
     const service = {
       rpc() {
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: null, error: null });
       },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
-              return this
+              return this;
             },
             maybeSingle() {
               return Promise.resolve({
                 data: { id: 'cuenta-1', activa: true },
                 error: null,
-              })
+              });
             },
-          }
+          };
         }
 
         if (table === 'solicitud') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
-              return this
+              return this;
             },
             maybeSingle() {
               return Promise.resolve({
@@ -116,91 +116,123 @@ describe('solicitudes actions', () => {
                   },
                 },
                 error: null,
-              })
+              });
             },
             update(payload: UpdatePayload) {
-              updates.push(payload)
+              updates.push(payload);
               const updateChain = {
                 eq() {
-                  return updateChain
+                  return updateChain;
                 },
                 then(resolve: (value: { error: null }) => void) {
-                  return Promise.resolve({ error: null }).then(resolve)
+                  return Promise.resolve({ error: null }).then(resolve);
                 },
-              }
-              return updateChain
+              };
+              return updateChain;
             },
-          }
+          };
         }
 
         if (table === 'audit_log') {
           return {
             insert(payload: Record<string, unknown>) {
-              auditEvents.push(payload)
-              return Promise.resolve({ error: null })
+              auditEvents.push(payload);
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         }
 
         if (table === 'empleado') {
           return {
-            select() { return this },
-            eq() { return this },
-            maybeSingle() {
-              return Promise.resolve({ data: { id: 'emp-1', email: 'test@example.com' }, error: null })
+            select() {
+              return this;
             },
-            single() { return this.maybeSingle() },
-          }
+            eq() {
+              return this;
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: { id: 'emp-1', email: 'test@example.com' },
+                error: null,
+              });
+            },
+            single() {
+              return this.maybeSingle();
+            },
+          };
         }
 
         if (table === 'usuario') {
           return {
-            select() { return this },
-            in() { return this },
-            eq() { return this },
-            or() { return this },
-            then(resolve: any) {
-              return Promise.resolve({ data: [{ id: 'user-1', email: 'admin@example.com' }], error: null }).then(resolve)
+            select() {
+              return this;
             },
-          }
+            in() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            or() {
+              return this;
+            },
+            then(resolve: any) {
+              return Promise.resolve({
+                data: [{ id: 'user-1', email: 'admin@example.com' }],
+                error: null,
+              }).then(resolve);
+            },
+          };
         }
 
         if (table === 'empleado') {
           return {
-            select() { return this },
-            eq() { return this },
-            maybeSingle() {
-              return Promise.resolve({ data: { id: 'emp-1', email: 'test@example.com' }, error: null })
+            select() {
+              return this;
             },
-            single() { return this.maybeSingle() },
-          }
+            eq() {
+              return this;
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: { id: 'emp-1', email: 'test@example.com' },
+                error: null,
+              });
+            },
+            single() {
+              return this.maybeSingle();
+            },
+          };
         }
 
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       },
-    }
+    };
 
-    createServiceClientMock.mockReturnValue(service)
+    createServiceClientMock.mockReturnValue(service);
 
-    const formData = new FormData()
-    formData.set('solicitud_id', 'sol-1')
-    formData.set('cuenta_cliente_id', 'cuenta-1')
-    formData.set('estatus', 'REGISTRADA_RH')
+    const formData = new FormData();
+    formData.set('solicitud_id', 'sol-1');
+    formData.set('cuenta_cliente_id', 'cuenta-1');
+    formData.set('estatus', 'REGISTRADA_RH');
+    formData.set('incapacidad_clase', 'INICIAL');
 
-    await actualizarEstatusSolicitud(formData)
+    await actualizarEstatusSolicitud(formData);
 
-    expect(updates).toHaveLength(1)
-    const update = updates[0]!
-    const metadata = update.metadata!
+    expect(updates).toHaveLength(1);
+    const update = updates[0]!;
+    const metadata = update.metadata!;
     expect(update).toMatchObject({
       estatus: 'REGISTRADA_RH',
-    })
+    });
     expect(metadata).toMatchObject({
+      incapacidad_clase: 'INICIAL',
+      incapacidad_fuente_clasificacion: 'FORMATO_INCAPACIDAD',
       registrada_rh_por_puesto: 'NOMINA',
       justifica_asistencia: true,
       estado_resolucion: 'APROBADA',
       siguiente_actor: null,
-    })
+    });
     expect(metadata.notificaciones).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -208,60 +240,66 @@ describe('solicitudes actions', () => {
           destinatario_puesto: 'DERMOCONSEJERO',
         }),
       ])
-    )
-    expect(auditEvents).toHaveLength(1)
+    );
+    expect(auditEvents).toHaveLength(1);
     expect(auditEvents[0]).toMatchObject({
       tabla: 'solicitud',
       registro_id: 'sol-1',
-    })
+    });
     expect(sendOperationalPushNotificationMock).toHaveBeenCalledWith(
       expect.objectContaining({
         employeeIds: ['emp-1'],
         path: '/solicitudes',
         tag: 'solicitud-sol-1-registrada_rh',
       })
-    )
-    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:solicitudes'), expect.anything())
-    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:asistencias'), expect.anything())
-  })
+    );
+    expect(revalidateTagMock).toHaveBeenCalledWith(
+      expect.stringContaining('module:solicitudes'),
+      expect.anything()
+    );
+    expect(revalidateTagMock).toHaveBeenCalledWith(
+      expect.stringContaining('module:asistencias'),
+      expect.anything()
+    );
+  });
 
   it('permite que reclutamiento valide el documento de incapacidad y la pase a nomina', async () => {
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-reclut-1',
       puesto: 'RECLUTAMIENTO',
-    })
+    });
 
-    const updates: UpdatePayload[] = []
+    const updates: UpdatePayload[] = [];
 
     const service = {
       rpc() {
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: null, error: null });
       },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
-              return this
+              return this;
             },
             maybeSingle() {
               return Promise.resolve({
                 data: { id: 'cuenta-1', activa: true },
                 error: null,
-              })
+              });
             },
-          }
+          };
         }
 
         if (table === 'solicitud') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
-              return this
+              return this;
             },
             maybeSingle() {
               return Promise.resolve({
@@ -282,47 +320,47 @@ describe('solicitudes actions', () => {
                   },
                 },
                 error: null,
-              })
+              });
             },
             update(payload: UpdatePayload) {
-              updates.push(payload)
+              updates.push(payload);
               const updateChain = {
                 eq() {
-                  return updateChain
+                  return updateChain;
                 },
                 then(resolve: (value: { error: null }) => void) {
-                  return Promise.resolve({ error: null }).then(resolve)
+                  return Promise.resolve({ error: null }).then(resolve);
                 },
-              }
-              return updateChain
+              };
+              return updateChain;
             },
-          }
+          };
         }
 
         if (table === 'empleado') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
-              return this
+              return this;
             },
             in() {
-              return this
+              return this;
             },
             maybeSingle() {
               return Promise.resolve({
                 data: { id: 'emp-1', nombre_completo: 'Dermo Uno' },
                 error: null,
-              })
+              });
             },
             then(resolve: (value: { data: Array<Record<string, unknown>>; error: null }) => void) {
               return Promise.resolve({
                 data: [{ id: 'nom-1', puesto: 'NOMINA' }],
                 error: null,
-              }).then(resolve)
+              }).then(resolve);
             },
-          }
+          };
         }
 
         if (table === 'mensaje_interno') {
@@ -330,62 +368,65 @@ describe('solicitudes actions', () => {
             insert() {
               return {
                 select() {
-                  return this
+                  return this;
                 },
                 maybeSingle() {
                   return Promise.resolve({
                     data: { id: 'msg-2' },
                     error: null,
-                  })
+                  });
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'mensaje_receptor' || table === 'audit_log') {
           return {
             insert() {
-              return Promise.resolve({ error: null })
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         }
 
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       },
-    }
+    };
 
-    createServiceClientMock.mockReturnValue(service)
+    createServiceClientMock.mockReturnValue(service);
 
-    const formData = new FormData()
-    formData.set('solicitud_id', 'sol-2')
-    formData.set('cuenta_cliente_id', 'cuenta-1')
-    formData.set('estatus', 'VALIDADA_SUP')
+    const formData = new FormData();
+    formData.set('solicitud_id', 'sol-2');
+    formData.set('cuenta_cliente_id', 'cuenta-1');
+    formData.set('estatus', 'VALIDADA_SUP');
+    formData.set('incapacidad_clase', 'SUBSECUENTE');
 
-    await actualizarEstatusSolicitud(formData)
+    await actualizarEstatusSolicitud(formData);
 
-    expect(updates).toHaveLength(1)
+    expect(updates).toHaveLength(1);
     expect(updates[0]).toMatchObject({
       estatus: 'VALIDADA_SUP',
       metadata: expect.objectContaining({
+        incapacidad_clase: 'SUBSECUENTE',
+        incapacidad_fuente_clasificacion: 'FORMATO_INCAPACIDAD',
         reclutamiento_validada_por_puesto: 'RECLUTAMIENTO',
         siguiente_actor: 'NOMINA',
       }),
-    })
+    });
     expect(sendOperationalPushNotificationMock).toHaveBeenCalledWith(
       expect.objectContaining({
         employeeIds: ['nom-1'],
         path: '/solicitudes?tipo=INCAPACIDAD',
       })
-    )
-  })
+    );
+  });
 
   it('envia incapacidad a supervision y reclutamiento antes de nomina', async () => {
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-1',
       puesto: 'DERMOCONSEJERO',
       empleadoId: 'emp-1',
-    })
+    });
 
     storeOptimizedEvidenceMock.mockResolvedValue({
       archivo: {
@@ -401,158 +442,164 @@ describe('solicitudes actions', () => {
         notes: [],
         officialAssetKind: 'document',
       },
-    })
+    });
 
-    const solicitudRows: Array<Record<string, unknown>> = []
-    const mensajeRows: Array<Record<string, unknown>> = []
-    const mensajeReceptorRows: Array<Record<string, unknown>[]> = []
+    const solicitudRows: Array<Record<string, unknown>> = [];
+    const mensajeRows: Array<Record<string, unknown>> = [];
+    const mensajeReceptorRows: Array<Record<string, unknown>[]> = [];
 
     const service = {
       rpc() {
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: null, error: null });
       },
       storage: {
         createBucket() {
-          return Promise.resolve({ error: null })
+          return Promise.resolve({ error: null });
         },
       },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
-              return this
+              return this;
             },
             maybeSingle() {
               return Promise.resolve({
                 data: { id: 'cuenta-1', activa: true },
                 error: null,
-              })
+              });
             },
-          }
+          };
         }
 
         if (table === 'empleado') {
           return {
             select() {
-              return this
+              return this;
             },
             in() {
-              return this
+              return this;
             },
             eq() {
-              return this
+              return this;
             },
             maybeSingle() {
               return Promise.resolve({
                 data: { id: 'emp-1', nombre_completo: 'Dermo Uno' },
                 error: null,
-              })
+              });
             },
             then(resolve: (value: { data: Array<Record<string, unknown>>; error: null }) => void) {
               return Promise.resolve({
-                data: [
-                  { id: 'reclut-1', puesto: 'RECLUTAMIENTO' },
-                ],
+                data: [{ id: 'reclut-1', puesto: 'RECLUTAMIENTO' }],
                 error: null,
-              }).then(resolve)
+              }).then(resolve);
             },
-          }
+          };
         }
 
         if (table === 'solicitud') {
           return {
             insert(payload: Record<string, unknown>) {
-              solicitudRows.push(payload)
+              solicitudRows.push(payload);
               return {
                 select() {
-                  return this
+                  return this;
                 },
                 maybeSingle() {
                   return Promise.resolve({
                     data: { id: 'sol-1' },
                     error: null,
-                  })
+                  });
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'mensaje_interno') {
           return {
             insert(payload: Record<string, unknown>) {
-              mensajeRows.push(payload)
+              mensajeRows.push(payload);
               return {
                 select() {
-                  return this
+                  return this;
                 },
                 maybeSingle() {
                   return Promise.resolve({
                     data: { id: 'msg-1' },
                     error: null,
-                  })
+                  });
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'mensaje_receptor') {
           return {
             insert(payload: Record<string, unknown>[]) {
-              mensajeReceptorRows.push(payload)
-              return Promise.resolve({ error: null })
+              mensajeReceptorRows.push(payload);
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         }
 
         if (table === 'audit_log') {
           return {
             insert() {
-              return Promise.resolve({ error: null })
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         }
 
         if (table === 'usuario') {
           return {
-            select() { return this },
-            in() { return this },
-            eq() { return this },
-            or() { return this },
-            then(resolve: any) {
-              return Promise.resolve({ data: [{ id: 'user-1', email: 'admin@example.com' }], error: null }).then(resolve)
+            select() {
+              return this;
             },
-          }
+            in() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            or() {
+              return this;
+            },
+            then(resolve: any) {
+              return Promise.resolve({
+                data: [{ id: 'user-1', email: 'admin@example.com' }],
+                error: null,
+              }).then(resolve);
+            },
+          };
         }
 
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       },
-    }
+    };
 
-    createServiceClientMock.mockReturnValue(service)
+    createServiceClientMock.mockReturnValue(service);
 
-    const formData = new FormData()
-    formData.set('cuenta_cliente_id', 'cuenta-1')
-    formData.set('empleado_id', 'emp-1')
-    formData.set('supervisor_empleado_id', 'sup-1')
-    formData.set('tipo', 'INCAPACIDAD')
-    formData.set('fecha_inicio', '2026-03-21')
-    formData.set('fecha_fin', '2026-03-24')
-    formData.set('motivo', 'Enfermedad general')
-    formData.set('comentarios', 'Solicito registro de incapacidad')
-    formData.set('incapacidad_clase', 'INICIAL')
-    formData.set(
-      'justificante',
-      new File(['mock'], 'incapacidad.jpg', { type: 'image/jpeg' })
-    )
+    const formData = new FormData();
+    formData.set('cuenta_cliente_id', 'cuenta-1');
+    formData.set('empleado_id', 'emp-1');
+    formData.set('supervisor_empleado_id', 'sup-1');
+    formData.set('tipo', 'INCAPACIDAD');
+    formData.set('fecha_inicio', '2026-03-21');
+    formData.set('fecha_fin', '2026-03-24');
+    formData.set('motivo', 'Enfermedad general');
+    formData.set('comentarios', 'Solicito registro de incapacidad');
+    formData.set('incapacidad_clase', 'INICIAL');
+    formData.set('justificante', new File(['mock'], 'incapacidad.jpg', { type: 'image/jpeg' }));
 
-    const result = await registrarSolicitudOperativa({ ok: false, message: null }, formData)
+    const result = await registrarSolicitudOperativa({ ok: false, message: null }, formData);
 
-    expect(result).toMatchObject({ ok: true })
+    expect(result).toMatchObject({ ok: true });
     expect(solicitudRows[0]).toMatchObject({
       tipo: 'INCAPACIDAD',
       estatus: 'ENVIADA',
@@ -564,28 +611,28 @@ describe('solicitudes actions', () => {
         siguiente_actor: 'SUPERVISOR',
         approval_path: ['SUPERVISOR', 'RECLUTAMIENTO', 'NOMINA'],
       }),
-    })
+    });
     expect(mensajeRows[0]).toMatchObject({
       titulo: 'Incapacidad inicial registrada',
-    })
-    expect(mensajeReceptorRows[0]).toHaveLength(2)
+    });
+    expect(mensajeReceptorRows[0]).toHaveLength(2);
     expect(sendOperationalPushNotificationMock).toHaveBeenCalledWith(
       expect.objectContaining({
         employeeIds: expect.arrayContaining(['reclut-1', 'sup-1']),
         path: '/solicitudes?tipo=INCAPACIDAD',
       })
-    )
-  })
+    );
+  });
 
   it('solo permite crear solicitudes desde dermoconsejo y supervision', async () => {
     requerirPuestosActivosMock.mockImplementation(async (allowedRoles: unknown) => {
-      expect(allowedRoles).toEqual(['DERMOCONSEJERO', 'SUPERVISOR'])
+      expect(allowedRoles).toEqual(['DERMOCONSEJERO', 'SUPERVISOR']);
       return {
         usuarioId: 'user-dermo-1',
         puesto: 'DERMOCONSEJERO',
         empleadoId: 'emp-1',
-      }
-    })
+      };
+    });
 
     storeOptimizedEvidenceMock.mockResolvedValue({
       archivo: {
@@ -601,110 +648,146 @@ describe('solicitudes actions', () => {
         notes: [],
         officialAssetKind: 'document',
       },
-    })
+    });
 
     const service = {
       rpc() {
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: null, error: null });
       },
       storage: {
         createBucket() {
-          return Promise.resolve({ error: null })
+          return Promise.resolve({ error: null });
         },
-      },
-      rpc() {
-        return Promise.resolve({ data: null, error: null })
       },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
-            select() { return this },
-            eq() { return this },
-            maybeSingle() {
-              return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null })
+            select() {
+              return this;
             },
-          }
+            eq() {
+              return this;
+            },
+            maybeSingle() {
+              return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null });
+            },
+          };
         }
 
         if (table === 'empleado') {
           return {
-            select() { return this },
-            eq() { return this },
-            maybeSingle() { return Promise.resolve({ data: { id: 'emp-1', email: 'test@example.com' }, error: null }) },
-            single() { return this.maybeSingle() },
-          }
+            select() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: { id: 'emp-1', email: 'test@example.com' },
+                error: null,
+              });
+            },
+            single() {
+              return this.maybeSingle();
+            },
+          };
         }
 
         if (table === 'usuario') {
           return {
-            select() { return this },
-            eq() { return this },
-            maybeSingle() { return Promise.resolve({ data: { id: 'user-1', email: 'test@example.com' }, error: null }) },
-            single() { return this.maybeSingle() },
-          }
+            select() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: { id: 'user-1', email: 'test@example.com' },
+                error: null,
+              });
+            },
+            single() {
+              return this.maybeSingle();
+            },
+          };
         }
 
         if (table === 'solicitud') {
           return {
             insert() {
               return {
-                select() { return this },
-                maybeSingle() {
-                  return Promise.resolve({ data: { id: 'sol-per-1' }, error: null })
+                select() {
+                  return this;
                 },
-              }
+                maybeSingle() {
+                  return Promise.resolve({ data: { id: 'sol-per-1' }, error: null });
+                },
+              };
             },
-          }
+          };
         }
 
         if (table === 'audit_log') {
           return {
             insert() {
-              return Promise.resolve({ error: null })
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         }
 
         if (table === 'usuario') {
           return {
-            select() { return this },
-            in() { return this },
-            eq() { return this },
-            or() { return this },
-            then(resolve: any) {
-              return Promise.resolve({ data: [{ id: 'user-1', email: 'admin@example.com' }], error: null }).then(resolve)
+            select() {
+              return this;
             },
-          }
+            in() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            or() {
+              return this;
+            },
+            then(resolve: any) {
+              return Promise.resolve({
+                data: [{ id: 'user-1', email: 'admin@example.com' }],
+                error: null,
+              }).then(resolve);
+            },
+          };
         }
 
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       },
-    }
+    };
 
-    createServiceClientMock.mockReturnValue(service)
+    createServiceClientMock.mockReturnValue(service);
 
-    const formData = new FormData()
-    formData.set('cuenta_cliente_id', 'cuenta-1')
-    formData.set('empleado_id', 'emp-1')
-    formData.set('supervisor_empleado_id', 'sup-1')
-    formData.set('tipo', 'PERMISO')
-    formData.set('fecha_inicio', '2026-03-25')
-    formData.set('fecha_fin', '2026-03-25')
-    formData.set('motivo', 'Permiso personal')
-    formData.set('comentarios', 'Salida por tramite')
-    formData.set('justificante', new File(['mock'], 'permiso.pdf', { type: 'application/pdf' }))
+    const formData = new FormData();
+    formData.set('cuenta_cliente_id', 'cuenta-1');
+    formData.set('empleado_id', 'emp-1');
+    formData.set('supervisor_empleado_id', 'sup-1');
+    formData.set('tipo', 'PERMISO');
+    formData.set('fecha_inicio', '2026-03-25');
+    formData.set('fecha_fin', '2026-03-25');
+    formData.set('motivo', 'Permiso personal');
+    formData.set('comentarios', 'Salida por tramite');
+    formData.set('justificante', new File(['mock'], 'permiso.pdf', { type: 'application/pdf' }));
 
-    const result = await registrarSolicitudOperativa({ ok: false, message: null }, formData)
+    const result = await registrarSolicitudOperativa({ ok: false, message: null }, formData);
 
-    expect(result).toMatchObject({ ok: true })
-    expect(requerirPuestosActivosMock).toHaveBeenCalledWith(['DERMOCONSEJERO', 'SUPERVISOR'])
-  })
+    expect(result).toMatchObject({ ok: true });
+    expect(requerirPuestosActivosMock).toHaveBeenCalledWith(['DERMOCONSEJERO', 'SUPERVISOR']);
+  });
   it('bloquea justificacion de falta si no existe aviso previo y la permite con receta IMSS cuando si existe', async () => {
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-dermo-1',
       puesto: 'DERMOCONSEJERO',
       empleadoId: 'emp-1',
-    })
+    });
 
     storeOptimizedEvidenceMock.mockResolvedValue({
       archivo: {
@@ -720,55 +803,55 @@ describe('solicitudes actions', () => {
         notes: [],
         officialAssetKind: 'document',
       },
-    })
+    });
 
-    let latestSolicitudInsert: Record<string, unknown> | null = null
-    let shouldReturnAviso = false
+    let latestSolicitudInsert: Record<string, unknown> | null = null;
+    let shouldReturnAviso = false;
 
     const service = {
       rpc() {
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: null, error: null });
       },
       storage: {
         createBucket() {
-          return Promise.resolve({ error: null })
+          return Promise.resolve({ error: null });
         },
       },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
-              return this
+              return this;
             },
             maybeSingle() {
               return Promise.resolve({
                 data: { id: 'cuenta-1', activa: true },
                 error: null,
-              })
+              });
             },
-          }
+          };
         }
 
         if (table === 'solicitud') {
           return {
             queryTipo: null as string | null,
             select() {
-              return this
+              return this;
             },
             eq(column?: string, value?: unknown) {
               if (column === 'tipo' && typeof value === 'string') {
-                this.queryTipo = value
+                this.queryTipo = value;
               }
-              return this
+              return this;
             },
             order() {
-              return this
+              return this;
             },
             limit() {
-              return this
+              return this;
             },
             maybeSingle() {
               return Promise.resolve(
@@ -782,89 +865,116 @@ describe('solicitudes actions', () => {
                       error: null,
                     }
                   : { data: null, error: null }
-              )
+              );
             },
             insert(payload: Record<string, unknown>) {
-              latestSolicitudInsert = payload
+              latestSolicitudInsert = payload;
               return {
                 select() {
-                  return this
+                  return this;
                 },
                 maybeSingle() {
                   return Promise.resolve({
                     data: { id: 'sol-just-1' },
                     error: null,
-                  })
+                  });
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'audit_log') {
           return {
             insert() {
-              return Promise.resolve({ error: null })
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         }
 
         if (table === 'usuario') {
           return {
-            select() { return this },
-            in() { return this },
-            eq() { return this },
-            or() { return this },
-            then(resolve: any) {
-              return Promise.resolve({ data: [{ id: 'user-1', email: 'admin@example.com' }], error: null }).then(resolve)
+            select() {
+              return this;
             },
-          }
+            in() {
+              return this;
+            },
+            eq() {
+              return this;
+            },
+            or() {
+              return this;
+            },
+            then(resolve: any) {
+              return Promise.resolve({
+                data: [{ id: 'user-1', email: 'admin@example.com' }],
+                error: null,
+              }).then(resolve);
+            },
+          };
         }
 
         if (table === 'empleado') {
           return {
-            select() { return this },
-            eq() { return this },
-            maybeSingle() {
-              return Promise.resolve({ data: { id: 'emp-1', email: 'test@example.com' }, error: null })
+            select() {
+              return this;
             },
-            single() { return this.maybeSingle() },
-          }
+            eq() {
+              return this;
+            },
+            maybeSingle() {
+              return Promise.resolve({
+                data: { id: 'emp-1', email: 'test@example.com' },
+                error: null,
+              });
+            },
+            single() {
+              return this.maybeSingle();
+            },
+          };
         }
 
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       },
-    }
+    };
 
-    createServiceClientMock.mockReturnValue(service)
+    createServiceClientMock.mockReturnValue(service);
 
     const baseFormData = () => {
-      const formData = new FormData()
-      formData.set('cuenta_cliente_id', 'cuenta-1')
-      formData.set('empleado_id', 'emp-1')
-      formData.set('supervisor_empleado_id', 'sup-1')
-      formData.set('tipo', 'JUSTIFICACION_FALTA')
-      formData.set('fecha_inicio', '2026-03-25')
-      formData.set('fecha_fin', '2026-03-25')
-      formData.set('motivo', 'Enfermedad general')
-      formData.set('comentarios', 'Adjunto receta IMSS')
-      formData.set('justificante', new File(['mock'], 'receta-imss.jpg', { type: 'image/jpeg' }))
-      return formData
-    }
+      const formData = new FormData();
+      formData.set('cuenta_cliente_id', 'cuenta-1');
+      formData.set('empleado_id', 'emp-1');
+      formData.set('supervisor_empleado_id', 'sup-1');
+      formData.set('tipo', 'JUSTIFICACION_FALTA');
+      formData.set('fecha_inicio', '2026-03-25');
+      formData.set('fecha_fin', '2026-03-25');
+      formData.set('motivo', 'Enfermedad general');
+      formData.set('comentarios', 'Adjunto receta IMSS');
+      formData.set('justificante', new File(['mock'], 'receta-imss.jpg', { type: 'image/jpeg' }));
+      return formData;
+    };
 
-    const rejected = await registrarSolicitudOperativa({ ok: false, message: null }, baseFormData())
+    const rejected = await registrarSolicitudOperativa(
+      { ok: false, message: null },
+      baseFormData()
+    );
     expect(rejected).toMatchObject({
       ok: false,
-      message: 'La falta solo puede justificarse si existe un aviso previo de inasistencia registrado para ese dia.',
-    })
+      message:
+        'La falta solo puede justificarse si existe un aviso previo de inasistencia registrado para ese dia.',
+    });
 
-    shouldReturnAviso = true
-    const accepted = await registrarSolicitudOperativa({ ok: false, message: null }, baseFormData())
+    shouldReturnAviso = true;
+    const accepted = await registrarSolicitudOperativa(
+      { ok: false, message: null },
+      baseFormData()
+    );
 
     expect(accepted).toMatchObject({
       ok: true,
       message: 'Justificacion de falta enviada.',
-    })
+    });
     expect(latestSolicitudInsert).toMatchObject({
       tipo: 'JUSTIFICACION_FALTA',
       estatus: 'ENVIADA',
@@ -875,6 +985,6 @@ describe('solicitudes actions', () => {
         justificante_clase: 'RECETA_IMSS',
         siguiente_actor: 'SUPERVISOR',
       }),
-    })
-  })
-})
+    });
+  });
+});

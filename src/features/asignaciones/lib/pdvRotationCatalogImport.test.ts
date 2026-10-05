@@ -1,9 +1,9 @@
-import { expect, test } from 'vitest'
-import * as XLSX from 'xlsx'
-import { parsePdvRotationCatalogWorkbook } from './pdvRotationCatalogImport'
+import { expect, test } from 'vitest';
+import * as XLSX from 'xlsx';
+import { parsePdvRotationCatalogWorkbook } from './pdvRotationCatalogImport';
 
 test('parsea filas FIJO y ROTATIVO y conserva la ultima fila duplicada', () => {
-  const workbook = XLSX.utils.book_new()
+  const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet([
     {
       'BTL CVE': 'BTL-A-001',
@@ -35,16 +35,16 @@ test('parsea filas FIJO y ROTATIVO y conserva la ultima fila duplicada', () => {
       'REFERENCIA DC ACTUAL': 'BEA DOS',
       OBSERVACIONES: 'Se toma esta fila',
     },
-  ])
+  ]);
 
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Rotacion')
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
-  const result = parsePdvRotationCatalogWorkbook(buffer)
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Rotacion');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  const result = parsePdvRotationCatalogWorkbook(buffer);
 
-  expect(result.skippedRows).toBe(0)
+  expect(result.skippedRows).toBe(0);
   expect(result.issues).toEqual([
     expect.objectContaining({ rowNumber: 4, code: 'FILA_DUPLICADA', severity: 'ALERTA' }),
-  ])
+  ]);
   expect(result.rows).toEqual([
     {
       rowNumber: 2,
@@ -74,11 +74,11 @@ test('parsea filas FIJO y ROTATIVO y conserva la ultima fila duplicada', () => {
       referenciaDcActual: 'BEA DOS',
       observaciones: 'Se toma esta fila',
     },
-  ])
-})
+  ]);
+});
 
 test('reporta filas sin BTL y valores invalidos de clasificacion, tamano y posicion', () => {
-  const workbook = XLSX.utils.book_new()
+  const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet([
     {
       'BTL CVE': '',
@@ -90,13 +90,13 @@ test('reporta filas sin BTL y valores invalidos de clasificacion, tamano y posic
       'TAMANO GRUPO': 4,
       POSICION: 'Z',
     },
-  ])
+  ]);
 
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Rotacion')
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
-  const result = parsePdvRotationCatalogWorkbook(buffer)
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Rotacion');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  const result = parsePdvRotationCatalogWorkbook(buffer);
 
-  expect(result.skippedRows).toBe(1)
+  expect(result.skippedRows).toBe(1);
   expect(result.rows).toEqual([
     expect.objectContaining({
       claveBtl: 'BTL-C-001',
@@ -104,7 +104,7 @@ test('reporta filas sin BTL y valores invalidos de clasificacion, tamano y posic
       grupoTamano: null,
       slotRotacion: null,
     }),
-  ])
+  ]);
   expect(result.issues).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ code: 'FILA_SIN_BTL', severity: 'ERROR' }),
@@ -112,5 +112,5 @@ test('reporta filas sin BTL y valores invalidos de clasificacion, tamano y posic
       expect.objectContaining({ code: 'TAMANO_GRUPO_INVALIDO', severity: 'ERROR' }),
       expect.objectContaining({ code: 'SLOT_INVALIDO', severity: 'ERROR' }),
     ])
-  )
-})
+  );
+});

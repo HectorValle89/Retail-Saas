@@ -1,39 +1,43 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server';
 
-import { requerirPuestosActivos } from '@/lib/auth/session'
+import { requerirPuestosActivos } from '@/lib/auth/session';
 
-import { obtenerVisitasSupervisoresDetalle } from '@/features/reportes/services/reporteVisitasSupervisoresService'
+import { obtenerVisitasSupervisoresDetalle } from '@/features/reportes/services/reporteVisitasSupervisoresService';
 
 function pickString(value: string | null) {
-  return value?.trim() || undefined
+  return value?.trim() || undefined;
 }
 
 function parsePositiveInt(value: string | null, fallback: number) {
-  const parsed = Number(value)
+  const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback
+    return fallback;
   }
 
-  return Math.floor(parsed)
+  return Math.floor(parsed);
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR'])
-    const { searchParams } = request.nextUrl
-    const periodo = pickString(searchParams.get('periodo'))
-    const supervisorEmpleadoId = pickString(searchParams.get('supervisorEmpleadoId'))
-    const estadoFiltro = pickString(searchParams.get('estadoFiltro'))
-    const limit = parsePositiveInt(searchParams.get('limit'), 25)
+    const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR']);
+    const { searchParams } = request.nextUrl;
+    const periodo = pickString(searchParams.get('periodo'));
+    const fechaInicio = pickString(searchParams.get('fechaInicio'));
+    const fechaFin = pickString(searchParams.get('fechaFin'));
+    const supervisorEmpleadoId = pickString(searchParams.get('supervisorEmpleadoId'));
+    const estadoFiltro = pickString(searchParams.get('estadoFiltro'));
+    const limit = parsePositiveInt(searchParams.get('limit'), 25);
 
     const data = await obtenerVisitasSupervisoresDetalle(actor, {
       periodo,
+      fechaInicio,
+      fechaFin,
       supervisorEmpleadoId,
       estadoFiltro,
       limit,
-    })
+    });
 
-    return NextResponse.json({ data })
+    return NextResponse.json({ data });
   } catch (error) {
     return NextResponse.json(
       {
@@ -43,6 +47,6 @@ export async function GET(request: NextRequest) {
             : 'No fue posible generar el detalle de visitas de supervisores.',
       },
       { status: 500 }
-    )
+    );
   }
 }

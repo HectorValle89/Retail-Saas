@@ -71,11 +71,13 @@ export async function registerDirectR2Evidence(
   service: TypedSupabaseClient,
   {
     actorUsuarioId,
+    actorAuthUserId,
     modulo,
     referenciaEntidadId,
     reference,
   }: {
     actorUsuarioId: string;
+    actorAuthUserId?: string | null;
     modulo: string;
     referenciaEntidadId: string;
     reference: DirectR2Reference;
@@ -87,19 +89,56 @@ export async function registerDirectR2Evidence(
 
   const fileSizeBytes = Number(reference.size ?? 0);
 
-  const { error: referenceError } = await service.from('archivo_referencia').insert({
-    modulo,
-    referencia_entidad_id: referenciaEntidadId,
-    r2_object_key: reference.objectKey,
-    content_type: reference.contentType ?? null,
-    file_size_bytes: fileSizeBytes > 0 ? fileSizeBytes : null,
-    creado_por: actorUsuarioId,
-  });
+  // Resolve auth_user_id (for auth.users FK in archivo_referencia)
+  // and usuario_id (for public.usuario FK in archivo_hash)
+  let resolvedAuthUserId: string | null = actorAuthUserId ?? null;
+  let resolvedUsuarioId: string | null = actorUsuarioId ?? null;
 
-  if (referenceError) {
-    throw new Error(referenceError.message);
+  if (!resolvedAuthUserId && actorUsuarioId) {
+    const { data: userRow } = await service
+      .from('usuario')
+      .select('id, auth_user_id')
+      .or(`id.eq.${actorUsuarioId},auth_user_id.eq.${actorUsuarioId}`)
+      .maybeSingle();
+
+    if (userRow) {
+      resolvedAuthUserId = userRow.auth_user_id ?? null;
+      resolvedUsuarioId = userRow.id ?? actorUsuarioId;
+    }
   }
 
+  // 1. Insert into archivo_referencia (resilient to FK / duplicate issues)
+  try {
+    const { error: referenceError } = await service.from('archivo_referencia').insert({
+      modulo,
+      referencia_entidad_id: referenciaEntidadId,
+      r2_object_key: reference.objectKey,
+      content_type: reference.contentType ?? null,
+      file_size_bytes: fileSizeBytes > 0 ? fileSizeBytes : null,
+      creado_por: resolvedAuthUserId,
+    });
+
+    if (referenceError) {
+      // If foreign key constraint on creado_por fails, retry with creado_por = null
+      if (referenceError.code === '23503' || /foreign key/i.test(referenceError.message)) {
+        await service.from('archivo_referencia').insert({
+          modulo,
+          referencia_entidad_id: referenciaEntidadId,
+          r2_object_key: reference.objectKey,
+          content_type: reference.contentType ?? null,
+          file_size_bytes: fileSizeBytes > 0 ? fileSizeBytes : null,
+          creado_por: null,
+        });
+      } else if (referenceError.code !== '23505') {
+        // Log non-duplicate errors without breaking evidence flow
+        console.warn('[registerDirectR2Evidence] non-fatal reference insert error:', referenceError.message);
+      }
+    }
+  } catch (err) {
+    console.warn('[registerDirectR2Evidence] caught reference insert exception:', err);
+  }
+
+  // 2. Consolidate into archivo_hash
   const { data: existingHash, error: existingHashError } = await service
     .from('archivo_hash')
     .select('id')
@@ -107,7 +146,7 @@ export async function registerDirectR2Evidence(
     .maybeSingle();
 
   if (existingHashError) {
-    throw new Error(existingHashError.message);
+    console.warn('[registerDirectR2Evidence] hash query warning:', existingHashError.message);
   }
 
   let archivoHashId = existingHash?.id ?? null;
@@ -121,16 +160,39 @@ export async function registerDirectR2Evidence(
         ruta_archivo: reference.objectKey,
         mime_type: reference.contentType ?? null,
         tamano_bytes: fileSizeBytes > 0 ? fileSizeBytes : null,
-        creado_por_usuario_id: actorUsuarioId,
+        creado_por_usuario_id: resolvedUsuarioId,
       })
       .select('id')
       .maybeSingle();
 
-    if (hashError || !insertedHash?.id) {
-      throw new Error(hashError?.message ?? 'No fue posible consolidar el hash del archivo R2.');
+    if (hashError && (hashError.code === '23503' || /foreign key/i.test(hashError.message))) {
+      // Retry without usuario_id if FK fails
+      const { data: retryInserted } = await service
+        .from('archivo_hash')
+        .insert({
+          sha256: reference.sha256,
+          bucket: 'CF_R2',
+          ruta_archivo: reference.objectKey,
+          mime_type: reference.contentType ?? null,
+          tamano_bytes: fileSizeBytes > 0 ? fileSizeBytes : null,
+          creado_por_usuario_id: null,
+        })
+        .select('id')
+        .maybeSingle();
+      archivoHashId = retryInserted?.id ?? null;
+    } else if (insertedHash?.id) {
+      archivoHashId = insertedHash.id;
     }
 
-    archivoHashId = insertedHash.id;
+    if (!archivoHashId) {
+      // Fallback lookup in case of race condition
+      const { data: recheckHash } = await service
+        .from('archivo_hash')
+        .select('id')
+        .eq('sha256', reference.sha256)
+        .maybeSingle();
+      archivoHashId = recheckHash?.id ?? null;
+    }
   }
 
   return {

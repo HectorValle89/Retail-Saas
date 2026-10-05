@@ -1,40 +1,42 @@
-import fc from 'fast-check'
-import { describe, expect, it } from 'vitest'
-import { calcularHashPayload, stableSerialize } from './integrity'
+import fc from 'fast-check';
+import { describe, expect, it } from 'vitest';
+import { calcularHashPayload, stableSerialize } from './integrity';
 
 function reorderKeys(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map((item) => reorderKeys(item))
+    return value.map((item) => reorderKeys(item));
   }
 
   if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>).reverse()
-    return Object.fromEntries(entries.map(([key, item]) => [key, reorderKeys(item)]))
+    const entries = Object.entries(value as Record<string, unknown>).reverse();
+    return Object.fromEntries(entries.map(([key, item]) => [key, reorderKeys(item)]));
   }
 
-  return value
+  return value;
 }
 
 describe('audit integrity properties', () => {
   it('stable serialization round-trips JSON payloads deterministically', () => {
     fc.assert(
       fc.asyncProperty(fc.jsonValue(), async (payload) => {
-        const serialized = stableSerialize(payload)
-        expect(stableSerialize(JSON.parse(serialized))).toBe(serialized)
-        expect(await calcularHashPayload(payload)).toBe(await calcularHashPayload(payload))
+        const serialized = stableSerialize(payload);
+        expect(stableSerialize(JSON.parse(serialized))).toBe(serialized);
+        expect(await calcularHashPayload(payload)).toBe(await calcularHashPayload(payload));
       }),
       { numRuns: 100 }
-    )
-  })
+    );
+  });
 
   it('hashes are invariant to key order', () => {
     fc.assert(
       fc.asyncProperty(fc.jsonValue(), async (payload) => {
-        expect(await calcularHashPayload(reorderKeys(payload))).toBe(await calcularHashPayload(payload))
+        expect(await calcularHashPayload(reorderKeys(payload))).toBe(
+          await calcularHashPayload(payload)
+        );
       }),
       { numRuns: 100 }
-    )
-  })
+    );
+  });
 
   it('detects tampering in persisted payloads', () => {
     fc.assert(
@@ -44,12 +46,14 @@ describe('audit integrity properties', () => {
           const tamperedPayload = {
             ...payload,
             __tampered__: payload.__tampered__ === true ? 'mutated' : true,
-          }
+          };
 
-          expect(await calcularHashPayload(tamperedPayload)).not.toBe(await calcularHashPayload(payload))
+          expect(await calcularHashPayload(tamperedPayload)).not.toBe(
+            await calcularHashPayload(payload)
+          );
         }
       ),
       { numRuns: 100 }
-    )
-  })
-})
+    );
+  });
+});

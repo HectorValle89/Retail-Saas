@@ -1,44 +1,44 @@
-import { expect, test } from '@playwright/test'
-import { obtenerPanelSolicitudes } from '../src/features/solicitudes/services/solicitudService'
+import { expect, test } from '@playwright/test';
+import { obtenerPanelSolicitudes } from '../src/features/solicitudes/services/solicitudService';
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-  count?: number | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+  count?: number | null;
+};
 
-type FakeResults = Record<string, QueryResult>
+type FakeResults = Record<string, QueryResult>;
 
 function createFakeSolicitudesClient(results: FakeResults) {
   return {
     from(table: string) {
-      const entry = results[table] ?? { data: null, error: null }
+      const entry = results[table] ?? { data: null, error: null };
       const state = {
         head: false,
-      }
+      };
 
       const chain = {
         select(_columns?: string, options?: { head?: boolean; count?: 'exact' }) {
-          state.head = Boolean(options?.head)
-          return chain
+          state.head = Boolean(options?.head);
+          return chain;
         },
         eq() {
-          return chain
+          return chain;
         },
         gte() {
-          return chain
+          return chain;
         },
         lte() {
-          return chain
+          return chain;
         },
         in() {
-          return chain
+          return chain;
         },
         order() {
-          return chain
+          return chain;
         },
         range() {
-          return Promise.resolve(entry)
+          return Promise.resolve(entry);
         },
         limit() {
           if (state.head) {
@@ -46,13 +46,13 @@ function createFakeSolicitudesClient(results: FakeResults) {
               data: null,
               error: entry.error,
               count: Array.isArray(entry.data) ? entry.data.length : 0,
-            })
+            });
           }
 
-          return Promise.resolve(entry)
+          return Promise.resolve(entry);
         },
         maybeSingle() {
-          return Promise.resolve(entry)
+          return Promise.resolve(entry);
         },
         then(resolve: (value: QueryResult) => void) {
           if (state.head) {
@@ -60,16 +60,16 @@ function createFakeSolicitudesClient(results: FakeResults) {
               data: null,
               error: entry.error,
               count: Array.isArray(entry.data) ? entry.data.length : 0,
-            }).then(resolve)
+            }).then(resolve);
           }
 
-          return Promise.resolve(entry).then(resolve)
+          return Promise.resolve(entry).then(resolve);
         },
-      }
+      };
 
-      return chain
+      return chain;
     },
-  }
+  };
 }
 
 test('consolida solicitudes operativas, deriva resolucion y expone bandeja accionable', async () => {
@@ -152,14 +152,14 @@ test('consolida solicitudes operativas, deriva resolucion y expone bandeja accio
       ],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelSolicitudes(fakeClient as never, {
     serviceClient: fakeClient as never,
     actorPuesto: 'RECLUTAMIENTO',
-  })
+  });
 
-  expect(data.solicitudes).toHaveLength(2)
+  expect(data.solicitudes).toHaveLength(2);
   expect(data.resumen).toMatchObject({
     total: 2,
     pendientes: 1,
@@ -168,43 +168,45 @@ test('consolida solicitudes operativas, deriva resolucion y expone bandeja accio
     registradasRh: 1,
     rechazadas: 0,
     pendientesAccionables: 1,
-  })
+  });
   expect(data.pendientesAccionables[0]).toMatchObject({
     tipo: 'INCAPACIDAD',
     estatus: 'VALIDADA_SUP',
     estadoResolucion: 'PENDIENTE',
     siguienteActor: 'RECLUTAMIENTO',
     requiereAccionActor: true,
-  })
+  });
   expect(data.solicitudes[0]).toMatchObject({
     tipo: 'INCAPACIDAD',
     approvalPath: ['SUPERVISOR', 'RECLUTAMIENTO', 'NOMINA'],
     justificaAsistencia: true,
-  })
+  });
   expect(data.solicitudes[0]?.notificaciones[0]).toMatchObject({
     mensaje: 'Solicitud validada por supervisor y en espera de resolucion final.',
-  })
+  });
   expect(data.solicitudes[1]).toMatchObject({
     tipo: 'VACACIONES',
     estadoResolucion: 'APROBADA',
     diaJustificado: true,
-  })
-  expect(data.filtros.month).toBeTruthy()
-  expect(data.infraestructuraLista).toBe(true)
-})
+  });
+  expect(data.filtros.month).toBeTruthy();
+  expect(data.infraestructuraLista).toBe(true);
+});
 
 test('degrada con mensaje de infraestructura cuando falla consulta de solicitudes', async () => {
   const fakeClient = createFakeSolicitudesClient({
     solicitud: { data: null, error: { message: 'tabla no existe' } },
     cuenta_cliente: { data: [], error: null },
     empleado: { data: [], error: null },
-  })
+  });
 
-  const data = await obtenerPanelSolicitudes(fakeClient as never, { serviceClient: fakeClient as never })
+  const data = await obtenerPanelSolicitudes(fakeClient as never, {
+    serviceClient: fakeClient as never,
+  });
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.mensajeInfraestructura).toContain('La tabla `solicitud` aun no esta disponible')
-})
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.mensajeInfraestructura).toContain('La tabla `solicitud` aun no esta disponible');
+});
 
 test('expone filtros seleccionados y deja solicitudes en modo solo consulta sin calendario mensual', async () => {
   const fakeClient = createFakeSolicitudesClient({
@@ -246,7 +248,7 @@ test('expone filtros seleccionados y deja solicitudes en modo solo consulta sin 
       ],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelSolicitudes(fakeClient as never, {
     serviceClient: fakeClient as never,
@@ -259,7 +261,7 @@ test('expone filtros seleccionados y deja solicitudes en modo solo consulta sin 
       fechaFin: '2026-03-31',
       month: '2026-03',
     },
-  })
+  });
 
   expect(data.filtros).toEqual({
     tipo: 'VACACIONES',
@@ -268,12 +270,12 @@ test('expone filtros seleccionados y deja solicitudes en modo solo consulta sin 
     fechaInicio: '2026-03-01',
     fechaFin: '2026-03-31',
     month: '2026-03',
-  })
-  expect(data.infraestructuraLista).toBe(true)
-  expect(data.solicitudes).toHaveLength(1)
+  });
+  expect(data.infraestructuraLista).toBe(true);
+  expect(data.solicitudes).toHaveLength(1);
   expect(data.solicitudes[0]).toMatchObject({
     empleado: 'Carla Tres',
     tipo: 'VACACIONES',
     estatus: 'REGISTRADA',
-  })
-})
+  });
+});

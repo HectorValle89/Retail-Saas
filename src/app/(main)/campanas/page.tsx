@@ -1,11 +1,11 @@
-import { requerirPuestosActivos } from '@/lib/auth/session'
-import { readRequestAccountScope } from '@/lib/tenant/accountScope'
-import { CampanasOverviewPanel } from '@/features/campanas/components/CampanasOverviewPanel'
-import { obtenerInicioCampanasParaActor } from '@/features/campanas/services/campanaService'
+import { requerirPuestosActivos } from '@/lib/auth/session';
+import { readRequestAccountScope } from '@/lib/tenant/accountScope';
+import { CampanasOverviewPanel } from '@/features/campanas/components/CampanasOverviewPanel';
+import { obtenerInicioCampanasParaActor } from '@/features/campanas/services/campanaService';
 
 export const metadata = {
   title: 'Campanas | Field Force Platform',
-}
+};
 
 const CAMPANA_ROLES = [
   'ADMINISTRADOR',
@@ -15,14 +15,14 @@ const CAMPANA_ROLES = [
   'LOGISTICA',
   'DERMOCONSEJERO',
   'CLIENTE',
-] as const
+] as const;
 
 export default async function CampanasPage() {
-  const actor = await requerirPuestosActivos([...CAMPANA_ROLES])
-  const accountScope = await readRequestAccountScope()
+  const actor = await requerirPuestosActivos([...CAMPANA_ROLES]);
+  const accountScope = await readRequestAccountScope();
   const data = await obtenerInicioCampanasParaActor(actor, {
     scopeAccountId: accountScope.accountId,
-  })
+  });
 
   return (
     <div className="mx-auto max-w-7xl px-6 pb-10 pt-28 lg:px-10 lg:pt-10">
@@ -32,12 +32,13 @@ export default async function CampanasPage() {
         </p>
         <h1 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-slate-950">Campanas</h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-          El home del módulo ahora prioriza operación y KPIs. La creación y la edición viven en superficies
-          dedicadas para que el aterrizaje sea más ligero y no cargue el editor antes de tiempo.
+          El home del módulo ahora prioriza operación y KPIs. La creación y la edición viven en
+          superficies dedicadas para que el aterrizaje sea más ligero y no cargue el editor antes de
+          tiempo.
         </p>
       </header>
 
       <CampanasOverviewPanel actor={actor} data={data} />
     </div>
-  )
+  );
 }

@@ -1,19 +1,21 @@
-'use client'
+'use client';
 
-import { useEffect, useRef, useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { getCameraPermissionRecoveryState } from '@/lib/device/permissionRecovery'
-import { lockBodyScroll } from '@/lib/ui/bodyScrollLock'
+import { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { getCameraPermissionRecoveryState } from '@/lib/device/permissionRecovery';
+import { lockBodyScroll } from '@/lib/ui/bodyScrollLock';
 
 interface NativeCameraSelfieDialogProps {
-  open: boolean
-  title: string
-  description: string
-  onClose: () => void
-  onCapture: (file: File) => Promise<void>
-  facingMode?: 'user' | 'environment'
-  captureLabel?: string
-  onRetryPermissions?: () => void | Promise<void>
+  open: boolean;
+  title: string;
+  description: string;
+  onClose: () => void;
+  onCapture: (file: File) => Promise<void>;
+  facingMode?: 'user' | 'environment';
+  captureLabel?: string;
+  onRetryPermissions?: () => void | Promise<void>;
+  forcedOrientation?: 'portrait' | 'landscape';
+  topAlertMessage?: string;
 }
 
 export function NativeCameraSelfieDialog({
@@ -25,34 +27,54 @@ export function NativeCameraSelfieDialog({
   facingMode = 'user',
   captureLabel = 'Capturar selfie',
   onRetryPermissions,
+  forcedOrientation,
+  topAlertMessage,
 }: NativeCameraSelfieDialogProps) {
-  const videoRef = useRef<HTMLVideoElement | null>(null)
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const [isPreparing, setIsPreparing] = useState(false)
-  const [isCapturing, setIsCapturing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [cameraErrorSource, setCameraErrorSource] = useState<unknown>(null)
-  const [retryToken, setRetryToken] = useState(0)
-  const [currentFacingMode, setCurrentFacingMode] = useState<'user' | 'environment'>(facingMode)
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [isPreparing, setIsPreparing] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [cameraErrorSource, setCameraErrorSource] = useState<unknown>(null);
+  const [retryToken, setRetryToken] = useState(0);
+  const [currentFacingMode, setCurrentFacingMode] = useState<'user' | 'environment'>(facingMode);
+  const [deviceOrientation, setDeviceOrientation] = useState<'portrait' | 'landscape'>('portrait');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const checkOrientation = () => {
+      const isPortrait = window.innerHeight > window.innerWidth;
+      setDeviceOrientation(isPortrait ? 'portrait' : 'landscape');
+    };
+    checkOrientation();
+    window.addEventListener('resize', checkOrientation);
+    window.addEventListener('orientationchange', checkOrientation);
+    return () => {
+      window.removeEventListener('resize', checkOrientation);
+      window.removeEventListener('orientationchange', checkOrientation);
+    };
+  }, []);
+
+  const isOrientationValid = true;
 
   useEffect(() => {
     if (!open) {
-      return
+      return;
     }
 
-    let cancelled = false
-    const unlockBodyScroll = lockBodyScroll()
-    setError(null)
-    setCameraErrorSource(null)
-    setIsPreparing(true)
+    let cancelled = false;
+    const unlockBodyScroll = lockBodyScroll();
+    setError(null);
+    setCameraErrorSource(null);
+    setIsPreparing(true);
 
     const startCamera = async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Este navegador no soporta captura nativa con camara.')
+        throw new Error('Este navegador no soporta captura nativa con camara.');
       }
 
-      let stream: MediaStream
+      let stream: MediaStream;
       try {
         // Intentar modo exacto primero para ser mas rudos con la eleccion
         stream = await navigator.mediaDevices.getUserMedia({
@@ -62,9 +84,9 @@ export function NativeCameraSelfieDialog({
             width: { ideal: 1280 },
             height: { ideal: 960 },
           },
-        })
+        });
       } catch (e) {
-        console.warn('Fallo getUserMedia con exact facingMode, intentando ideal...', e)
+        console.warn('Fallo getUserMedia con exact facingMode, intentando ideal...', e);
         // Fallback a modo ideal si exact falla
         stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
@@ -73,63 +95,67 @@ export function NativeCameraSelfieDialog({
             width: { ideal: 1280 },
             height: { ideal: 960 },
           },
-        })
+        });
       }
 
       if (cancelled) {
-        stream.getTracks().forEach((track) => track.stop())
-        return
+        stream.getTracks().forEach((track) => track.stop());
+        return;
       }
 
-      streamRef.current = stream
+      streamRef.current = stream;
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream
+        videoRef.current.srcObject = stream;
         try {
-          await videoRef.current.play()
+          await videoRef.current.play();
         } catch (e) {
-          console.error("Video play failed", e)
+          console.error('Video play failed', e);
         }
       }
-    }
+    };
 
     void startCamera()
       .catch((cameraError) => {
         if (!cancelled) {
-          setCameraErrorSource(cameraError)
-          setError(getCameraPermissionRecoveryState(cameraError).message)
+          setCameraErrorSource(cameraError);
+          setError(getCameraPermissionRecoveryState(cameraError).message);
         }
       })
       .finally(() => {
         if (!cancelled) {
-          setIsPreparing(false)
+          setIsPreparing(false);
         }
-      })
+      });
 
     return () => {
-      unlockBodyScroll()
-      cancelled = true
+      unlockBodyScroll();
+      cancelled = true;
       if (videoRef.current) {
-        videoRef.current.pause()
-        videoRef.current.srcObject = null
+        videoRef.current.pause();
+        videoRef.current.srcObject = null;
       }
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop())
-        streamRef.current = null
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
       }
-    }
-  }, [open, currentFacingMode, retryToken])
+    };
+  }, [open, currentFacingMode, retryToken]);
 
   const toggleCamera = () => {
-    setCurrentFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'))
-  }
+    setCurrentFacingMode((prev) => (prev === 'user' ? 'environment' : 'user'));
+  };
 
-  const recoveryState = error ? getCameraPermissionRecoveryState(cameraErrorSource ?? new Error(error)) : null
+  const recoveryState = error
+    ? getCameraPermissionRecoveryState(cameraErrorSource ?? new Error(error))
+    : null;
 
   const isNotAllowedError = (err: unknown): boolean => {
-    const name = err instanceof DOMException ? err.name : err instanceof Error ? err.name : ''
-    return name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError'
-  }
+    const name = err instanceof DOMException ? err.name : err instanceof Error ? err.name : '';
+    return (
+      name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError'
+    );
+  };
 
   const handleRetryPermissions = async () => {
     // Si el permiso fue denegado permanentemente, el retry no funciona.
@@ -137,88 +163,88 @@ export function NativeCameraSelfieDialog({
     if (isNotAllowedError(cameraErrorSource)) {
       setError(
         'El permiso de cámara fue denegado. Para habilitarlo de nuevo, toca el candado o icono de sitio en la barra del navegador, activa la cámara y vuelve a intentar.'
-      )
-      return
+      );
+      return;
     }
 
-    setError(null)
-    setCameraErrorSource(null)
+    setError(null);
+    setCameraErrorSource(null);
 
     try {
-      await onRetryPermissions?.()
+      await onRetryPermissions?.();
     } catch {
       // El flujo de GPS puede fallar por separado; la camara se vuelve a intentar de todos modos.
     }
 
-    setRetryToken((value) => value + 1)
-  }
+    setRetryToken((value) => value + 1);
+  };
 
   const handleTakePhoto = async () => {
-    const video = videoRef.current
-    const canvas = canvasRef.current
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
 
     if (!video || !canvas) {
-      setError('La camara aun no esta lista para capturar.')
-      return
+      setError('La camara aun no esta lista para capturar.');
+      return;
     }
 
-    const width = video.videoWidth
-    const height = video.videoHeight
+    const width = video.videoWidth;
+    const height = video.videoHeight;
 
     if (!width || !height) {
-      setError('No fue posible obtener la imagen de la camara.')
-      return
+      setError('No fue posible obtener la imagen de la camara.');
+      return;
     }
 
-    const context = canvas.getContext('2d')
+    const context = canvas.getContext('2d');
 
     if (!context) {
-      setError('No fue posible preparar la captura.')
-      return
+      setError('No fue posible preparar la captura.');
+      return;
     }
 
-    canvas.width = width
-    canvas.height = height
-    context.drawImage(video, 0, 0, width, height)
-    setIsCapturing(true)
-    setError(null)
+    canvas.width = width;
+    canvas.height = height;
+    context.drawImage(video, 0, 0, width, height);
+    setIsCapturing(true);
+    setError(null);
 
     try {
       const blob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob(
           (value) => {
             if (!value) {
-              reject(new Error('No fue posible capturar la selfie.'))
-              return
+              reject(new Error('No fue posible capturar la selfie.'));
+              return;
             }
 
-            resolve(value)
+            resolve(value);
           },
           'image/jpeg',
           0.92
-        )
-      })
+        );
+      });
 
       const file = new File([blob], `attendance-selfie-${Date.now()}.jpg`, {
         type: 'image/jpeg',
         lastModified: Date.now(),
-      })
+      });
 
-      await onCapture(file)
-      onClose()
+      await onCapture(file);
+      onClose();
     } catch (captureError) {
       setError(
         captureError instanceof Error
           ? captureError.message
           : 'No fue posible procesar la captura de la camara.'
-      )
+      );
     } finally {
-      setIsCapturing(false)
+      setIsCapturing(false);
     }
-  }
+  };
 
   if (!open) {
-    return null
+    return null;
   }
 
   return (
@@ -235,7 +261,13 @@ export function NativeCameraSelfieDialog({
             className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
             aria-label="Cerrar camara"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              className="h-5 w-5"
+            >
               <path d="M6 6l12 12" strokeLinecap="round" />
               <path d="M18 6L6 18" strokeLinecap="round" />
             </svg>
@@ -243,10 +275,36 @@ export function NativeCameraSelfieDialog({
         </div>
 
         <div className="space-y-4 px-5 py-5">
+          {topAlertMessage && (
+            <div className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 shadow-sm leading-5">
+              {topAlertMessage}
+            </div>
+          )}
+
           <div className="relative overflow-hidden rounded-[24px] border border-slate-200 bg-slate-950">
-            <video ref={videoRef} className="aspect-[4/5] w-full object-cover" autoPlay muted playsInline />
+            <video
+              ref={videoRef}
+              className="aspect-[4/5] w-full object-cover"
+              autoPlay
+              muted
+              playsInline
+            />
             <canvas ref={canvasRef} className="hidden" />
-            
+
+            {!isOrientationValid && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-950/90 p-6 text-center backdrop-blur-sm">
+                <span className="text-3xl animate-bounce">🔄</span>
+                <h4 className="mt-3 text-sm font-bold text-white uppercase tracking-wider">Rotación requerida</h4>
+                <p className="mt-1.5 text-xs text-slate-300 max-w-xs leading-5">
+                  Por favor, coloca tu dispositivo en posición{' '}
+                  <span className="font-semibold text-amber-400">
+                    {forcedOrientation === 'portrait' ? 'VERTICAL (Portrato)' : 'HORIZONTAL (Paisaje)'}
+                  </span>{' '}
+                  para capturar esta fotografía.
+                </p>
+              </div>
+            )}
+
             <div className="absolute left-4 top-4">
               <span className="rounded-full bg-slate-900/60 px-3 py-1 text-xs font-semibold text-white backdrop-blur-md">
                 {currentFacingMode === 'user' ? 'Camara Frontal (Selfie)' : 'Camara Trasera'}
@@ -279,7 +337,8 @@ export function NativeCameraSelfieDialog({
                   </Button>
                   {recoveryState.requiresSettings && (
                     <p className="text-xs leading-5 text-rose-700 sm:self-center">
-                      Si no ves la ventana del navegador, activa el permiso en el candado o ajustes del sitio y vuelve a tocar el boton.
+                      Si no ves la ventana del navegador, activa el permiso en el candado o ajustes
+                      del sitio y vuelve a tocar el boton.
                     </p>
                   )}
                 </div>
@@ -287,55 +346,61 @@ export function NativeCameraSelfieDialog({
             </div>
           )}
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:justify-between w-full">
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-between w-full">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto flex items-center gap-2"
+              onClick={toggleCamera}
+              disabled={isPreparing || isCapturing}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="h-4 w-4"
+              >
+                <path
+                  d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2z"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M12 17a5 5 0 100-10 5 5 0 000 10z"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M19 8a1 1 0 100-2 1 1 0 000 2z"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              Cambiar camara
+            </Button>
+            <div className="flex flex-col gap-3 sm:flex-row">
               <Button
                 type="button"
-                variant="outline"
-                className="w-full sm:w-auto flex items-center gap-2"
-                onClick={toggleCamera}
-                disabled={isPreparing || isCapturing}
+                variant="secondary"
+                className="w-full sm:w-auto"
+                onClick={onClose}
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="h-4 w-4"
-                >
-                  <path
-                    d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2z"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M12 17a5 5 0 100-10 5 5 0 000 10z"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M19 8a1 1 0 100-2 1 1 0 000 2z"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                Cambiar camara
+                Cancelar
               </Button>
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Button type="button" variant="secondary" className="w-full sm:w-auto" onClick={onClose}>
-                  Cancelar
-                </Button>
-                <Button
-                  type="button"
-                  className="w-full sm:w-auto"
-                  onClick={handleTakePhoto}
-                  isLoading={isPreparing || isCapturing}
-                >
-                  {captureLabel}
-                </Button>
-              </div>
+              <Button
+                type="button"
+                className="w-full sm:w-auto"
+                onClick={handleTakePhoto}
+                isLoading={isPreparing || isCapturing}
+                disabled={!isOrientationValid}
+              >
+                {captureLabel}
+              </Button>
             </div>
+          </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

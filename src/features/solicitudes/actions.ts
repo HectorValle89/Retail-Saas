@@ -1,54 +1,52 @@
-'use server'
-import { requerirPuestosActivos } from '@/lib/auth/session'
+'use server';
+import { requerirPuestosActivos } from '@/lib/auth/session';
 import {
   buildOperationalDocumentUploadLimitMessage,
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES,
   exceedsOperationalDocumentUploadLimit,
-} from '@/lib/files/documentOptimization'
-import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
-import { sendOperationalPushNotification } from '@/lib/push/pushFanout'
-import { publishUiChanges } from '@/lib/ui-change/server'
-import {
-  buildUiChangeScope,
-  buildUiChangeTargetsFromBusinessEvent,
-} from '@/lib/ui-change/types'
-import { createServiceClient } from '@/lib/supabase/server'
+} from '@/lib/files/documentOptimization';
+import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage';
+import { sendOperationalPushNotification } from '@/lib/push/pushFanout';
+import { publishUiChanges } from '@/lib/ui-change/server';
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types';
+import { createServiceClient } from '@/lib/supabase/server';
 import {
   enqueueAndProcessMaterializedAssignments,
   resolveMaterializationImpactRange,
-} from '@/features/asignaciones/services/asignacionMaterializationService'
-import { resolveApprovalFlow } from '@/features/reglas/lib/businessRules'
-import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
+} from '@/features/asignaciones/services/asignacionMaterializationService';
+import { resolveApprovalFlow } from '@/features/reglas/lib/businessRules';
+import {
+  hasDirectR2Reference,
+  readDirectR2Reference,
+  registerDirectR2Evidence,
+} from '@/lib/storage/directR2Server';
 import {
   getIncapacidadApprovalPath,
   getIncapacidadNextActor,
   hasIncapacidadRecruitmentValidation,
-} from './lib/incapacidadWorkflow'
+} from './lib/incapacidadWorkflow';
 import {
   buildVacationPolicySnapshot,
   buildVacationTeamWeeklyLoad,
   type VacationRangeLike,
   validateVacationRequestPolicy,
-} from './lib/vacationPolicy'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { CuentaCliente, Empleado, Puesto, Solicitud } from '@/types/database'
-import { ESTADO_SOLICITUD_INICIAL, type SolicitudActionState } from './state'
+} from './lib/vacationPolicy';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { CuentaCliente, Empleado, Puesto, Solicitud } from '@/types/database';
+import { ESTADO_SOLICITUD_INICIAL, type SolicitudActionState } from './state';
 import {
   notificarSolicitudCreada,
   notificarSolicitudResuelta,
-} from '@/lib/notifications/workflows/solicitudesEmail'
+} from '@/lib/notifications/workflows/solicitudesEmail';
 
 function buildState(partial: Partial<SolicitudActionState>): SolicitudActionState {
   return {
     ...ESTADO_SOLICITUD_INICIAL,
     ...partial,
-  }
+  };
 }
 
-const SOLICITUD_WRITE_ROLES = [
-  'DERMOCONSEJERO',
-  'SUPERVISOR',
-] as const satisfies Puesto[]
+const SOLICITUD_WRITE_ROLES = ['DERMOCONSEJERO', 'SUPERVISOR'] as const satisfies Puesto[];
 
 const SOLICITUD_APPROVAL_ROLES = [
   'ADMINISTRADOR',
@@ -56,17 +54,17 @@ const SOLICITUD_APPROVAL_ROLES = [
   'COORDINADOR',
   'RECLUTAMIENTO',
   'NOMINA',
-] as const satisfies Puesto[]
-const SOLICITUDES_BUCKET = 'operacion-evidencias'
-const SOLICITUD_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
-const JUSTIFICACION_SLA_HOURS = 48
+] as const satisfies Puesto[];
+const SOLICITUDES_BUCKET = 'operacion-evidencias';
+const SOLICITUD_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+const JUSTIFICACION_SLA_HOURS = 48;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TypedSupabaseClient = SupabaseClient<any>
+type TypedSupabaseClient = SupabaseClient<any>;
 
-type SolicitudMetadata = Record<string, unknown>
+type SolicitudMetadata = Record<string, unknown>;
 
-type VacationEmployeeRow = Pick<Empleado, 'id' | 'fecha_alta' | 'metadata'>
+type VacationEmployeeRow = Pick<Empleado, 'id' | 'fecha_alta' | 'metadata'>;
 
 type SolicitudApprovalRow = Pick<
   Solicitud,
@@ -81,7 +79,7 @@ type SolicitudApprovalRow = Pick<
   | 'estatus'
   | 'comentarios'
   | 'metadata'
->
+>;
 
 async function publishSolicitudUiChanges(
   service: TypedSupabaseClient,
@@ -93,17 +91,17 @@ async function publishSolicitudUiChanges(
     fechaFin,
     eventType,
   }: {
-    cuentaClienteId: string
-    empleadoId: string
-    supervisorEmpleadoId: string | null
-    fechaInicio: string
-    fechaFin: string
-    eventType: string
+    cuentaClienteId: string;
+    empleadoId: string;
+    supervisorEmpleadoId: string | null;
+    fechaInicio: string;
+    fechaFin: string;
+    eventType: string;
   }
 ) {
   const monthKeys = Array.from(
     new Set([fechaInicio.slice(0, 7), fechaFin.slice(0, 7)].filter(Boolean))
-  )
+  );
 
   await publishUiChanges(
     buildUiChangeTargetsFromBusinessEvent({
@@ -126,96 +124,93 @@ async function publishSolicitudUiChanges(
       },
     }),
     { service }
-  )
+  );
 }
 
 function normalizeRequiredText(value: FormDataEntryValue | null, label: string) {
-  const normalized = String(value ?? '').trim()
+  const normalized = String(value ?? '').trim();
 
   if (!normalized) {
-    throw new Error(`${label} es obligatorio.`)
+    throw new Error(`${label} es obligatorio.`);
   }
 
-  return normalized
+  return normalized;
 }
 
 function normalizeOptionalText(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
-  return normalized || null
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
 }
 
 function normalizeMetadata(value: unknown): SolicitudMetadata {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {}
+    return {};
   }
 
-  return value as SolicitudMetadata
+  return value as SolicitudMetadata;
 }
 
 function getTodayMexicoIso() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date())
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
 }
 
 function readIngresoOficial(metadata: unknown) {
-  const payload = normalizeMetadata(metadata)
-  const onboarding = normalizeMetadata(payload.onboarding_operativo)
-  const ingreso = onboarding.fecha_ingreso_oficial
+  const payload = normalizeMetadata(metadata);
+  const onboarding = normalizeMetadata(payload.onboarding_operativo);
+  const ingreso = onboarding.fecha_ingreso_oficial;
 
-  return typeof ingreso === 'string' && ingreso.trim().length > 0 ? ingreso.trim() : null
+  return typeof ingreso === 'string' && ingreso.trim().length > 0 ? ingreso.trim() : null;
 }
 
-async function resolveVacationEmployee(
-  service: TypedSupabaseClient,
-  empleadoId: string
-) {
+async function resolveVacationEmployee(service: TypedSupabaseClient, empleadoId: string) {
   const result = await service
     .from('empleado')
     .select('id, fecha_alta, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (result.error || !result.data) {
-    throw new Error(result.error?.message ?? 'No fue posible cargar el expediente del empleado.')
+    throw new Error(result.error?.message ?? 'No fue posible cargar el expediente del empleado.');
   }
 
-  return result.data as VacationEmployeeRow
+  return result.data as VacationEmployeeRow;
 }
 
 async function fetchApprovedVacationRanges(
   service: TypedSupabaseClient,
   options: {
-    empleadoId?: string | null
-    supervisorEmpleadoId?: string | null
-    fechaInicio: string
-    fechaFin: string
+    empleadoId?: string | null;
+    supervisorEmpleadoId?: string | null;
+    fechaInicio: string;
+    fechaFin: string;
   }
 ) {
   let query = service
     .from('solicitud')
     .select('empleado_id, fecha_inicio, fecha_fin, estatus')
     .eq('tipo', 'VACACIONES')
-    .eq('estatus', 'REGISTRADA')
+    .eq('estatus', 'REGISTRADA');
 
   if (options.empleadoId) {
-    query = query.eq('empleado_id', options.empleadoId)
+    query = query.eq('empleado_id', options.empleadoId);
   }
 
   if (options.supervisorEmpleadoId) {
-    query = query.eq('supervisor_empleado_id', options.supervisorEmpleadoId)
+    query = query.eq('supervisor_empleado_id', options.supervisorEmpleadoId);
   }
 
   if (typeof query.lte === 'function') {
-    query = query.lte('fecha_inicio', options.fechaFin)
+    query = query.lte('fecha_inicio', options.fechaFin);
   }
 
   if (typeof query.gte === 'function') {
-    query = query.gte('fecha_fin', options.fechaInicio)
+    query = query.gte('fecha_fin', options.fechaInicio);
   }
 
-  const result = await query.limit(240)
+  const result = await query.limit(240);
 
   if (result.error) {
-    throw new Error(result.error.message)
+    throw new Error(result.error.message);
   }
 
   return ((result.data ?? []) as Array<Record<string, unknown>>).map((item) => ({
@@ -223,33 +218,33 @@ async function fetchApprovedVacationRanges(
     fechaInicio: String(item.fecha_inicio ?? ''),
     fechaFin: String(item.fecha_fin ?? ''),
     estatus: typeof item.estatus === 'string' ? item.estatus : null,
-  })) satisfies VacationRangeLike[]
+  })) satisfies VacationRangeLike[];
 }
 
 async function validateVacationOperationalPolicy(
   service: TypedSupabaseClient,
   input: {
-    empleadoId: string
-    supervisorEmpleadoId: string | null
-    fechaInicio: string
-    fechaFin: string
+    empleadoId: string;
+    supervisorEmpleadoId: string | null;
+    fechaInicio: string;
+    fechaFin: string;
   }
 ) {
-  const employee = await resolveVacationEmployee(service, input.empleadoId)
-  const ingresoOficial = readIngresoOficial(employee.metadata) ?? employee.fecha_alta
+  const employee = await resolveVacationEmployee(service, input.empleadoId);
+  const ingresoOficial = readIngresoOficial(employee.metadata) ?? employee.fecha_alta;
   const approvedEmployeeRanges = await fetchApprovedVacationRanges(service, {
     empleadoId: input.empleadoId,
     fechaInicio: input.fechaInicio,
     fechaFin: input.fechaFin,
-  })
+  });
   const approvedTeamRanges = input.supervisorEmpleadoId
     ? await fetchApprovedVacationRanges(service, {
         supervisorEmpleadoId: input.supervisorEmpleadoId,
         fechaInicio: input.fechaInicio,
         fechaFin: input.fechaFin,
       })
-    : []
-  const todayIso = getTodayMexicoIso()
+    : [];
+  const todayIso = getTodayMexicoIso();
   const validation = validateVacationRequestPolicy({
     ingresoOficial,
     todayIso,
@@ -258,7 +253,7 @@ async function validateVacationOperationalPolicy(
     approvedEmployeeRanges,
     approvedTeamRanges,
     currentEmployeeId: input.empleadoId,
-  })
+  });
 
   return {
     snapshot: buildVacationPolicySnapshot({
@@ -268,25 +263,23 @@ async function validateVacationOperationalPolicy(
     }),
     validation,
     teamWeeklyLoad: buildVacationTeamWeeklyLoad(approvedTeamRanges, todayIso, 8),
-  }
+  };
 }
 
 function normalizeTipo(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim().toUpperCase()
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase();
 
   if (
-    ![
-      'INCAPACIDAD',
-      'VACACIONES',
-      'PERMISO',
-      'AVISO_INASISTENCIA',
-      'JUSTIFICACION_FALTA',
-    ].includes(normalized)
+    !['INCAPACIDAD', 'VACACIONES', 'PERMISO', 'AVISO_INASISTENCIA', 'JUSTIFICACION_FALTA'].includes(
+      normalized
+    )
   ) {
-    throw new Error('El tipo de solicitud no es valido.')
+    throw new Error('El tipo de solicitud no es valido.');
   }
 
-  return normalized as Solicitud['tipo']
+  return normalized as Solicitud['tipo'];
 }
 
 function normalizeRequiredOptionalText(
@@ -294,17 +287,19 @@ function normalizeRequiredOptionalText(
   label: string,
   required: boolean
 ) {
-  const normalized = normalizeOptionalText(value)
+  const normalized = normalizeOptionalText(value);
 
   if (required && !normalized) {
-    throw new Error(`${label} es obligatorio.`)
+    throw new Error(`${label} es obligatorio.`);
   }
 
-  return normalized
+  return normalized;
 }
 
 function normalizeEstatus(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim().toUpperCase()
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase();
 
   if (
     ![
@@ -317,54 +312,66 @@ function normalizeEstatus(value: FormDataEntryValue | null) {
       'CORRECCION_SOLICITADA',
     ].includes(normalized)
   ) {
-    throw new Error('El estatus seleccionado no es valido.')
+    throw new Error('El estatus seleccionado no es valido.');
   }
 
-  return normalized as Solicitud['estatus']
+  return normalized as Solicitud['estatus'];
 }
 
-function normalizeSingleDateRange(
-  fechaInicio: string,
-  fechaFin: string,
-  label: string
-) {
+function normalizeIncapacidadClase(
+  value: FormDataEntryValue | null,
+  options: { required: boolean }
+): 'INICIAL' | 'SUBSECUENTE' | null {
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase();
+
+  if (!normalized && !options.required) return null;
+  if (normalized !== 'INICIAL' && normalized !== 'SUBSECUENTE') {
+    throw new Error('Selecciona si la incapacidad es inicial o subsecuente según el formato.');
+  }
+
+  return normalized;
+}
+
+function normalizeSingleDateRange(fechaInicio: string, fechaFin: string, label: string) {
   if (fechaInicio !== fechaFin) {
-    throw new Error(`${label} debe capturarse para un solo dia.`)
+    throw new Error(`${label} debe capturarse para un solo dia.`);
   }
 }
 
 function buildDeadlineMetadata(enviadaEnIso: string, hours: number) {
-  const dueAt = new Date(new Date(enviadaEnIso).getTime() + hours * 60 * 60 * 1000).toISOString()
+  const dueAt = new Date(new Date(enviadaEnIso).getTime() + hours * 60 * 60 * 1000).toISOString();
   return {
     enviada_en: enviadaEnIso,
     sla_hours: hours,
     resolver_antes_de: dueAt,
-  }
+  };
 }
 
 function asUploadedFile(...values: Array<FormDataEntryValue | null>) {
   for (const value of values) {
     if (!value || typeof value === 'string' || !(value instanceof File) || value.size === 0) {
-      continue
+      continue;
     }
 
-    return value
+    return value;
   }
 
-  return null
+  return null;
 }
 
 function appendNotification(
   metadata: SolicitudMetadata,
   payload: {
-    canal?: string
-    mensaje: string
-    estado?: string
-    destinatarioEmpleadoId?: string | null
-    destinatarioPuesto?: string | null
+    canal?: string;
+    mensaje: string;
+    estado?: string;
+    destinatarioEmpleadoId?: string | null;
+    destinatarioPuesto?: string | null;
   }
 ) {
-  const current = Array.isArray(metadata.notificaciones) ? [...metadata.notificaciones] : []
+  const current = Array.isArray(metadata.notificaciones) ? [...metadata.notificaciones] : [];
 
   current.push({
     canal: payload.canal ?? 'IN_APP',
@@ -373,9 +380,9 @@ function appendNotification(
     destinatario_empleado_id: payload.destinatarioEmpleadoId ?? null,
     destinatario_puesto: payload.destinatarioPuesto ?? null,
     creada_en: new Date().toISOString(),
-  })
+  });
 
-  return current
+  return current;
 }
 
 async function notifySolicitudResolutionPush(
@@ -384,21 +391,21 @@ async function notifySolicitudResolutionPush(
   actorPuesto: Puesto
 ) {
   if (!['REGISTRADA_RH', 'REGISTRADA', 'RECHAZADA', 'CORRECCION_SOLICITADA'].includes(estatus)) {
-    return
+    return;
   }
 
-  const isApproved = estatus === 'REGISTRADA_RH' || estatus === 'REGISTRADA'
-  const isCorrection = estatus === 'CORRECCION_SOLICITADA'
+  const isApproved = estatus === 'REGISTRADA_RH' || estatus === 'REGISTRADA';
+  const isCorrection = estatus === 'CORRECCION_SOLICITADA';
   const title = isApproved
     ? 'Solicitud aprobada'
     : isCorrection
       ? 'Solicitud con correccion requerida'
-      : 'Solicitud rechazada'
+      : 'Solicitud rechazada';
   const body = isApproved
     ? `Tu solicitud de ${solicitud.tipo.toLowerCase()} fue aprobada por ${actorPuesto.toLowerCase()}.`
     : isCorrection
       ? `Tu solicitud de ${solicitud.tipo.toLowerCase()} requiere correccion para continuar.`
-      : `Tu solicitud de ${solicitud.tipo.toLowerCase()} fue rechazada. Revisa comentarios y siguiente accion.`
+      : `Tu solicitud de ${solicitud.tipo.toLowerCase()} fue rechazada. Revisa comentarios y siguiente accion.`;
 
   await sendOperationalPushNotification({
     employeeIds: [solicitud.empleado_id],
@@ -418,7 +425,7 @@ async function notifySolicitudResolutionPush(
       estatus,
       actorPuesto,
     },
-  })
+  });
 }
 
 async function validarCuentaCliente(service: TypedSupabaseClient, cuentaClienteId: string) {
@@ -426,12 +433,12 @@ async function validarCuentaCliente(service: TypedSupabaseClient, cuentaClienteI
     .from('cuenta_cliente')
     .select('id, activa')
     .eq('id', cuentaClienteId)
-    .maybeSingle()
+    .maybeSingle();
 
-  const cuenta = cuentaRaw as CuentaCliente | null
+  const cuenta = cuentaRaw as CuentaCliente | null;
 
   if (error || !cuenta || !cuenta.activa) {
-    throw new Error('La cuenta cliente seleccionada no existe o no esta activa.')
+    throw new Error('La cuenta cliente seleccionada no existe o no esta activa.');
   }
 }
 
@@ -440,10 +447,10 @@ async function ensureBucket(service: TypedSupabaseClient) {
     public: false,
     fileSizeLimit: `${EXPEDIENTE_RAW_UPLOAD_MAX_BYTES}`,
     allowedMimeTypes: SOLICITUD_ALLOWED_MIME_TYPES,
-  })
+  });
 
   if (error && !/already exists|duplicate/i.test(error.message)) {
-    throw error
+    throw error;
   }
 }
 
@@ -455,28 +462,28 @@ async function uploadJustificanteSolicitud(
     empleadoId,
     file,
   }: {
-    actorUsuarioId: string
-    cuentaClienteId: string
-    empleadoId: string
-    file: File
+    actorUsuarioId: string;
+    cuentaClienteId: string;
+    empleadoId: string;
+    file: File;
   }
 ) {
   if (exceedsOperationalDocumentUploadLimit(file)) {
-    throw new Error(buildOperationalDocumentUploadLimitMessage('justificante', file))
+    throw new Error(buildOperationalDocumentUploadLimitMessage('justificante', file));
   }
 
   if (!SOLICITUD_ALLOWED_MIME_TYPES.includes(file.type)) {
-    throw new Error('El justificante debe ser imagen JPEG/PNG/WEBP o PDF.')
+    throw new Error('El justificante debe ser imagen JPEG/PNG/WEBP o PDF.');
   }
 
-  await ensureBucket(service)
+  await ensureBucket(service);
   const stored = await storeOptimizedEvidence({
     service,
     bucket: SOLICITUDES_BUCKET,
     actorUsuarioId,
     storagePrefix: `solicitudes/${cuentaClienteId}/${empleadoId}`,
     file,
-  })
+  });
 
   return {
     url: stored.archivo.url,
@@ -491,7 +498,7 @@ async function uploadJustificanteSolicitud(
       notes: stored.optimization.notes,
       officialAssetKind: stored.optimization.officialAssetKind,
     },
-  }
+  };
 }
 
 async function resolveSolicitudJustificante(
@@ -503,11 +510,11 @@ async function resolveSolicitudJustificante(
     file,
     directReference,
   }: {
-    actorUsuarioId: string
-    cuentaClienteId: string
-    empleadoId: string
-    file: File | null
-    directReference: ReturnType<typeof readDirectR2Reference>
+    actorUsuarioId: string;
+    cuentaClienteId: string;
+    empleadoId: string;
+    file: File | null;
+    directReference: ReturnType<typeof readDirectR2Reference>;
   }
 ) {
   if (hasDirectR2Reference(directReference)) {
@@ -516,7 +523,7 @@ async function resolveSolicitudJustificante(
       modulo: 'solicitudes',
       referenciaEntidadId: empleadoId,
       reference: directReference,
-    })
+    });
 
     return {
       url: registered.url,
@@ -531,11 +538,11 @@ async function resolveSolicitudJustificante(
         notes: ['Subida directa via R2'],
         officialAssetKind: 'original',
       },
-    }
+    };
   }
 
   if (!file) {
-    return null
+    return null;
   }
 
   return uploadJustificanteSolicitud(service, {
@@ -543,7 +550,7 @@ async function resolveSolicitudJustificante(
     cuentaClienteId,
     empleadoId,
     file,
-  })
+  });
 }
 
 function buildApprovalMetadata(
@@ -551,13 +558,13 @@ function buildApprovalMetadata(
   options?: { requesterPuesto?: Puesto; selfRequest?: boolean }
 ) {
   const isSupervisorSelfRequest =
-    options?.requesterPuesto === 'SUPERVISOR' && options?.selfRequest === true
+    options?.requesterPuesto === 'SUPERVISOR' && options?.selfRequest === true;
 
   if (tipo === 'INCAPACIDAD') {
     const approvalPath = getIncapacidadApprovalPath({
       requesterPuesto: options?.requesterPuesto ?? null,
       selfRequest: options?.selfRequest === true,
-    })
+    });
     return {
       approval_path: approvalPath,
       approval_target_statuses: approvalPath.map((actor) =>
@@ -566,7 +573,7 @@ function buildApprovalMetadata(
       justifica_asistencia: true,
       estado_resolucion: 'PENDIENTE',
       notificaciones: [],
-    }
+    };
   }
 
   if (tipo === 'AVISO_INASISTENCIA') {
@@ -576,7 +583,7 @@ function buildApprovalMetadata(
       justifica_asistencia: false,
       estado_resolucion: 'APROBADA',
       notificaciones: [],
-    }
+    };
   }
 
   if (tipo === 'JUSTIFICACION_FALTA') {
@@ -586,60 +593,66 @@ function buildApprovalMetadata(
       justifica_asistencia: true,
       estado_resolucion: 'PENDIENTE',
       notificaciones: [],
-    }
+    };
   }
 
-  const flow = resolveApprovalFlow(tipo, [])
+  const flow = resolveApprovalFlow(tipo, []);
   const steps = isSupervisorSelfRequest
     ? flow.steps.filter((step) => step.actor !== 'SUPERVISOR')
-    : flow.steps
+    : flow.steps;
   return {
     approval_path: steps.map((step) => step.actor),
     approval_target_statuses: steps.map((step) => step.targetStatus),
     justifica_asistencia: ['INCAPACIDAD', 'VACACIONES', 'PERMISO'].includes(tipo),
     estado_resolucion: 'PENDIENTE',
     notificaciones: [],
-  }
+  };
 }
 
-function requestStatusAffectsMaterialization(tipo: Solicitud['tipo'], estatus: Solicitud['estatus']) {
+function requestStatusAffectsMaterialization(
+  tipo: Solicitud['tipo'],
+  estatus: Solicitud['estatus']
+) {
   if (tipo === 'INCAPACIDAD') {
-    return estatus === 'REGISTRADA_RH'
+    return estatus === 'REGISTRADA_RH';
   }
 
   if (tipo === 'VACACIONES' || tipo === 'JUSTIFICACION_FALTA') {
-    return estatus === 'REGISTRADA'
+    return estatus === 'REGISTRADA';
   }
 
-  return false
+  return false;
 }
 
 async function refreshSolicitudMaterializationIfNeeded(
   service: TypedSupabaseClient,
   input: {
-    solicitud: SolicitudApprovalRow
-    previousStatus: Solicitud['estatus']
-    nextStatus: Solicitud['estatus']
+    solicitud: SolicitudApprovalRow;
+    previousStatus: Solicitud['estatus'];
+    nextStatus: Solicitud['estatus'];
   }
 ) {
   if (!['INCAPACIDAD', 'VACACIONES', 'JUSTIFICACION_FALTA'].includes(input.solicitud.tipo)) {
-    return
+    return;
   }
 
-  const previousAffects = requestStatusAffectsMaterialization(input.solicitud.tipo, input.previousStatus)
-  const nextAffects = requestStatusAffectsMaterialization(input.solicitud.tipo, input.nextStatus)
+  const previousAffects = requestStatusAffectsMaterialization(
+    input.solicitud.tipo,
+    input.previousStatus
+  );
+  const nextAffects = requestStatusAffectsMaterialization(input.solicitud.tipo, input.nextStatus);
 
   if (!previousAffects && !nextAffects) {
-    return
+    return;
   }
 
   const impact = resolveMaterializationImpactRange(
     input.solicitud.fecha_inicio,
     input.solicitud.fecha_fin
-  )
+  );
 
   if (!impact) {
-    return
+    return;
   }
 
   await enqueueAndProcessMaterializedAssignments(
@@ -657,7 +670,7 @@ async function refreshSolicitudMaterializationIfNeeded(
       },
     ],
     service
-  )
+  );
 }
 async function validarAvisoPrevioInasistencia(
   service: TypedSupabaseClient,
@@ -665,8 +678,8 @@ async function validarAvisoPrevioInasistencia(
     empleadoId,
     fechaFalta,
   }: {
-    empleadoId: string
-    fechaFalta: string
+    empleadoId: string;
+    fechaFalta: string;
   }
 ) {
   const { data, error } = await service
@@ -678,22 +691,22 @@ async function validarAvisoPrevioInasistencia(
     .eq('fecha_fin', fechaFalta)
     .order('created_at', { ascending: false })
     .limit(1)
-    .maybeSingle()
+    .maybeSingle();
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
 
   if (!data || (data.estatus !== 'REGISTRADA' && data.estatus !== 'ENVIADA')) {
     throw new Error(
       'La falta solo puede justificarse si existe un aviso previo de inasistencia registrado para ese dia.'
-    )
+    );
   }
 
   return {
     id: String(data.id),
     metadata: normalizeMetadata(data.metadata),
-  }
+  };
 }
 
 async function notificarAvisoInasistenciaSupervisor(
@@ -706,16 +719,16 @@ async function notificarAvisoInasistenciaSupervisor(
     fechaFalta,
     motivo,
   }: {
-    cuentaClienteId: string
-    actorUsuarioId: string
-    supervisorEmpleadoId: string | null
-    empleadoId: string
-    fechaFalta: string
-    motivo: string | null
+    cuentaClienteId: string;
+    actorUsuarioId: string;
+    supervisorEmpleadoId: string | null;
+    empleadoId: string;
+    fechaFalta: string;
+    motivo: string | null;
   }
 ) {
   if (!supervisorEmpleadoId) {
-    return
+    return;
   }
 
   await sendOperationalPushNotification({
@@ -735,18 +748,18 @@ async function notificarAvisoInasistenciaSupervisor(
       empleadoId,
       fechaFalta,
     },
-  })
+  });
 }
 
 async function notificarSolicitudVacaciones(
   service: TypedSupabaseClient,
   input: {
-    actorUsuarioId: string
-    cuentaClienteId: string
-    empleadoId: string
-    supervisorEmpleadoId: string | null
-    fechaInicio: string
-    fechaFin: string
+    actorUsuarioId: string;
+    cuentaClienteId: string;
+    empleadoId: string;
+    supervisorEmpleadoId: string | null;
+    fechaInicio: string;
+    fechaFin: string;
   }
 ) {
   if (input.supervisorEmpleadoId) {
@@ -767,7 +780,7 @@ async function notificarSolicitudVacaciones(
         fechaInicio: input.fechaInicio,
         fechaFin: input.fechaFin,
       },
-    })
+    });
   }
 
   const coordinadores = await service
@@ -775,11 +788,11 @@ async function notificarSolicitudVacaciones(
     .select('id')
     .eq('puesto', 'COORDINADOR')
     .eq('estatus_laboral', 'ACTIVO')
-    .limit(32)
+    .limit(32);
 
   const coordinatorIds = ((coordinadores.data ?? []) as Array<Record<string, unknown>>)
     .map((item) => (typeof item.id === 'string' ? item.id : null))
-    .filter((item): item is string => Boolean(item))
+    .filter((item): item is string => Boolean(item));
 
   if (coordinatorIds.length > 0) {
     await sendOperationalPushNotification({
@@ -799,7 +812,7 @@ async function notificarSolicitudVacaciones(
         fechaInicio: input.fechaInicio,
         fechaFin: input.fechaFin,
       },
-    })
+    });
   }
 }
 
@@ -818,17 +831,17 @@ async function registrarNotificacionIncapacidad(
     stage,
     supervisorSelfRequest,
   }: {
-    actorUsuarioId: string
-    cuentaClienteId: string
-    empleadoId: string
-    supervisorEmpleadoId: string | null
-    fechaInicio: string
-    fechaFin: string
-    empleadoNombre: string
-    motivo: string | null
-    incapacidadClase: string | null
-    stage: 'ENVIADA' | 'VALIDADA_SUP' | 'VALIDADA_RECLUTAMIENTO'
-    supervisorSelfRequest: boolean
+    actorUsuarioId: string;
+    cuentaClienteId: string;
+    empleadoId: string;
+    supervisorEmpleadoId: string | null;
+    fechaInicio: string;
+    fechaFin: string;
+    empleadoNombre: string;
+    motivo: string | null;
+    incapacidadClase: string | null;
+    stage: 'ENVIADA' | 'VALIDADA_SUP' | 'VALIDADA_RECLUTAMIENTO';
+    supervisorSelfRequest: boolean;
   }
 ) {
   const actionablePuestos =
@@ -836,53 +849,54 @@ async function registrarNotificacionIncapacidad(
       ? ['NOMINA']
       : stage === 'VALIDADA_SUP'
         ? ['RECLUTAMIENTO']
-        : []
-  const informationalPuestos =
-    stage === 'ENVIADA' ? ['RECLUTAMIENTO'] : actionablePuestos
-  const targetPuestos = Array.from(new Set([...actionablePuestos, ...informationalPuestos]))
+        : [];
+  const informationalPuestos = stage === 'ENVIADA' ? ['RECLUTAMIENTO'] : actionablePuestos;
+  const targetPuestos = Array.from(new Set([...actionablePuestos, ...informationalPuestos]));
 
   const { data: recipients, error } = await service
     .from('empleado')
     .select('id, puesto')
     .in('puesto', targetPuestos)
-    .eq('estatus_laboral', 'ACTIVO')
+    .eq('estatus_laboral', 'ACTIVO');
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
 
-  const actionableRecipientIds = new Set<string>()
-  const informationalRecipientIds = new Set<string>()
+  const actionableRecipientIds = new Set<string>();
+  const informationalRecipientIds = new Set<string>();
 
   for (const item of recipients ?? []) {
-    const recipientId = String(item.id)
-    const puesto = String(item.puesto ?? '').trim().toUpperCase()
+    const recipientId = String(item.id);
+    const puesto = String(item.puesto ?? '')
+      .trim()
+      .toUpperCase();
 
     if (!recipientId) {
-      continue
+      continue;
     }
 
     if (actionablePuestos.includes(puesto)) {
-      actionableRecipientIds.add(recipientId)
+      actionableRecipientIds.add(recipientId);
     }
 
     if (informationalPuestos.includes(puesto)) {
-      informationalRecipientIds.add(recipientId)
+      informationalRecipientIds.add(recipientId);
     }
   }
 
   if (stage === 'ENVIADA' && !supervisorSelfRequest && supervisorEmpleadoId) {
-    actionableRecipientIds.add(supervisorEmpleadoId)
+    actionableRecipientIds.add(supervisorEmpleadoId);
   }
 
   if (stage === 'ENVIADA' && supervisorEmpleadoId) {
-    informationalRecipientIds.add(supervisorEmpleadoId)
+    informationalRecipientIds.add(supervisorEmpleadoId);
   }
 
-  Array.from(actionableRecipientIds).forEach((item) => informationalRecipientIds.add(item))
+  Array.from(actionableRecipientIds).forEach((item) => informationalRecipientIds.add(item));
 
   if (informationalRecipientIds.size === 0) {
-    return
+    return;
   }
 
   const claseLabel =
@@ -890,25 +904,25 @@ async function registrarNotificacionIncapacidad(
       ? 'Incapacidad subsecuente'
       : incapacidadClase === 'INICIAL'
         ? 'Incapacidad inicial'
-        : 'Incapacidad'
+        : 'Incapacidad';
   const body =
     stage === 'VALIDADA_RECLUTAMIENTO'
       ? `${empleadoNombre} tiene ${claseLabel.toLowerCase()} validada por reclutamiento del ${fechaInicio} al ${fechaFin}${motivo ? `. Motivo: ${motivo}.` : '.'}`
       : stage === 'VALIDADA_SUP'
         ? `${empleadoNombre} tiene ${claseLabel.toLowerCase()} validada por supervision y pendiente de revision documental del ${fechaInicio} al ${fechaFin}${motivo ? `. Motivo: ${motivo}.` : '.'}`
-        : `${empleadoNombre} reporto ${claseLabel.toLowerCase()} del ${fechaInicio} al ${fechaFin}${motivo ? `. Motivo: ${motivo}.` : '.'}`
+        : `${empleadoNombre} reporto ${claseLabel.toLowerCase()} del ${fechaInicio} al ${fechaFin}${motivo ? `. Motivo: ${motivo}.` : '.'}`;
   const workflow =
     stage === 'VALIDADA_RECLUTAMIENTO'
       ? 'solicitud_incapacidad_revision_nomina'
       : stage === 'VALIDADA_SUP'
         ? 'solicitud_incapacidad_revision_reclutamiento'
-        : 'solicitud_incapacidad_revision_inicial'
+        : 'solicitud_incapacidad_revision_inicial';
   const title =
     stage === 'VALIDADA_RECLUTAMIENTO'
       ? `${claseLabel} lista para nomina`
       : stage === 'VALIDADA_SUP'
         ? `${claseLabel} validada por supervision`
-        : `${claseLabel} registrada`
+        : `${claseLabel} registrada`;
 
   const { data: mensaje, error: mensajeError } = await service
     .from('mensaje_interno')
@@ -932,7 +946,7 @@ async function registrarNotificacionIncapacidad(
       },
     })
     .select('id')
-    .maybeSingle()
+    .maybeSingle();
 
   if (!mensajeError && mensaje?.id) {
     await service.from('mensaje_receptor').insert(
@@ -951,7 +965,7 @@ async function registrarNotificacionIncapacidad(
           requiere_accion: actionableRecipientIds.has(recipientId),
         },
       }))
-    )
+    );
   }
 
   try {
@@ -980,7 +994,7 @@ async function registrarNotificacionIncapacidad(
         incapacidadClase,
         etapaRevision: stage,
       },
-    })
+    });
   } catch {
     // El mensaje interno cubre el flujo si push falla.
   }
@@ -991,68 +1005,106 @@ export async function registrarSolicitudOperativa(
   formData: FormData
 ): Promise<SolicitudActionState> {
   try {
-    const actor = await requerirPuestosActivos(SOLICITUD_WRITE_ROLES)
-    const service = createServiceClient() as TypedSupabaseClient
-    const cuentaClienteId = normalizeRequiredText(formData.get('cuenta_cliente_id'), 'Cuenta cliente')
-    const empleadoId = normalizeOptionalText(formData.get('empleado_id')) ?? actor.empleadoId
-    const supervisorEmpleadoId = normalizeOptionalText(formData.get('supervisor_empleado_id'))
-    const tipo = normalizeTipo(formData.get('tipo'))
-    const fechaInicio = normalizeRequiredText(formData.get('fecha_inicio'), 'Fecha inicio')
-    const fechaFin = normalizeRequiredText(formData.get('fecha_fin'), 'Fecha fin')
+    const actor = await requerirPuestosActivos(SOLICITUD_WRITE_ROLES);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const cuentaClienteId = normalizeRequiredText(
+      formData.get('cuenta_cliente_id'),
+      'Cuenta cliente'
+    );
+    const empleadoId = normalizeOptionalText(formData.get('empleado_id')) ?? actor.empleadoId;
+    const supervisorEmpleadoId = normalizeOptionalText(formData.get('supervisor_empleado_id'));
+    const tipo = normalizeTipo(formData.get('tipo'));
+    const fechaInicio = normalizeRequiredText(formData.get('fecha_inicio'), 'Fecha inicio');
+    const fechaFin = normalizeRequiredText(formData.get('fecha_fin'), 'Fecha fin');
     const requiereMotivo =
-      tipo === 'INCAPACIDAD' || tipo === 'AVISO_INASISTENCIA' || tipo === 'JUSTIFICACION_FALTA'
-    const motivo = normalizeRequiredOptionalText(formData.get('motivo'), 'Motivo', requiereMotivo)
+      tipo === 'INCAPACIDAD' || tipo === 'AVISO_INASISTENCIA' || tipo === 'JUSTIFICACION_FALTA';
+    const motivo = normalizeRequiredOptionalText(formData.get('motivo'), 'Motivo', requiereMotivo);
     const comentarios =
       normalizeRequiredOptionalText(
         formData.get('comentarios'),
         tipo === 'JUSTIFICACION_FALTA' ? 'Detalle' : 'Solicitud',
         tipo === 'INCAPACIDAD'
-      )
-      ?? null
-    const isSelfRequest = empleadoId === actor.empleadoId
+      ) ?? null;
+    const isSelfRequest = empleadoId === actor.empleadoId;
     const incapacidadClase =
       tipo === 'INCAPACIDAD'
-        ? normalizeRequiredText(formData.get('incapacidad_clase'), 'Tipo de incapacidad').toUpperCase()
-        : null
+        ? normalizeIncapacidadClase(formData.get('incapacidad_clase'), { required: true })
+        : null;
     const justificante = asUploadedFile(
       formData.get('justificante'),
       formData.get('justificante_camera')
-    )
-    const justificanteR2 = readDirectR2Reference(formData)
-    const isAvisoInasistencia = tipo === 'AVISO_INASISTENCIA'
-    const isJustificacionFalta = tipo === 'JUSTIFICACION_FALTA'
-    const isVacaciones = tipo === 'VACACIONES'
+    );
+    const justificanteR2 = readDirectR2Reference(formData);
+    const isAvisoInasistencia = tipo === 'AVISO_INASISTENCIA';
+    const isJustificacionFalta = tipo === 'JUSTIFICACION_FALTA';
+    const isVacaciones = tipo === 'VACACIONES';
 
     if (isAvisoInasistencia || isJustificacionFalta) {
-      normalizeSingleDateRange(fechaInicio, fechaFin, isAvisoInasistencia ? 'El aviso de inasistencia' : 'La justificacion de falta')
+      normalizeSingleDateRange(
+        fechaInicio,
+        fechaFin,
+        isAvisoInasistencia ? 'El aviso de inasistencia' : 'La justificacion de falta'
+      );
     }
 
-    if (tipo === 'INCAPACIDAD' && !justificante) {
-      throw new Error('Debes adjuntar el documento de incapacidad desde galeria o camara.')
+    if (tipo === 'INCAPACIDAD' && !justificante && !justificanteR2 && isSelfRequest) {
+      throw new Error('Debes adjuntar el documento de incapacidad desde galeria o camara.');
     }
 
-    if (isJustificacionFalta && !justificante) {
-      throw new Error('Debes adjuntar obligatoriamente la receta del IMSS para justificar la falta.')
+    if (isJustificacionFalta && !justificante && !justificanteR2 && isSelfRequest) {
+      throw new Error(
+        'Debes adjuntar obligatoriamente la receta del IMSS para justificar la falta.'
+      );
     }
 
-    await validarCuentaCliente(service, cuentaClienteId)
+    if (actor.puesto === 'SUPERVISOR' && !isSelfRequest) {
+      const { data: emp, error: empErr } = await service
+        .from('empleado')
+        .select('supervisor_empleado_id')
+        .eq('id', empleadoId)
+        .maybeSingle();
 
-    const vacationPolicy =
-      isVacaciones
-        ? await validateVacationOperationalPolicy(service, {
-            empleadoId,
-            supervisorEmpleadoId,
-            fechaInicio,
-            fechaFin,
-          })
-        : null
+      if (empErr || !emp) {
+        throw new Error('No fue posible encontrar a la dermoconsejera.');
+      }
+
+      // Buscar si existe alguna asignación activa para el día de inicio/fin donde el supervisor esté asignado
+      const { data: activeAssignment } = await service
+        .from('asignacion')
+        .select('id')
+        .eq('empleado_id', empleadoId)
+        .eq('supervisor_empleado_id', actor.empleadoId)
+        .eq('estado_publicacion', 'PUBLICADA')
+        .lte('fecha_inicio', fechaFin)
+        .or(`fecha_fin.gte.${fechaInicio},fecha_fin.is.null`)
+        .limit(1)
+        .maybeSingle();
+
+      const esSupervisorEstructural = emp.supervisor_empleado_id === actor.empleadoId;
+      const esSupervisorOperativo = Boolean(activeAssignment);
+
+      if (!esSupervisorEstructural && !esSupervisorOperativo) {
+        throw new Error('No puedes registrar solicitudes para dermoconsejeras fuera de tu equipo.');
+      }
+    }
+
+    await validarCuentaCliente(service, cuentaClienteId);
+
+    const vacationPolicy = isVacaciones
+      ? await validateVacationOperationalPolicy(service, {
+          empleadoId,
+          supervisorEmpleadoId,
+          fechaInicio,
+          fechaFin,
+        })
+      : null;
 
     const avisoPrevio = isJustificacionFalta
       ? await validarAvisoPrevioInasistencia(service, {
           empleadoId,
           fechaFalta: fechaInicio,
         })
-      : null
+      : null;
 
     const justificanteUpload = await resolveSolicitudJustificante(service, {
       actorUsuarioId: actor.usuarioId,
@@ -1060,19 +1112,25 @@ export async function registrarSolicitudOperativa(
       empleadoId,
       file: justificante,
       directReference: justificanteR2,
-    })
+    });
 
     const approvalMetadata = buildApprovalMetadata(tipo, {
       requesterPuesto: actor.puesto,
       selfRequest: isSelfRequest,
-    })
+    });
     const initialStatus = isAvisoInasistencia
       ? 'REGISTRADA'
-      : actor.puesto === 'DERMOCONSEJERO' || (actor.puesto === 'SUPERVISOR' && isSelfRequest)
-        ? 'ENVIADA'
-        : 'BORRADOR'
+      : actor.puesto === 'SUPERVISOR' && !isSelfRequest
+        ? 'VALIDADA_SUP'
+        : actor.puesto === 'DERMOCONSEJERO' || (actor.puesto === 'SUPERVISOR' && isSelfRequest)
+          ? 'ENVIADA'
+          : 'BORRADOR';
     const sentAtIso =
-      initialStatus === 'ENVIADA' || initialStatus === 'REGISTRADA' ? new Date().toISOString() : null
+      initialStatus === 'ENVIADA' ||
+      initialStatus === 'REGISTRADA' ||
+      initialStatus === 'VALIDADA_SUP'
+        ? new Date().toISOString()
+        : null;
     const nextRole =
       initialStatus === 'ENVIADA'
         ? tipo === 'INCAPACIDAD'
@@ -1086,12 +1144,16 @@ export async function registrarSolicitudOperativa(
             })
           : tipo === 'JUSTIFICACION_FALTA'
             ? 'SUPERVISOR'
-          : tipo === 'VACACIONES'
-            ? 'COORDINADOR'
-          : actor.puesto === 'SUPERVISOR' && isSelfRequest
-            ? 'COORDINADOR'
-            : 'SUPERVISOR'
-        : null
+            : tipo === 'VACACIONES'
+              ? 'COORDINADOR'
+              : actor.puesto === 'SUPERVISOR' && isSelfRequest
+                ? 'COORDINADOR'
+                : 'SUPERVISOR'
+        : initialStatus === 'VALIDADA_SUP'
+          ? tipo === 'INCAPACIDAD'
+            ? 'RECLUTAMIENTO'
+            : 'COORDINADOR'
+          : null;
     const metadata = {
       ...approvalMetadata,
       capturado_desde: 'panel_solicitudes',
@@ -1120,8 +1182,11 @@ export async function registrarSolicitudOperativa(
       justificante_optimization: justificanteUpload?.optimization ?? null,
       aviso_inasistencia_id: avisoPrevio?.id ?? null,
       requiere_aviso_previo: isJustificacionFalta,
-      ...(isJustificacionFalta && sentAtIso ? buildDeadlineMetadata(sentAtIso, JUSTIFICACION_SLA_HOURS) : {}),
-      enviada_en: initialStatus === 'ENVIADA' ? sentAtIso : null,
+      ...(isJustificacionFalta && sentAtIso
+        ? buildDeadlineMetadata(sentAtIso, JUSTIFICACION_SLA_HOURS)
+        : {}),
+      enviada_en:
+        initialStatus === 'ENVIADA' || initialStatus === 'VALIDADA_SUP' ? sentAtIso : null,
       notificaciones:
         initialStatus === 'ENVIADA'
           ? appendNotification(approvalMetadata, {
@@ -1132,23 +1197,32 @@ export async function registrarSolicitudOperativa(
                     : 'Incapacidad enviada y pendiente de validacion de supervision.'
                   : tipo === 'JUSTIFICACION_FALTA'
                     ? 'Justificacion de falta enviada y pendiente de revision de supervision.'
-                  : tipo === 'VACACIONES'
-                    ? 'Solicitud de vacaciones enviada y pendiente de aprobacion de coordinacion.'
-                  : actor.puesto === 'SUPERVISOR' && isSelfRequest
-                    ? 'Solicitud enviada y pendiente de revision de coordinacion.'
-                    : 'Solicitud enviada y pendiente de revision operativa.',
+                    : tipo === 'VACACIONES'
+                      ? 'Solicitud de vacaciones enviada y pendiente de aprobacion de coordinacion.'
+                      : actor.puesto === 'SUPERVISOR' && isSelfRequest
+                        ? 'Solicitud enviada y pendiente de revision de coordinacion.'
+                        : 'Solicitud enviada y pendiente de revision operativa.',
               destinatarioEmpleadoId: empleadoId,
               destinatarioPuesto: actor.puesto,
             })
-          : isAvisoInasistencia
+          : initialStatus === 'VALIDADA_SUP'
             ? appendNotification(approvalMetadata, {
-                mensaje: 'Aviso de inasistencia registrado y notificado a supervision.',
+                mensaje:
+                  tipo === 'INCAPACIDAD'
+                    ? 'Incapacidad registrada por supervision y enviada a revision de reclutamiento.'
+                    : 'Solicitud de vacaciones registrada por supervision y enviada a coordinacion.',
                 destinatarioEmpleadoId: empleadoId,
                 destinatarioPuesto: actor.puesto,
               })
-          : [],
+            : isAvisoInasistencia
+              ? appendNotification(approvalMetadata, {
+                  mensaje: 'Aviso de inasistencia registrado y notificado a supervision.',
+                  destinatarioEmpleadoId: empleadoId,
+                  destinatarioPuesto: actor.puesto,
+                })
+              : [],
       siguiente_actor: nextRole,
-    }
+    };
 
     const { data: created, error } = await service
       .from('solicitud')
@@ -1167,10 +1241,10 @@ export async function registrarSolicitudOperativa(
         metadata,
       })
       .select('id')
-      .maybeSingle()
+      .maybeSingle();
 
     if (error || !created?.id) {
-      throw new Error(error?.message ?? 'No fue posible registrar la solicitud.')
+      throw new Error(error?.message ?? 'No fue posible registrar la solicitud.');
     }
 
     if (tipo === 'INCAPACIDAD' && initialStatus === 'ENVIADA') {
@@ -1178,7 +1252,7 @@ export async function registrarSolicitudOperativa(
         .from('empleado')
         .select('id, nombre_completo')
         .eq('id', empleadoId)
-        .maybeSingle()
+        .maybeSingle();
 
       await registrarNotificacionIncapacidad(service, {
         actorUsuarioId: actor.usuarioId,
@@ -1192,7 +1266,7 @@ export async function registrarSolicitudOperativa(
         incapacidadClase,
         stage: 'ENVIADA',
         supervisorSelfRequest: actor.puesto === 'SUPERVISOR' && isSelfRequest,
-      })
+      });
     }
 
     if (isAvisoInasistencia) {
@@ -1203,7 +1277,7 @@ export async function registrarSolicitudOperativa(
         empleadoId,
         fechaFalta: fechaInicio,
         motivo,
-      })
+      });
     }
 
     if (isVacaciones && initialStatus === 'ENVIADA') {
@@ -1214,7 +1288,7 @@ export async function registrarSolicitudOperativa(
         supervisorEmpleadoId,
         fechaInicio,
         fechaFin,
-      })
+      });
     }
 
     await service.from('audit_log').insert({
@@ -1230,7 +1304,7 @@ export async function registrarSolicitudOperativa(
       },
       usuario_id: actor.usuarioId,
       cuenta_cliente_id: cuentaClienteId,
-    })
+    });
 
     await publishSolicitudUiChanges(service, {
       cuentaClienteId,
@@ -1239,7 +1313,7 @@ export async function registrarSolicitudOperativa(
       fechaInicio,
       fechaFin,
       eventType: 'solicitud_registrada',
-    })
+    });
 
     // Notificacion asincrona a coordinadores
     if (initialStatus === 'ENVIADA') {
@@ -1255,8 +1329,8 @@ export async function registrarSolicitudOperativa(
             tipo,
             resumen: motivo || comentarios || 'Sin detalle',
             cuentaClienteId,
-          }).catch(console.error)
-        })
+          }).catch(console.error);
+        });
     }
 
     return buildState({
@@ -1266,11 +1340,11 @@ export async function registrarSolicitudOperativa(
         : isJustificacionFalta
           ? 'Justificacion de falta enviada.'
           : 'Solicitud operativa registrada.',
-    })
+    });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible registrar la solicitud.',
-    })
+    });
   }
 }
 
@@ -1278,43 +1352,66 @@ async function resolverEstatusSolicitud(
   formData: FormData,
   updatedFrom: 'panel_solicitudes' | 'dashboard_supervision'
 ): Promise<SolicitudActionState> {
-  const actor = await requerirPuestosActivos(SOLICITUD_APPROVAL_ROLES)
-  const service = createServiceClient() as TypedSupabaseClient
-  const solicitudId = normalizeRequiredText(formData.get('solicitud_id'), 'Solicitud')
-  const cuentaClienteId = normalizeRequiredText(formData.get('cuenta_cliente_id'), 'Cuenta cliente')
-  const estatus = normalizeEstatus(formData.get('estatus'))
-  const comentariosResolucion = normalizeOptionalText(formData.get('comentarios_resolucion'))
+  const actor = await requerirPuestosActivos(SOLICITUD_APPROVAL_ROLES);
+  const service = createServiceClient() as TypedSupabaseClient;
+  const solicitudId = normalizeRequiredText(formData.get('solicitud_id'), 'Solicitud');
+  const cuentaClienteId = normalizeRequiredText(
+    formData.get('cuenta_cliente_id'),
+    'Cuenta cliente'
+  );
+  const estatus = normalizeEstatus(formData.get('estatus'));
+  const comentariosResolucion = normalizeOptionalText(formData.get('comentarios_resolucion'));
+  const incapacidadClaseSolicitada = normalizeIncapacidadClase(formData.get('incapacidad_clase'), {
+    required: false,
+  });
 
-  await validarCuentaCliente(service, cuentaClienteId)
+  await validarCuentaCliente(service, cuentaClienteId);
 
   const { data: solicitudRaw, error: solicitudError } = await service
     .from('solicitud')
-    .select('id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, tipo, fecha_inicio, fecha_fin, estatus, comentarios, metadata')
+    .select(
+      'id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, tipo, fecha_inicio, fecha_fin, estatus, comentarios, metadata'
+    )
     .eq('id', solicitudId)
     .eq('cuenta_cliente_id', cuentaClienteId)
-    .maybeSingle()
+    .maybeSingle();
 
-  const solicitud = solicitudRaw as SolicitudApprovalRow | null
+  const solicitud = solicitudRaw as SolicitudApprovalRow | null;
 
   if (solicitudError || !solicitud) {
-    throw new Error(solicitudError?.message ?? 'No fue posible cargar la solicitud para actualizarla.')
+    throw new Error(
+      solicitudError?.message ?? 'No fue posible cargar la solicitud para actualizarla.'
+    );
   }
 
-  const metadata = normalizeMetadata(solicitud.metadata)
+  const metadata = normalizeMetadata(solicitud.metadata);
   const nextMetadata: SolicitudMetadata = {
     ...metadata,
     actualizado_desde: updatedFrom,
     actualizado_por_usuario_id: actor.usuarioId,
     actualizado_por_puesto: actor.puesto,
+  };
+  const incapacidadClaseRegistrada =
+    incapacidadClaseSolicitada ??
+    (metadata.incapacidad_clase === 'INICIAL' || metadata.incapacidad_clase === 'SUBSECUENTE'
+      ? metadata.incapacidad_clase
+      : null);
+
+  if (solicitud.tipo === 'INCAPACIDAD' && incapacidadClaseSolicitada) {
+    nextMetadata.incapacidad_clase = incapacidadClaseSolicitada;
+    nextMetadata.incapacidad_clasificada_en = new Date().toISOString();
+    nextMetadata.incapacidad_clasificada_por_usuario_id = actor.usuarioId;
+    nextMetadata.incapacidad_clasificada_por_puesto = actor.puesto;
+    nextMetadata.incapacidad_fuente_clasificacion = 'FORMATO_INCAPACIDAD';
   }
 
-  const comentariosBase = solicitud.comentarios ? `${solicitud.comentarios}`.trim() : ''
+  const comentariosBase = solicitud.comentarios ? `${solicitud.comentarios}`.trim() : '';
   const comentariosActualizados = comentariosResolucion
     ? [comentariosBase, `${actor.puesto}: ${comentariosResolucion}`].filter(Boolean).join('\n')
-    : comentariosBase || null
-  let shouldNotifyIncapacidad: 'ENVIADA' | 'VALIDADA_SUP' | 'VALIDADA_RECLUTAMIENTO' | null = null
+    : comentariosBase || null;
+  let shouldNotifyIncapacidad: 'ENVIADA' | 'VALIDADA_SUP' | 'VALIDADA_RECLUTAMIENTO' | null = null;
   const requesterPuesto =
-    typeof metadata.actor_puesto === 'string' ? metadata.actor_puesto : 'DERMOCONSEJERO'
+    typeof metadata.actor_puesto === 'string' ? metadata.actor_puesto : 'DERMOCONSEJERO';
   const incapacidadNextActor =
     solicitud.tipo === 'INCAPACIDAD'
       ? getIncapacidadNextActor({
@@ -1322,107 +1419,136 @@ async function resolverEstatusSolicitud(
           metadata,
           requesterPuesto: requesterPuesto as Puesto,
         })
-      : null
+      : null;
 
   if (estatus === 'VALIDADA_SUP') {
     if (solicitud.tipo === 'INCAPACIDAD') {
       if (incapacidadNextActor === 'RECLUTAMIENTO') {
         if (actor.puesto !== 'RECLUTAMIENTO' && actor.puesto !== 'ADMINISTRADOR') {
-          throw new Error('Solo RECLUTAMIENTO o ADMINISTRADOR pueden validar el documento de incapacidad.')
+          throw new Error(
+            'Solo RECLUTAMIENTO o ADMINISTRADOR pueden validar el documento de incapacidad.'
+          );
         }
 
         if (!['ENVIADA', 'VALIDADA_SUP'].includes(solicitud.estatus)) {
-          throw new Error('La revision de reclutamiento solo aplica sobre incapacidades pendientes de revision documental.')
+          throw new Error(
+            'La revision de reclutamiento solo aplica sobre incapacidades pendientes de revision documental.'
+          );
         }
 
-        nextMetadata.reclutamiento_validada_en = new Date().toISOString()
-        nextMetadata.reclutamiento_validada_por_usuario_id = actor.usuarioId
-        nextMetadata.reclutamiento_validada_por_puesto = actor.puesto
-        nextMetadata.estado_resolucion = 'PENDIENTE'
+        if (!incapacidadClaseRegistrada) {
+          throw new Error(
+            'Reclutamiento debe registrar si el formato corresponde a incapacidad inicial o subsecuente.'
+          );
+        }
+
+        nextMetadata.reclutamiento_validada_en = new Date().toISOString();
+        nextMetadata.reclutamiento_validada_por_usuario_id = actor.usuarioId;
+        nextMetadata.reclutamiento_validada_por_puesto = actor.puesto;
+        nextMetadata.estado_resolucion = 'PENDIENTE';
         nextMetadata.siguiente_actor = getIncapacidadNextActor({
           estatus: solicitud.estatus === 'VALIDADA_SUP' ? 'VALIDADA_SUP' : 'ENVIADA',
           metadata: nextMetadata,
           requesterPuesto: requesterPuesto as Puesto,
-        })
+        });
         nextMetadata.notificaciones = appendNotification(nextMetadata, {
           mensaje: 'Documento de incapacidad validado por reclutamiento y enviado a nomina.',
           destinatarioEmpleadoId: solicitud.empleado_id,
           destinatarioPuesto: requesterPuesto,
-        })
-        shouldNotifyIncapacidad = 'VALIDADA_RECLUTAMIENTO'
+        });
+        shouldNotifyIncapacidad = 'VALIDADA_RECLUTAMIENTO';
       } else {
         if (actor.puesto !== 'SUPERVISOR' && actor.puesto !== 'ADMINISTRADOR') {
-          throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden registrar la validacion operativa.')
+          throw new Error(
+            'Solo SUPERVISOR o ADMINISTRADOR pueden registrar la validacion operativa.'
+          );
         }
 
         if (!['ENVIADA', 'BORRADOR'].includes(solicitud.estatus)) {
-          throw new Error('La validacion operativa solo aplica sobre solicitudes enviadas o en borrador.')
+          throw new Error(
+            'La validacion operativa solo aplica sobre solicitudes enviadas o en borrador.'
+          );
         }
 
-        nextMetadata.validada_supervisor_en = new Date().toISOString()
-        nextMetadata.validada_supervisor_por_usuario_id = actor.usuarioId
-        nextMetadata.validada_supervisor_por_puesto = actor.puesto
-        nextMetadata.estado_resolucion = 'PENDIENTE'
-        nextMetadata.siguiente_actor = 'RECLUTAMIENTO'
+        nextMetadata.validada_supervisor_en = new Date().toISOString();
+        nextMetadata.validada_supervisor_por_usuario_id = actor.usuarioId;
+        nextMetadata.validada_supervisor_por_puesto = actor.puesto;
+        nextMetadata.estado_resolucion = 'PENDIENTE';
+        nextMetadata.siguiente_actor = 'RECLUTAMIENTO';
         nextMetadata.notificaciones = appendNotification(nextMetadata, {
-          mensaje: 'Incapacidad validada por supervision y enviada a reclutamiento para revision documental.',
+          mensaje:
+            'Incapacidad validada por supervision y enviada a reclutamiento para revision documental.',
           destinatarioEmpleadoId: solicitud.empleado_id,
           destinatarioPuesto: requesterPuesto,
-        })
-        shouldNotifyIncapacidad = 'VALIDADA_SUP'
+        });
+        shouldNotifyIncapacidad = 'VALIDADA_SUP';
       }
     } else {
       if (solicitud.tipo === 'VACACIONES') {
-        throw new Error('Las vacaciones se resuelven directamente en coordinacion y no pasan por validacion de supervisor.')
+        throw new Error(
+          'Las vacaciones se resuelven directamente en coordinacion y no pasan por validacion de supervisor.'
+        );
       }
 
       if (actor.puesto !== 'SUPERVISOR' && actor.puesto !== 'ADMINISTRADOR') {
-        throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden registrar la validacion operativa.')
+        throw new Error(
+          'Solo SUPERVISOR o ADMINISTRADOR pueden registrar la validacion operativa.'
+        );
       }
 
       if (!['ENVIADA', 'BORRADOR'].includes(solicitud.estatus)) {
-        throw new Error('La validacion operativa solo aplica sobre solicitudes enviadas o en borrador.')
+        throw new Error(
+          'La validacion operativa solo aplica sobre solicitudes enviadas o en borrador.'
+        );
       }
 
-      nextMetadata.validada_supervisor_en = new Date().toISOString()
-      nextMetadata.validada_supervisor_por_usuario_id = actor.usuarioId
-      nextMetadata.validada_supervisor_por_puesto = actor.puesto
-      nextMetadata.estado_resolucion = 'PENDIENTE'
-      nextMetadata.siguiente_actor = 'COORDINADOR'
+      nextMetadata.validada_supervisor_en = new Date().toISOString();
+      nextMetadata.validada_supervisor_por_usuario_id = actor.usuarioId;
+      nextMetadata.validada_supervisor_por_puesto = actor.puesto;
+      nextMetadata.estado_resolucion = 'PENDIENTE';
+      nextMetadata.siguiente_actor = 'COORDINADOR';
       nextMetadata.notificaciones = appendNotification(nextMetadata, {
         mensaje: 'Solicitud validada por supervisor y en espera de resolucion final.',
         destinatarioEmpleadoId: solicitud.empleado_id,
         destinatarioPuesto: requesterPuesto,
-      })
+      });
     }
   }
 
   if (estatus === 'REGISTRADA_RH') {
     if (actor.puesto !== 'NOMINA' && actor.puesto !== 'ADMINISTRADOR') {
-      throw new Error('Solo NOMINA o ADMINISTRADOR pueden formalizar en RH.')
+      throw new Error('Solo NOMINA o ADMINISTRADOR pueden formalizar en RH.');
     }
 
     if (solicitud.tipo === 'INCAPACIDAD') {
       if (!['ENVIADA', 'VALIDADA_SUP'].includes(solicitud.estatus)) {
-        throw new Error('La incapacidad debe estar en proceso antes de formalizarse en nomina.')
+        throw new Error('La incapacidad debe estar en proceso antes de formalizarse en nomina.');
       }
 
       if (incapacidadNextActor !== 'NOMINA' && !hasIncapacidadRecruitmentValidation(metadata)) {
-        throw new Error('La incapacidad debe quedar validada por reclutamiento antes de pasar a nomina.')
+        throw new Error(
+          'La incapacidad debe quedar validada por reclutamiento antes de pasar a nomina.'
+        );
+      }
+
+      if (!incapacidadClaseRegistrada) {
+        throw new Error(
+          'Nomina debe confirmar si el formato corresponde a incapacidad inicial o subsecuente.'
+        );
       }
     }
 
-    nextMetadata.registrada_rh_en = new Date().toISOString()
-    nextMetadata.registrada_rh_por_usuario_id = actor.usuarioId
-    nextMetadata.registrada_rh_por_puesto = actor.puesto
-    nextMetadata.justifica_asistencia = true
-    nextMetadata.estado_resolucion = 'APROBADA'
-    nextMetadata.siguiente_actor = null
+    nextMetadata.registrada_rh_en = new Date().toISOString();
+    nextMetadata.registrada_rh_por_usuario_id = actor.usuarioId;
+    nextMetadata.registrada_rh_por_puesto = actor.puesto;
+    nextMetadata.justifica_asistencia = true;
+    nextMetadata.estado_resolucion = 'APROBADA';
+    nextMetadata.siguiente_actor = null;
     nextMetadata.notificaciones = appendNotification(nextMetadata, {
       mensaje: 'Tu solicitud fue aprobada y formalizada por nomina.',
       destinatarioEmpleadoId: solicitud.empleado_id,
       destinatarioPuesto: requesterPuesto,
-    })
+    });
   }
 
   if (estatus === 'REGISTRADA') {
@@ -1430,27 +1556,28 @@ async function resolverEstatusSolicitud(
       solicitud.tipo === 'JUSTIFICACION_FALTA' &&
       !['SUPERVISOR', 'ADMINISTRADOR'].includes(actor.puesto)
     ) {
-      throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden aprobar una justificacion de falta.')
+      throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden aprobar una justificacion de falta.');
     }
 
     if (
       solicitud.tipo !== 'JUSTIFICACION_FALTA' &&
       !['COORDINADOR', 'ADMINISTRADOR'].includes(actor.puesto)
     ) {
-      throw new Error('Solo COORDINADOR o ADMINISTRADOR pueden cerrar solicitudes no RH como REGISTRADA.')
+      throw new Error(
+        'Solo COORDINADOR o ADMINISTRADOR pueden cerrar solicitudes no RH como REGISTRADA.'
+      );
     }
 
     const canCloseDirectFromSent =
       solicitud.estatus === 'ENVIADA' &&
       metadata.solicitud_autogestion_supervisor === true &&
-      solicitud.tipo !== 'INCAPACIDAD'
+      solicitud.tipo !== 'INCAPACIDAD';
     const canCloseVacationFromSent =
-      solicitud.tipo === 'VACACIONES' &&
-      solicitud.estatus === 'ENVIADA'
+      solicitud.tipo === 'VACACIONES' && solicitud.estatus === 'ENVIADA';
 
     const canCloseJustificacion =
       solicitud.tipo === 'JUSTIFICACION_FALTA' &&
-      ['ENVIADA', 'CORRECCION_SOLICITADA'].includes(solicitud.estatus)
+      ['ENVIADA', 'CORRECCION_SOLICITADA'].includes(solicitud.estatus);
 
     if (
       solicitud.estatus !== 'VALIDADA_SUP' &&
@@ -1458,105 +1585,123 @@ async function resolverEstatusSolicitud(
       !canCloseVacationFromSent &&
       !canCloseJustificacion
     ) {
-      throw new Error('La solicitud debe pasar primero por VALIDADA_SUP.')
+      throw new Error('La solicitud debe pasar primero por VALIDADA_SUP.');
     }
 
-    nextMetadata.registrada_en = new Date().toISOString()
-    nextMetadata.registrada_por_usuario_id = actor.usuarioId
-    nextMetadata.registrada_por_puesto = actor.puesto
-    nextMetadata.estado_resolucion = 'APROBADA'
-    nextMetadata.siguiente_actor = null
+    nextMetadata.registrada_en = new Date().toISOString();
+    nextMetadata.registrada_por_usuario_id = actor.usuarioId;
+    nextMetadata.registrada_por_puesto = actor.puesto;
+    nextMetadata.estado_resolucion = 'APROBADA';
+    nextMetadata.siguiente_actor = null;
     nextMetadata.notificaciones = appendNotification(nextMetadata, {
       mensaje: 'Tu solicitud fue aprobada.',
       destinatarioEmpleadoId: solicitud.empleado_id,
       destinatarioPuesto: requesterPuesto,
-    })
+    });
   }
 
   if (estatus === 'RECHAZADA') {
     if (solicitud.tipo === 'INCAPACIDAD') {
       if (incapacidadNextActor === 'SUPERVISOR') {
         if (actor.puesto !== 'SUPERVISOR' && actor.puesto !== 'ADMINISTRADOR') {
-          throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden rechazar una incapacidad en revision operativa.')
+          throw new Error(
+            'Solo SUPERVISOR o ADMINISTRADOR pueden rechazar una incapacidad en revision operativa.'
+          );
         }
       } else if (incapacidadNextActor === 'NOMINA') {
         if (actor.puesto !== 'NOMINA' && actor.puesto !== 'ADMINISTRADOR') {
-          throw new Error('Solo NOMINA o ADMINISTRADOR pueden rechazar una incapacidad en formalizacion.')
+          throw new Error(
+            'Solo NOMINA o ADMINISTRADOR pueden rechazar una incapacidad en formalizacion.'
+          );
         }
       } else {
-        throw new Error('La incapacidad debe regresar con correccion desde reclutamiento o rechazarse desde el actor responsable.')
+        throw new Error(
+          'La incapacidad debe regresar con correccion desde reclutamiento o rechazarse desde el actor responsable.'
+        );
       }
     }
 
-    if (solicitud.tipo === 'JUSTIFICACION_FALTA' && !['SUPERVISOR', 'ADMINISTRADOR'].includes(actor.puesto)) {
-      throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden rechazar una justificacion de falta.')
+    if (
+      solicitud.tipo === 'JUSTIFICACION_FALTA' &&
+      !['SUPERVISOR', 'ADMINISTRADOR'].includes(actor.puesto)
+    ) {
+      throw new Error(
+        'Solo SUPERVISOR o ADMINISTRADOR pueden rechazar una justificacion de falta.'
+      );
     }
 
-    nextMetadata.rechazada_en = new Date().toISOString()
-    nextMetadata.rechazada_por_usuario_id = actor.usuarioId
-    nextMetadata.rechazada_por_puesto = actor.puesto
-    nextMetadata.estado_resolucion = 'RECHAZADA'
-    nextMetadata.siguiente_actor = null
+    nextMetadata.rechazada_en = new Date().toISOString();
+    nextMetadata.rechazada_por_usuario_id = actor.usuarioId;
+    nextMetadata.rechazada_por_puesto = actor.puesto;
+    nextMetadata.estado_resolucion = 'RECHAZADA';
+    nextMetadata.siguiente_actor = null;
     nextMetadata.notificaciones = appendNotification(nextMetadata, {
       mensaje: 'Tu solicitud fue rechazada. Revisa comentarios y vuelve a capturarla si aplica.',
       destinatarioEmpleadoId: solicitud.empleado_id,
       destinatarioPuesto: requesterPuesto,
-    })
+    });
   }
 
   if (estatus === 'CORRECCION_SOLICITADA') {
     if (solicitud.tipo === 'INCAPACIDAD') {
       if (!['RECLUTAMIENTO', 'ADMINISTRADOR'].includes(actor.puesto)) {
-        throw new Error('Solo RECLUTAMIENTO o ADMINISTRADOR pueden regresar una incapacidad para correccion.')
+        throw new Error(
+          'Solo RECLUTAMIENTO o ADMINISTRADOR pueden regresar una incapacidad para correccion.'
+        );
       }
 
       if (incapacidadNextActor !== 'RECLUTAMIENTO') {
-        throw new Error('La correccion solo aplica cuando la incapacidad esta en revision documental de reclutamiento.')
+        throw new Error(
+          'La correccion solo aplica cuando la incapacidad esta en revision documental de reclutamiento.'
+        );
       }
 
-      nextMetadata.correccion_solicitada_en = new Date().toISOString()
-      nextMetadata.correccion_solicitada_por_usuario_id = actor.usuarioId
-      nextMetadata.correccion_solicitada_por_puesto = actor.puesto
-      nextMetadata.estado_resolucion = 'PENDIENTE'
-      nextMetadata.siguiente_actor = requesterPuesto
+      nextMetadata.correccion_solicitada_en = new Date().toISOString();
+      nextMetadata.correccion_solicitada_por_usuario_id = actor.usuarioId;
+      nextMetadata.correccion_solicitada_por_puesto = actor.puesto;
+      nextMetadata.estado_resolucion = 'PENDIENTE';
+      nextMetadata.siguiente_actor = requesterPuesto;
       nextMetadata.notificaciones = appendNotification(nextMetadata, {
         mensaje: 'Tu incapacidad requiere correccion documental y reenvio antes de pasar a nomina.',
         destinatarioEmpleadoId: solicitud.empleado_id,
         destinatarioPuesto: requesterPuesto,
-      })
+      });
     } else {
       if (solicitud.tipo !== 'JUSTIFICACION_FALTA') {
-        throw new Error('La correccion solo esta disponible para justificacion de faltas.')
+        throw new Error('La correccion solo esta disponible para justificacion de faltas.');
       }
 
       if (!['SUPERVISOR', 'ADMINISTRADOR'].includes(actor.puesto)) {
-        throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden pedir correccion.')
+        throw new Error('Solo SUPERVISOR o ADMINISTRADOR pueden pedir correccion.');
       }
 
       if (!['ENVIADA', 'CORRECCION_SOLICITADA'].includes(solicitud.estatus)) {
-        throw new Error('La correccion solo aplica sobre solicitudes pendientes de supervision.')
+        throw new Error('La correccion solo aplica sobre solicitudes pendientes de supervision.');
       }
 
-      nextMetadata.correccion_solicitada_en = new Date().toISOString()
-      nextMetadata.correccion_solicitada_por_usuario_id = actor.usuarioId
-      nextMetadata.correccion_solicitada_por_puesto = actor.puesto
-      nextMetadata.estado_resolucion = 'PENDIENTE'
-      nextMetadata.siguiente_actor = requesterPuesto
+      nextMetadata.correccion_solicitada_en = new Date().toISOString();
+      nextMetadata.correccion_solicitada_por_usuario_id = actor.usuarioId;
+      nextMetadata.correccion_solicitada_por_puesto = actor.puesto;
+      nextMetadata.estado_resolucion = 'PENDIENTE';
+      nextMetadata.siguiente_actor = requesterPuesto;
       nextMetadata.notificaciones = appendNotification(nextMetadata, {
         mensaje: 'Tu justificacion requiere correccion y reenvio con receta IMSS valida.',
         destinatarioEmpleadoId: solicitud.empleado_id,
         destinatarioPuesto: requesterPuesto,
-      })
+      });
     }
   }
 
   if (estatus === 'ENVIADA') {
     if (solicitud.tipo === 'JUSTIFICACION_FALTA' && solicitud.estatus === 'CORRECCION_SOLICITADA') {
-      Object.assign(nextMetadata, buildDeadlineMetadata(new Date().toISOString(), JUSTIFICACION_SLA_HOURS))
+      Object.assign(
+        nextMetadata,
+        buildDeadlineMetadata(new Date().toISOString(), JUSTIFICACION_SLA_HOURS)
+      );
     }
-    nextMetadata.enviada_en = new Date().toISOString()
-    nextMetadata.enviada_por_usuario_id = actor.usuarioId
-    nextMetadata.estado_resolucion = 'PENDIENTE'
+    nextMetadata.enviada_en = new Date().toISOString();
+    nextMetadata.enviada_por_usuario_id = actor.usuarioId;
+    nextMetadata.estado_resolucion = 'PENDIENTE';
     nextMetadata.siguiente_actor =
       solicitud.tipo === 'INCAPACIDAD'
         ? getIncapacidadNextActor({
@@ -1566,9 +1711,9 @@ async function resolverEstatusSolicitud(
           })
         : solicitud.tipo === 'VACACIONES'
           ? 'COORDINADOR'
-        : metadata.solicitud_autogestion_supervisor === true
-          ? 'COORDINADOR'
-          : 'SUPERVISOR'
+          : metadata.solicitud_autogestion_supervisor === true
+            ? 'COORDINADOR'
+            : 'SUPERVISOR';
     nextMetadata.notificaciones = appendNotification(nextMetadata, {
       mensaje:
         solicitud.tipo === 'INCAPACIDAD'
@@ -1577,13 +1722,13 @@ async function resolverEstatusSolicitud(
             : 'Incapacidad reenviada y pendiente de validacion de supervision.'
           : solicitud.tipo === 'VACACIONES'
             ? 'Solicitud de vacaciones reenviada y pendiente de aprobacion de coordinacion.'
-          : metadata.solicitud_autogestion_supervisor === true
-            ? 'Solicitud reenviada y pendiente de revision de coordinacion.'
-            : 'Solicitud enviada y pendiente de revision operativa.',
+            : metadata.solicitud_autogestion_supervisor === true
+              ? 'Solicitud reenviada y pendiente de revision de coordinacion.'
+              : 'Solicitud enviada y pendiente de revision operativa.',
       destinatarioEmpleadoId: solicitud.empleado_id,
       destinatarioPuesto: requesterPuesto,
-    })
-    shouldNotifyIncapacidad = solicitud.tipo === 'INCAPACIDAD' ? 'ENVIADA' : null
+    });
+    shouldNotifyIncapacidad = solicitud.tipo === 'INCAPACIDAD' ? 'ENVIADA' : null;
   }
 
   const { error } = await service
@@ -1594,24 +1739,24 @@ async function resolverEstatusSolicitud(
       metadata: nextMetadata,
     })
     .eq('id', solicitudId)
-    .eq('cuenta_cliente_id', cuentaClienteId)
+    .eq('cuenta_cliente_id', cuentaClienteId);
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
 
   await refreshSolicitudMaterializationIfNeeded(service, {
     solicitud,
     previousStatus: solicitud.estatus,
     nextStatus: estatus,
-  })
+  });
 
   if (shouldNotifyIncapacidad) {
     const { data: empleado } = await service
       .from('empleado')
       .select('id, nombre_completo')
       .eq('id', solicitud.empleado_id)
-      .maybeSingle()
+      .maybeSingle();
 
     await registrarNotificacionIncapacidad(service, {
       actorUsuarioId: actor.usuarioId,
@@ -1626,11 +1771,11 @@ async function resolverEstatusSolicitud(
         typeof nextMetadata.incapacidad_clase === 'string' ? nextMetadata.incapacidad_clase : null,
       stage: shouldNotifyIncapacidad,
       supervisorSelfRequest: metadata.solicitud_autogestion_supervisor === true,
-    })
+    });
   }
 
   try {
-    await notifySolicitudResolutionPush(solicitud, estatus, actor.puesto)
+    await notifySolicitudResolutionPush(solicitud, estatus, actor.puesto);
   } catch {
     nextMetadata.notificaciones = appendNotification(nextMetadata, {
       canal: 'PUSH',
@@ -1638,7 +1783,7 @@ async function resolverEstatusSolicitud(
       estado: 'PENDIENTE',
       destinatarioEmpleadoId: solicitud.empleado_id,
       destinatarioPuesto: 'DERMOCONSEJERO',
-    })
+    });
 
     await service
       .from('solicitud')
@@ -1646,7 +1791,7 @@ async function resolverEstatusSolicitud(
         metadata: nextMetadata,
       })
       .eq('id', solicitudId)
-      .eq('cuenta_cliente_id', cuentaClienteId)
+      .eq('cuenta_cliente_id', cuentaClienteId);
   }
 
   await service.from('audit_log').insert({
@@ -1663,7 +1808,7 @@ async function resolverEstatusSolicitud(
     },
     usuario_id: actor.usuarioId,
     cuenta_cliente_id: cuentaClienteId,
-  })
+  });
 
   await publishSolicitudUiChanges(service, {
     cuentaClienteId,
@@ -1672,10 +1817,10 @@ async function resolverEstatusSolicitud(
     fechaInicio: solicitud.fecha_inicio,
     fechaFin: solicitud.fecha_fin,
     eventType: `solicitud_estatus_${estatus.toLowerCase()}`,
-  })
+  });
 
   // Notificacion asincrona al empleado
-  const finalStates = ['REGISTRADA', 'REGISTRADA_RH', 'RECHAZADA', 'CORRECCION_SOLICITADA']
+  const finalStates = ['REGISTRADA', 'REGISTRADA_RH', 'RECHAZADA', 'CORRECCION_SOLICITADA'];
   if (finalStates.includes(estatus)) {
     notificarSolicitudResuelta(service, {
       empleadoId: solicitud.empleado_id,
@@ -1684,7 +1829,7 @@ async function resolverEstatusSolicitud(
       fecha: solicitud.fecha_inicio,
       aprobado: estatus === 'REGISTRADA' || estatus === 'REGISTRADA_RH',
       nota: comentariosResolucion ?? undefined,
-    }).catch(console.error)
+    }).catch(console.error);
   }
 
   return buildState({
@@ -1694,18 +1839,18 @@ async function resolverEstatusSolicitud(
         ? 'Solicitud rechazada.'
         : estatus === 'CORRECCION_SOLICITADA'
           ? 'Correccion solicitada al colaborador.'
-        : estatus === 'VALIDADA_SUP'
-          ? solicitud.tipo === 'INCAPACIDAD' &&
-            (actor.puesto === 'RECLUTAMIENTO' || actor.puesto === 'ADMINISTRADOR') &&
-            incapacidadNextActor === 'RECLUTAMIENTO'
-            ? 'Documento de incapacidad validado por reclutamiento.'
-            : 'Solicitud validada por supervisor.'
-        : 'Solicitud actualizada.',
-  })
+          : estatus === 'VALIDADA_SUP'
+            ? solicitud.tipo === 'INCAPACIDAD' &&
+              (actor.puesto === 'RECLUTAMIENTO' || actor.puesto === 'ADMINISTRADOR') &&
+              incapacidadNextActor === 'RECLUTAMIENTO'
+              ? 'Documento de incapacidad validado por reclutamiento.'
+              : 'Solicitud validada por supervisor.'
+            : 'Solicitud actualizada.',
+  });
 }
 
 export async function actualizarEstatusSolicitud(formData: FormData): Promise<void> {
-  await resolverEstatusSolicitud(formData, 'panel_solicitudes')
+  await resolverEstatusSolicitud(formData, 'panel_solicitudes');
 }
 
 export async function resolverSolicitudDesdeDashboard(
@@ -1713,10 +1858,55 @@ export async function resolverSolicitudDesdeDashboard(
   formData: FormData
 ): Promise<SolicitudActionState> {
   try {
-    return await resolverEstatusSolicitud(formData, 'dashboard_supervision')
+    return await resolverEstatusSolicitud(formData, 'dashboard_supervision');
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible resolver la solicitud.',
-    })
+    });
+  }
+}
+
+export async function obtenerEquipoSupervisor(): Promise<{
+  ok: boolean;
+  data?: Array<{ id: string; nombre: string; cuentaClienteId: string | null }>;
+  message?: string;
+}> {
+  try {
+    const actor = await requerirPuestosActivos(['SUPERVISOR', 'ADMINISTRADOR']);
+    const service = createServiceClient() as TypedSupabaseClient;
+
+    let query = service
+      .from('empleado')
+      .select('id, nombre_completo, usuario:usuario!empleado_id(cuenta_cliente_id)')
+      .eq('estatus_laboral', 'ACTIVO');
+
+    if (actor.puesto === 'SUPERVISOR') {
+      query = query.eq('supervisor_empleado_id', actor.empleadoId);
+    }
+
+    const { data, error } = await query.order('nombre_completo');
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const mapped = (data ?? []).map((item) => {
+      const user = Array.isArray(item.usuario) ? item.usuario[0] : item.usuario;
+      return {
+        id: item.id,
+        nombre: item.nombre_completo ?? 'Sin nombre',
+        cuentaClienteId: (user as any)?.cuenta_cliente_id ?? actor.cuentaClienteId ?? null,
+      };
+    });
+
+    return {
+      ok: true,
+      data: mapped,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'No fue posible obtener el equipo.',
+    };
   }
 }

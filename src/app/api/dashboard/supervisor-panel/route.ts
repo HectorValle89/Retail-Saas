@@ -1,21 +1,21 @@
-import { NextResponse } from 'next/server'
-import { requerirActorActivo } from '@/lib/auth/session'
-import { obtenerPanelDashboard } from '@/features/dashboard/services/dashboardService'
+import { NextResponse } from 'next/server';
+import { requerirActorActivo } from '@/lib/auth/session';
+import { obtenerPanelDashboard } from '@/features/dashboard/services/dashboardService';
 
 export async function GET() {
   try {
-    const actor = await requerirActorActivo()
+    const actor = await requerirActorActivo();
 
     if (actor.puesto !== 'SUPERVISOR') {
       return NextResponse.json(
         { message: 'La carga extendida del dashboard solo aplica para supervisor.' },
         { status: 403 }
-      )
+      );
     }
 
     const data = await obtenerPanelDashboard(actor, {
       includeSupervisorSecondaryData: true,
-    })
+    });
 
     return NextResponse.json({
       data: {
@@ -25,7 +25,7 @@ export async function GET() {
         supervisorSelfRequestStatus: data.supervisorSelfRequestStatus,
         supervisorVacationPolicy: data.supervisorVacationPolicy,
       },
-    })
+    });
   } catch (error) {
     return NextResponse.json(
       {
@@ -35,7 +35,6 @@ export async function GET() {
             : 'No fue posible cargar el detalle operativo del supervisor.',
       },
       { status: 500 }
-    )
+    );
   }
 }
-

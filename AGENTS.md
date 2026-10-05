@@ -83,6 +83,7 @@ Reglas obligatorias:
 - Antes de cerrar cualquier corte destinado a Cloudflare, el agente debe verificar como minimo `npm run build` y `npm run cf:build`.
 - Si un cambio introduce dependencias nativas de Node o empaquetado pesado (`sharp`, `exceljs`, `fs`, `child_process`, symlinks especiales, etc.), el agente debe validar explicitamente que sigan siendo compatibles con OpenNext/Workers o documentar su aislamiento fuera del runtime principal.
 - Las pruebas pueden seguir usando dependencias nativas, pero deben vivir en archivos de test o utilidades no incluidas en produccion.
+
 ## UTF-8 Rule
 
 Los tres documentos canonicos ya estan almacenados en UTF-8 valido. Si PowerShell o la terminal muestran mojibake al leerlos, tratalo como un problema de render de consola, no como corrupcion del archivo.

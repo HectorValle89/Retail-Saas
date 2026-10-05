@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { selectAttendanceMission, type AttendanceMissionCatalogItem } from './attendanceMission'
+import { describe, expect, it } from 'vitest';
+import { selectAttendanceMission, type AttendanceMissionCatalogItem } from './attendanceMission';
 
 const MISSIONS: AttendanceMissionCatalogItem[] = [
   {
@@ -16,7 +16,7 @@ const MISSIONS: AttendanceMissionCatalogItem[] = [
     orden: 2,
     peso: 10,
   },
-]
+];
 
 describe('selectAttendanceMission', () => {
   it('returns null when catalog is empty', () => {
@@ -30,8 +30,8 @@ describe('selectAttendanceMission', () => {
     ).toEqual({
       mission: null,
       avoidedImmediateRepeat: false,
-    })
-  })
+    });
+  });
 
   it('returns the same mission for the same employee, pdv and date', () => {
     const first = selectAttendanceMission({
@@ -39,18 +39,18 @@ describe('selectAttendanceMission', () => {
       pdvId: 'pdv-1',
       fechaOperacion: '2026-03-17',
       missions: MISSIONS,
-    })
+    });
 
     const second = selectAttendanceMission({
       empleadoId: 'emp-1',
       pdvId: 'pdv-1',
       fechaOperacion: '2026-03-17',
       missions: MISSIONS,
-    })
+    });
 
-    expect(first.mission?.id).toBeTruthy()
-    expect(first).toEqual(second)
-  })
+    expect(first.mission?.id).toBeTruthy();
+    expect(first).toEqual(second);
+  });
 
   it('avoids repeating the previous mission when alternatives exist', () => {
     const initial = selectAttendanceMission({
@@ -58,7 +58,7 @@ describe('selectAttendanceMission', () => {
       pdvId: 'pdv-9',
       fechaOperacion: '2026-03-17',
       missions: MISSIONS,
-    })
+    });
 
     const next = selectAttendanceMission({
       empleadoId: 'emp-2',
@@ -66,14 +66,14 @@ describe('selectAttendanceMission', () => {
       fechaOperacion: '2026-03-17',
       previousMissionId: initial.mission?.id,
       missions: MISSIONS,
-    })
+    });
 
-    expect(next.mission?.id).not.toBe(initial.mission?.id)
-    expect(next.avoidedImmediateRepeat).toBe(true)
-  })
+    expect(next.mission?.id).not.toBe(initial.mission?.id);
+    expect(next.avoidedImmediateRepeat).toBe(true);
+  });
 
   it('falls back to the only mission available', () => {
-    const onlyMission = MISSIONS.slice(0, 1)
+    const onlyMission = MISSIONS.slice(0, 1);
 
     expect(
       selectAttendanceMission({
@@ -86,6 +86,6 @@ describe('selectAttendanceMission', () => {
     ).toEqual({
       mission: onlyMission[0],
       avoidedImmediateRepeat: false,
-    })
-  })
-})
+    });
+  });
+});

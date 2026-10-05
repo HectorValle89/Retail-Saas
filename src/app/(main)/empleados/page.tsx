@@ -1,37 +1,45 @@
-import { requerirPuestosActivos } from '@/lib/auth/session'
-import { createClient, createServiceClient } from '@/lib/supabase/server'
-import { EmpleadosPanel } from '@/features/empleados/components/EmpleadosPanel'
-import { resolveEmpleadosInitialTab } from '@/features/empleados/lib/empleadosTabs'
-import { obtenerPanelEmpleados } from '@/features/empleados/services/empleadoService'
+import { requerirPuestosActivos } from '@/lib/auth/session';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { EmpleadosPanel } from '@/features/empleados/components/EmpleadosPanel';
+import { resolveEmpleadosInitialTab } from '@/features/empleados/lib/empleadosTabs';
+import { obtenerPanelEmpleados } from '@/features/empleados/services/empleadoService';
 
 export const metadata = {
   title: 'Empleados | Beteele One',
-}
+};
 
 interface EmpleadosPageProps {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }
 
 function pickString(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value
+  return Array.isArray(value) ? value[0] : value;
 }
 
 export default async function EmpleadosPage({ searchParams }: EmpleadosPageProps) {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR'])
-  const serviceSupabase = createServiceClient()
-  let data = await obtenerPanelEmpleados(actor, {
-    emitCoverageSideEffects: actor.puesto === 'RECLUTAMIENTO' || actor.puesto === 'ADMINISTRADOR',
-  }, serviceSupabase)
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR']);
+  const serviceSupabase = createServiceClient();
+  let data = await obtenerPanelEmpleados(
+    actor,
+    {
+      emitCoverageSideEffects: actor.puesto === 'RECLUTAMIENTO' || actor.puesto === 'ADMINISTRADOR',
+    },
+    serviceSupabase
+  );
 
-  const infraError = String(data.mensajeInfraestructura ?? '')
+  const infraError = String(data.mensajeInfraestructura ?? '');
   if (!data.infraestructuraLista && /invalid api key/i.test(infraError)) {
-    const readSupabase = await createClient({ bypassTenantScope: false })
-    data = await obtenerPanelEmpleados(actor, {
-      emitCoverageSideEffects: false,
-    }, readSupabase)
+    const readSupabase = await createClient({ bypassTenantScope: false });
+    data = await obtenerPanelEmpleados(
+      actor,
+      {
+        emitCoverageSideEffects: false,
+      },
+      readSupabase
+    );
   }
 
-  const params = (await searchParams) ?? {}
+  const params = (await searchParams) ?? {};
   const initialFilters = {
     search: pickString(params.search) ?? '',
     estadoLaboral: pickString(params.estadoLaboral) ?? 'ALL',
@@ -39,24 +47,22 @@ export default async function EmpleadosPage({ searchParams }: EmpleadosPageProps
     supervisorId: pickString(params.supervisorId) ?? 'ALL',
     imss: pickString(params.imss) ?? 'ALL',
     inbox: pickString(params.inbox) ?? 'ALL',
-  }
-  const initialTab = resolveEmpleadosInitialTab(actor.puesto, params.tab)
+  };
+  const initialTab = resolveEmpleadosInitialTab(actor.puesto, params.tab);
 
   const roleLabel =
     actor.puesto === 'ADMINISTRADOR'
       ? 'ISDIN'
       : actor.puesto === 'COORDINADOR'
         ? 'Coordinacion'
-        : 'Reclutamiento'
+        : 'Reclutamiento';
 
   return (
     <div className="page-shell max-w-7xl">
       <header className="page-hero mb-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="page-hero-eyebrow">
-              {roleLabel}
-            </p>
+            <p className="page-hero-eyebrow">{roleLabel}</p>
             <h1 className="page-hero-title">Empleados</h1>
             <p className="page-hero-copy max-w-3xl">
               Pipeline de reclutamiento, base operativa y cobertura PDV del equipo.
@@ -78,5 +84,5 @@ export default async function EmpleadosPage({ searchParams }: EmpleadosPageProps
         initialTab={initialTab}
       />
     </div>
-  )
+  );
 }

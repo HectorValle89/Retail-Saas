@@ -1,25 +1,25 @@
-import Image from 'next/image'
-import { LoginForm } from '@/features/auth/components/LoginForm'
+import Image from 'next/image';
+import { LoginForm } from '@/features/auth/components/LoginForm';
 
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 type LoginPageProps = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>
-}
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
 
 function resolveError(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
-    return value[0] ?? null
+    return value[0] ?? null;
   }
 
-  return value ?? null
+  return value ?? null;
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const params = searchParams ? await searchParams : {}
-  const error = resolveError(params.error)
-  const notice = resolveError(params.notice)
+  const params = searchParams ? await searchParams : {};
+  const error = resolveError(params.error);
+  const notice = resolveError(params.notice);
 
   return (
     <div className="space-y-5">
@@ -38,9 +38,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             <p className="text-[10px] font-semibold uppercase tracking-[0.34em] text-[#1a7fd4]">
               Beteele One
             </p>
-            <p className="mt-1 text-sm text-slate-500">
-              Acceso corporativo
-            </p>
+            <p className="mt-1 text-sm text-slate-500">Acceso corporativo</p>
           </div>
         </div>
 
@@ -60,5 +58,5 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
       <LoginForm initialError={error} initialNotice={notice} />
     </div>
-  )
+  );
 }

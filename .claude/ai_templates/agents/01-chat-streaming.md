@@ -22,28 +22,28 @@
 // app/api/chat/route.ts
 // MODIFICAR: Solo el system prompt
 
-import { openrouter, MODELS } from '@/lib/ai/openrouter'
-import { streamText, convertToModelMessages, type UIMessage } from 'ai'
+import { openrouter, MODELS } from '@/lib/ai/openrouter';
+import { streamText, convertToModelMessages, type UIMessage } from 'ai';
 
 // MODIFICAR: Tu system prompt
 const SYSTEM_PROMPT = `Eres un asistente util y conciso.
 Responde en español.
-Se directo y practico.`
+Se directo y practico.`;
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json()
+  const { messages }: { messages: UIMessage[] } = await req.json();
 
   // Convertir UIMessage[] a formato del modelo
-  const modelMessages = convertToModelMessages(messages)
+  const modelMessages = convertToModelMessages(messages);
 
   const result = streamText({
     model: openrouter(MODELS.balanced),
     system: SYSTEM_PROMPT,
     messages: modelMessages,
-  })
+  });
 
   // Retornar stream compatible con useChat
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse();
 }
 ```
 
@@ -55,13 +55,13 @@ export async function POST(req: Request) {
 // features/chat/hooks/useChat.ts
 // NUNCA MODIFICAR - Re-exporta el hook del SDK
 
-'use client'
+'use client';
 
 // SDK v5: importar de @ai-sdk/react
-export { useChat } from '@ai-sdk/react'
+export { useChat } from '@ai-sdk/react';
 
 // Tipos utiles
-export type { Message } from 'ai'
+export type { Message } from 'ai';
 ```
 
 ---
@@ -200,15 +200,15 @@ export default function Page() {
 
 ## Cambios Clave SDK v4 vs v5
 
-| v4 (antiguo) | v5 (actual) |
-|--------------|-------------|
-| `import { useChat } from 'ai/react'` | `import { useChat } from '@ai-sdk/react'` |
-| `input` del hook | `useState` externo |
-| `handleInputChange` | `onChange` manual |
-| `handleSubmit` | `sendMessage({ text })` |
-| `isLoading` | `status === 'streaming'` |
-| `message.content` | `message.parts.filter(p => p.type === 'text')` |
-| `toDataStreamResponse()` | `toUIMessageStreamResponse()` |
+| v4 (antiguo)                         | v5 (actual)                                    |
+| ------------------------------------ | ---------------------------------------------- |
+| `import { useChat } from 'ai/react'` | `import { useChat } from '@ai-sdk/react'`      |
+| `input` del hook                     | `useState` externo                             |
+| `handleInputChange`                  | `onChange` manual                              |
+| `handleSubmit`                       | `sendMessage({ text })`                        |
+| `isLoading`                          | `status === 'streaming'`                       |
+| `message.content`                    | `message.parts.filter(p => p.type === 'text')` |
+| `toDataStreamResponse()`             | `toUIMessageStreamResponse()`                  |
 
 ---
 
@@ -221,7 +221,7 @@ export default function Page() {
 const result = streamText({
   model: openrouter(MODELS.powerful), // Cambiar aqui
   // ...
-})
+});
 ```
 
 ### Agregar contexto del usuario
@@ -230,7 +230,7 @@ const result = streamText({
 // En app/api/chat/route.ts
 const SYSTEM_PROMPT = `Eres un asistente para ${userName}.
 Su empresa es ${companyName}.
-Responde de forma personalizada.`
+Responde de forma personalizada.`;
 ```
 
 ### Endpoint personalizado
@@ -238,8 +238,8 @@ Responde de forma personalizada.`
 ```typescript
 // En el componente
 const { messages, sendMessage } = useChat({
-  api: '/api/mi-chat-custom'
-})
+  api: '/api/mi-chat-custom',
+});
 ```
 
 ---

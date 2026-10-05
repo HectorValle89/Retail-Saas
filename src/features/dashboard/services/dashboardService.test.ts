@@ -1,13 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/supabase/server', () => ({
   createServiceClient: vi.fn(),
-}))
+}));
 
 import {
   buildSupervisorRouteSnapshotFromRpcPayload,
   resolveDermoconsejoCheckInAssignmentContext,
-} from './dashboardService'
+} from './dashboardService';
 
 describe('buildSupervisorRouteSnapshotFromRpcPayload', () => {
   it('normalizes the rpc payload into a supervisor route snapshot', () => {
@@ -28,7 +28,7 @@ describe('buildSupervisorRouteSnapshotFromRpcPayload', () => {
         nextWeekStart: '2026-04-20',
         nextWeekEnd: '2026-04-26',
       }
-    )
+    );
 
     expect(snapshot).toEqual({
       totalRutas: 12,
@@ -40,15 +40,15 @@ describe('buildSupervisorRouteSnapshotFromRpcPayload', () => {
       nextWeekEnd: '2026-04-26',
       hasCurrentWeekRoute: true,
       hasNextWeekRoute: true,
-    })
-  })
+    });
+  });
 
   it('falls back to the provided dates when the payload is incomplete', () => {
     const snapshot = buildSupervisorRouteSnapshotFromRpcPayload(null, {
       currentWeekIso: '2026-04-13',
       nextWeekStart: '2026-04-20',
       nextWeekEnd: '2026-04-26',
-    })
+    });
 
     expect(snapshot).toEqual({
       totalRutas: 0,
@@ -60,9 +60,9 @@ describe('buildSupervisorRouteSnapshotFromRpcPayload', () => {
       nextWeekEnd: '2026-04-26',
       hasCurrentWeekRoute: false,
       hasNextWeekRoute: false,
-    })
-  })
-})
+    });
+  });
+});
 
 describe('resolveDermoconsejoCheckInAssignmentContext', () => {
   it('prefers the effective assignment when available', () => {
@@ -86,8 +86,8 @@ describe('resolveDermoconsejoCheckInAssignmentContext', () => {
       assignmentSchedule: '8x5',
       cuentaClienteId: 'cliente-1',
       pdvId: 'pdv-1',
-    })
-  })
+    });
+  });
 
   it('falls back to the primary assignment when the effective one is absent', () => {
     expect(
@@ -102,8 +102,8 @@ describe('resolveDermoconsejoCheckInAssignmentContext', () => {
       assignmentSchedule: '9x6',
       cuentaClienteId: 'cliente-2',
       pdvId: 'pdv-2',
-    })
-  })
+    });
+  });
 
   it('returns a null context when no assignment is available', () => {
     expect(resolveDermoconsejoCheckInAssignmentContext(null, null)).toEqual({
@@ -111,6 +111,6 @@ describe('resolveDermoconsejoCheckInAssignmentContext', () => {
       assignmentSchedule: null,
       cuentaClienteId: null,
       pdvId: null,
-    })
-  })
-})
+    });
+  });
+});

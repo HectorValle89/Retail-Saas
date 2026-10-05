@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   revalidatePathMock,
@@ -12,123 +12,127 @@ const {
   requerirPuestosActivosMock: vi.fn(),
   createServiceClientMock: vi.fn(),
   storeOptimizedEvidenceMock: vi.fn(),
-}))
+}));
 
 vi.mock('next/cache', () => ({
   revalidatePath: revalidatePathMock,
   revalidateTag: revalidateTagMock,
   unstable_cache: vi.fn((fn) => fn),
-}))
+}));
 
 vi.mock('@/lib/auth/session', () => ({
   requerirPuestosActivos: requerirPuestosActivosMock,
-}))
+}));
 
 vi.mock('@/lib/supabase/server', () => ({
   createServiceClient: createServiceClientMock,
-}))
+}));
 
 vi.mock('@/lib/files/evidenceStorage', () => ({
   storeOptimizedEvidence: storeOptimizedEvidenceMock,
-}))
+}));
 
 import {
   descartarPreviewMateriales,
   guardarMaterialCatalogo,
   registrarEntregaPromocional,
-} from './actions'
-import { ESTADO_MATERIAL_INICIAL } from './state'
+} from './actions';
+import { ESTADO_MATERIAL_INICIAL } from './state';
+import { SINGLE_TENANT_ACCOUNT_ID } from '@/lib/tenant/singleTenant';
 
 describe('materiales actions', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.clearAllMocks();
     requerirPuestosActivosMock.mockResolvedValue({
       usuarioId: 'user-1',
       empleadoId: 'emp-1',
       puesto: 'DERMOCONSEJERO',
       nombreCompleto: 'DC Uno',
-    })
-  })
+    });
+  });
 
   it('guarda el catalogo promocional por cuenta', async () => {
-    const inserts: Array<Record<string, unknown>> = []
+    const inserts: Array<Record<string, unknown>> = [];
     const service = {
       rpc() {
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: null, error: null });
       },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
               return {
                 maybeSingle() {
-                  return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null })
+                  return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null });
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'material_catalogo') {
           return {
             upsert(payload: Record<string, unknown>) {
-              inserts.push(payload)
+              inserts.push(payload);
               return {
                 select() {
                   return {
                     maybeSingle() {
-                      return Promise.resolve({ data: { id: 'cat-1' }, error: null })
+                      return Promise.resolve({ data: { id: 'cat-1' }, error: null });
                     },
-                  }
+                  };
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'audit_log') {
           return {
             insert(payload: Record<string, unknown>) {
-              inserts.push(payload)
-              return Promise.resolve({ error: null })
+              inserts.push(payload);
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         }
 
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       },
       storage: {
         createBucket() {
-          return Promise.resolve({ error: null })
+          return Promise.resolve({ error: null });
         },
       },
-    }
+    };
 
-    createServiceClientMock.mockReturnValue(service)
+    createServiceClientMock.mockReturnValue(service);
 
-    const formData = new FormData()
-    formData.set('cuenta_cliente_id', 'cuenta-1')
-    formData.set('nombre', 'Tester Fusion Water')
-    formData.set('tipo', 'TESTER')
-    formData.set('cantidad_default', '5')
-    formData.set('requiere_evidencia_obligatoria', 'true')
+    const formData = new FormData();
+    formData.set('cuenta_cliente_id', 'cuenta-1');
+    formData.set('nombre', 'Tester Fusion Water');
+    formData.set('tipo', 'TESTER');
+    formData.set('cantidad_default', '5');
+    formData.set('requiere_evidencia_obligatoria', 'true');
 
-    const result = await guardarMaterialCatalogo(ESTADO_MATERIAL_INICIAL, formData)
+    const result = await guardarMaterialCatalogo(ESTADO_MATERIAL_INICIAL, formData);
 
-    expect(result.ok).toBe(true)
-    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:materiales'), expect.anything())
+    expect(result.ok).toBe(true);
+    expect(revalidateTagMock).toHaveBeenCalledWith(
+      expect.stringContaining('module:materiales'),
+      expect.anything()
+    );
     expect(inserts[0]).toMatchObject({
-      cuenta_cliente_id: 'cuenta-1',
+      cuenta_cliente_id: SINGLE_TENANT_ACCOUNT_ID,
       nombre: 'Tester Fusion Water',
       tipo: 'TESTER',
       cantidad_default: 5,
       requiere_ticket_compra: false,
       requiere_evidencia_obligatoria: true,
-    })
-  })
+    });
+  });
 
   it('bloquea entrega promocional cuando excede el saldo disponible', async () => {
     const service = {
@@ -136,7 +140,7 @@ describe('materiales actions', () => {
         if (table === 'material_distribucion_detalle') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
               return {
@@ -157,78 +161,86 @@ describe('materiales actions', () => {
                       material_tipo_mes: 'TESTER',
                     },
                     error: null,
-                  })
+                  });
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'material_inventario_movimiento') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
-              return this
+              return this;
             },
             limit() {
               return Promise.resolve({
                 data: [{ cantidad_delta: 1 }],
                 error: null,
-              })
+              });
             },
-          }
+          };
         }
 
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       },
       rpc() {
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: null, error: null });
       },
       storage: {
         createBucket() {
-          return Promise.resolve({ error: null })
+          return Promise.resolve({ error: null });
         },
       },
-    }
+    };
 
-    createServiceClientMock.mockReturnValue(service)
+    createServiceClientMock.mockReturnValue(service);
 
-    const formData = new FormData()
-    formData.set('cuenta_cliente_id', 'cuenta-1')
-    formData.set('pdv_id', 'pdv-1')
-    formData.set('distribucion_detalle_id', 'det-1')
-    formData.set('material_catalogo_id', 'cat-1')
-    formData.set('cantidad_entregada', '2')
-    formData.set('evidencia_material', new File(['a'], 'material.jpg', { type: 'image/jpeg' }))
-    formData.set('evidencia_pdv', new File(['b'], 'pdv.jpg', { type: 'image/jpeg' }))
+    const formData = new FormData();
+    formData.set('cuenta_cliente_id', 'cuenta-1');
+    formData.set('pdv_id', 'pdv-1');
+    formData.set('distribucion_detalle_id', 'det-1');
+    formData.set('material_catalogo_id', 'cat-1');
+    formData.set('cantidad_entregada', '2');
+    formData.set('evidencia_material', new File(['a'], 'material.jpg', { type: 'image/jpeg' }));
+    formData.set('evidencia_pdv', new File(['b'], 'pdv.jpg', { type: 'image/jpeg' }));
 
-    const result = await registrarEntregaPromocional(ESTADO_MATERIAL_INICIAL, formData)
+    const result = await registrarEntregaPromocional(ESTADO_MATERIAL_INICIAL, formData);
 
-    expect(result.ok).toBe(false)
-    expect(result.message).toContain('Solo hay 1 pieza')
-  })
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('Solo hay 1 pieza');
+  });
 
   it('registra la entrega promocional y descuenta el saldo', async () => {
-    const calls: Array<{ table: string; payload: Record<string, unknown> }> = []
+    const calls: Array<{ table: string; payload: Record<string, unknown> }> = [];
     const service = {
       rpc(name: string, payload: unknown) {
-        calls.push({ table: 'rpc', payload: { name, ...(payload as any) } })
-        return Promise.resolve({ data: { ok: true, id: 'rpc-1' }, error: null })
+        calls.push({ table: 'rpc', payload: { name, ...(payload as any) } });
+        return Promise.resolve({ data: { ok: true, id: 'rpc-1' }, error: null });
       },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
-            select() { return this },
-            eq() { return { maybeSingle() { return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null }) } } },
-          }
+            select() {
+              return this;
+            },
+            eq() {
+              return {
+                maybeSingle() {
+                  return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null });
+                },
+              };
+            },
+          };
         }
 
         if (table === 'material_distribucion_detalle') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
               return {
@@ -249,82 +261,85 @@ describe('materiales actions', () => {
                       material_tipo_mes: 'TESTER',
                     },
                     error: null,
-                  })
+                  });
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'material_inventario_movimiento') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
-              return this
+              return this;
             },
             limit() {
               return Promise.resolve({
                 data: [{ cantidad_delta: 4 }],
                 error: null,
-              })
+              });
             },
-          }
+          };
         }
 
         if (table === 'audit_log') {
           return {
             insert(payload: Record<string, unknown>) {
-              calls.push({ table, payload })
-              return Promise.resolve({ error: null })
+              calls.push({ table, payload });
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         }
 
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       },
       storage: {
         createBucket() {
-          return Promise.resolve({ error: null })
+          return Promise.resolve({ error: null });
         },
       },
-    }
+    };
 
-    createServiceClientMock.mockReturnValue(service)
+    createServiceClientMock.mockReturnValue(service);
     storeOptimizedEvidenceMock.mockResolvedValue({
       archivo: { url: 'bucket/evidence.jpg', hash: 'hash-1' },
       miniatura: null,
-    })
+    });
 
-    const formData = new FormData()
-    formData.set('cuenta_cliente_id', 'cuenta-1')
-    formData.set('pdv_id', 'pdv-1')
-    formData.set('distribucion_detalle_id', 'det-1')
-    formData.set('material_catalogo_id', 'cat-1')
-    formData.set('cantidad_entregada', '2')
-    formData.set('evidencia_material', new File(['a'], 'material.jpg', { type: 'image/jpeg' }))
-    formData.set('evidencia_pdv', new File(['b'], 'pdv.jpg', { type: 'image/jpeg' }))
+    const formData = new FormData();
+    formData.set('cuenta_cliente_id', 'cuenta-1');
+    formData.set('pdv_id', 'pdv-1');
+    formData.set('distribucion_detalle_id', 'det-1');
+    formData.set('material_catalogo_id', 'cat-1');
+    formData.set('cantidad_entregada', '2');
+    formData.set('evidencia_material', new File(['a'], 'material.jpg', { type: 'image/jpeg' }));
+    formData.set('evidencia_pdv', new File(['b'], 'pdv.jpg', { type: 'image/jpeg' }));
 
-    const result = await registrarEntregaPromocional(ESTADO_MATERIAL_INICIAL, formData)
+    const result = await registrarEntregaPromocional(ESTADO_MATERIAL_INICIAL, formData);
 
     if (!result.ok) {
-      console.log('Error in test:', result.message)
+      console.log('Error in test:', result.message);
     }
 
-    expect(result.ok).toBe(true)
-    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:materiales'), expect.anything())
+    expect(result.ok).toBe(true);
+    expect(revalidateTagMock).toHaveBeenCalledWith(
+      expect.stringContaining('module:materiales'),
+      expect.anything()
+    );
     expect(calls[0]).toMatchObject({
       table: 'rpc',
       payload: {
         name: 'rpc_registrar_entrega_promocional',
         p_datos: {
-          cuenta_cliente_id: 'cuenta-1',
+          cuenta_cliente_id: SINGLE_TENANT_ACCOUNT_ID,
           pdv_id: 'pdv-1',
           cantidad_entregada: 2,
         },
       },
-    })
+    });
     expect(calls[1]).toMatchObject({
       table: 'audit_log',
       payload: {
@@ -334,28 +349,36 @@ describe('materiales actions', () => {
           cantidad_entregada: 2,
         },
       },
-    })
-  })
+    });
+  });
 
   it('acepta ticket sellado por camara cuando el material lo requiere', async () => {
-    const calls: Array<{ table: string; payload: Record<string, unknown> }> = []
+    const calls: Array<{ table: string; payload: Record<string, unknown> }> = [];
     const service = {
       rpc(name: string, payload: unknown) {
-        calls.push({ table: 'rpc', payload: { name, ...(payload as any) } })
-        return Promise.resolve({ data: { ok: true, id: 'rpc-1' }, error: null })
+        calls.push({ table: 'rpc', payload: { name, ...(payload as any) } });
+        return Promise.resolve({ data: { ok: true, id: 'rpc-1' }, error: null });
       },
       from(table: string) {
         if (table === 'cuenta_cliente') {
           return {
-            select() { return this },
-            eq() { return { maybeSingle() { return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null }) } } },
-          }
+            select() {
+              return this;
+            },
+            eq() {
+              return {
+                maybeSingle() {
+                  return Promise.resolve({ data: { id: 'cuenta-1', activa: true }, error: null });
+                },
+              };
+            },
+          };
         }
 
         if (table === 'material_distribucion_detalle') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
               return {
@@ -376,79 +399,74 @@ describe('materiales actions', () => {
                       material_tipo_mes: 'CANJE_PROMOCIONAL',
                     },
                     error: null,
-                  })
+                  });
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'material_inventario_movimiento') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
-              return this
+              return this;
             },
             limit() {
               return Promise.resolve({
                 data: [{ cantidad_delta: 3 }],
                 error: null,
-              })
+              });
             },
-          }
+          };
         }
 
         if (table === 'audit_log') {
           return {
             insert(payload: Record<string, unknown>) {
-              calls.push({ table, payload })
-              return Promise.resolve({ error: null })
+              calls.push({ table, payload });
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         }
-
-        throw new Error(`Unexpected table ${table}`)
-      },
-      rpc(name: string, payload: unknown) {
-        calls.push({ table: 'rpc', payload: { name, ...(payload as any) } })
-        return Promise.resolve({ data: { ok: true, id: 'rpc-1' }, error: null })
+        throw new Error(`Unexpected table ${table}`);
       },
       storage: {
         createBucket() {
-          return Promise.resolve({ error: null })
+          return Promise.resolve({ error: null });
         },
       },
-    }
+    };
 
-    createServiceClientMock.mockReturnValue(service)
+    createServiceClientMock.mockReturnValue(service);
     storeOptimizedEvidenceMock.mockResolvedValue({
       archivo: { url: 'bucket/evidence.jpg', hash: 'hash-1' },
       miniatura: null,
-    })
+    });
 
-    const formData = new FormData()
-    formData.set('cuenta_cliente_id', 'cuenta-1')
-    formData.set('pdv_id', 'pdv-1')
-    formData.set('distribucion_detalle_id', 'det-2')
-    formData.set('material_catalogo_id', 'cat-2')
-    formData.set('cantidad_entregada', '1')
-    formData.set('evidencia_material_data_url', 'data:image/jpeg;base64,YQ==')
-    formData.set('evidencia_pdv_data_url', 'data:image/jpeg;base64,Yg==')
-    formData.set('ticket_compra_data_url', 'data:image/jpeg;base64,Yw==')
-    formData.set('evidencia_material_capturada_en', '2026-03-27T10:00:00.000Z')
-    formData.set('evidencia_pdv_capturada_en', '2026-03-27T10:01:00.000Z')
-    formData.set('ticket_compra_capturada_en', '2026-03-27T10:02:00.000Z')
+    const formData = new FormData();
+    formData.set('cuenta_cliente_id', 'cuenta-1');
+    formData.set('pdv_id', 'pdv-1');
+    formData.set('distribucion_detalle_id', 'det-2');
+    formData.set('material_catalogo_id', 'cat-2');
+    formData.set('cantidad_entregada', '1');
+    formData.set('evidencia_material_data_url', 'data:image/jpeg;base64,YQ==');
+    formData.set('evidencia_pdv_data_url', 'data:image/jpeg;base64,Yg==');
+    formData.set('ticket_compra_data_url', 'data:image/jpeg;base64,Yw==');
+    formData.set('evidencia_material_capturada_en', '2026-03-27T10:00:00.000Z');
+    formData.set('evidencia_pdv_capturada_en', '2026-03-27T10:01:00.000Z');
+    formData.set('ticket_compra_capturada_en', '2026-03-27T10:02:00.000Z');
 
-    const result = await registrarEntregaPromocional(ESTADO_MATERIAL_INICIAL, formData)
+    const result = await registrarEntregaPromocional(ESTADO_MATERIAL_INICIAL, formData);
 
     if (!result.ok) {
-      console.log('Error in test 2:', result.message)
+      console.log('Error in test 2:', result.message);
     }
 
-    expect(result.ok).toBe(true)
-    expect(storeOptimizedEvidenceMock).toHaveBeenCalledTimes(3)
+    expect(result.ok).toBe(true);
+    expect(storeOptimizedEvidenceMock).toHaveBeenCalledTimes(3);
     expect(calls[0]).toMatchObject({
       table: 'rpc',
       payload: {
@@ -457,23 +475,23 @@ describe('materiales actions', () => {
           ticket_compra_url: 'bucket/evidence.jpg',
         },
       },
-    })
-  })
+    });
+  });
 
   it('descarta el preview efimero del usuario actual', async () => {
-    const calls: Array<{ table: string; payload: Record<string, unknown> }> = []
+    const calls: Array<{ table: string; payload: Record<string, unknown> }> = [];
     const service = {
       rpc() {
-        return Promise.resolve({ data: null, error: null })
+        return Promise.resolve({ data: null, error: null });
       },
       from(table: string) {
         if (table === 'material_distribucion_lote') {
           return {
             select() {
-              return this
+              return this;
             },
             eq() {
-              return this
+              return this;
             },
             maybeSingle() {
               return Promise.resolve({
@@ -484,51 +502,54 @@ describe('materiales actions', () => {
                   created_by_usuario_id: 'user-1',
                 },
                 error: null,
-              })
+              });
             },
             update(payload: Record<string, unknown>) {
-              calls.push({ table, payload })
+              calls.push({ table, payload });
               return {
                 eq() {
-                  return Promise.resolve({ error: null })
+                  return Promise.resolve({ error: null });
                 },
-              }
+              };
             },
-          }
+          };
         }
 
         if (table === 'audit_log') {
           return {
             insert(payload: Record<string, unknown>) {
-              calls.push({ table, payload })
-              return Promise.resolve({ error: null })
+              calls.push({ table, payload });
+              return Promise.resolve({ error: null });
             },
-          }
+          };
         }
 
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       },
       storage: {
         createBucket() {
-          return Promise.resolve({ error: null })
+          return Promise.resolve({ error: null });
         },
       },
-    }
+    };
 
-    createServiceClientMock.mockReturnValue(service)
+    createServiceClientMock.mockReturnValue(service);
 
-    const formData = new FormData()
-    formData.set('lote_id', 'lot-1')
+    const formData = new FormData();
+    formData.set('lote_id', 'lot-1');
 
-    const result = await descartarPreviewMateriales(ESTADO_MATERIAL_INICIAL, formData)
+    const result = await descartarPreviewMateriales(ESTADO_MATERIAL_INICIAL, formData);
 
-    expect(result.ok).toBe(true)
-    expect(revalidateTagMock).toHaveBeenCalledWith(expect.stringContaining('module:materiales'), expect.anything())
+    expect(result.ok).toBe(true);
+    expect(revalidateTagMock).toHaveBeenCalledWith(
+      expect.stringContaining('module:materiales'),
+      expect.anything()
+    );
     expect(calls[0]).toMatchObject({
       table: 'material_distribucion_lote',
       payload: {
         estado: 'CANCELADO',
       },
-    })
-  })
-})
+    });
+  });
+});

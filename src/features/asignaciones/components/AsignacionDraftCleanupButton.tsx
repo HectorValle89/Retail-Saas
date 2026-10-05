@@ -1,41 +1,38 @@
-'use client'
+'use client';
 
-import { useActionState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { useFormStatus } from 'react-dom'
-import { limpiarBorradorAsignacion } from '../actions'
-import { ESTADO_ASIGNACION_INICIAL } from '../state'
+import { useActionState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useFormStatus } from 'react-dom';
+import { limpiarBorradorAsignacion } from '../actions';
+import { ESTADO_ASIGNACION_INICIAL } from '../state';
 
 export function AsignacionDraftCleanupButton({
   asignacionId,
   puedeGestionar,
   compact = false,
 }: {
-  asignacionId: string
-  puedeGestionar: boolean
-  compact?: boolean
+  asignacionId: string;
+  puedeGestionar: boolean;
+  compact?: boolean;
 }) {
-  const [state, formAction] = useActionState(
-    limpiarBorradorAsignacion,
-    ESTADO_ASIGNACION_INICIAL
-  )
-  const router = useRouter()
+  const [state, formAction] = useActionState(limpiarBorradorAsignacion, ESTADO_ASIGNACION_INICIAL);
+  const router = useRouter();
 
   useEffect(() => {
     if (!state.ok) {
-      return
+      return;
     }
 
     if (state.redirectTo) {
-      router.replace(state.redirectTo)
-      return
+      router.replace(state.redirectTo);
+      return;
     }
 
-    router.refresh()
-  }, [router, state.ok, state.redirectTo])
+    router.refresh();
+  }, [router, state.ok, state.redirectTo]);
 
   if (!puedeGestionar) {
-    return null
+    return null;
   }
 
   return (
@@ -48,11 +45,11 @@ export function AsignacionDraftCleanupButton({
         </p>
       )}
     </form>
-  )
+  );
 }
 
 function SubmitButton({ compact }: { compact: boolean }) {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   return (
     <button
@@ -62,5 +59,5 @@ function SubmitButton({ compact }: { compact: boolean }) {
     >
       {pending ? 'Limpiando...' : 'Limpiar borrador'}
     </button>
-  )
+  );
 }

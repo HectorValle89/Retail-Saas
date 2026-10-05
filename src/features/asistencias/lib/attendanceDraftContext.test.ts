@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { selectReusableAttendanceDraftContext } from './attendanceDraftContext'
+import { describe, expect, it } from 'vitest';
+import { selectReusableAttendanceDraftContext } from './attendanceDraftContext';
 
 describe('selectReusableAttendanceDraftContext', () => {
   it('prefers the first open reusable context and skips closed historical records', () => {
@@ -25,10 +25,10 @@ describe('selectReusableAttendanceDraftContext', () => {
         checkOutUtc: null,
         estatus: 'RECHAZADA',
       },
-    ] as unknown as Parameters<typeof selectReusableAttendanceDraftContext>[0])
+    ] as unknown as Parameters<typeof selectReusableAttendanceDraftContext>[0]);
 
-    expect(context?.id).toBe('reusable-1')
-  })
+    expect(context?.id).toBe('reusable-1');
+  });
 
   it('returns null when no reusable context exists', () => {
     const context = selectReusableAttendanceDraftContext([
@@ -46,8 +46,8 @@ describe('selectReusableAttendanceDraftContext', () => {
         checkOutUtc: null,
         estatus: 'VALIDA',
       },
-    ] as unknown as Parameters<typeof selectReusableAttendanceDraftContext>[0])
+    ] as unknown as Parameters<typeof selectReusableAttendanceDraftContext>[0]);
 
-    expect(context).toBeNull()
-  })
-})
+    expect(context).toBeNull();
+  });
+});

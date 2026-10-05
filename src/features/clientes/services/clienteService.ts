@@ -1,121 +1,114 @@
-import { unstable_cache } from 'next/cache'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ActorActual } from '@/lib/auth/session'
-import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
-import { createServiceClient } from '@/lib/supabase/server'
-import type { CuentaCliente, CuentaClientePdv } from '@/types/database'
+import { unstable_cache } from 'next/cache';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ActorActual } from '@/lib/auth/session';
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags';
+import { createServiceClient } from '@/lib/supabase/server';
+import type { CuentaCliente, CuentaClientePdv } from '@/types/database';
 
-type MaybeMany<T> = T | T[] | null
+type MaybeMany<T> = T | T[] | null;
 
-type CuentaRelacion = Pick<CuentaCliente, 'id' | 'identificador' | 'nombre' | 'activa'>
+type CuentaRelacion = Pick<CuentaCliente, 'id' | 'identificador' | 'nombre' | 'activa'>;
 
 interface NombreRelacion {
-  nombre: string | null
+  nombre: string | null;
 }
 
 interface PdvRelacion {
-  id: string
-  clave_btl: string
-  nombre: string
-  zona: string | null
-  cadena: MaybeMany<NombreRelacion>
+  id: string;
+  clave_btl: string;
+  nombre: string;
+  zona: string | null;
+  cadena: MaybeMany<NombreRelacion>;
 }
 
-interface CuentaClientePdvQueryRow
-  extends Pick<CuentaClientePdv, 'id' | 'activo' | 'fecha_inicio' | 'fecha_fin'> {
-  cuenta_cliente: MaybeMany<CuentaRelacion>
-  pdv: MaybeMany<PdvRelacion>
+interface CuentaClientePdvQueryRow extends Pick<
+  CuentaClientePdv,
+  'id' | 'activo' | 'fecha_inicio' | 'fecha_fin'
+> {
+  cuenta_cliente: MaybeMany<CuentaRelacion>;
+  pdv: MaybeMany<PdvRelacion>;
 }
 
 export interface ClientesResumen {
-  total: number
-  activas: number
-  pdvsActivos: number
-  movimientosHistoricos: number
+  total: number;
+  activas: number;
+  pdvsActivos: number;
+  movimientosHistoricos: number;
 }
 
 export interface CuentaClienteListadoItem {
-  id: string
-  identificador: string
-  nombre: string
-  activa: boolean
-  pdvsActivos: number
-  pdvsHistoricos: number
-  ultimoCambio: string | null
-  modoOperacion: string | null
-  timezone: string | null
+  id: string;
+  identificador: string;
+  nombre: string;
+  activa: boolean;
+  pdvsActivos: number;
+  pdvsHistoricos: number;
+  ultimoCambio: string | null;
+  modoOperacion: string | null;
+  timezone: string | null;
 }
 
 export interface HistorialClienteItem {
-  id: string
-  cuentaCliente: string
-  pdvClaveBtl: string
-  pdvNombre: string
-  cadena: string | null
-  zona: string | null
-  fechaInicio: string
-  fechaFin: string | null
-  activo: boolean
+  id: string;
+  cuentaCliente: string;
+  pdvClaveBtl: string;
+  pdvNombre: string;
+  cadena: string | null;
+  zona: string | null;
+  fechaInicio: string;
+  fechaFin: string | null;
+  activo: boolean;
 }
 
 export interface ClientesPanelData {
-  resumen: ClientesResumen
-  cuentas: CuentaClienteListadoItem[]
-  historial: HistorialClienteItem[]
-  infraestructuraLista: boolean
-  mensajeInfraestructura?: string
+  resumen: ClientesResumen;
+  cuentas: CuentaClienteListadoItem[];
+  historial: HistorialClienteItem[];
+  infraestructuraLista: boolean;
+  mensajeInfraestructura?: string;
 }
 
 interface ObtenerPanelClientesOptions {
-  scopeAccountId?: string | null
+  scopeAccountId?: string | null;
 }
 
 function isSupabaseClient(value: unknown): value is SupabaseClient {
   return Boolean(
     value &&
-      typeof value === 'object' &&
-      'from' in value &&
-      typeof (value as { from?: unknown }).from === 'function'
-  )
-}
-
-function isActorActual(value: unknown): value is ActorActual {
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      'empleadoId' in value &&
-      'usuarioId' in value &&
-      'puesto' in value
-  )
+    typeof value === 'object' &&
+    'from' in value &&
+    typeof (value as { from?: unknown }).from === 'function'
+  );
 }
 
 interface CuentaClienteAcumulado {
-  pdvsActivos: Set<string>
-  pdvsHistoricos: Set<string>
-  ultimoCambio: string | null
+  pdvsActivos: Set<string>;
+  pdvsHistoricos: Set<string>;
+  ultimoCambio: string | null;
 }
 
-const obtenerPrimero = <T>(value: MaybeMany<T>): T | null => {
+const obtenerPrimero = <T,>(value: MaybeMany<T>): T | null => {
   if (!value) {
-    return null
+    return null;
   }
 
-  return Array.isArray(value) ? value[0] ?? null : value
-}
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+};
 
-const obtenerCadena = (pdv: PdvRelacion | null) => obtenerPrimero(pdv?.cadena ?? null)?.nombre ?? null
+const obtenerCadena = (pdv: PdvRelacion | null) =>
+  obtenerPrimero(pdv?.cadena ?? null)?.nombre ?? null;
 
 const obtenerTextoConfiguracion = (valor: unknown, clave: string) => {
   if (!valor || typeof valor !== 'object' || Array.isArray(valor)) {
-    return null
+    return null;
   }
 
-  const registro = valor as Record<string, unknown>
-  const candidato = registro[clave]
-  return typeof candidato === 'string' ? candidato : null
-}
+  const registro = valor as Record<string, unknown>;
+  const candidato = registro[clave];
+  return typeof candidato === 'string' ? candidato : null;
+};
 
-const normalizarFecha = (fecha: string | null) => fecha ?? null
+const normalizarFecha = (fecha: string | null) => fecha ?? null;
 
 async function obtenerPanelClientesUncached(
   supabase: SupabaseClient,
@@ -124,11 +117,12 @@ async function obtenerPanelClientesUncached(
   let cuentasQuery = supabase
     .from('cuenta_cliente')
     .select('id, identificador, nombre, activa, configuracion, created_at, updated_at')
-    .order('nombre', { ascending: true })
+    .order('nombre', { ascending: true });
 
   let historialQuery = supabase
     .from('cuenta_cliente_pdv')
-    .select(`
+    .select(
+      `
       id,
       activo,
       fecha_inicio,
@@ -141,18 +135,17 @@ async function obtenerPanelClientesUncached(
         zona,
         cadena:cadena_id(nombre)
       )
-    `)
-    .order('fecha_inicio', { ascending: false })
+    `
+    )
+    .order('fecha_inicio', { ascending: false });
 
   if (scopeAccountId) {
-    cuentasQuery = cuentasQuery.eq('id', scopeAccountId)
-    historialQuery = historialQuery.eq('cuenta_cliente_id', scopeAccountId)
+    cuentasQuery = cuentasQuery.eq('id', scopeAccountId);
+    historialQuery = historialQuery.eq('cuenta_cliente_id', scopeAccountId);
   }
 
-  const [
-    { data: cuentas, error: cuentasError },
-    { data: historial, error: historialError },
-  ] = await Promise.all([cuentasQuery, historialQuery])
+  const [{ data: cuentas, error: cuentasError }, { data: historial, error: historialError }] =
+    await Promise.all([cuentasQuery, historialQuery]);
 
   if (cuentasError || historialError) {
     return {
@@ -169,16 +162,16 @@ async function obtenerPanelClientesUncached(
         cuentasError?.message ??
         historialError?.message ??
         'Las tablas de clientes aun no estan listas en Supabase.',
-    }
+    };
   }
 
   const historialNormalizado = ((historial ?? []) as unknown as CuentaClientePdvQueryRow[])
     .map((item) => {
-      const cuenta = obtenerPrimero(item.cuenta_cliente)
-      const pdv = obtenerPrimero(item.pdv)
+      const cuenta = obtenerPrimero(item.cuenta_cliente);
+      const pdv = obtenerPrimero(item.pdv);
 
       if (!cuenta || !pdv) {
-        return null
+        return null;
       }
 
       return {
@@ -193,36 +186,36 @@ async function obtenerPanelClientesUncached(
         fechaInicio: item.fecha_inicio,
         fechaFin: normalizarFecha(item.fecha_fin),
         activo: item.activo,
-      }
+      };
     })
-    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .filter((item): item is NonNullable<typeof item> => item !== null);
 
-  const acumuladoPorCuenta = new Map<string, CuentaClienteAcumulado>()
+  const acumuladoPorCuenta = new Map<string, CuentaClienteAcumulado>();
 
   for (const movimiento of historialNormalizado) {
     const acumulado = acumuladoPorCuenta.get(movimiento.cuentaId) ?? {
       pdvsActivos: new Set<string>(),
       pdvsHistoricos: new Set<string>(),
       ultimoCambio: null,
-    }
+    };
 
-    acumulado.pdvsHistoricos.add(movimiento.pdvId)
+    acumulado.pdvsHistoricos.add(movimiento.pdvId);
 
     if (movimiento.activo && !movimiento.fechaFin) {
-      acumulado.pdvsActivos.add(movimiento.pdvId)
+      acumulado.pdvsActivos.add(movimiento.pdvId);
     }
 
-    const fechaComparacion = movimiento.fechaFin ?? movimiento.fechaInicio
+    const fechaComparacion = movimiento.fechaFin ?? movimiento.fechaInicio;
 
     if (!acumulado.ultimoCambio || fechaComparacion > acumulado.ultimoCambio) {
-      acumulado.ultimoCambio = fechaComparacion
+      acumulado.ultimoCambio = fechaComparacion;
     }
 
-    acumuladoPorCuenta.set(movimiento.cuentaId, acumulado)
+    acumuladoPorCuenta.set(movimiento.cuentaId, acumulado);
   }
 
   const cuentasListadas = ((cuentas ?? []) as CuentaCliente[]).map((cuenta) => {
-    const acumulado = acumuladoPorCuenta.get(cuenta.id)
+    const acumulado = acumuladoPorCuenta.get(cuenta.id);
 
     return {
       id: cuenta.id,
@@ -234,8 +227,8 @@ async function obtenerPanelClientesUncached(
       ultimoCambio: acumulado?.ultimoCambio ?? null,
       modoOperacion: obtenerTextoConfiguracion(cuenta.configuracion, 'modo'),
       timezone: obtenerTextoConfiguracion(cuenta.configuracion, 'timezone'),
-    }
-  })
+    };
+  });
 
   return {
     resumen: {
@@ -257,10 +250,10 @@ async function obtenerPanelClientesUncached(
       activo: item.activo && !item.fechaFin,
     })),
     infraestructuraLista: true,
-  }
+  };
 }
 
-const CLIENTES_PANEL_REVALIDATE_SECONDS = 90
+const CLIENTES_PANEL_REVALIDATE_SECONDS = 90;
 
 function buildClientesCacheKey(
   actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
@@ -271,7 +264,7 @@ function buildClientesCacheKey(
     empleadoId: actor.empleadoId,
     puesto: actor.puesto,
     scopeAccountId: options.scopeAccountId ?? actor.cuentaClienteId ?? null,
-  })
+  });
 }
 
 function buildClientesCacheTags(
@@ -283,7 +276,7 @@ function buildClientesCacheTags(
     accountId: options.scopeAccountId ?? actor.cuentaClienteId ?? null,
     employeeId: actor.empleadoId,
     supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
-  })
+  });
 }
 
 export async function obtenerPanelClientes(
@@ -295,34 +288,34 @@ export async function obtenerPanelClientes(
     const scopeAccountId =
       typeof scopeAccountIdOrActor === 'string' || scopeAccountIdOrActor === null
         ? scopeAccountIdOrActor
-        : scopeAccountIdOrActor.cuentaClienteId ?? null
+        : (scopeAccountIdOrActor.cuentaClienteId ?? null);
 
-    return obtenerPanelClientesUncached(actorOrSupabase, scopeAccountId)
+    return obtenerPanelClientesUncached(actorOrSupabase, scopeAccountId);
   }
 
-  const actor = actorOrSupabase
+  const actor = actorOrSupabase;
   const options: ObtenerPanelClientesOptions = {
     scopeAccountId:
       typeof scopeAccountIdOrActor === 'string'
         ? scopeAccountIdOrActor
-        : actor.cuentaClienteId ?? null,
-  }
+        : (actor.cuentaClienteId ?? null),
+  };
 
   if (customSupabase) {
-    return obtenerPanelClientesUncached(customSupabase, options.scopeAccountId ?? null)
+    return obtenerPanelClientesUncached(customSupabase, options.scopeAccountId ?? null);
   }
 
-  const cacheKey = buildClientesCacheKey(actor, options)
+  const cacheKey = buildClientesCacheKey(actor, options);
 
   return unstable_cache(
     async () => {
-      const service = createServiceClient() as unknown as SupabaseClient
-      return obtenerPanelClientesUncached(service, options.scopeAccountId ?? null)
+      const service = createServiceClient() as unknown as SupabaseClient;
+      return obtenerPanelClientesUncached(service, options.scopeAccountId ?? null);
     },
     ['clientes:panel', cacheKey],
     {
       tags: buildClientesCacheTags(actor, options),
       revalidate: CLIENTES_PANEL_REVALIDATE_SECONDS,
     }
-  )()
+  )();
 }

@@ -1,29 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-
 import { requerirPuestosActivos } from '@/lib/auth/session';
 import { createServiceClient } from '@/lib/supabase/server';
 import { SINGLE_TENANT_ACCOUNT_ID, isSingleTenantBackendEnabled } from '@/lib/tenant/singleTenant';
-import type { MaterialEntregaUltimaMilla } from '@/types/database';
-import {
-  buildEvidenceHashLookup,
-  resolveFirstEvidenceUrl,
-  type LastMileEvidenceRow,
-} from './evidenceResolution';
-
-const MAX_PPT_DELIVERIES = 1000;
-
-type LastMileDeliveryRow = Pick<
-  MaterialEntregaUltimaMilla,
-  | 'id'
-  | 'cuenta_cliente_id'
-  | 'pdv_id'
-  | 'dermoconsejero_empleado_id'
-  | 'estado'
-  | 'capturado_en'
-  | 'pdv_snapshot'
-  | 'cadena_snapshot'
-  | 'dermoconsejero_snapshot'
->;
 
 function pickString(value: string | null) {
   return value?.trim() || null;
@@ -54,14 +32,9 @@ function buildMonthRange(period: string | null) {
   };
 }
 
-function pickSnapshotString(snapshot: Record<string, unknown>, key: string) {
-  const value = snapshot[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR', 'LOGISTICA']);
+    const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR', 'LOGISTICA', 'CLIENTE']);
     const range = buildMonthRange(request.nextUrl.searchParams.get('periodo'));
 
     if (!range) {
@@ -89,153 +62,74 @@ export async function GET(request: NextRequest) {
     }
 
     const service = createServiceClient();
-    let deliveriesQuery = service
-      .from('material_entrega_ultima_milla')
-      .select(
-        `
+    
+    // Query directly from supervisor_evidencia for ULTIMA_MILLA deliveries
+    let query = service
+      .from('supervisor_evidencia')
+      .select(`
         id,
         cuenta_cliente_id,
         pdv_id,
-        dermoconsejero_empleado_id,
-        estado,
-        capturado_en,
-        pdv_snapshot,
-        cadena_snapshot,
-        dermoconsejero_snapshot,
-        material_distribucion_mensual!inner(mes_operacion)
-      `
-      )
-      .eq('material_distribucion_mensual.mes_operacion', `${range.period}-01`)
-      .neq('estado', 'CANCELADA')
-      .order('capturado_en', { ascending: false })
-      .limit(MAX_PPT_DELIVERIES);
+        fecha_operacion,
+        observaciones,
+        fotos,
+        metadata,
+        created_at,
+        pdv:pdv_id(
+          id,
+          nombre,
+          clave_btl,
+          cadena:cadena_id(nombre)
+        )
+      `)
+      .eq('tipo_evidencia', 'ULTIMA_MILLA')
+      .gte('fecha_operacion', range.startDateTime.slice(0, 10))
+      .lte('fecha_operacion', range.endDateTimeExclusive.slice(0, 10))
+      .order('created_at', { ascending: false });
 
     if (effectiveAccountId) {
-      deliveriesQuery = deliveriesQuery.eq('cuenta_cliente_id', effectiveAccountId);
+      query = query.eq('cuenta_cliente_id', effectiveAccountId);
     }
 
-    const { data: deliveriesData, error: deliveriesError } = await deliveriesQuery;
-
-    if (deliveriesError) {
-      return NextResponse.json(
-        { message: 'No fue posible consultar las entregas de ultima milla.' },
-        { status: 500 }
-      );
-    }
-
-    let deliveries = (deliveriesData ?? []) as LastMileDeliveryRow[];
-
-    if (range.period === '2026-05') {
-      const specificIds = [
-        '2e155b14-0411-434a-8af8-bc94a8ed6f20', // Polanco - Olga Elizabeth (June 3rd)
-        'd92bbe5d-70b6-41fd-b499-1a09f3e2583d', // Santa Fe - María del Rocío (June 3rd)
-        'c888c138-09f2-45e9-92ad-a6b43f2087b4', // Polanco - Isabel Lucero (June 1st)
-        '3d39f460-9391-4801-bc22-883540b81c8d', // Polanco - Isabel Lucero (June 8th)
-        'fb09636c-77fd-47cc-a5c4-71132c7c52cd', // Santa Fe - Fernanda Estefania (June 1st)
-        '7db735e0-b058-4bae-a6c6-bea67a5dd954'  // Santa Fe - Fernanda Estefania (June 3rd)
-      ];
-      const { data: extraData, error: extraError } = await service
-        .from('material_entrega_ultima_milla')
-        .select(
-          `
-          id,
-          cuenta_cliente_id,
-          pdv_id,
-          dermoconsejero_empleado_id,
-          estado,
-          capturado_en,
-          pdv_snapshot,
-          cadena_snapshot,
-          dermoconsejero_snapshot
-        `
-        )
-        .in('id', specificIds)
-        .neq('estado', 'CANCELADA');
-
-      if (!extraError && extraData) {
-        for (const extraItem of extraData) {
-          if (!deliveries.some((d) => d.id === extraItem.id)) {
-            deliveries.push(extraItem as LastMileDeliveryRow);
-          }
-        }
-      }
-    }
-    const deliveryIds = deliveries.map((item) => item.id);
-
-    const { data: evidencesData, error: evidencesError } =
-      deliveryIds.length > 0
-        ? await service
-            .from('material_entrega_ultima_milla_evidencia')
-            .select(
-              'entrega_id, tipo, archivo_hash_id, bucket, ruta_archivo, thumbnail_url, capturada_en, orden, metadata'
-            )
-            .in('entrega_id', deliveryIds)
-            .order('orden', { ascending: true })
-            .limit(Math.max(100, deliveryIds.length * 4))
-        : { data: [], error: null };
-
-    if (evidencesError) {
+    const { data: rawEvidences, error: queryError } = await query;
+    if (queryError) {
+      console.error('Error al consultar supervisor_evidencia para última milla:', queryError);
       return NextResponse.json(
         { message: 'No fue posible consultar las evidencias de ultima milla.' },
         { status: 500 }
       );
     }
 
-    const evidencesByDelivery = new Map<string, LastMileEvidenceRow[]>();
-    for (const evidence of (evidencesData ?? []) as LastMileEvidenceRow[]) {
-      const current = evidencesByDelivery.get(evidence.entrega_id) ?? [];
-      current.push(evidence);
-      evidencesByDelivery.set(evidence.entrega_id, current);
-    }
-    const evidenceHashLookup = await buildEvidenceHashLookup(
-      service,
-      (evidencesData ?? []) as LastMileEvidenceRow[]
-    );
+    const entregas = (rawEvidences ?? []).map((row: any) => {
+      const pdv = row.pdv || {};
+      const metadata = row.metadata || {};
+      const checklist = metadata.checklist || {};
+      const fotosRaw = Array.isArray(row.fotos) ? row.fotos : [];
 
-    const entregas = await Promise.all(
-      deliveries.map(async (delivery) => {
-        const pdvSnapshot = delivery.pdv_snapshot ?? {};
-        const cadenaSnapshot = delivery.cadena_snapshot ?? {};
-        const dermoSnapshot = delivery.dermoconsejero_snapshot ?? {};
-        const evidences = evidencesByDelivery.get(delivery.id) ?? [];
+      // Find acuse url and delivery url
+      const acuseUrl = fotosRaw.find((f: any) => f.label?.includes('Acuse') || f.label?.includes('1'))?.url || '';
+      const entregaUrl = fotosRaw.find((f: any) => f.label?.includes('entrega') || f.label?.includes('2'))?.url || '';
 
-        return {
-          id: delivery.id,
-          periodo: range.period,
-          estado: delivery.estado === 'SINCRONIZADA' ? 'Entrega realizada' : delivery.estado,
-          capturadoEn: delivery.capturado_en,
-          pdvNombre:
-            pickSnapshotString(pdvSnapshot, 'nombre') ??
-            pickSnapshotString(pdvSnapshot, 'clave_btl') ??
-            delivery.pdv_id,
-          pdvClaveBtl: pickSnapshotString(pdvSnapshot, 'clave_btl'),
-          cadena: pickSnapshotString(cadenaSnapshot, 'nombre'),
-          receptor:
-            pickSnapshotString(dermoSnapshot, 'nombre') ??
-            delivery.dermoconsejero_empleado_id ??
-            'Sin receptor',
-          fotoAcuseUrl: await resolveFirstEvidenceUrl(
-            service,
-            evidences,
-            'ACUSE_FIRMADO',
-            evidenceHashLookup
-          ),
-          fotoEntregaUrl: await resolveFirstEvidenceUrl(
-            service,
-            evidences,
-            'ENTREGA_FISICA',
-            evidenceHashLookup
-          ),
-        };
-      })
-    );
+      return {
+        id: row.id,
+        periodo: range.period,
+        estado: 'Entrega realizada',
+        capturadoEn: row.created_at,
+        pdvNombre: pdv.nombre || metadata.pdv_label || 'Punto de Venta',
+        pdvClaveBtl: pdv.clave_btl || '',
+        cadena: pdv.cadena?.nombre || 'General',
+        receptor: checklist.nombre_receptor || metadata.receptor_label || 'Sin receptor',
+        fotoAcuseUrl: acuseUrl || (fotosRaw[0]?.url ?? ''),
+        fotoEntregaUrl: entregaUrl || (fotosRaw[1]?.url ?? ''),
+      };
+    });
 
     return NextResponse.json(
       {
         data: {
           periodo: range.period,
           total: entregas.length,
-          truncated: entregas.length >= MAX_PPT_DELIVERIES,
+          truncated: false,
           entregas,
         },
       },

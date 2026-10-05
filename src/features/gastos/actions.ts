@@ -1,24 +1,27 @@
-'use server'
+'use server';
 
-import { requerirPuestosActivos } from '@/lib/auth/session'
-import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
-import { publishUiChanges } from '@/lib/ui-change/server'
+import { requerirPuestosActivos } from '@/lib/auth/session';
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types';
+import { publishUiChanges } from '@/lib/ui-change/server';
 import {
   buildOperationalDocumentUploadLimitMessage,
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES,
   exceedsOperationalDocumentUploadLimit,
-} from '@/lib/files/documentOptimization'
-import { computeSHA256 } from '@/lib/files/sha256'
-import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
-import { createServiceClient } from '@/lib/supabase/server'
-import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { CuentaCliente, Gasto, Puesto } from '@/types/database'
-import { ESTADO_GASTO_INICIAL, type GastoActionState } from './state'
+} from '@/lib/files/documentOptimization';
+import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage';
+import { createServiceClient } from '@/lib/supabase/server';
+import {
+  hasDirectR2Reference,
+  readDirectR2Reference,
+  registerDirectR2Evidence,
+} from '@/lib/storage/directR2Server';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { CuentaCliente, Gasto, Puesto } from '@/types/database';
+import { ESTADO_GASTO_INICIAL, type GastoActionState } from './state';
 import {
   notificarGastoReportado,
   notificarGastoResuelto,
-} from '@/lib/notifications/workflows/gastosEmail'
+} from '@/lib/notifications/workflows/gastosEmail';
 
 const GASTO_WRITE_ROLES = [
   'ADMINISTRADOR',
@@ -26,28 +29,29 @@ const GASTO_WRITE_ROLES = [
   'SUPERVISOR',
   'COORDINADOR',
   'LOGISTICA',
-] as const satisfies Puesto[]
+] as const satisfies Puesto[];
 
-const GASTO_APPROVAL_ROLES = ['ADMINISTRADOR', 'NOMINA', 'SUPERVISOR', 'COORDINADOR'] as const satisfies Puesto[]
-const GASTOS_BUCKET = 'operacion-evidencias'
-const GASTO_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+const GASTO_APPROVAL_ROLES = [
+  'ADMINISTRADOR',
+  'NOMINA',
+  'SUPERVISOR',
+  'COORDINADOR',
+] as const satisfies Puesto[];
+const GASTOS_BUCKET = 'operacion-evidencias';
+const GASTO_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TypedSupabaseClient = SupabaseClient<any>
-
-const GASTO_REFRESH_TARGETS = {
-  gastoBase: ['gastos', 'reportes', 'nomina'] as const,
-}
+type TypedSupabaseClient = SupabaseClient<any>;
 
 function buildGastoRefreshTargets(input: {
-  cuentaClienteId: string | null
-  empleadoId: string
-  supervisorEmpleadoId: string | null
-  fechaGasto: string
-  actorPuesto: string
-  eventType: string
+  cuentaClienteId: string | null;
+  empleadoId: string;
+  supervisorEmpleadoId: string | null;
+  fechaGasto: string;
+  actorPuesto: string;
+  eventType: string;
 }) {
-  const period = input.fechaGasto.slice(0, 7)
+  const period = input.fechaGasto.slice(0, 7);
   return buildUiChangeTargetsFromBusinessEvent({
     eventType: input.eventType,
     modules: ['gastos', 'reportes', 'nomina', 'dashboard'],
@@ -67,99 +71,109 @@ function buildGastoRefreshTargets(input: {
       periodo: period,
       actor_puesto: input.actorPuesto,
     },
-  })
+  });
 }
 
 async function publishGastoRefreshTargets(
   service: TypedSupabaseClient,
   input: {
-    cuentaClienteId: string | null
-    empleadoId: string
-    supervisorEmpleadoId: string | null
-    fechaGasto: string
-    actorPuesto: string
-    eventType: string
+    cuentaClienteId: string | null;
+    empleadoId: string;
+    supervisorEmpleadoId: string | null;
+    fechaGasto: string;
+    actorPuesto: string;
+    eventType: string;
   }
 ) {
-  await publishUiChanges(buildGastoRefreshTargets(input), { service })
+  await publishUiChanges(buildGastoRefreshTargets(input), { service });
 }
 
 interface GastoComprobanteUpload {
-  url: string
-  hash: string
-  thumbnailUrl: string | null
-  thumbnailHash: string | null
+  url: string;
+  hash: string;
+  thumbnailUrl: string | null;
+  thumbnailHash: string | null;
   optimization: {
-    kind: string
-    originalBytes: number
-    finalBytes: number
-    targetMet: boolean
-    notes: string[]
-    officialAssetKind: 'optimized' | 'original'
-  }
+    kind: string;
+    originalBytes: number;
+    finalBytes: number;
+    targetMet: boolean;
+    notes: string[];
+    officialAssetKind: 'optimized' | 'original';
+  };
 }
 
-type GastoMetadata = Record<string, unknown>
+type GastoMetadata = Record<string, unknown>;
 type PeriodoNominaAbiertoRow = {
-  id: string
-  clave: string
-}
+  id: string;
+  clave: string;
+};
 type LedgerReferenciaRow = {
-  id: string
-}
+  id: string;
+};
 type GastoApprovalRow = Pick<
   Gasto,
-  'id' | 'cuenta_cliente_id' | 'empleado_id' | 'supervisor_empleado_id' | 'fecha_gasto' | 'monto' | 'moneda' | 'estatus' | 'metadata'
->
+  | 'id'
+  | 'cuenta_cliente_id'
+  | 'empleado_id'
+  | 'supervisor_empleado_id'
+  | 'fecha_gasto'
+  | 'monto'
+  | 'moneda'
+  | 'estatus'
+  | 'metadata'
+>;
 
 function buildState(partial: Partial<GastoActionState>): GastoActionState {
   return {
     ...ESTADO_GASTO_INICIAL,
     ...partial,
-  }
+  };
 }
 
 function normalizeRequiredText(value: FormDataEntryValue | null, label: string) {
-  const normalized = String(value ?? '').trim()
+  const normalized = String(value ?? '').trim();
 
   if (!normalized) {
-    throw new Error(`${label} es obligatorio.`)
+    throw new Error(`${label} es obligatorio.`);
   }
 
-  return normalized
+  return normalized;
 }
 
 function normalizeOptionalText(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
-  return normalized || null
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
 }
 
 function normalizeMetadata(value: unknown): GastoMetadata {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {}
+    return {};
   }
 
-  return value as GastoMetadata
+  return value as GastoMetadata;
 }
 
 function normalizeEstatus(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim().toUpperCase()
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase();
 
   if (!['PENDIENTE', 'APROBADO', 'RECHAZADO', 'REEMBOLSADO'].includes(normalized)) {
-    throw new Error('El estatus seleccionado no es valido.')
+    throw new Error('El estatus seleccionado no es valido.');
   }
 
-  return normalized as Gasto['estatus']
+  return normalized as Gasto['estatus'];
 }
 
 function normalizeNumber(value: FormDataEntryValue | null, label: string) {
-  const parsed = Number(String(value ?? '').trim())
+  const parsed = Number(String(value ?? '').trim());
 
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${label} debe ser numerico y mayor o igual a cero.`)
+    throw new Error(`${label} debe ser numerico y mayor o igual a cero.`);
   }
 
-  return parsed
+  return parsed;
 }
 
 async function validarCuentaCliente(service: TypedSupabaseClient, cuentaClienteId: string) {
@@ -167,12 +181,12 @@ async function validarCuentaCliente(service: TypedSupabaseClient, cuentaClienteI
     .from('cuenta_cliente')
     .select('id, activa')
     .eq('id', cuentaClienteId)
-    .maybeSingle()
+    .maybeSingle();
 
-  const cuenta = cuentaRaw as CuentaCliente | null
+  const cuenta = cuentaRaw as CuentaCliente | null;
 
   if (error || !cuenta || !cuenta.activa) {
-    throw new Error('La cuenta cliente seleccionada no existe o no esta activa.')
+    throw new Error('La cuenta cliente seleccionada no existe o no esta activa.');
   }
 }
 
@@ -182,15 +196,15 @@ async function resolvePeriodoNominaAbierto(service: TypedSupabaseClient) {
     .select('id, clave')
     .eq('estado', 'BORRADOR')
     .order('fecha_inicio', { ascending: false })
-    .maybeSingle()
+    .maybeSingle();
 
-  const periodo = data as PeriodoNominaAbiertoRow | null
+  const periodo = data as PeriodoNominaAbiertoRow | null;
 
   if (error || !periodo) {
-    throw new Error('No hay un periodo de nomina abierto para registrar el reembolso.')
+    throw new Error('No hay un periodo de nomina abierto para registrar el reembolso.');
   }
 
-  return periodo
+  return periodo;
 }
 
 async function ensureReembolsoLedger(
@@ -200,9 +214,9 @@ async function ensureReembolsoLedger(
     gasto,
     cuentaClienteId,
   }: {
-    actorUsuarioId: string
-    gasto: GastoApprovalRow
-    cuentaClienteId: string
+    actorUsuarioId: string;
+    gasto: GastoApprovalRow;
+    cuentaClienteId: string;
   }
 ) {
   const { data: existingLedger } = await service
@@ -210,15 +224,15 @@ async function ensureReembolsoLedger(
     .select('id')
     .eq('referencia_tabla', 'gasto')
     .eq('referencia_id', gasto.id)
-    .maybeSingle()
+    .maybeSingle();
 
-  const ledger = existingLedger as LedgerReferenciaRow | null
+  const ledger = existingLedger as LedgerReferenciaRow | null;
 
   if (ledger?.id) {
-    return ledger.id
+    return ledger.id;
   }
 
-  const periodo = await resolvePeriodoNominaAbierto(service)
+  const periodo = await resolvePeriodoNominaAbierto(service);
 
   const { data: insertedLedger, error } = await service
     .from('nomina_ledger')
@@ -240,13 +254,13 @@ async function ensureReembolsoLedger(
       },
     })
     .select('id')
-    .maybeSingle()
+    .maybeSingle();
 
   if (error || !insertedLedger?.id) {
-    throw new Error(error?.message ?? 'No fue posible registrar el reembolso en nomina_ledger.')
+    throw new Error(error?.message ?? 'No fue posible registrar el reembolso en nomina_ledger.');
   }
 
-  return insertedLedger.id as string
+  return insertedLedger.id as string;
 }
 
 async function ensureBucket(service: TypedSupabaseClient) {
@@ -254,19 +268,19 @@ async function ensureBucket(service: TypedSupabaseClient) {
     public: false,
     fileSizeLimit: `${EXPEDIENTE_RAW_UPLOAD_MAX_BYTES}`,
     allowedMimeTypes: GASTO_ALLOWED_MIME_TYPES,
-  })
+  });
 
   if (error && !/already exists|duplicate/i.test(error.message)) {
-    throw error
+    throw error;
   }
 }
 
 function asUploadedFile(value: FormDataEntryValue | null) {
   if (!value || typeof value === 'string' || !(value instanceof File) || value.size === 0) {
-    return null
+    return null;
   }
 
-  return value
+  return value;
 }
 
 async function uploadComprobanteGasto(
@@ -277,28 +291,28 @@ async function uploadComprobanteGasto(
     empleadoId,
     file,
   }: {
-    actorUsuarioId: string
-    cuentaClienteId: string
-    empleadoId: string
-    file: File
+    actorUsuarioId: string;
+    cuentaClienteId: string;
+    empleadoId: string;
+    file: File;
   }
 ): Promise<GastoComprobanteUpload> {
   if (exceedsOperationalDocumentUploadLimit(file)) {
-    throw new Error(buildOperationalDocumentUploadLimitMessage('comprobante', file))
+    throw new Error(buildOperationalDocumentUploadLimitMessage('comprobante', file));
   }
 
   if (!GASTO_ALLOWED_MIME_TYPES.includes(file.type)) {
-    throw new Error('El comprobante debe ser imagen JPEG/PNG/WEBP o PDF.')
+    throw new Error('El comprobante debe ser imagen JPEG/PNG/WEBP o PDF.');
   }
 
-  await ensureBucket(service)
+  await ensureBucket(service);
   const stored = await storeOptimizedEvidence({
     service,
     bucket: GASTOS_BUCKET,
     actorUsuarioId,
     storagePrefix: `gastos/${cuentaClienteId}/${empleadoId}`,
     file,
-  })
+  });
 
   return {
     url: stored.archivo.url,
@@ -313,7 +327,7 @@ async function uploadComprobanteGasto(
       notes: stored.optimization.notes,
       officialAssetKind: stored.optimization.officialAssetKind,
     },
-  }
+  };
 }
 
 export async function registrarGastoOperativo(
@@ -321,23 +335,26 @@ export async function registrarGastoOperativo(
   formData: FormData
 ): Promise<GastoActionState> {
   try {
-    const actor = await requerirPuestosActivos(GASTO_WRITE_ROLES)
-    const service = createServiceClient() as TypedSupabaseClient
-    const cuentaClienteId = normalizeRequiredText(formData.get('cuenta_cliente_id'), 'Cuenta cliente')
-    const empleadoId = normalizeOptionalText(formData.get('empleado_id')) ?? actor.empleadoId
-    const supervisorEmpleadoId = normalizeOptionalText(formData.get('supervisor_empleado_id'))
-    const pdvId = normalizeOptionalText(formData.get('pdv_id'))
-    const formacionEventoId = normalizeOptionalText(formData.get('formacion_evento_id'))
-    const tipo = normalizeRequiredText(formData.get('tipo'), 'Tipo de gasto')
-    const monto = normalizeNumber(formData.get('monto'), 'Monto')
-    const fechaGasto = normalizeRequiredText(formData.get('fecha_gasto'), 'Fecha de gasto')
-    const notas = normalizeOptionalText(formData.get('notas'))
+    const actor = await requerirPuestosActivos(GASTO_WRITE_ROLES);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const cuentaClienteId = normalizeRequiredText(
+      formData.get('cuenta_cliente_id'),
+      'Cuenta cliente'
+    );
+    const empleadoId = normalizeOptionalText(formData.get('empleado_id')) ?? actor.empleadoId;
+    const supervisorEmpleadoId = normalizeOptionalText(formData.get('supervisor_empleado_id'));
+    const pdvId = normalizeOptionalText(formData.get('pdv_id'));
+    const formacionEventoId = normalizeOptionalText(formData.get('formacion_evento_id'));
+    const tipo = normalizeRequiredText(formData.get('tipo'), 'Tipo de gasto');
+    const monto = normalizeNumber(formData.get('monto'), 'Monto');
+    const fechaGasto = normalizeRequiredText(formData.get('fecha_gasto'), 'Fecha de gasto');
+    const notas = normalizeOptionalText(formData.get('notas'));
 
     // Phase 2: Intercepcion limpia R2 (Subida Directa)
-    const r2Reference = readDirectR2Reference(formData)
-    const comprobante = asUploadedFile(formData.get('comprobante'))
+    const r2Reference = readDirectR2Reference(formData);
+    const comprobante = asUploadedFile(formData.get('comprobante'));
 
-    await validarCuentaCliente(service, cuentaClienteId)
+    await validarCuentaCliente(service, cuentaClienteId);
 
     // Cortafuegos: Si el archivo subio directo a R2, no metemos presion a Vercel ni a Supabase Storage
     if (hasDirectR2Reference(r2Reference)) {
@@ -346,7 +363,7 @@ export async function registrarGastoOperativo(
         modulo: 'gastos',
         referenciaEntidadId: '',
         reference: r2Reference,
-      })
+      });
 
       // 3. Registrar gasto con comprobante R2
       const { data: created, error } = await service
@@ -369,14 +386,21 @@ export async function registrarGastoOperativo(
             actor_puesto: actor.puesto,
             tiene_comprobante: true,
             approval_stage: 'PENDIENTE_SUPERVISOR',
-            comprobante_optimization: { kind: 'r2_direct', originalBytes: registered.size, finalBytes: registered.size, targetMet: true, notes: ['Subida directa via R2'], officialAssetKind: 'original' },
+            comprobante_optimization: {
+              kind: 'r2_direct',
+              originalBytes: registered.size,
+              finalBytes: registered.size,
+              targetMet: true,
+              notes: ['Subida directa via R2'],
+              officialAssetKind: 'original',
+            },
           },
         })
         .select('id')
-        .maybeSingle()
+        .maybeSingle();
 
       if (error || !created?.id) {
-        throw new Error(error?.message ?? 'No fue posible registrar el gasto.')
+        throw new Error(error?.message ?? 'No fue posible registrar el gasto.');
       }
 
       await service.from('audit_log').insert({
@@ -392,7 +416,7 @@ export async function registrarGastoOperativo(
         },
         usuario_id: actor.usuarioId,
         cuenta_cliente_id: cuentaClienteId,
-      })
+      });
 
       await publishGastoRefreshTargets(service, {
         cuentaClienteId,
@@ -401,7 +425,7 @@ export async function registrarGastoOperativo(
         fechaGasto,
         actorPuesto: actor.puesto,
         eventType: 'gasto_registrado_r2_direct',
-      })
+      });
 
       // Notificacion asincrona a coordinadores
       service
@@ -415,10 +439,13 @@ export async function registrarGastoOperativo(
             montoTotal: monto,
             fecha: fechaGasto,
             cuentaClienteId,
-          }).catch(console.error)
-        })
+          }).catch(console.error);
+        });
 
-      return buildState({ ok: true, message: 'Comprobante inyectado a la Bodega R2 (Cero Egress).' })
+      return buildState({
+        ok: true,
+        message: 'Comprobante inyectado a la Bodega R2 (Cero Egress).',
+      });
     }
 
     const comprobanteUpload = comprobante
@@ -428,7 +455,7 @@ export async function registrarGastoOperativo(
           empleadoId,
           file: comprobante,
         })
-      : null
+      : null;
 
     const { data: created, error } = await service
       .from('gasto')
@@ -456,10 +483,10 @@ export async function registrarGastoOperativo(
         },
       })
       .select('id')
-      .maybeSingle()
+      .maybeSingle();
 
     if (error || !created?.id) {
-      throw new Error(error?.message ?? 'No fue posible registrar el gasto.')
+      throw new Error(error?.message ?? 'No fue posible registrar el gasto.');
     }
 
     await service.from('audit_log').insert({
@@ -475,7 +502,7 @@ export async function registrarGastoOperativo(
       },
       usuario_id: actor.usuarioId,
       cuenta_cliente_id: cuentaClienteId,
-    })
+    });
 
     await publishGastoRefreshTargets(service, {
       cuentaClienteId,
@@ -484,7 +511,7 @@ export async function registrarGastoOperativo(
       fechaGasto,
       actorPuesto: actor.puesto,
       eventType: 'gasto_registrado',
-    })
+    });
 
     // Notificacion asincrona a coordinadores
     service
@@ -498,56 +525,63 @@ export async function registrarGastoOperativo(
           montoTotal: monto,
           fecha: fechaGasto,
           cuentaClienteId,
-        }).catch(console.error)
-      })
+        }).catch(console.error);
+      });
 
-    return buildState({ ok: true, message: 'Gasto operativo registrado.' })
+    return buildState({ ok: true, message: 'Gasto operativo registrado.' });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible registrar el gasto.',
-    })
+    });
   }
 }
 
 export async function actualizarEstatusGasto(formData: FormData): Promise<void> {
-  const actor = await requerirPuestosActivos(GASTO_APPROVAL_ROLES)
-  const service = createServiceClient() as TypedSupabaseClient
-  const gastoId = normalizeRequiredText(formData.get('gasto_id'), 'Gasto')
-  const cuentaClienteId = normalizeRequiredText(formData.get('cuenta_cliente_id'), 'Cuenta cliente')
-  const estatus = normalizeEstatus(formData.get('estatus'))
+  const actor = await requerirPuestosActivos(GASTO_APPROVAL_ROLES);
+  const service = createServiceClient() as TypedSupabaseClient;
+  const gastoId = normalizeRequiredText(formData.get('gasto_id'), 'Gasto');
+  const cuentaClienteId = normalizeRequiredText(
+    formData.get('cuenta_cliente_id'),
+    'Cuenta cliente'
+  );
+  const estatus = normalizeEstatus(formData.get('estatus'));
 
-  await validarCuentaCliente(service, cuentaClienteId)
+  await validarCuentaCliente(service, cuentaClienteId);
 
   const { data: gastoRaw, error: gastoError } = await service
     .from('gasto')
-    .select('id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, fecha_gasto, monto, moneda, estatus, metadata')
+    .select(
+      'id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, fecha_gasto, monto, moneda, estatus, metadata'
+    )
     .eq('id', gastoId)
     .eq('cuenta_cliente_id', cuentaClienteId)
-    .maybeSingle()
+    .maybeSingle();
 
-  const gasto = gastoRaw as GastoApprovalRow | null
+  const gasto = gastoRaw as GastoApprovalRow | null;
 
   if (gastoError || !gasto) {
-    throw new Error(gastoError?.message ?? 'No fue posible cargar el gasto para actualizarlo.')
+    throw new Error(gastoError?.message ?? 'No fue posible cargar el gasto para actualizarlo.');
   }
 
-  const metadata = normalizeMetadata(gasto.metadata)
-  let nextEstatus = estatus
-  let evento = 'gasto_estatus_actualizado'
-  let reembolsoLedgerId: string | null = null
+  const metadata = normalizeMetadata(gasto.metadata);
+  let nextEstatus = estatus;
+  let evento = 'gasto_estatus_actualizado';
+  let reembolsoLedgerId: string | null = null;
   let nextMetadata: GastoMetadata = {
     ...metadata,
     actualizado_desde: 'panel_gastos',
     actor_puesto: actor.puesto,
-  }
+  };
 
   if (estatus === 'PENDIENTE') {
     if (gasto.estatus === 'REEMBOLSADO') {
-      throw new Error('No se puede regresar a PENDIENTE un gasto ya integrado a nomina como REEMBOLSADO.')
+      throw new Error(
+        'No se puede regresar a PENDIENTE un gasto ya integrado a nomina como REEMBOLSADO.'
+      );
     }
 
     if (!['ADMINISTRADOR', 'NOMINA'].includes(actor.puesto)) {
-      throw new Error('Solo ADMINISTRADOR o NOMINA pueden regresar un gasto a PENDIENTE.')
+      throw new Error('Solo ADMINISTRADOR o NOMINA pueden regresar un gasto a PENDIENTE.');
     }
 
     nextMetadata = {
@@ -561,76 +595,76 @@ export async function actualizarEstatusGasto(formData: FormData): Promise<void> 
       segundo_nivel_aprobado_por_puesto: null,
       reembolsado_en: null,
       reembolsado_por_usuario_id: null,
-    }
+    };
   }
 
   if (estatus === 'APROBADO') {
     if (actor.puesto === 'SUPERVISOR') {
       if (gasto.estatus !== 'PENDIENTE') {
-        throw new Error('El primer nivel de aprobacion solo aplica sobre gastos PENDIENTES.')
+        throw new Error('El primer nivel de aprobacion solo aplica sobre gastos PENDIENTES.');
       }
 
-      nextEstatus = 'PENDIENTE'
-      evento = 'gasto_aprobado_primer_nivel'
+      nextEstatus = 'PENDIENTE';
+      evento = 'gasto_aprobado_primer_nivel';
       nextMetadata = {
         ...nextMetadata,
         approval_stage: 'PENDIENTE_COORDINADOR',
         primer_nivel_aprobado_en: new Date().toISOString(),
         primer_nivel_aprobado_por_usuario_id: actor.usuarioId,
         primer_nivel_aprobado_por_puesto: actor.puesto,
-      }
+      };
     } else {
-      const primerNivelAprobado = Boolean(metadata.primer_nivel_aprobado_por_usuario_id)
+      const primerNivelAprobado = Boolean(metadata.primer_nivel_aprobado_por_usuario_id);
 
       if (actor.puesto === 'COORDINADOR' && !primerNivelAprobado) {
-        throw new Error('COORDINADOR solo puede aprobar despues del visto bueno de SUPERVISOR.')
+        throw new Error('COORDINADOR solo puede aprobar despues del visto bueno de SUPERVISOR.');
       }
 
-      evento = 'gasto_aprobado_segundo_nivel'
+      evento = 'gasto_aprobado_segundo_nivel';
       nextMetadata = {
         ...nextMetadata,
         approval_stage: 'APROBADO',
         segundo_nivel_aprobado_en: new Date().toISOString(),
         segundo_nivel_aprobado_por_usuario_id: actor.usuarioId,
         segundo_nivel_aprobado_por_puesto: actor.puesto,
-      }
+      };
     }
   }
 
   if (estatus === 'REEMBOLSADO' && !['ADMINISTRADOR', 'NOMINA'].includes(actor.puesto)) {
-    throw new Error('Solo ADMINISTRADOR o NOMINA pueden marcar un gasto como REEMBOLSADO.')
+    throw new Error('Solo ADMINISTRADOR o NOMINA pueden marcar un gasto como REEMBOLSADO.');
   }
 
   if (estatus === 'REEMBOLSADO') {
     if (gasto.estatus !== 'APROBADO') {
-      throw new Error('Solo se pueden reembolsar gastos previamente APROBADOS.')
+      throw new Error('Solo se pueden reembolsar gastos previamente APROBADOS.');
     }
 
     reembolsoLedgerId = await ensureReembolsoLedger(service, {
       actorUsuarioId: actor.usuarioId,
       gasto,
       cuentaClienteId,
-    })
+    });
 
-    evento = 'gasto_reembolsado'
+    evento = 'gasto_reembolsado';
     nextMetadata = {
       ...nextMetadata,
       approval_stage: 'REEMBOLSADO',
       reembolsado_en: new Date().toISOString(),
       reembolsado_por_usuario_id: actor.usuarioId,
       reembolso_ledger_id: reembolsoLedgerId,
-    }
+    };
   }
 
   if (estatus === 'RECHAZADO') {
-    evento = 'gasto_rechazado'
+    evento = 'gasto_rechazado';
     nextMetadata = {
       ...nextMetadata,
       approval_stage: 'RECHAZADO',
       rechazado_en: new Date().toISOString(),
       rechazado_por_usuario_id: actor.usuarioId,
       rechazado_por_puesto: actor.puesto,
-    }
+    };
   }
 
   const { error } = await service
@@ -640,10 +674,10 @@ export async function actualizarEstatusGasto(formData: FormData): Promise<void> 
       metadata: nextMetadata,
     })
     .eq('id', gastoId)
-    .eq('cuenta_cliente_id', cuentaClienteId)
+    .eq('cuenta_cliente_id', cuentaClienteId);
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
 
   await service.from('audit_log').insert({
@@ -660,7 +694,7 @@ export async function actualizarEstatusGasto(formData: FormData): Promise<void> 
     },
     usuario_id: actor.usuarioId,
     cuenta_cliente_id: cuentaClienteId,
-  })
+  });
 
   await publishGastoRefreshTargets(service, {
     cuentaClienteId,
@@ -669,13 +703,13 @@ export async function actualizarEstatusGasto(formData: FormData): Promise<void> 
     fechaGasto: gasto.fecha_gasto,
     actorPuesto: actor.puesto,
     eventType: evento,
-  })
+  });
 
   // Notificacion asincrona al empleado
-  const isFinalStatus = 
-    estatus === 'RECHAZADO' || 
-    estatus === 'REEMBOLSADO' || 
-    (estatus === 'APROBADO' && actor.puesto !== 'SUPERVISOR')
+  const isFinalStatus =
+    estatus === 'RECHAZADO' ||
+    estatus === 'REEMBOLSADO' ||
+    (estatus === 'APROBADO' && actor.puesto !== 'SUPERVISOR');
 
   if (isFinalStatus) {
     notificarGastoResuelto(service, {
@@ -684,6 +718,6 @@ export async function actualizarEstatusGasto(formData: FormData): Promise<void> 
       monto: gasto.monto,
       fecha: gasto.fecha_gasto,
       aprobado: estatus === 'APROBADO' || estatus === 'REEMBOLSADO',
-    }).catch(console.error)
+    }).catch(console.error);
   }
 }

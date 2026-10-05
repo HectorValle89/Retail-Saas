@@ -1,17 +1,17 @@
-import { NextResponse } from 'next/server'
-import { requerirAdministradorActivo } from '@/lib/auth/session'
-import { obtenerSesionesUsuario } from '@/features/usuarios/services/usuarioService'
+import { NextResponse } from 'next/server';
+import { requerirAdministradorActivo } from '@/lib/auth/session';
+import { obtenerSesionesUsuario } from '@/features/usuarios/services/usuarioService';
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ usuarioId: string }> }
 ) {
   try {
-    await requerirAdministradorActivo()
-    const { usuarioId } = await params
-    const sessions = await obtenerSesionesUsuario(usuarioId)
+    await requerirAdministradorActivo();
+    const { usuarioId } = await params;
+    const sessions = await obtenerSesionesUsuario(usuarioId);
 
-    return NextResponse.json({ sessions })
+    return NextResponse.json({ sessions });
   } catch (error) {
     return NextResponse.json(
       {
@@ -21,6 +21,6 @@ export async function GET(
             : 'No fue posible cargar las sesiones del usuario.',
       },
       { status: 500 }
-    )
+    );
   }
 }

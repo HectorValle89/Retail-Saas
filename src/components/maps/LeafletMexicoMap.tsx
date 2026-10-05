@@ -1,8 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet';
-import type { LatLngBoundsExpression } from 'leaflet';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Circle,
+  CircleMarker,
+  MapContainer,
+  Marker,
+  Polyline,
+  TileLayer,
+  Tooltip,
+  useMap,
+  useMapEvents,
+} from 'react-leaflet';
+import { divIcon, type LatLngBoundsExpression } from 'leaflet';
+import { getMapPointsSignature, getSafeSubdomains, sanitizeMapPoints } from './mapSanitization';
 
 export type MexicoMapTone = 'emerald' | 'sky' | 'amber' | 'rose' | 'slate' | 'violet';
 
@@ -14,7 +25,11 @@ export interface MexicoMapPoint {
   subtitle?: string | null;
   detail?: string | null;
   tone?: MexicoMapTone;
+  customColor?: string;
   radiusMeters?: number | null;
+  inRoute?: boolean;
+  isInactive?: boolean;
+  iconType?: 'dot' | 'house';
 }
 
 const MEXICO_CENTER: [number, number] = [23.6345, -102.5528];
@@ -32,17 +47,25 @@ interface MapTileProvider {
 
 const MAP_TILE_PROVIDERS: MapTileProvider[] = [
   {
-    id: 'carto-light',
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    id: 'esri-canvas',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
     attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    subdomains: ['a', 'b', 'c', 'd'],
+      'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+    subdomains: 'abc',
+  },
+  {
+    id: 'osm-standard',
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    subdomains: 'abc',
   },
   {
     id: 'esri-street',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
     attribution:
       'Tiles &copy; Esri &mdash; Source: Esri, TomTom, Garmin, FAO, NOAA, USGS, OpenStreetMap contributors',
+    subdomains: 'abc',
   },
 ];
 
@@ -51,47 +74,56 @@ const MAP_TONE_STYLES: Record<
   { stroke: string; fill: string; fillOpacity: number; circleOpacity: number }
 > = {
   emerald: {
-    stroke: '#0f766e',
-    fill: '#2cb67d',
-    fillOpacity: 0.92,
-    circleOpacity: 0.16,
+    stroke: '#064e3b',
+    fill: '#059669',
+    fillOpacity: 1,
+    circleOpacity: 0.2,
   },
   sky: {
-    stroke: '#0369a1',
-    fill: '#38bdf8',
-    fillOpacity: 0.9,
-    circleOpacity: 0.16,
+    stroke: '#075985',
+    fill: '#0284c7',
+    fillOpacity: 1,
+    circleOpacity: 0.2,
   },
   amber: {
-    stroke: '#b45309',
-    fill: '#f59e0b',
-    fillOpacity: 0.92,
-    circleOpacity: 0.16,
+    stroke: '#9a3412',
+    fill: '#f97316',
+    fillOpacity: 1,
+    circleOpacity: 0.2,
   },
   rose: {
-    stroke: '#be123c',
-    fill: '#fb7185',
-    fillOpacity: 0.92,
-    circleOpacity: 0.16,
+    stroke: '#9f1239',
+    fill: '#e11d48',
+    fillOpacity: 1,
+    circleOpacity: 0.2,
   },
   slate: {
-    stroke: '#475569',
-    fill: '#94a3b8',
-    fillOpacity: 0.88,
-    circleOpacity: 0.15,
+    stroke: '#334155',
+    fill: '#64748b',
+    fillOpacity: 1,
+    circleOpacity: 0.2,
   },
   violet: {
-    stroke: '#6d28d9',
-    fill: '#8f9bff',
-    fillOpacity: 0.92,
-    circleOpacity: 0.16,
+    stroke: '#5b21b6',
+    fill: '#7c3aed',
+    fillOpacity: 1,
+    circleOpacity: 0.2,
   },
 };
 
 function FitMapToPoints({ points }: { points: MexicoMapPoint[] }) {
   const map = useMap();
+  const lastSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
+    const signature = getMapPointsSignature(points);
+    // Si el conjunto geográfico de puntos no ha cambiado (mismos IDs y coordenadas),
+    // preservamos el zoom y paneo del usuario para no alejar la cámara al seleccionar tiendas.
+    if (lastSignatureRef.current === signature) {
+      return;
+    }
+    lastSignatureRef.current = signature;
+
     const fit = () => {
       map.invalidateSize({ animate: false });
 
@@ -101,7 +133,7 @@ function FitMapToPoints({ points }: { points: MexicoMapPoint[] }) {
       }
 
       if (points.length === 1) {
-        map.setView([points[0].lat, points[0].lng], 11, { animate: false });
+        map.setView([points[0].lat, points[0].lng], 12, { animate: false });
         return;
       }
 
@@ -146,10 +178,48 @@ function SyncMapSize() {
   return null;
 }
 
+function MapBackgroundEvents({ onDeselect }: { onDeselect?: () => void }) {
+  useMapEvents({
+    click: () => {
+      onDeselect?.();
+    },
+  });
+  return null;
+}
+
+function createHouseIcon(color: string, selected: boolean) {
+  const size = selected ? 38 : 32;
+  const anchor = size / 2;
+  return divIcon({
+    className: 'custom-leaflet-house-pin',
+    html: `
+      <div style="
+        width: ${size}px;
+        height: ${size}px;
+        background-color: ${color};
+        border: 2.5px solid #ffffff;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.35)${selected ? ', 0 0 0 4px ' + color + '55' : ''};
+        cursor: pointer;
+        user-select: none;
+      ">
+        <span style="font-size: ${selected ? '19px' : '16px'}; line-height: 1;">🏠</span>
+      </div>
+    `,
+    iconSize: [size, size],
+    iconAnchor: [anchor, anchor],
+  });
+}
+
 export function LeafletMexicoMap({
   points,
   selectedPointId,
+  selectedPointIds,
   onSelect,
+  onDeselect,
   heightClassName = 'h-[320px]',
   showCoverageCircles = false,
   showPath = false,
@@ -158,15 +228,22 @@ export function LeafletMexicoMap({
 }: {
   points: MexicoMapPoint[];
   selectedPointId?: string | null;
+  selectedPointIds?: string[];
   onSelect?: (pointId: string) => void;
+  onDeselect?: () => void;
   heightClassName?: string;
   showCoverageCircles?: boolean;
   showPath?: boolean;
   minZoom?: number;
   maxZoom?: number;
 }) {
+  const safePoints = useMemo(() => sanitizeMapPoints(points), [points]);
+  const [isMonochrome, setIsMonochrome] = useState(true);
   const [tileProviderIndex, setTileProviderIndex] = useState(0);
-  const pathPoints = points
+  const routePoints = safePoints.some((p) => p.inRoute === true)
+    ? safePoints.filter((p) => p.inRoute === true)
+    : safePoints;
+  const pathPoints = routePoints
     .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
     .map((point) => [point.lat, point.lng] as [number, number]);
   const tileProvider = useMemo(
@@ -186,9 +263,53 @@ export function LeafletMexicoMap({
 
   return (
     <div
-      className={`relative z-0 overflow-hidden rounded-[28px] border border-slate-200 bg-slate-100 ${heightClassName}`}
+      className={`relative z-0 overflow-hidden rounded-[28px] border border-slate-200 bg-slate-100 ${heightClassName} ${
+        isMonochrome ? 'leaflet-monochrome-canvas' : ''
+      }`}
       data-testid="mexico-map"
     >
+      <style>{`
+        .leaflet-monochrome-canvas .leaflet-tile-pane {
+          filter: grayscale(100%) brightness(102%) contrast(88%);
+        }
+      `}</style>
+
+      {/* Control flotante táctil para alternar fondo neutro o calles */}
+      <div className="absolute right-3 top-3 z-1000 flex items-center gap-1 rounded-2xl border border-slate-200/90 bg-white/95 p-1 shadow-md backdrop-blur-xs">
+        <button
+          type="button"
+          onClick={() => {
+            setIsMonochrome(true);
+            setTileProviderIndex(0);
+          }}
+          className={`flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs font-semibold transition ${
+            isMonochrome
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+          title="Fondo monocromático limpio para máximo contraste"
+        >
+          <span>🎨</span>
+          <span>Fondo Neutro</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setIsMonochrome(false);
+            setTileProviderIndex(1);
+          }}
+          className={`flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs font-semibold transition ${
+            !isMonochrome
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+          title="Fondo estándar con calles de colores"
+        >
+          <span>🗺️</span>
+          <span>Calles</span>
+        </button>
+      </div>
+
       <MapContainer
         center={MEXICO_CENTER}
         zoom={5}
@@ -203,47 +324,114 @@ export function LeafletMexicoMap({
           key={tileProvider.id}
           attribution={tileProvider.attribution}
           url={tileProvider.url}
-          subdomains={tileProvider.subdomains}
+          subdomains={getSafeSubdomains(tileProvider.subdomains)}
           eventHandlers={{
             tileerror: handleTileError,
           }}
         />
         <SyncMapSize />
-        <FitMapToPoints points={points} />
+        <MapBackgroundEvents onDeselect={onDeselect} />
+        <FitMapToPoints points={safePoints} />
         {showPath && pathPoints.length > 1 ? (
-          <Polyline
-            positions={pathPoints}
-            pathOptions={{
-              color: '#0f766e',
-              weight: 4,
-              opacity: 0.75,
-              lineCap: 'round',
-              lineJoin: 'round',
-              dashArray: '10 10',
-            }}
-          />
+          <>
+            {/* Halo blanco inferior para máximo contraste contra el fondo del mapa */}
+            <Polyline
+              positions={pathPoints}
+              pathOptions={{
+                color: '#ffffff',
+                weight: 8,
+                opacity: 0.95,
+                lineCap: 'round',
+                lineJoin: 'round',
+              }}
+            />
+            {/* Trazo punteado principal superior con alto contraste */}
+            <Polyline
+              positions={pathPoints}
+              pathOptions={{
+                color: '#0284c7',
+                weight: 4,
+                opacity: 1,
+                lineCap: 'round',
+                lineJoin: 'round',
+                dashArray: '8 8',
+              }}
+            />
+          </>
         ) : null}
-        {points.map((point) => {
+        {safePoints.map((point) => {
           const tone = MAP_TONE_STYLES[point.tone ?? 'emerald'];
-          const selected = point.id === selectedPointId;
-          const markerRadius = selected ? 10 : 7;
+          const markerColor = point.customColor ?? tone.fill;
+          const isMultiSelected = Boolean(selectedPointIds && selectedPointIds.includes(point.id));
+          const selected = point.id === selectedPointId || isMultiSelected;
+          const isInRoute = point.inRoute === true;
+          const isInactive = point.isInactive === true;
+          const markerRadius = isMultiSelected ? 13 : selected ? 12 : isInRoute ? 9 : 7;
+          const isHouse = point.iconType === 'house';
+
+          if (isHouse) {
+            return (
+              <Marker
+                key={point.id}
+                position={[point.lat, point.lng]}
+                icon={createHouseIcon(markerColor, selected)}
+                zIndexOffset={selected ? 2500 : 1200}
+                eventHandlers={
+                  onSelect || onDeselect
+                    ? {
+                        click: (e) => {
+                          e.originalEvent?.stopPropagation();
+                          if (selected) {
+                            onDeselect?.();
+                          } else {
+                            onSelect?.(point.id);
+                          }
+                        },
+                      }
+                    : undefined
+                }
+              >
+                <Tooltip direction="top" offset={[0, -18]} opacity={1}>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-base">🏠</span>
+                      <p className="text-sm font-semibold text-slate-950">{point.title}</p>
+                    </div>
+                    {point.subtitle ? (
+                      <p className="text-xs text-slate-600">{point.subtitle}</p>
+                    ) : null}
+                    {point.detail ? (
+                      <p className="text-xs font-medium text-slate-700">{point.detail}</p>
+                    ) : null}
+                  </div>
+                </Tooltip>
+              </Marker>
+            );
+          }
 
           return (
-            <div key={point.id}>
+            <Fragment key={point.id}>
               {showCoverageCircles && point.radiusMeters && point.radiusMeters > 0 ? (
                 <Circle
                   center={[point.lat, point.lng]}
                   radius={point.radiusMeters}
                   pathOptions={{
-                    color: tone.stroke,
-                    fillColor: tone.fill,
+                    color: markerColor,
+                    fillColor: markerColor,
                     fillOpacity: tone.circleOpacity,
                     weight: selected ? 2 : 1,
                   }}
                   eventHandlers={
-                    onSelect
+                    onSelect || onDeselect
                       ? {
-                          click: () => onSelect(point.id),
+                          click: (e) => {
+                            e.originalEvent?.stopPropagation();
+                            if (selected) {
+                              onDeselect?.();
+                            } else {
+                              onSelect?.(point.id);
+                            }
+                          },
                         }
                       : undefined
                   }
@@ -253,22 +441,37 @@ export function LeafletMexicoMap({
                 center={[point.lat, point.lng]}
                 radius={markerRadius}
                 pathOptions={{
-                  color: '#ffffff',
-                  fillColor: tone.fill,
-                  fillOpacity: tone.fillOpacity,
-                  weight: selected ? 3 : 2,
+                  color: isMultiSelected ? '#38bdf8' : selected ? '#0284c7' : isInactive ? '#d97706' : '#ffffff',
+                  fillColor: markerColor,
+                  fillOpacity: isInactive ? 0.75 : 1,
+                  weight: isMultiSelected ? 5 : selected ? 4 : isInactive ? 3 : 2.5,
+                  dashArray: isInactive ? '4 4' : undefined,
                 }}
                 eventHandlers={
-                  onSelect
+                  onSelect || onDeselect
                     ? {
-                        click: () => onSelect(point.id),
+                        click: (e) => {
+                          e.originalEvent?.stopPropagation();
+                          if (selected) {
+                            onDeselect?.();
+                          } else {
+                            onSelect?.(point.id);
+                          }
+                        },
                       }
                     : undefined
                 }
               >
                 <Tooltip direction="top" offset={[0, -8]} opacity={1}>
                   <div className="space-y-1">
-                    <p className="text-sm font-semibold text-slate-950">{point.title}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-semibold text-slate-950">{point.title}</p>
+                      {isInactive && (
+                        <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
+                          ⚠️ Inactivo
+                        </span>
+                      )}
+                    </div>
                     {point.subtitle ? (
                       <p className="text-xs text-slate-600">{point.subtitle}</p>
                     ) : null}
@@ -276,7 +479,7 @@ export function LeafletMexicoMap({
                   </div>
                 </Tooltip>
               </CircleMarker>
-            </div>
+            </Fragment>
           );
         })}
       </MapContainer>

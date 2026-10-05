@@ -26,13 +26,13 @@
 
 ## Casos de Uso Potenciales
 
-| Caso | Descripcion |
-|------|-------------|
-| Dashboard adaptativo | Mostrar widgets segun lo que pregunta el usuario |
-| Wizard inteligente | Pasos dinamicos segun respuestas anteriores |
-| Visualizacion de datos | Graficas generadas segun el analisis |
-| Formularios contextuales | Campos que aparecen segun necesidad |
-| Respuestas ricas | Tablas, cards, listas segun el contenido |
+| Caso                     | Descripcion                                      |
+| ------------------------ | ------------------------------------------------ |
+| Dashboard adaptativo     | Mostrar widgets segun lo que pregunta el usuario |
+| Wizard inteligente       | Pasos dinamicos segun respuestas anteriores      |
+| Visualizacion de datos   | Graficas generadas segun el analisis             |
+| Formularios contextuales | Campos que aparecen segun necesidad              |
+| Respuestas ricas         | Tablas, cards, listas segun el contenido         |
 
 ---
 
@@ -124,7 +124,7 @@ export function DataTable({ headers, rows }: {
 ```typescript
 // lib/ai/ui-tools.ts
 
-import { z } from 'zod'
+import { z } from 'zod';
 
 // Cada tool representa un componente que el AI puede invocar
 export const uiTools = {
@@ -153,7 +153,7 @@ export const uiTools = {
       rows: z.array(z.array(z.string())).describe('Filas de datos'),
     }),
   },
-}
+};
 ```
 
 ---
@@ -163,25 +163,25 @@ export const uiTools = {
 ```typescript
 // app/api/chat-ui/route.ts
 
-import { streamText, convertToModelMessages, type UIMessage } from 'ai'
-import { openrouter, MODELS } from '@/lib/ai/openrouter'
-import { uiTools } from '@/lib/ai/ui-tools'
+import { streamText, convertToModelMessages, type UIMessage } from 'ai';
+import { openrouter, MODELS } from '@/lib/ai/openrouter';
+import { uiTools } from '@/lib/ai/ui-tools';
 
 const SYSTEM_PROMPT = `Eres un asistente que puede mostrar informacion visualmente.
 Cuando el usuario pida datos, usa las tools disponibles para mostrar UI.
-Siempre explica brevemente que estas mostrando.`
+Siempre explica brevemente que estas mostrando.`;
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json()
+  const { messages }: { messages: UIMessage[] } = await req.json();
 
   const result = streamText({
     model: openrouter(MODELS.balanced),
     system: SYSTEM_PROMPT,
     messages: convertToModelMessages(messages),
     tools: uiTools,
-  })
+  });
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse();
 }
 ```
 
@@ -265,6 +265,7 @@ export function GenerativeChat() {
 ### Alternativas Mas Simples
 
 A veces es mejor:
+
 ```typescript
 // En lugar de Generative UI...
 if (response.includes('tabla')) {
@@ -301,4 +302,4 @@ switch (type) {
 
 ---
 
-*Esta plantilla esta en optimizacion. Requiere mas validacion antes de uso en produccion.*
+_Esta plantilla esta en optimizacion. Requiere mas validacion antes de uso en produccion._

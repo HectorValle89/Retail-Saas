@@ -1,38 +1,38 @@
-import { expect, test } from '@playwright/test'
-import type { ActorActual } from '../src/lib/auth/session'
-import { obtenerPanelFormaciones } from '../src/features/formaciones/services/formacionService'
+import { expect, test } from '@playwright/test';
+import type { ActorActual } from '../src/lib/auth/session';
+import { obtenerPanelFormaciones } from '../src/features/formaciones/services/formacionService';
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+};
 
-type FakeResults = Record<string, QueryResult>
+type FakeResults = Record<string, QueryResult>;
 
 function createFakeFormacionClient(results: FakeResults) {
   return {
     from(table: string) {
-      const entry = results[table] ?? { data: null, error: null }
+      const entry = results[table] ?? { data: null, error: null };
 
       const chain = {
         table,
         select() {
-          return chain
+          return chain;
         },
         eq() {
-          return chain
+          return chain;
         },
         order() {
-          return chain
+          return chain;
         },
         then(resolve: (value: QueryResult) => void) {
-          return Promise.resolve(entry).then(resolve)
+          return Promise.resolve(entry).then(resolve);
         },
-      }
+      };
 
-      return chain
+      return chain;
     },
-  }
+  };
 }
 
 const actor: ActorActual = {
@@ -46,7 +46,7 @@ const actor: ActorActual = {
   estadoCuenta: 'ACTIVA',
   nombreCompleto: 'Usuario Principal',
   puesto: 'ADMINISTRADOR',
-}
+};
 
 test('consolida eventos y targeting operativo por estado, supervisor y pdv', async () => {
   const fakeClient = createFakeFormacionClient({
@@ -66,7 +66,14 @@ test('consolida eventos y targeting operativo por estado, supervisor y pdv', asy
           fecha_fin: '2026-03-20',
           estado: 'PROGRAMADA',
           participantes: [
-            { empleado_id: 'dc-1', nombre: 'Ana DC', puesto: 'DERMOCONSEJERO', estado: 'PENDIENTE', notificado: false, confirmado: true },
+            {
+              empleado_id: 'dc-1',
+              nombre: 'Ana DC',
+              puesto: 'DERMOCONSEJERO',
+              estado: 'PENDIENTE',
+              notificado: false,
+              confirmado: true,
+            },
           ],
           gastos_operativos: [{ tipo: 'Viaticos', monto: 1200, comentario: 'Traslado' }],
           notificaciones: [{ canal: 'EMAIL', mensaje: 'Bienvenida', estado: 'PENDIENTE' }],
@@ -104,7 +111,12 @@ test('consolida eventos y targeting operativo por estado, supervisor y pdv', asy
     empleado: {
       data: [
         { id: 'coord-1', nombre_completo: 'Laura Coord', puesto: 'COORDINADOR', zona: 'Noroeste' },
-        { id: 'sup-1', nombre_completo: 'Susana Supervisor', puesto: 'SUPERVISOR', zona: 'Noroeste' },
+        {
+          id: 'sup-1',
+          nombre_completo: 'Susana Supervisor',
+          puesto: 'SUPERVISOR',
+          zona: 'Noroeste',
+        },
         { id: 'dc-1', nombre_completo: 'Ana DC', puesto: 'DERMOCONSEJERO', zona: 'Noroeste' },
       ],
       error: null,
@@ -122,7 +134,12 @@ test('consolida eventos y targeting operativo por estado, supervisor y pdv', asy
             activo: true,
             fecha_inicio: '2026-03-01',
             fecha_fin: null,
-            empleado: { id: 'sup-1', nombre_completo: 'Susana Supervisor', puesto: 'SUPERVISOR', zona: 'Noroeste' },
+            empleado: {
+              id: 'sup-1',
+              nombre_completo: 'Susana Supervisor',
+              puesto: 'SUPERVISOR',
+              zona: 'Noroeste',
+            },
           },
         },
         {
@@ -136,7 +153,12 @@ test('consolida eventos y targeting operativo por estado, supervisor y pdv', asy
             activo: true,
             fecha_inicio: '2026-03-01',
             fecha_fin: null,
-            empleado: { id: 'sup-1', nombre_completo: 'Susana Supervisor', puesto: 'SUPERVISOR', zona: 'Noroeste' },
+            empleado: {
+              id: 'sup-1',
+              nombre_completo: 'Susana Supervisor',
+              puesto: 'SUPERVISOR',
+              zona: 'Noroeste',
+            },
           },
         },
       ],
@@ -146,32 +168,32 @@ test('consolida eventos y targeting operativo por estado, supervisor y pdv', asy
       data: [{ pdv_id: 'pdv-1' }, { pdv_id: 'pdv-2' }],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelFormaciones(actor, { serviceClient: fakeClient as never })
+  const data = await obtenerPanelFormaciones(actor, { serviceClient: fakeClient as never });
 
-  expect(data.resumen.totalEventos).toBe(1)
-  expect(data.estadosDisponibles).toContain('Sonora')
+  expect(data.resumen.totalEventos).toBe(1);
+  expect(data.estadosDisponibles).toContain('Sonora');
   expect(data.supervisoresDisponibles[0]).toMatchObject({
     id: 'sup-1',
     nombre: 'Susana Supervisor',
     pdvCount: 2,
-  })
+  });
   expect(data.coordinadoresDisponibles[0]).toMatchObject({
     id: 'coord-1',
     nombre: 'Laura Coord',
-  })
+  });
   expect(data.pdvGroups[0]).toMatchObject({
     stateName: 'Sonora',
     totalPdvs: 2,
-  })
+  });
   expect(data.eventos[0]).toMatchObject({
     selectedStateNames: ['Sonora'],
     selectedSupervisorIds: ['sup-1'],
     selectedCoordinatorIds: ['coord-1'],
     selectedPdvIds: ['pdv-1', 'pdv-2'],
-  })
-})
+  });
+});
 
 test('degrada con mensaje de infraestructura cuando falla consulta', async () => {
   const fakeClient = createFakeFormacionClient({
@@ -180,10 +202,10 @@ test('degrada con mensaje de infraestructura cuando falla consulta', async () =>
     empleado: { data: [], error: null },
     pdv: { data: [], error: null },
     cuenta_cliente_pdv: { data: [], error: null },
-  })
+  });
 
-  const data = await obtenerPanelFormaciones(actor, { serviceClient: fakeClient as never })
+  const data = await obtenerPanelFormaciones(actor, { serviceClient: fakeClient as never });
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.mensajeInfraestructura).toContain('tabla no existe')
-})
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.mensajeInfraestructura).toContain('tabla no existe');
+});

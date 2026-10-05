@@ -1,32 +1,32 @@
-import { expect, test } from '@playwright/test'
-import { obtenerPanelReglas } from '../src/features/reglas/services/reglaService'
+import { expect, test } from '@playwright/test';
+import { obtenerPanelReglas } from '../src/features/reglas/services/reglaService';
 
 type QueryResult = {
-  data: unknown[] | null
-  error: { message: string } | null
-}
+  data: unknown[] | null;
+  error: { message: string } | null;
+};
 
 function createFakeReglasSupabase(result: QueryResult) {
   return {
     from() {
-      let orderCalls = 0
+      let orderCalls = 0;
 
       return {
         select() {
-          return this
+          return this;
         },
         order() {
-          orderCalls += 1
+          orderCalls += 1;
 
           if (orderCalls >= 2) {
-            return Promise.resolve(result)
+            return Promise.resolve(result);
           }
 
-          return this
+          return this;
         },
-      }
+      };
     },
-  }
+  };
 }
 
 test('consolida resumen, reglas operativas y flujos de aprobacion', async () => {
@@ -69,9 +69,7 @@ test('consolida resumen, reglas operativas y flujos de aprobacion', async () => 
         prioridad: 210,
         condicion: { tipo_solicitud: 'VACACIONES', min_notice_days: 30 },
         accion: {
-          steps: [
-            { actor: 'COORDINADOR', target_status: 'REGISTRADA', sla_hours: 48 },
-          ],
+          steps: [{ actor: 'COORDINADOR', target_status: 'REGISTRADA', sla_hours: 48 }],
         },
         activa: true,
       },
@@ -88,11 +86,11 @@ test('consolida resumen, reglas operativas y flujos de aprobacion', async () => 
       },
     ],
     error: null,
-  })
+  });
 
-  const data = await obtenerPanelReglas(client as never)
+  const data = await obtenerPanelReglas(client as never);
 
-  expect(data.infraestructuraLista).toBe(true)
+  expect(data.infraestructuraLista).toBe(true);
   expect(data.resumen).toMatchObject({
     total: 4,
     activas: 4,
@@ -100,35 +98,35 @@ test('consolida resumen, reglas operativas y flujos de aprobacion', async () => 
     alertas: 1,
     approvalFlows: 5,
     operativas: 3,
-  })
-  expect(data.supervisorRule.sources).toEqual(['PDV', 'EMPLEADO', 'ASIGNACION'])
+  });
+  expect(data.supervisorRule.sources).toEqual(['PDV', 'EMPLEADO', 'ASIGNACION']);
   expect(data.scheduleRule.globalFallback).toMatchObject({
     horaEntrada: '11:00:00',
     horaSalida: '19:00:00',
-  })
+  });
   expect(data.approvalFlows.find((item) => item.solicitudTipo === 'VACACIONES')).toMatchObject({
     minNoticeDays: 30,
-  })
+  });
   expect(data.inventory.find((item) => item.code === 'ASIGNACION_PDV_SIN_GEOCERCA')).toMatchObject({
     module: 'asignaciones',
     active: true,
-  })
-})
+  });
+});
 
 test('degrada a defaults cuando la tabla de reglas no esta disponible', async () => {
   const client = createFakeReglasSupabase({
     data: null,
     error: { message: 'relation public.regla_negocio does not exist' },
-  })
+  });
 
-  const data = await obtenerPanelReglas(client as never)
+  const data = await obtenerPanelReglas(client as never);
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.mensajeInfraestructura).toContain('relation public.regla_negocio does not exist')
-  expect(data.supervisorRule.sources).toEqual(['PDV', 'EMPLEADO', 'ASIGNACION'])
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.mensajeInfraestructura).toContain('relation public.regla_negocio does not exist');
+  expect(data.supervisorRule.sources).toEqual(['PDV', 'EMPLEADO', 'ASIGNACION']);
   expect(data.scheduleRule.globalFallback).toMatchObject({
     horaEntrada: '11:00:00',
     horaSalida: '19:00:00',
-  })
-  expect(data.approvalFlows).toHaveLength(5)
-})
+  });
+  expect(data.approvalFlows).toHaveLength(5);
+});

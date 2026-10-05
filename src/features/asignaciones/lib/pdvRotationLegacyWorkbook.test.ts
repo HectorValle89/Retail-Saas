@@ -1,15 +1,15 @@
-import { expect, test } from 'vitest'
-import * as XLSX from 'xlsx'
+import { expect, test } from 'vitest';
+import * as XLSX from 'xlsx';
 import {
   convertPdvRotationLegacyWorkbook,
   ISDIN_POR_CUBRIR_MANUAL_PAIRS,
-} from './pdvRotationLegacyWorkbook'
+} from './pdvRotationLegacyWorkbook';
 
 function buildLegacyWorkbook(rows: Record<string, unknown>[]) {
-  const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.json_to_sheet(rows)
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Hoja1')
-  return Buffer.from(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }))
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Hoja1');
+  return Buffer.from(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }));
 }
 
 test('convierte archivo legacy a rotacion oficial con grupos naturales y parejas manuales', () => {
@@ -98,7 +98,7 @@ test('convierte archivo legacy a rotacion oficial con grupos naturales y parejas
       '# DC': 1,
       'ROL PERM': 'FIJA',
     },
-  ])
+  ]);
 
   const result = convertPdvRotationLegacyWorkbook(buffer, {
     accountIdentifier: 'isdin_mexico',
@@ -108,14 +108,14 @@ test('convierte archivo legacy a rotacion oficial con grupos naturales y parejas
         members: ['BTL-FAH-CUMB-WN', 'BTL-FAH-PLAZ-S5'],
       },
     ],
-  })
+  });
 
-  expect(result.issues).toEqual([])
-  expect(result.summary.convertedRows).toBe(9)
-  expect(result.summary.fijos).toBe(2)
-  expect(result.summary.rotativos).toBe(7)
-  expect(result.summary.naturalGroups).toBe(2)
-  expect(result.summary.manualGroups).toBe(1)
+  expect(result.issues).toEqual([]);
+  expect(result.summary.convertedRows).toBe(9);
+  expect(result.summary.fijos).toBe(2);
+  expect(result.summary.rotativos).toBe(7);
+  expect(result.summary.naturalGroups).toBe(2);
+  expect(result.summary.manualGroups).toBe(1);
 
   expect(result.rows).toEqual(
     expect.arrayContaining([
@@ -162,5 +162,5 @@ test('convierte archivo legacy a rotacion oficial con grupos naturales y parejas
         referenciaDcActual: 'POR CUBRIR',
       }),
     ])
-  )
-})
+  );
+});

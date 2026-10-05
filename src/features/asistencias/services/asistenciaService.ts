@@ -1,87 +1,101 @@
-import { unstable_cache } from 'next/cache'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ActorActual } from '@/lib/auth/session'
-import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
-import { createServiceClient } from '@/lib/supabase/server'
-import type { Asistencia, Asignacion, ConfiguracionSistema, CuentaCliente, Empleado, MisionDia, Solicitud, Venta } from '@/types/database'
-import { deriveAttendanceDiscipline, type AttendanceDisciplineAssignment, type AttendanceDisciplineFormation, type AttendanceDisciplineRecord } from '@/features/asistencias/lib/attendanceDiscipline'
-import type { AttendanceMissionCatalogItem } from '@/features/asistencias/lib/attendanceMission'
-import { formacionTargetsEmployee } from '@/features/formaciones/lib/formacionTargeting'
+import { unstable_cache } from 'next/cache';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ActorActual } from '@/lib/auth/session';
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags';
+import { createServiceClient } from '@/lib/supabase/server';
+import type {
+  Asistencia,
+  Asignacion,
+  ConfiguracionSistema,
+  CuentaCliente,
+  Empleado,
+  MisionDia,
+  Solicitud,
+  Venta,
+} from '@/types/database';
+import {
+  deriveAttendanceDiscipline,
+  type AttendanceDisciplineAssignment,
+  type AttendanceDisciplineFormation,
+  type AttendanceDisciplineRecord,
+} from '@/features/asistencias/lib/attendanceDiscipline';
+import type { AttendanceMissionCatalogItem } from '@/features/asistencias/lib/attendanceMission';
+import { formacionTargetsEmployee } from '@/features/formaciones/lib/formacionTargeting';
 
-type MaybeMany<T> = T | T[] | null
-type TypedSupabaseClient = ReturnType<typeof createServiceClient>
+type MaybeMany<T> = T | T[] | null;
+type TypedSupabaseClient = ReturnType<typeof createServiceClient>;
 
 function isSupabaseClient(value: unknown): value is SupabaseClient {
   return Boolean(
     value &&
-      typeof value === 'object' &&
-      'from' in value &&
-      typeof (value as { from?: unknown }).from === 'function'
-  )
+    typeof value === 'object' &&
+    'from' in value &&
+    typeof (value as { from?: unknown }).from === 'function'
+  );
 }
 
-type CuentaClienteRelacion = Pick<CuentaCliente, 'nombre'>
+type CuentaClienteRelacion = Pick<CuentaCliente, 'nombre'>;
 
 type SolicitudAsistenciaRow = Pick<
   Solicitud,
   'id' | 'empleado_id' | 'tipo' | 'fecha_inicio' | 'fecha_fin' | 'estatus' | 'metadata'
->
+>;
 
 type FormacionJustificacionRow = {
-  id: string
-  nombre: string
-  tipo: string | null
-  fecha_inicio: string
-  fecha_fin: string
-  estado: string
-  participantes: Array<Record<string, unknown>> | null
-  metadata: Record<string, unknown> | null
-}
+  id: string;
+  nombre: string;
+  tipo: string | null;
+  fecha_inicio: string;
+  fecha_fin: string;
+  estado: string;
+  participantes: Array<Record<string, unknown>> | null;
+  metadata: Record<string, unknown> | null;
+};
 
-type VentaAsistenciaRow = Pick<Venta, 'asistencia_id' | 'confirmada'>
+type VentaAsistenciaRow = Pick<Venta, 'asistencia_id' | 'confirmada'>;
 
-type MissionCatalogRow = Pick<MisionDia, 'id' | 'codigo' | 'instruccion' | 'orden' | 'peso'>
+type MissionCatalogRow = Pick<MisionDia, 'id' | 'codigo' | 'instruccion' | 'orden' | 'peso'>;
 
 type RecentMissionRow = Pick<
   Asistencia,
   'empleado_id' | 'pdv_id' | 'mision_dia_id' | 'mision_codigo' | 'fecha_operacion' | 'created_at'
->
+>;
 
-interface AsistenciaQueryRow
-  extends Pick<
-    Asistencia,
-    | 'id'
-    | 'cuenta_cliente_id'
-    | 'asignacion_id'
-    | 'empleado_id'
-    | 'supervisor_empleado_id'
-    | 'pdv_id'
-    | 'mision_dia_id'
-    | 'fecha_operacion'
-    | 'empleado_nombre'
-    | 'pdv_clave_btl'
-    | 'pdv_nombre'
-    | 'pdv_zona'
-    | 'cadena_nombre'
-    | 'check_in_utc'
-    | 'check_out_utc'
-    | 'distancia_check_in_metros'
-    | 'estado_gps'
-    | 'justificacion_fuera_geocerca'
-    | 'mision_codigo'
-    | 'mision_instruccion'
-    | 'biometria_estado'
-    | 'estatus'
-  > {
-  cuenta_cliente: MaybeMany<CuentaClienteRelacion>
+interface AsistenciaQueryRow extends Pick<
+  Asistencia,
+  | 'id'
+  | 'cuenta_cliente_id'
+  | 'asignacion_id'
+  | 'empleado_id'
+  | 'supervisor_empleado_id'
+  | 'pdv_id'
+  | 'mision_dia_id'
+  | 'fecha_operacion'
+  | 'empleado_nombre'
+  | 'pdv_clave_btl'
+  | 'pdv_nombre'
+  | 'pdv_zona'
+  | 'cadena_nombre'
+  | 'check_in_utc'
+  | 'check_out_utc'
+  | 'distancia_check_in_metros'
+  | 'estado_gps'
+  | 'justificacion_fuera_geocerca'
+  | 'mision_codigo'
+  | 'mision_instruccion'
+  | 'biometria_estado'
+  | 'estatus'
+  | 'metadata'
+> {
+  cuenta_cliente: MaybeMany<CuentaClienteRelacion>;
 }
 
 interface GeocercaContextRow {
-  pdv_id: string
-  latitud: number
-  longitud: number
-  radio_tolerancia_metros: number
-  permite_checkin_con_justificacion: boolean
+  pdv_id: string;
+  latitud: number;
+  longitud: number;
+  radio_tolerancia_metros: number;
+  permite_checkin_con_justificacion: boolean;
 }
 
 type AsignacionDisciplinaRow = Pick<
@@ -100,143 +114,144 @@ type AsignacionDisciplinaRow = Pick<
   | 'naturaleza'
   | 'prioridad'
   | 'estado_publicacion'
->
+>;
 
-type ConfiguracionAsistenciaRow = Pick<ConfiguracionSistema, 'clave' | 'valor'>
+type ConfiguracionAsistenciaRow = Pick<ConfiguracionSistema, 'clave' | 'valor'>;
 
-type EmpleadoSalaryRow = Pick<Empleado, 'id' | 'sueldo_base_mensual'>
+type EmpleadoSalaryRow = Pick<Empleado, 'id' | 'sueldo_base_mensual'>;
 
 export interface AsistenciaDisciplinaResumen {
-  retardos: number
-  faltas: number
-  ausenciasJustificadas: number
-  pendientesValidacion: number
-  faltasAdministrativas: number
+  retardos: number;
+  faltas: number;
+  ausenciasJustificadas: number;
+  pendientesValidacion: number;
+  faltasAdministrativas: number;
 }
 
 export interface AsistenciaDisciplinaItem {
-  assignmentId: string
-  empleadoId: string
-  cuentaClienteId: string | null
-  supervisorEmpleadoId: string | null
-  empleado: string
-  cuentaCliente: string | null
-  fecha: string
-  estado: AttendanceDisciplineRecord['estado']
-  minutosRetardo: number | null
-  horarioEsperado: string | null
+  assignmentId: string;
+  empleadoId: string;
+  cuentaClienteId: string | null;
+  supervisorEmpleadoId: string | null;
+  empleado: string;
+  cuentaCliente: string | null;
+  fecha: string;
+  estado: AttendanceDisciplineRecord['estado'];
+  minutosRetardo: number | null;
+  horarioEsperado: string | null;
 }
 export interface AsistenciaResumen {
-  total: number
-  abiertas: number
-  pendientesValidacion: number
-  fueraGeocerca: number
-  cerradas: number
-  justificadas: number
+  total: number;
+  abiertas: number;
+  pendientesValidacion: number;
+  fueraGeocerca: number;
+  cerradas: number;
+  justificadas: number;
 }
 
 export interface AsistenciaListadoItem {
-  id: string
-  cuentaClienteId: string
-  asignacionId: string | null
-  empleadoId: string
-  supervisorEmpleadoId: string | null
-  pdvId: string
-  misionDiaId: string | null
-  fechaOperacion: string
-  cuentaCliente: string | null
-  empleado: string
-  pdvClaveBtl: string
-  pdvNombre: string
-  zona: string | null
-  cadena: string | null
-  checkInUtc: string | null
-  checkOutUtc: string | null
-  distanciaCheckInMetros: number | null
-  estadoGps: string
-  biometriaEstado: string
-  estatus: string
-  misionCodigo: string | null
-  misionInstruccion: string | null
-  justificacionFueraGeocerca: string | null
-  geocercaLatitud: number | null
-  geocercaLongitud: number | null
-  geocercaRadioMetros: number | null
-  permiteCheckinConJustificacion: boolean
-  solicitudRelacionadaId: string | null
-  solicitudRelacionadaTipo: string | null
-  solicitudRelacionadaEstatus: string | null
-  diaJustificado: boolean
-  detalleJustificacion: string | null
-  ventasConfirmadas: number
-  ventasPendientesConfirmacion: number
-  ultimaMisionDiaId: string | null
-  ultimaMisionCodigo: string | null
+  id: string;
+  cuentaClienteId: string;
+  asignacionId: string | null;
+  empleadoId: string;
+  supervisorEmpleadoId: string | null;
+  pdvId: string;
+  misionDiaId: string | null;
+  fechaOperacion: string;
+  cuentaCliente: string | null;
+  empleado: string;
+  pdvClaveBtl: string;
+  pdvNombre: string;
+  zona: string | null;
+  cadena: string | null;
+  checkInUtc: string | null;
+  checkOutUtc: string | null;
+  distanciaCheckInMetros: number | null;
+  estadoGps: string;
+  biometriaEstado: string;
+  estatus: string;
+  misionCodigo: string | null;
+  misionInstruccion: string | null;
+  justificacionFueraGeocerca: string | null;
+  geocercaLatitud: number | null;
+  geocercaLongitud: number | null;
+  geocercaRadioMetros: number | null;
+  permiteCheckinConJustificacion: boolean;
+  solicitudRelacionadaId: string | null;
+  solicitudRelacionadaTipo: string | null;
+  solicitudRelacionadaEstatus: string | null;
+  diaJustificado: boolean;
+  detalleJustificacion: string | null;
+  ventasConfirmadas: number;
+  ventasPendientesConfirmacion: number;
+  ultimaMisionDiaId: string | null;
+  ultimaMisionCodigo: string | null;
+  metadata?: any;
 }
 
 export interface AsistenciasPanelData {
-  resumen: AsistenciaResumen
-  disciplinaResumen: AsistenciaDisciplinaResumen
-  incidenciasDisciplina: AsistenciaDisciplinaItem[]
-  asistencias: AsistenciaListadoItem[]
-  misionesCatalogo: AttendanceMissionCatalogItem[]
+  resumen: AsistenciaResumen;
+  disciplinaResumen: AsistenciaDisciplinaResumen;
+  incidenciasDisciplina: AsistenciaDisciplinaItem[];
+  asistencias: AsistenciaListadoItem[];
+  misionesCatalogo: AttendanceMissionCatalogItem[];
   paginacion: {
-    page: number
-    pageSize: number
-    totalItems: number
-    totalPages: number
-  }
-  infraestructuraLista: boolean
-  mensajeInfraestructura?: string
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+  };
+  infraestructuraLista: boolean;
+  mensajeInfraestructura?: string;
 }
 
 interface ObtenerAsistenciasOptions {
-  page?: number
-  pageSize?: number
-  actor?: ActorActual | null
-  serviceClient?: TypedSupabaseClient
+  page?: number;
+  pageSize?: number;
+  actor?: ActorActual | null;
+  serviceClient?: TypedSupabaseClient;
 }
 
-const ASISTENCIAS_PANEL_REVALIDATE_SECONDS = 60
+const ASISTENCIAS_PANEL_REVALIDATE_SECONDS = 60;
 
 const obtenerPrimero = <T>(value: MaybeMany<T>): T | null => {
   if (!value) {
-    return null
+    return null;
   }
 
-  return Array.isArray(value) ? value[0] ?? null : value
-}
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+};
 
 function normalizeMetadata(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {}
+    return {};
   }
 
-  return value as Record<string, unknown>
+  return value as Record<string, unknown>;
 }
 
 function isApprovedSolicitud(estatus: Solicitud['estatus']) {
-  return estatus === 'REGISTRADA_RH' || estatus === 'REGISTRADA'
+  return estatus === 'REGISTRADA_RH' || estatus === 'REGISTRADA';
 }
 
 function isSameOrWithinRange(date: string, start: string, end: string) {
-  return date >= start && date <= end
+  return date >= start && date <= end;
 }
 
 function normalizePage(value?: number) {
   if (!value || Number.isNaN(value)) {
-    return 1
+    return 1;
   }
 
-  return Math.max(1, Math.floor(value))
+  return Math.max(1, Math.floor(value));
 }
 
 function normalizePageSize(value?: number) {
   if (!value || Number.isNaN(value)) {
-    return 50
+    return 50;
   }
 
-  return Math.min(50, Math.max(10, Math.floor(value)))
+  return Math.min(50, Math.max(10, Math.floor(value)));
 }
 
 function buildEmptyDisciplinaResumen(): AsistenciaDisciplinaResumen {
@@ -246,30 +261,30 @@ function buildEmptyDisciplinaResumen(): AsistenciaDisciplinaResumen {
     ausenciasJustificadas: 0,
     pendientesValidacion: 0,
     faltasAdministrativas: 0,
-  }
+  };
 }
 
 function resolveNumericConfigValue(value: unknown, fallback: number) {
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return value
+    return value;
   }
 
   if (typeof value === 'string') {
-    const parsed = Number(value)
+    const parsed = Number(value);
     if (Number.isFinite(parsed)) {
-      return parsed
+      return parsed;
     }
   }
 
   if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const payload = value as Record<string, unknown>
-    const parsed = Number(payload.value ?? payload.numero ?? payload.defaultValue)
+    const payload = value as Record<string, unknown>;
+    const parsed = Number(payload.value ?? payload.numero ?? payload.defaultValue);
     if (Number.isFinite(parsed)) {
-      return parsed
+      return parsed;
     }
   }
 
-  return fallback
+  return fallback;
 }
 
 function buildAsistenciasCacheKey(actor: ActorActual, options?: ObtenerAsistenciasOptions) {
@@ -279,7 +294,7 @@ function buildAsistenciasCacheKey(actor: ActorActual, options?: ObtenerAsistenci
     actor.puesto,
     String(normalizePage(options?.page)),
     String(normalizePageSize(options?.pageSize)),
-  ].join(':')
+  ].join(':');
 }
 
 function buildAsistenciasCacheTags(actor: ActorActual) {
@@ -287,20 +302,20 @@ function buildAsistenciasCacheTags(actor: ActorActual) {
     module: 'asistencias',
     accountId: actor.cuentaClienteId ?? null,
     employeeId: actor.empleadoId ?? null,
-    supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId ?? null : null,
-  })
+    supervisorId: actor.puesto === 'SUPERVISOR' ? (actor.empleadoId ?? null) : null,
+  });
 }
 
 async function obtenerPanelAsistenciasUncached(
   supabase: SupabaseClient,
   options?: ObtenerAsistenciasOptions
 ): Promise<AsistenciasPanelData> {
-  const page = normalizePage(options?.page)
-  const pageSize = normalizePageSize(options?.pageSize)
+  const page = normalizePage(options?.page);
+  const pageSize = normalizePageSize(options?.pageSize);
 
   const { count, error: countError } = await supabase
     .from('asistencia')
-    .select('id', { count: 'exact', head: true })
+    .select('id', { count: 'exact', head: true });
 
   if (countError) {
     return {
@@ -325,18 +340,19 @@ async function obtenerPanelAsistenciasUncached(
       infraestructuraLista: false,
       mensajeInfraestructura:
         'La tabla `asistencia` aun no esta disponible en Supabase. Ejecuta la migracion de ejecucion diaria.',
-    }
+    };
   }
 
-  const totalItems = count ?? 0
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-  const safePage = Math.min(page, totalPages)
-  const from = (safePage - 1) * pageSize
-  const to = from + pageSize - 1
+  const totalItems = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const from = (safePage - 1) * pageSize;
+  const to = from + pageSize - 1;
 
   const { data, error } = await supabase
     .from('asistencia')
-    .select(`
+    .select(
+      `
       id,
       cuenta_cliente_id,
       asignacion_id,
@@ -359,11 +375,13 @@ async function obtenerPanelAsistenciasUncached(
       mision_instruccion,
       biometria_estado,
       estatus,
+      metadata,
       cuenta_cliente:cuenta_cliente_id(nombre)
-    `)
+    `
+    )
     .order('fecha_operacion', { ascending: false })
     .order('created_at', { ascending: false })
-    .range(from, to)
+    .range(from, to);
 
   if (error) {
     return {
@@ -388,21 +406,21 @@ async function obtenerPanelAsistenciasUncached(
       infraestructuraLista: false,
       mensajeInfraestructura:
         'La tabla `asistencia` aun no esta disponible en Supabase. Ejecuta la migracion de ejecucion diaria.',
-    }
+    };
   }
 
-  const asistenciasBase = (data ?? []) as unknown as AsistenciaQueryRow[]
-  const pdvIds = Array.from(new Set(asistenciasBase.map((item) => item.pdv_id)))
-  const empleadoIds = Array.from(new Set(asistenciasBase.map((item) => item.empleado_id)))
-  const fechas = asistenciasBase.map((item) => item.fecha_operacion)
+  const asistenciasBase = (data ?? []) as unknown as AsistenciaQueryRow[];
+  const pdvIds = Array.from(new Set(asistenciasBase.map((item) => item.pdv_id)));
+  const empleadoIds = Array.from(new Set(asistenciasBase.map((item) => item.empleado_id)));
+  const fechas = asistenciasBase.map((item) => item.fecha_operacion);
   const fechaMin =
     fechas.length > 0
       ? fechas.reduce((minimo, actual) => (actual < minimo ? actual : minimo), fechas[0])
-      : null
+      : null;
   const fechaMax =
     fechas.length > 0
       ? fechas.reduce((maximo, actual) => (actual > maximo ? actual : maximo), fechas[0])
-      : null
+      : null;
 
   const geocercasResult =
     pdvIds.length > 0
@@ -412,7 +430,7 @@ async function obtenerPanelAsistenciasUncached(
             'pdv_id, latitud, longitud, radio_tolerancia_metros, permite_checkin_con_justificacion'
           )
           .in('pdv_id', pdvIds)
-      : { data: [] as GeocercaContextRow[], error: null }
+      : { data: [] as GeocercaContextRow[], error: null };
 
   const solicitudesResult =
     empleadoIds.length > 0 && fechaMin && fechaMax
@@ -422,7 +440,7 @@ async function obtenerPanelAsistenciasUncached(
           .in('empleado_id', empleadoIds)
           .lte('fecha_inicio', fechaMax)
           .gte('fecha_fin', fechaMin)
-      : { data: [] as SolicitudAsistenciaRow[], error: null }
+      : { data: [] as SolicitudAsistenciaRow[], error: null };
 
   const formacionesResult =
     empleadoIds.length > 0 && fechaMin && fechaMax
@@ -431,7 +449,7 @@ async function obtenerPanelAsistenciasUncached(
           .select('id, nombre, tipo, fecha_inicio, fecha_fin, estado, participantes, metadata')
           .lte('fecha_inicio', fechaMax)
           .gte('fecha_fin', fechaMin)
-      : { data: [] as FormacionJustificacionRow[], error: null }
+      : { data: [] as FormacionJustificacionRow[], error: null };
 
   const ventaRowsResult =
     asistenciasBase.length > 0
@@ -442,7 +460,7 @@ async function obtenerPanelAsistenciasUncached(
             'asistencia_id',
             asistenciasBase.map((item) => item.id)
           )
-      : { data: [] as VentaAsistenciaRow[], error: null }
+      : { data: [] as VentaAsistenciaRow[], error: null };
 
   const assignmentsResult =
     empleadoIds.length > 0 && fechaMin && fechaMax
@@ -455,17 +473,17 @@ async function obtenerPanelAsistenciasUncached(
           .eq('estado_publicacion', 'PUBLICADA')
           .lte('fecha_inicio', fechaMax)
           .or(`fecha_fin.gte.${fechaMin},fecha_fin.is.null`)
-      : { data: [] as AsignacionDisciplinaRow[], error: null }
+      : { data: [] as AsignacionDisciplinaRow[], error: null };
 
   const configuracionResult = await supabase
     .from('configuracion')
     .select('clave, valor')
-    .in('clave', ['asistencias.tolerancia_checkin_minutos', 'nomina.deduccion_falta_dias'])
+    .in('clave', ['asistencias.tolerancia_checkin_minutos', 'nomina.deduccion_falta_dias']);
 
   const empleadosSalaryResult =
     empleadoIds.length > 0
       ? await supabase.from('empleado').select('id, sueldo_base_mensual').in('id', empleadoIds)
-      : { data: [] as EmpleadoSalaryRow[], error: null }
+      : { data: [] as EmpleadoSalaryRow[], error: null };
 
   const misionesCatalogoResult = await supabase
     .from('mision_dia')
@@ -473,7 +491,7 @@ async function obtenerPanelAsistenciasUncached(
     .eq('activa', true)
     .order('orden', { ascending: true, nullsFirst: false })
     .order('peso', { ascending: false })
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: true });
 
   const recentMissionRowsResult =
     empleadoIds.length > 0 && pdvIds.length > 0
@@ -486,70 +504,75 @@ async function obtenerPanelAsistenciasUncached(
           .order('fecha_operacion', { ascending: false })
           .order('created_at', { ascending: false })
           .limit(500)
-      : { data: [] as RecentMissionRow[], error: null }
+      : { data: [] as RecentMissionRow[], error: null };
 
   const geocercasPorPdv = ((geocercasResult.data ?? []) as GeocercaContextRow[]).reduce<
     Record<string, GeocercaContextRow>
   >((acumulado, item) => {
-    acumulado[item.pdv_id] = item
-    return acumulado
-  }, {})
+    acumulado[item.pdv_id] = item;
+    return acumulado;
+  }, {});
 
-  const solicitudesPorEmpleado = ((solicitudesResult.data ?? []) as SolicitudAsistenciaRow[]).reduce<
-    Record<string, SolicitudAsistenciaRow[]>
-  >((acumulado, item) => {
-    acumulado[item.empleado_id] ??= []
-    acumulado[item.empleado_id].push(item)
-    return acumulado
-  }, {})
+  const solicitudesPorEmpleado = (
+    (solicitudesResult.data ?? []) as SolicitudAsistenciaRow[]
+  ).reduce<Record<string, SolicitudAsistenciaRow[]>>((acumulado, item) => {
+    acumulado[item.empleado_id] ??= [];
+    acumulado[item.empleado_id].push(item);
+    return acumulado;
+  }, {});
 
-  const formacionesJustificacion = (formacionesResult.data ?? []) as FormacionJustificacionRow[]
+  const formacionesJustificacion = (formacionesResult.data ?? []) as FormacionJustificacionRow[];
 
   const ventasPorAsistencia = ((ventaRowsResult.data ?? []) as VentaAsistenciaRow[]).reduce<
     Record<string, { confirmadas: number; pendientes: number }>
   >((acumulado, item) => {
-    acumulado[item.asistencia_id] ??= { confirmadas: 0, pendientes: 0 }
+    acumulado[item.asistencia_id] ??= { confirmadas: 0, pendientes: 0 };
     if (item.confirmada) {
-      acumulado[item.asistencia_id].confirmadas += 1
+      acumulado[item.asistencia_id].confirmadas += 1;
     } else {
-      acumulado[item.asistencia_id].pendientes += 1
+      acumulado[item.asistencia_id].pendientes += 1;
     }
-    return acumulado
-  }, {})
+    return acumulado;
+  }, {});
 
-  const misionesCatalogo = ((misionesCatalogoResult.data ?? []) as MissionCatalogRow[]).map<AttendanceMissionCatalogItem>((item) => ({
+  const misionesCatalogo = (
+    (misionesCatalogoResult.data ?? []) as MissionCatalogRow[]
+  ).map<AttendanceMissionCatalogItem>((item) => ({
     id: item.id,
     codigo: item.codigo,
     instruccion: item.instruccion,
     orden: item.orden,
     peso: item.peso,
-  }))
+  }));
 
-  const ultimaMisionPorEmpleadoPdv = ((recentMissionRowsResult.data ?? []) as RecentMissionRow[]).reduce<
-    Record<string, { misionDiaId: string | null; misionCodigo: string | null }>
-  >((acumulado, item) => {
-    const pairKey = `${item.empleado_id}::${item.pdv_id}`
-    if (!acumulado[pairKey]) {
-      acumulado[pairKey] = {
-        misionDiaId: item.mision_dia_id,
-        misionCodigo: item.mision_codigo,
+  const ultimaMisionPorEmpleadoPdv = (
+    (recentMissionRowsResult.data ?? []) as RecentMissionRow[]
+  ).reduce<Record<string, { misionDiaId: string | null; misionCodigo: string | null }>>(
+    (acumulado, item) => {
+      const pairKey = `${item.empleado_id}::${item.pdv_id}`;
+      if (!acumulado[pairKey]) {
+        acumulado[pairKey] = {
+          misionDiaId: item.mision_dia_id,
+          misionCodigo: item.mision_codigo,
+        };
       }
-    }
-    return acumulado
-  }, {})
+      return acumulado;
+    },
+    {}
+  );
 
   const asistencias = asistenciasBase.map((asistencia) => {
-    const geocerca = geocercasPorPdv[asistencia.pdv_id]
+    const geocerca = geocercasPorPdv[asistencia.pdv_id];
     const solicitudRelacionada = (solicitudesPorEmpleado[asistencia.empleado_id] ?? []).find(
       (item) => {
-        const metadata = normalizeMetadata(item.metadata)
+        const metadata = normalizeMetadata(item.metadata);
         return (
           Boolean(metadata.justifica_asistencia) &&
           isApprovedSolicitud(item.estatus) &&
           isSameOrWithinRange(asistencia.fecha_operacion, item.fecha_inicio, item.fecha_fin)
-        )
+        );
       }
-    )
+    );
     const formacionRelacionada = formacionesJustificacion.find(
       (item) =>
         ['PROGRAMADA', 'EN_CURSO'].includes(item.estado) &&
@@ -565,7 +588,7 @@ async function obtenerPanelAsistenciasUncached(
             pdvId: asistencia.pdv_id,
           }
         )
-    )
+    );
     const justificacionRelacionada = solicitudRelacionada
       ? {
           id: solicitudRelacionada.id,
@@ -580,9 +603,10 @@ async function obtenerPanelAsistenciasUncached(
             estatus: formacionRelacionada.estado,
             detalle: `${formacionRelacionada.nombre} · ${formacionRelacionada.fecha_inicio} -> ${formacionRelacionada.fecha_fin}`,
           }
-        : null
-    const resumenVentas = ventasPorAsistencia[asistencia.id] ?? { confirmadas: 0, pendientes: 0 }
-    const ultimaMision = ultimaMisionPorEmpleadoPdv[`${asistencia.empleado_id}::${asistencia.pdv_id}`]
+        : null;
+    const resumenVentas = ventasPorAsistencia[asistencia.id] ?? { confirmadas: 0, pendientes: 0 };
+    const ultimaMision =
+      ultimaMisionPorEmpleadoPdv[`${asistencia.empleado_id}::${asistencia.pdv_id}`];
 
     return {
       id: asistencia.id,
@@ -621,17 +645,20 @@ async function obtenerPanelAsistenciasUncached(
       ventasPendientesConfirmacion: resumenVentas.pendientes,
       ultimaMisionDiaId: ultimaMision?.misionDiaId ?? null,
       ultimaMisionCodigo: ultimaMision?.misionCodigo ?? null,
-    }
-  })
+      metadata: asistencia.metadata,
+    };
+  });
 
   const toleranceMinutes = resolveNumericConfigValue(
     ((configuracionResult.data ?? []) as ConfiguracionAsistenciaRow[]).find(
       (item) => item.clave === 'asistencias.tolerancia_checkin_minutos'
     )?.valor,
     15
-  )
+  );
   const disciplina = deriveAttendanceDiscipline({
-    assignments: ((assignmentsResult.data ?? []) as AsignacionDisciplinaRow[]).map<AttendanceDisciplineAssignment>((item) => ({
+    assignments: (
+      (assignmentsResult.data ?? []) as AsignacionDisciplinaRow[]
+    ).map<AttendanceDisciplineAssignment>((item) => ({
       id: item.id,
       empleadoId: item.empleado_id,
       cuentaClienteId: item.cuenta_cliente_id,
@@ -653,6 +680,7 @@ async function obtenerPanelAsistenciasUncached(
       checkInUtc: item.checkInUtc,
       checkOutUtc: item.checkOutUtc,
       estatus: item.estatus as 'PENDIENTE_VALIDACION' | 'VALIDA' | 'RECHAZADA' | 'CERRADA',
+      metadata: item.metadata,
     })),
     solicitudes: ((solicitudesResult.data ?? []) as SolicitudAsistenciaRow[]).map((item) => ({
       id: item.id,
@@ -708,24 +736,26 @@ async function obtenerPanelAsistenciasUncached(
     })),
     periodStart: fechaMin ?? new Date().toISOString().slice(0, 10),
     periodEnd: fechaMax ?? new Date().toISOString().slice(0, 10),
-  })
-  const empleadoLabelMap = new Map(asistencias.map((item) => [item.empleadoId, item.empleado] as const))
+  });
+  const empleadoLabelMap = new Map(
+    asistencias.map((item) => [item.empleadoId, item.empleado] as const)
+  );
   const cuentaLabelMap = new Map(
     asistencias
       .filter((item) => item.cuentaClienteId)
       .map((item) => [item.cuentaClienteId, item.cuentaCliente] as const)
-  )
+  );
   const disciplinaResumen = disciplina.summaries.reduce<AsistenciaDisciplinaResumen>(
     (acc, item) => {
-      acc.retardos += item.retardos
-      acc.faltas += item.faltas
-      acc.ausenciasJustificadas += item.ausenciasJustificadas
-      acc.pendientesValidacion += item.pendientesValidacion
-      acc.faltasAdministrativas += item.faltasAdministrativas
-      return acc
+      acc.retardos += item.retardos;
+      acc.faltas += item.faltas;
+      acc.ausenciasJustificadas += item.ausenciasJustificadas;
+      acc.pendientesValidacion += item.pendientesValidacion;
+      acc.faltasAdministrativas += item.faltasAdministrativas;
+      return acc;
     },
     buildEmptyDisciplinaResumen()
-  )
+  );
   const incidenciasDisciplina = disciplina.records
     .filter((item) => item.estado !== 'ASISTENCIA')
     .slice(0, 24)
@@ -735,12 +765,13 @@ async function obtenerPanelAsistenciasUncached(
       cuentaClienteId: item.cuentaClienteId,
       supervisorEmpleadoId: item.supervisorEmpleadoId,
       empleado: empleadoLabelMap.get(item.empleadoId) ?? item.empleadoId,
-      cuentaCliente: (item.cuentaClienteId ? cuentaLabelMap.get(item.cuentaClienteId) : null) ?? null,
+      cuentaCliente:
+        (item.cuentaClienteId ? cuentaLabelMap.get(item.cuentaClienteId) : null) ?? null,
       fecha: item.fecha,
       estado: item.estado,
       minutosRetardo: item.minutosRetardo,
       horarioEsperado: item.horarioEsperado,
-    }))
+    }));
 
   return {
     resumen: {
@@ -764,7 +795,7 @@ async function obtenerPanelAsistenciasUncached(
       totalPages,
     },
     infraestructuraLista: true,
-  }
+  };
 }
 
 export async function obtenerPanelAsistencias(
@@ -773,20 +804,20 @@ export async function obtenerPanelAsistencias(
   customSupabase?: TypedSupabaseClient
 ): Promise<AsistenciasPanelData> {
   if (isSupabaseClient(actorOrSupabase)) {
-    return obtenerPanelAsistenciasUncached(actorOrSupabase, options)
+    return obtenerPanelAsistenciasUncached(actorOrSupabase, options);
   }
 
-  const actor = actorOrSupabase
+  const actor = actorOrSupabase;
   const resolvedOptions: ObtenerAsistenciasOptions = {
     ...options,
     actor,
-  }
+  };
 
   if (customSupabase) {
-    return obtenerPanelAsistenciasUncached(customSupabase, resolvedOptions)
+    return obtenerPanelAsistenciasUncached(customSupabase, resolvedOptions);
   }
 
-  const service = options?.serviceClient ?? createServiceClient()
+  const service = options?.serviceClient ?? createServiceClient();
   return unstable_cache(
     async () =>
       obtenerPanelAsistenciasUncached(service, { ...resolvedOptions, serviceClient: service }),
@@ -795,5 +826,5 @@ export async function obtenerPanelAsistencias(
       revalidate: ASISTENCIAS_PANEL_REVALIDATE_SECONDS,
       tags: buildAsistenciasCacheTags(actor),
     }
-  )()
+  )();
 }

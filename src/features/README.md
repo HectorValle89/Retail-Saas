@@ -13,13 +13,17 @@ cp -r src/features/.template src/features/mi-nueva-feature
 ## Features Actuales
 
 ### `auth/`
+
 Autenticación y gestión de sesiones con Supabase.
+
 - Login/Signup con Email/Password
 - Gestión de sesión
 - Protección de rutas
 
 ### `dashboard/`
+
 Dashboard principal de la aplicación.
+
 - Navegación principal
 - Widgets y stats
 - Layout del dashboard

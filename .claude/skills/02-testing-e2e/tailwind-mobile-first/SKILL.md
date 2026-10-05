@@ -6,6 +6,7 @@ description: Diseño Mobile-First con Tailwind para operarios
 # Tailwind Mobile-First - Beteele
 
 ## Breakpoints
+
 ```typescript
 // Default: mobile (< 640px)
 // sm: 640px, md: 768px, lg: 1024px, xl: 1280px
@@ -24,30 +25,32 @@ description: Diseño Mobile-First con Tailwind para operarios
 ```
 
 ## Tokens Beteele
+
 ```typescript
 // tailwind.config.ts
 export default {
   theme: {
     extend: {
       fontSize: {
-        'field': '18px',  // Mínimo para operarios
+        field: '18px', // Mínimo para operarios
       },
       spacing: {
-        'touch': '44px',  // Mínimo táctil iOS/Android
+        touch: '44px', // Mínimo táctil iOS/Android
       },
       colors: {
-        'brand': {
+        brand: {
           blue: '#2563eb',
           green: '#10b981',
           red: '#ef4444',
-        }
-      }
-    }
-  }
-}
+        },
+      },
+    },
+  },
+};
 ```
 
 ## Componentes Accesibles
+
 ```typescript
 <input
   className="

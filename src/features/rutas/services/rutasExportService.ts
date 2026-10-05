@@ -570,13 +570,24 @@ export async function generarExcelRutasAprobadas(
   
   const fixedHeaders = ['CLAVE BTL', 'CADENA', 'ID PDV', 'SUCURSAL', 'SUPERVISOR', 'CORREO SUPERVISOR', 'TELÉFONO SUPERVISOR', 'MES'];
   fixedHeaders.forEach((val, idx) => {
-    freqSheet.mergeCells(1, idx + 1, 3, idx + 1);
-    const cell = freqSheet.getCell(1, idx + 1);
-    cell.value = val;
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F3E4E' } };
-    cell.font = { name: 'Aptos', size: 9, bold: true, color: { argb: 'FFFFFF' } };
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
-    cell.border = borderThin;
+    const colIdx = idx + 1;
+
+    // Filas 1 y 2 sin combinar con la fila 3
+    const cell1 = freqSheet.getCell(1, colIdx);
+    cell1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+    cell1.border = borderThin;
+
+    const cell2 = freqSheet.getCell(2, colIdx);
+    cell2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
+    cell2.border = borderThin;
+
+    // Fila 3: Cabecera con el nombre de campo para filtrado continuo
+    const cell3 = freqSheet.getCell(3, colIdx);
+    cell3.value = val;
+    cell3.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F3E4E' } };
+    cell3.font = { name: 'Aptos', size: 9, bold: true, color: { argb: 'FFFFFF' } };
+    cell3.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell3.border = borderThin;
   });
 
   const colStart = 9;
@@ -589,12 +600,20 @@ export async function generarExcelRutasAprobadas(
   monthCell.alignment = { vertical: 'middle', horizontal: 'center' };
   monthCell.border = borderThin;
 
-  freqSheet.mergeCells(1, colEnd + 1, 3, colEnd + 1);
-  const diasCell = freqSheet.getCell(1, colEnd + 1);
+  // Columna de total días (# DÍAS) sin combinar verticalmente
+  const cellDias1 = freqSheet.getCell(1, colEnd + 1);
+  cellDias1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF581C87' } };
+  cellDias1.border = borderThin;
+
+  const cellDias2 = freqSheet.getCell(2, colEnd + 1);
+  cellDias2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF6B21A8' } };
+  cellDias2.border = borderThin;
+
+  const diasCell = freqSheet.getCell(3, colEnd + 1);
   diasCell.value = '# DÍAS';
   diasCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF701A75' } }; // Morado oscuro
   diasCell.font = { name: 'Aptos', size: 9, bold: true, color: { argb: 'FFFFFF' } };
-  diasCell.alignment = { vertical: 'middle', horizontal: 'center', textRotation: 90 };
+  diasCell.alignment = { vertical: 'middle', horizontal: 'center' };
   diasCell.border = borderThin;
 
   const diasSemana = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
@@ -620,7 +639,13 @@ export async function generarExcelRutasAprobadas(
 
   freqHeaderRow1.height = 24;
   freqHeaderRow2.height = 18;
-  freqHeaderRow3.height = 18;
+  freqHeaderRow3.height = 22;
+
+  // Habilitar filtro automático en la fila 3 desde la columna 1 hasta la última columna (# DÍAS)
+  freqSheet.autoFilter = {
+    from: { row: 3, column: 1 },
+    to: { row: 3, column: colEnd + 1 },
+  };
 
   const pdvFreqMap = new Map<string, {
     clavePdv: string;

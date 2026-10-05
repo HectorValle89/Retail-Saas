@@ -1,19 +1,13 @@
-'use server'
+'use server';
 
-import { obtenerClienteAdmin } from '@/lib/auth/admin'
-import { requerirAdministradorActivo } from '@/lib/auth/session'
-import { publishUiChanges } from '@/lib/ui-change/server'
-import {
-  buildUiChangeScope,
-  buildUiChangeTargetsFromBusinessEvent,
-} from '@/lib/ui-change/types'
-import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState'
-import type { ConfiguracionSistema } from '@/types/database'
-import { parseProductCatalogWorkbook } from './lib/productCatalogImport'
-import {
-  ESTADO_CONFIGURACION_ADMIN_INICIAL,
-  type ConfiguracionAdminActionState,
-} from './state'
+import { obtenerClienteAdmin } from '@/lib/auth/admin';
+import { requerirAdministradorActivo } from '@/lib/auth/session';
+import { publishUiChanges } from '@/lib/ui-change/server';
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types';
+import { resolveMexicoStateFromCity } from '@/lib/geo/mexicoCityState';
+import type { ConfiguracionSistema } from '@/types/database';
+import { parseProductCatalogWorkbook } from './lib/productCatalogImport';
+import { ESTADO_CONFIGURACION_ADMIN_INICIAL, type ConfiguracionAdminActionState } from './state';
 import {
   EDITABLE_PARAMETER_DEFINITION_MAP,
   OCR_MODEL_CONFIG_KEY,
@@ -31,7 +25,7 @@ import {
   parseTurnosCatalogo,
   serializeTurnosCatalogo,
   type TurnoCatalogoItem,
-} from './configuracionCatalog'
+} from './configuracionCatalog';
 
 function buildState(
   partial: Partial<ConfiguracionAdminActionState>
@@ -39,46 +33,48 @@ function buildState(
   return {
     ...ESTADO_CONFIGURACION_ADMIN_INICIAL,
     ...partial,
-  }
+  };
 }
 
 function normalizeOptionalText(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
-  return normalized || null
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
 }
 
 function normalizeRequiredText(value: FormDataEntryValue | null, label: string) {
-  const normalized = String(value ?? '').trim()
+  const normalized = String(value ?? '').trim();
 
   if (!normalized) {
-    throw new Error(`${label} es obligatorio.`)
+    throw new Error(`${label} es obligatorio.`);
   }
 
-  return normalized
+  return normalized;
 }
 
 function normalizeBoolean(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim().toLowerCase()
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
 
   if (normalized === 'true' || normalized === 'on') {
-    return true
+    return true;
   }
 
   if (normalized === 'false' || normalized === 'off' || normalized === '') {
-    return false
+    return false;
   }
 
-  throw new Error('El valor booleano no es valido.')
+  throw new Error('El valor booleano no es valido.');
 }
 
 function normalizePositiveNumber(value: FormDataEntryValue | null, label: string) {
-  const parsed = Number(normalizeRequiredText(value, label))
+  const parsed = Number(normalizeRequiredText(value, label));
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${label} debe ser mayor a cero.`)
+    throw new Error(`${label} debe ser mayor a cero.`);
   }
 
-  return parsed
+  return parsed;
 }
 
 function normalizeIntegerInRange(
@@ -87,60 +83,60 @@ function normalizeIntegerInRange(
   min: number,
   max: number
 ) {
-  const parsed = Number(normalizeRequiredText(value, label))
+  const parsed = Number(normalizeRequiredText(value, label));
 
   if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
-    throw new Error(`${label} debe ser un entero entre ${min} y ${max}.`)
+    throw new Error(`${label} debe ser un entero entre ${min} y ${max}.`);
   }
 
-  return parsed
+  return parsed;
 }
 
 function normalizeOptionalInteger(value: FormDataEntryValue | null) {
-  const normalized = normalizeOptionalText(value)
+  const normalized = normalizeOptionalText(value);
 
   if (!normalized) {
-    return null
+    return null;
   }
 
-  const parsed = Number(normalized)
+  const parsed = Number(normalized);
   if (!Number.isInteger(parsed)) {
-    throw new Error('El valor debe ser entero.')
+    throw new Error('El valor debe ser entero.');
   }
 
-  return parsed
+  return parsed;
 }
 
 function normalizeTime(value: FormDataEntryValue | null, label: string) {
-  const normalized = normalizeOptionalText(value)
+  const normalized = normalizeOptionalText(value);
 
   if (!normalized) {
-    return null
+    return null;
   }
 
   if (!/^\d{2}:\d{2}$/.test(normalized)) {
-    throw new Error(`${label} debe tener formato HH:MM.`)
+    throw new Error(`${label} debe tener formato HH:MM.`);
   }
 
-  return `${normalized}:00`
+  return `${normalized}:00`;
 }
 
 function normalizeCode(value: FormDataEntryValue | null, label: string) {
-  return normalizeRequiredText(value, label).toUpperCase().replace(/\s+/g, '_')
+  return normalizeRequiredText(value, label).toUpperCase().replace(/\s+/g, '_');
 }
 
 function normalizeCatalogText(value: FormDataEntryValue | null, label: string) {
-  return normalizeRequiredText(value, label).toUpperCase()
+  return normalizeRequiredText(value, label).toUpperCase();
 }
 
 async function getAdminService() {
-  const { service, error } = obtenerClienteAdmin()
+  const { service, error } = obtenerClienteAdmin();
 
   if (!service) {
-    throw new Error(error ?? 'No fue posible inicializar el backend administrativo.')
+    throw new Error(error ?? 'No fue posible inicializar el backend administrativo.');
   }
 
-  return service
+  return service;
 }
 
 async function registrarEventoAudit(
@@ -157,7 +153,7 @@ async function registrarEventoAudit(
     payload,
     usuario_id: actorUsuarioId,
     cuenta_cliente_id: null,
-  })
+  });
 }
 
 async function upsertConfiguracion(
@@ -168,10 +164,10 @@ async function upsertConfiguracion(
     description,
     module,
   }: {
-    key: string
-    value: unknown
-    description: string
-    module: string
+    key: string;
+    value: unknown;
+    description: string;
+    module: string;
   }
 ) {
   const { data, error } = await service
@@ -187,13 +183,13 @@ async function upsertConfiguracion(
       { onConflict: 'clave' }
     )
     .select('id, clave, valor, descripcion, modulo')
-    .maybeSingle()
+    .maybeSingle();
 
   if (error || !data) {
-    throw new Error(error?.message ?? `No fue posible guardar ${key}.`)
+    throw new Error(error?.message ?? `No fue posible guardar ${key}.`);
   }
 
-  return data as ConfiguracionSistema
+  return data as ConfiguracionSistema;
 }
 
 async function obtenerConfiguracion(
@@ -204,21 +200,21 @@ async function obtenerConfiguracion(
     .from('configuracion')
     .select('id, clave, valor, descripcion, modulo')
     .eq('clave', key)
-    .maybeSingle()
+    .maybeSingle();
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
 
-  return (data as ConfiguracionSistema | null) ?? null
+  return (data as ConfiguracionSistema | null) ?? null;
 }
 
 async function publishConfiguracionPanelChange(
   service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
   input: {
-    eventType: string
-    key: string
-    metadata?: Record<string, unknown> | null
+    eventType: string;
+    key: string;
+    metadata?: Record<string, unknown> | null;
   }
 ) {
   const targets = buildUiChangeTargetsFromBusinessEvent({
@@ -231,7 +227,7 @@ async function publishConfiguracionPanelChange(
       key: input.key,
       ...(input.metadata ?? {}),
     },
-  })
+  });
 
   if (input.key.startsWith('auth.')) {
     targets.push(
@@ -246,33 +242,33 @@ async function publishConfiguracionPanelChange(
           ...(input.metadata ?? {}),
         },
       })
-    )
+    );
   }
 
-  await publishUiChanges(targets, { service })
+  await publishUiChanges(targets, { service });
 }
 
 export async function importarCatalogoProductos(
   _prevState: ConfiguracionAdminActionState,
   formData: FormData
 ): Promise<ConfiguracionAdminActionState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const service = await getAdminService()
-    const uploadedFile = formData.get('catalogo_productos_file')
+    const service = await getAdminService();
+    const uploadedFile = formData.get('catalogo_productos_file');
 
     if (!(uploadedFile instanceof File)) {
-      return buildState({ message: 'Adjunta un archivo XLSX para importar el catalogo.' })
+      return buildState({ message: 'Adjunta un archivo XLSX para importar el catalogo.' });
     }
 
     if (!uploadedFile.name.toLowerCase().endsWith('.xlsx')) {
-      return buildState({ message: 'El catalogo debe estar en formato XLSX.' })
+      return buildState({ message: 'El catalogo debe estar en formato XLSX.' });
     }
 
-    const bytes = new Uint8Array(await uploadedFile.arrayBuffer())
-    const parsed = parseProductCatalogWorkbook(bytes)
-    const importedAt = new Date().toISOString()
+    const bytes = new Uint8Array(await uploadedFile.arrayBuffer());
+    const parsed = parseProductCatalogWorkbook(bytes);
+    const importedAt = new Date().toISOString();
 
     const payload = parsed.rows.map((item) => ({
       sku: item.sku,
@@ -287,14 +283,14 @@ export async function importarCatalogoProductos(
         importado_en: importedAt,
       },
       updated_at: importedAt,
-    }))
+    }));
 
-    const { error } = await service.from('producto').upsert(payload, { onConflict: 'sku' })
+    const { error } = await service.from('producto').upsert(payload, { onConflict: 'sku' });
 
     if (error) {
       return buildState({
         message: error.message || 'No fue posible importar el catalogo de productos.',
-      })
+      });
     }
 
     await registrarEventoAudit(service, actor.usuarioId, 'producto', 'catalogo-isdin', {
@@ -302,7 +298,7 @@ export async function importarCatalogoProductos(
       archivo: uploadedFile.name,
       productos_procesados: parsed.rows.length,
       filas_descartadas: parsed.skippedRows,
-    })
+    });
 
     await publishConfiguracionPanelChange(service, {
       eventType: 'configuracion_catalogo_productos_importado',
@@ -311,21 +307,21 @@ export async function importarCatalogoProductos(
         archivo: uploadedFile.name,
         productosProcesados: parsed.rows.length,
       },
-    })
+    });
 
     return buildState({
       ok: true,
       message: `Catalogo importado: ${parsed.rows.length} productos actualizados${
         parsed.skippedRows > 0 ? `, ${parsed.skippedRows} filas descartadas` : ''
       }.`,
-    })
+    });
   } catch (error) {
     return buildState({
       message:
         error instanceof Error
           ? error.message
           : 'No fue posible importar el catalogo de productos.',
-    })
+    });
   }
 }
 
@@ -333,11 +329,11 @@ export async function guardarProducto(
   _prevState: ConfiguracionAdminActionState,
   formData: FormData
 ): Promise<ConfiguracionAdminActionState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const service = await getAdminService()
-    const productoId = normalizeOptionalText(formData.get('producto_id'))
+    const service = await getAdminService();
+    const productoId = normalizeOptionalText(formData.get('producto_id'));
     const payload = {
       sku: normalizeRequiredText(formData.get('sku'), 'SKU').toUpperCase(),
       nombre: normalizeRequiredText(formData.get('nombre'), 'Nombre'),
@@ -346,23 +342,23 @@ export async function guardarProducto(
       top_30: normalizeBoolean(formData.get('top_30')),
       activo: normalizeBoolean(formData.get('activo')),
       updated_at: new Date().toISOString(),
-    }
+    };
 
     const query = productoId
       ? service.from('producto').update(payload).eq('id', productoId)
-      : service.from('producto').insert(payload)
+      : service.from('producto').insert(payload);
 
-    const { data, error } = await query.select('id, sku, nombre').maybeSingle()
+    const { data, error } = await query.select('id, sku, nombre').maybeSingle();
 
     if (error || !data) {
-      return buildState({ message: error?.message ?? 'No fue posible guardar el producto.' })
+      return buildState({ message: error?.message ?? 'No fue posible guardar el producto.' });
     }
 
     await registrarEventoAudit(service, actor.usuarioId, 'producto', data.id, {
       evento: productoId ? 'configuracion_producto_actualizado' : 'configuracion_producto_creado',
       sku: data.sku,
       nombre: data.nombre,
-    })
+    });
 
     await publishConfiguracionPanelChange(service, {
       eventType: productoId
@@ -373,16 +369,16 @@ export async function guardarProducto(
         productoId: data.id,
         sku: data.sku,
       },
-    })
+    });
 
     return buildState({
       ok: true,
       message: productoId ? 'Producto actualizado.' : 'Producto creado.',
-    })
+    });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible guardar el producto.',
-    })
+    });
   }
 }
 
@@ -390,11 +386,11 @@ export async function guardarCadena(
   _prevState: ConfiguracionAdminActionState,
   formData: FormData
 ): Promise<ConfiguracionAdminActionState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const service = await getAdminService()
-    const cadenaId = normalizeOptionalText(formData.get('cadena_id'))
+    const service = await getAdminService();
+    const cadenaId = normalizeOptionalText(formData.get('cadena_id'));
     const payload = {
       codigo: normalizeCode(formData.get('codigo'), 'Codigo'),
       nombre: normalizeRequiredText(formData.get('nombre'), 'Nombre'),
@@ -404,43 +400,41 @@ export async function guardarCadena(
       ),
       activa: normalizeBoolean(formData.get('activa')),
       updated_at: new Date().toISOString(),
-    }
+    };
 
     const query = cadenaId
       ? service.from('cadena').update(payload).eq('id', cadenaId)
-      : service.from('cadena').insert(payload)
+      : service.from('cadena').insert(payload);
 
-    const { data, error } = await query.select('id, codigo, nombre').maybeSingle()
+    const { data, error } = await query.select('id, codigo, nombre').maybeSingle();
 
     if (error || !data) {
-      return buildState({ message: error?.message ?? 'No fue posible guardar la cadena.' })
+      return buildState({ message: error?.message ?? 'No fue posible guardar la cadena.' });
     }
 
     await registrarEventoAudit(service, actor.usuarioId, 'cadena', data.id, {
       evento: cadenaId ? 'configuracion_cadena_actualizada' : 'configuracion_cadena_creada',
       codigo: data.codigo,
       nombre: data.nombre,
-    })
+    });
 
     await publishConfiguracionPanelChange(service, {
-      eventType: cadenaId
-        ? 'configuracion_cadena_actualizada'
-        : 'configuracion_cadena_creada',
+      eventType: cadenaId ? 'configuracion_cadena_actualizada' : 'configuracion_cadena_creada',
       key: 'catalogo.cadenas',
       metadata: {
         cadenaId: data.id,
         codigo: data.codigo,
       },
-    })
+    });
 
     return buildState({
       ok: true,
       message: cadenaId ? 'Cadena actualizada.' : 'Cadena creada.',
-    })
+    });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible guardar la cadena.',
-    })
+    });
   }
 }
 
@@ -448,28 +442,28 @@ export async function guardarCiudad(
   _prevState: ConfiguracionAdminActionState,
   formData: FormData
 ): Promise<ConfiguracionAdminActionState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const service = await getAdminService()
-    const ciudadId = normalizeOptionalText(formData.get('ciudad_id'))
-    const nombre = normalizeCatalogText(formData.get('nombre'), 'Ciudad')
-    const estadoDerivado = resolveMexicoStateFromCity(nombre)
+    const service = await getAdminService();
+    const ciudadId = normalizeOptionalText(formData.get('ciudad_id'));
+    const nombre = normalizeCatalogText(formData.get('nombre'), 'Ciudad');
+    const estadoDerivado = resolveMexicoStateFromCity(nombre);
     const payload = {
       nombre,
       zona: normalizeCatalogText(formData.get('zona'), 'Zona'),
       activa: normalizeBoolean(formData.get('activa')),
       updated_at: new Date().toISOString(),
-    }
+    };
 
     const query = ciudadId
       ? service.from('ciudad').update(payload).eq('id', ciudadId)
-      : service.from('ciudad').insert(payload)
+      : service.from('ciudad').insert(payload);
 
-    const { data, error } = await query.select('id, nombre, zona, activa').maybeSingle()
+    const { data, error } = await query.select('id, nombre, zona, activa').maybeSingle();
 
     if (error || !data) {
-      return buildState({ message: error?.message ?? 'No fue posible guardar la ciudad.' })
+      return buildState({ message: error?.message ?? 'No fue posible guardar la ciudad.' });
     }
 
     await registrarEventoAudit(service, actor.usuarioId, 'ciudad', data.id, {
@@ -477,27 +471,25 @@ export async function guardarCiudad(
       nombre: data.nombre,
       zona: data.zona,
       estado: estadoDerivado,
-    })
+    });
 
     await publishConfiguracionPanelChange(service, {
-      eventType: ciudadId
-        ? 'configuracion_ciudad_actualizada'
-        : 'configuracion_ciudad_creada',
+      eventType: ciudadId ? 'configuracion_ciudad_actualizada' : 'configuracion_ciudad_creada',
       key: 'catalogo.ciudades',
       metadata: {
         ciudadId: data.id,
         nombre: data.nombre,
       },
-    })
+    });
 
     return buildState({
       ok: true,
       message: ciudadId ? 'Ciudad actualizada.' : 'Ciudad creada.',
-    })
+    });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible guardar la ciudad.',
-    })
+    });
   }
 }
 
@@ -505,31 +497,31 @@ export async function guardarTurnoCatalogo(
   _prevState: ConfiguracionAdminActionState,
   formData: FormData
 ): Promise<ConfiguracionAdminActionState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const service = await getAdminService()
-    const previousCode = normalizeOptionalText(formData.get('turno_original'))
-    const nomenclatura = normalizeCode(formData.get('nomenclatura'), 'Nomenclatura')
-    const turno = normalizeOptionalText(formData.get('turno'))
-    const horario = normalizeOptionalText(formData.get('horario'))
-    const horaEntrada = normalizeTime(formData.get('hora_entrada'), 'Hora entrada')
-    const horaSalida = normalizeTime(formData.get('hora_salida'), 'Hora salida')
+    const service = await getAdminService();
+    const previousCode = normalizeOptionalText(formData.get('turno_original'));
+    const nomenclatura = normalizeCode(formData.get('nomenclatura'), 'Nomenclatura');
+    const turno = normalizeOptionalText(formData.get('turno'));
+    const horario = normalizeOptionalText(formData.get('horario'));
+    const horaEntrada = normalizeTime(formData.get('hora_entrada'), 'Hora entrada');
+    const horaSalida = normalizeTime(formData.get('hora_salida'), 'Hora salida');
 
     if ((horaEntrada && !horaSalida) || (!horaEntrada && horaSalida)) {
       return buildState({
         message: 'Hora entrada y hora salida deben capturarse juntas.',
-      })
+      });
     }
 
-    const currentRow = await obtenerConfiguracion(service, TURNOS_CONFIG_KEY)
-    const turnos = parseTurnosCatalogo(currentRow?.valor)
+    const currentRow = await obtenerConfiguracion(service, TURNOS_CONFIG_KEY);
+    const turnos = parseTurnosCatalogo(currentRow?.valor);
     const duplicate = turnos.find(
       (item) => item.nomenclatura === nomenclatura && item.nomenclatura !== previousCode
-    )
+    );
 
     if (duplicate) {
-      return buildState({ message: `La nomenclatura ${nomenclatura} ya existe en el catalogo.` })
+      return buildState({ message: `La nomenclatura ${nomenclatura} ya existe en el catalogo.` });
     }
 
     const nextItem: TurnoCatalogoItem = {
@@ -538,43 +530,41 @@ export async function guardarTurnoCatalogo(
       horario,
       horaEntrada,
       horaSalida,
-    }
+    };
 
     const nextCatalog = [
       ...turnos.filter((item) => item.nomenclatura !== (previousCode ?? nomenclatura)),
       nextItem,
-    ].sort((left, right) => left.nomenclatura.localeCompare(right.nomenclatura, 'es-MX'))
+    ].sort((left, right) => left.nomenclatura.localeCompare(right.nomenclatura, 'es-MX'));
 
     const savedRow = await upsertConfiguracion(service, {
       key: TURNOS_CONFIG_KEY,
       value: serializeTurnosCatalogo(nextCatalog),
       description: 'Catalogo de turnos heredables por PDV y cadena para operacion retail.',
       module: 'asistencias',
-    })
+    });
 
     await registrarEventoAudit(service, actor.usuarioId, 'configuracion', savedRow.id, {
       evento: previousCode ? 'configuracion_turno_actualizado' : 'configuracion_turno_creado',
       nomenclatura,
-    })
+    });
 
     await publishConfiguracionPanelChange(service, {
-      eventType: previousCode
-        ? 'configuracion_turno_actualizado'
-        : 'configuracion_turno_creado',
+      eventType: previousCode ? 'configuracion_turno_actualizado' : 'configuracion_turno_creado',
       key: TURNOS_CONFIG_KEY,
       metadata: {
         nomenclatura,
       },
-    })
+    });
 
     return buildState({
       ok: true,
       message: previousCode ? 'Turno actualizado.' : 'Turno agregado al catalogo.',
-    })
+    });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible guardar el turno.',
-    })
+    });
   }
 }
 
@@ -582,17 +572,17 @@ export async function eliminarTurnoCatalogo(
   _prevState: ConfiguracionAdminActionState,
   formData: FormData
 ): Promise<ConfiguracionAdminActionState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const service = await getAdminService()
-    const nomenclatura = normalizeRequiredText(formData.get('nomenclatura'), 'Nomenclatura')
-    const currentRow = await obtenerConfiguracion(service, TURNOS_CONFIG_KEY)
-    const turnos = parseTurnosCatalogo(currentRow?.valor)
-    const nextCatalog = turnos.filter((item) => item.nomenclatura !== nomenclatura)
+    const service = await getAdminService();
+    const nomenclatura = normalizeRequiredText(formData.get('nomenclatura'), 'Nomenclatura');
+    const currentRow = await obtenerConfiguracion(service, TURNOS_CONFIG_KEY);
+    const turnos = parseTurnosCatalogo(currentRow?.valor);
+    const nextCatalog = turnos.filter((item) => item.nomenclatura !== nomenclatura);
 
     if (nextCatalog.length === turnos.length) {
-      return buildState({ message: 'El turno no existe en el catalogo.' })
+      return buildState({ message: 'El turno no existe en el catalogo.' });
     }
 
     const savedRow = await upsertConfiguracion(service, {
@@ -600,12 +590,12 @@ export async function eliminarTurnoCatalogo(
       value: serializeTurnosCatalogo(nextCatalog),
       description: 'Catalogo de turnos heredables por PDV y cadena para operacion retail.',
       module: 'asistencias',
-    })
+    });
 
     await registrarEventoAudit(service, actor.usuarioId, 'configuracion', savedRow.id, {
       evento: 'configuracion_turno_eliminado',
       nomenclatura,
-    })
+    });
 
     await publishConfiguracionPanelChange(service, {
       eventType: 'configuracion_turno_eliminado',
@@ -613,13 +603,13 @@ export async function eliminarTurnoCatalogo(
       metadata: {
         nomenclatura,
       },
-    })
+    });
 
-    return buildState({ ok: true, message: 'Turno eliminado del catalogo.' })
+    return buildState({ ok: true, message: 'Turno eliminado del catalogo.' });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible eliminar el turno.',
-    })
+    });
   }
 }
 
@@ -627,30 +617,30 @@ export async function guardarParametroConfiguracion(
   _prevState: ConfiguracionAdminActionState,
   formData: FormData
 ): Promise<ConfiguracionAdminActionState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const service = await getAdminService()
-    const key = normalizeRequiredText(formData.get('key'), 'Parametro')
-    const definition = EDITABLE_PARAMETER_DEFINITION_MAP.get(key)
+    const service = await getAdminService();
+    const key = normalizeRequiredText(formData.get('key'), 'Parametro');
+    const definition = EDITABLE_PARAMETER_DEFINITION_MAP.get(key);
 
     if (!definition) {
-      return buildState({ message: 'El parametro solicitado no es editable desde este modulo.' })
+      return buildState({ message: 'El parametro solicitado no es editable desde este modulo.' });
     }
 
-    const value = coerceEditableConfigValue(definition, formData.get('value'))
+    const value = coerceEditableConfigValue(definition, formData.get('value'));
     const savedRow = await upsertConfiguracion(service, {
       key,
       value,
       description: definition.description,
       module: definition.module,
-    })
+    });
 
     await registrarEventoAudit(service, actor.usuarioId, 'configuracion', savedRow.id, {
       evento: 'configuracion_parametro_actualizado',
       clave: key,
       valor: value,
-    })
+    });
 
     await publishConfiguracionPanelChange(service, {
       eventType: 'configuracion_parametro_actualizado',
@@ -658,13 +648,13 @@ export async function guardarParametroConfiguracion(
       metadata: {
         valor: value,
       },
-    })
+    });
 
-    return buildState({ ok: true, message: `${definition.label} actualizado.` })
+    return buildState({ ok: true, message: `${definition.label} actualizado.` });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible guardar el parametro.',
-    })
+    });
   }
 }
 
@@ -672,11 +662,11 @@ export async function guardarMisionDia(
   _prevState: ConfiguracionAdminActionState,
   formData: FormData
 ): Promise<ConfiguracionAdminActionState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const service = await getAdminService()
-    const misionId = normalizeOptionalText(formData.get('mision_id'))
+    const service = await getAdminService();
+    const misionId = normalizeOptionalText(formData.get('mision_id'));
     const payload = {
       codigo: normalizeOptionalText(formData.get('codigo'))?.toUpperCase() ?? null,
       instruccion: normalizeRequiredText(formData.get('instruccion'), 'Instruccion'),
@@ -684,47 +674,45 @@ export async function guardarMisionDia(
       peso: normalizeOptionalInteger(formData.get('peso')) ?? 1,
       activa: normalizeBoolean(formData.get('activa')),
       updated_at: new Date().toISOString(),
-    }
+    };
 
     if (payload.peso < 1) {
-      return buildState({ message: 'El peso de la mision debe ser al menos 1.' })
+      return buildState({ message: 'El peso de la mision debe ser al menos 1.' });
     }
 
     const query = misionId
       ? service.from('mision_dia').update(payload).eq('id', misionId)
-      : service.from('mision_dia').insert(payload)
+      : service.from('mision_dia').insert(payload);
 
-    const { data, error } = await query.select('id, codigo, instruccion').maybeSingle()
+    const { data, error } = await query.select('id, codigo, instruccion').maybeSingle();
 
     if (error || !data) {
-      return buildState({ message: error?.message ?? 'No fue posible guardar la mision.' })
+      return buildState({ message: error?.message ?? 'No fue posible guardar la mision.' });
     }
 
     await registrarEventoAudit(service, actor.usuarioId, 'mision_dia', data.id, {
       evento: misionId ? 'configuracion_mision_actualizada' : 'configuracion_mision_creada',
       codigo: data.codigo,
       instruccion: data.instruccion,
-    })
+    });
 
     await publishConfiguracionPanelChange(service, {
-      eventType: misionId
-        ? 'configuracion_mision_actualizada'
-        : 'configuracion_mision_creada',
+      eventType: misionId ? 'configuracion_mision_actualizada' : 'configuracion_mision_creada',
       key: 'catalogo.misiones',
       metadata: {
         misionId: data.id,
         codigo: data.codigo,
       },
-    })
+    });
 
     return buildState({
       ok: true,
       message: misionId ? 'Mision actualizada.' : 'Mision creada.',
-    })
+    });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible guardar la mision.',
-    })
+    });
   }
 }
 
@@ -732,16 +720,16 @@ export async function guardarOcrConfiguracion(
   _prevState: ConfiguracionAdminActionState,
   formData: FormData
 ): Promise<ConfiguracionAdminActionState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const service = await getAdminService()
-    const provider = normalizeRequiredText(formData.get('provider'), 'Proveedor').toLowerCase()
-    const model = normalizeOptionalText(formData.get('model'))
-    const allowedProviders = new Set(OCR_PROVIDER_OPTIONS.map((item) => item.value))
+    const service = await getAdminService();
+    const provider = normalizeRequiredText(formData.get('provider'), 'Proveedor').toLowerCase();
+    const model = normalizeOptionalText(formData.get('model'));
+    const allowedProviders = new Set(OCR_PROVIDER_OPTIONS.map((item) => item.value));
 
     if (!allowedProviders.has(provider as (typeof OCR_PROVIDER_OPTIONS)[number]['value'])) {
-      return buildState({ message: 'El proveedor OCR seleccionado no es valido.' })
+      return buildState({ message: 'El proveedor OCR seleccionado no es valido.' });
     }
 
     const providerRow = await upsertConfiguracion(service, {
@@ -749,33 +737,33 @@ export async function guardarOcrConfiguracion(
       value: provider,
       description: 'Proveedor OCR preferido desde configuracion central.',
       module: 'integraciones',
-    })
+    });
     const modelRow = await upsertConfiguracion(service, {
       key: OCR_MODEL_CONFIG_KEY,
-      value: provider === 'gemini' ? model ?? 'gemini-2.5-flash-lite' : '',
+      value: provider === 'gemini' ? (model ?? 'gemini-2.5-flash-lite') : '',
       description: 'Modelo OCR preferido para el proveedor configurado.',
       module: 'integraciones',
-    })
+    });
 
     await registrarEventoAudit(service, actor.usuarioId, 'configuracion', providerRow.id, {
       evento: 'configuracion_ocr_actualizada',
       provider,
-      model: provider === 'gemini' ? model ?? 'gemini-2.5-flash-lite' : null,
-    })
+      model: provider === 'gemini' ? (model ?? 'gemini-2.5-flash-lite') : null,
+    });
     await registrarEventoAudit(service, actor.usuarioId, 'configuracion', modelRow.id, {
       evento: 'configuracion_ocr_model_actualizado',
       provider,
-      model: provider === 'gemini' ? model ?? 'gemini-2.5-flash-lite' : null,
-    })
+      model: provider === 'gemini' ? (model ?? 'gemini-2.5-flash-lite') : null,
+    });
 
     await publishConfiguracionPanelChange(service, {
       eventType: 'configuracion_ocr_actualizada',
       key: 'integraciones.ocr',
       metadata: {
         provider,
-        model: provider === 'gemini' ? model ?? 'gemini-2.5-flash-lite' : null,
+        model: provider === 'gemini' ? (model ?? 'gemini-2.5-flash-lite') : null,
       },
-    })
+    });
 
     return buildState({
       ok: true,
@@ -785,11 +773,12 @@ export async function guardarOcrConfiguracion(
           : provider === 'disabled'
             ? 'OCR documental deshabilitado desde configuracion central.'
             : `Proveedor ${provider} guardado. Aun requiere implementacion runtime.`,
-    })
+    });
   } catch (error) {
     return buildState({
-      message: error instanceof Error ? error.message : 'No fue posible guardar la configuracion OCR.',
-    })
+      message:
+        error instanceof Error ? error.message : 'No fue posible guardar la configuracion OCR.',
+    });
   }
 }
 
@@ -797,40 +786,38 @@ export async function guardarPdfCompressionConfiguracion(
   _prevState: ConfiguracionAdminActionState,
   formData: FormData
 ): Promise<ConfiguracionAdminActionState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const service = await getAdminService()
-    const provider = normalizeRequiredText(formData.get('provider'), 'Proveedor').toLowerCase()
-    const baseUrl = normalizeOptionalText(formData.get('stirling_base_url'))
+    const service = await getAdminService();
+    const provider = normalizeRequiredText(formData.get('provider'), 'Proveedor').toLowerCase();
+    const baseUrl = normalizeOptionalText(formData.get('stirling_base_url'));
     const optimizeLevel = normalizeIntegerInRange(
       formData.get('optimize_level'),
       'Nivel de optimizacion',
       0,
       4
-    )
+    );
     const imageQuality = normalizeIntegerInRange(
       formData.get('image_quality'),
       'Calidad de imagen',
       10,
       100
-    )
-    const imageDpi = normalizeIntegerInRange(formData.get('image_dpi'), 'DPI de imagen', 72, 600)
-    const fastWebView = normalizeBoolean(formData.get('fast_web_view'))
-    const allowedProviders = new Set(PDF_COMPRESSION_PROVIDER_OPTIONS.map((item) => item.value))
+    );
+    const imageDpi = normalizeIntegerInRange(formData.get('image_dpi'), 'DPI de imagen', 72, 600);
+    const fastWebView = normalizeBoolean(formData.get('fast_web_view'));
+    const allowedProviders = new Set(PDF_COMPRESSION_PROVIDER_OPTIONS.map((item) => item.value));
 
     if (
-      !allowedProviders.has(
-        provider as (typeof PDF_COMPRESSION_PROVIDER_OPTIONS)[number]['value']
-      )
+      !allowedProviders.has(provider as (typeof PDF_COMPRESSION_PROVIDER_OPTIONS)[number]['value'])
     ) {
-      return buildState({ message: 'El proveedor PDF seleccionado no es valido.' })
+      return buildState({ message: 'El proveedor PDF seleccionado no es valido.' });
     }
 
     if (provider === 'stirling' && !baseUrl) {
       return buildState({
         message: 'Stirling PDF requiere una URL base para quedar disponible.',
-      })
+      });
     }
 
     const providerRow = await upsertConfiguracion(service, {
@@ -838,37 +825,37 @@ export async function guardarPdfCompressionConfiguracion(
       value: provider,
       description: 'Proveedor preferido para compresion PDF documental.',
       module: 'integraciones',
-    })
+    });
     await upsertConfiguracion(service, {
       key: PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY,
       value: baseUrl ?? '',
       description: 'URL base del servicio Stirling PDF para compresion documental.',
       module: 'integraciones',
-    })
+    });
     await upsertConfiguracion(service, {
       key: PDF_COMPRESSION_STIRLING_OPTIMIZE_LEVEL_CONFIG_KEY,
       value: optimizeLevel,
       description: 'Nivel de optimizacion aplicado por Stirling PDF.',
       module: 'integraciones',
-    })
+    });
     await upsertConfiguracion(service, {
       key: PDF_COMPRESSION_STIRLING_IMAGE_QUALITY_CONFIG_KEY,
       value: imageQuality,
       description: 'Calidad JPEG interna usada por Stirling PDF al recomprimir imagenes.',
       module: 'integraciones',
-    })
+    });
     await upsertConfiguracion(service, {
       key: PDF_COMPRESSION_STIRLING_IMAGE_DPI_CONFIG_KEY,
       value: imageDpi,
       description: 'DPI objetivo para imagenes internas en PDFs comprimidos.',
       module: 'integraciones',
-    })
+    });
     await upsertConfiguracion(service, {
       key: PDF_COMPRESSION_STIRLING_FAST_WEB_VIEW_CONFIG_KEY,
       value: fastWebView,
       description: 'Activa fast web view en PDFs procesados por Stirling.',
       module: 'integraciones',
-    })
+    });
 
     await registrarEventoAudit(service, actor.usuarioId, 'configuracion', providerRow.id, {
       evento: 'configuracion_pdf_compression_actualizada',
@@ -878,7 +865,7 @@ export async function guardarPdfCompressionConfiguracion(
       image_quality: imageQuality,
       image_dpi: imageDpi,
       fast_web_view: fastWebView,
-    })
+    });
 
     await publishConfiguracionPanelChange(service, {
       eventType: 'configuracion_pdf_compression_actualizada',
@@ -887,7 +874,7 @@ export async function guardarPdfCompressionConfiguracion(
         provider,
         stirlingBaseUrl: baseUrl,
       },
-    })
+    });
 
     return buildState({
       ok: true,
@@ -895,13 +882,13 @@ export async function guardarPdfCompressionConfiguracion(
         provider === 'stirling'
           ? 'Compresion PDF central actualizada. El API key de Stirling sigue gobernado por variables de entorno.'
           : 'Compresion PDF local activada desde configuracion central.',
-    })
+    });
   } catch (error) {
     return buildState({
       message:
         error instanceof Error
           ? error.message
           : 'No fue posible guardar la configuracion de compresion PDF.',
-    })
+    });
   }
 }

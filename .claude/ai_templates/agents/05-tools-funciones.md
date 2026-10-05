@@ -20,12 +20,12 @@
 
 ## Cambios en AI SDK 5
 
-| AI SDK 4 (antes) | AI SDK 5 (ahora) |
-|------------------|------------------|
-| `parameters: z.object({...})` | `inputSchema: z.object({...})` |
-| `maxSteps: 5` | `stopWhen: stepCountIs(5)` |
-| N/A | `outputSchema: z.object({...})` (opcional) |
-| N/A | `prepareStep` (control dinamico) |
+| AI SDK 4 (antes)              | AI SDK 5 (ahora)                           |
+| ----------------------------- | ------------------------------------------ |
+| `parameters: z.object({...})` | `inputSchema: z.object({...})`             |
+| `maxSteps: 5`                 | `stopWhen: stepCountIs(5)`                 |
+| N/A                           | `outputSchema: z.object({...})` (opcional) |
+| N/A                           | `prepareStep` (control dinamico)           |
 
 ---
 
@@ -34,8 +34,8 @@
 ```typescript
 // features/chat/tools/index.ts
 
-import { z } from 'zod'
-import { tool } from 'ai'
+import { z } from 'zod';
+import { tool } from 'ai';
 
 // Tool: Obtener clima
 export const getWeather = tool({
@@ -55,10 +55,13 @@ export const getWeather = tool({
     return {
       city,
       temperature: Math.floor(Math.random() * 30) + 10,
-      condition: ['soleado', 'nublado', 'lluvioso'][Math.floor(Math.random() * 3)] as 'soleado' | 'nublado' | 'lluvioso',
-    }
+      condition: ['soleado', 'nublado', 'lluvioso'][Math.floor(Math.random() * 3)] as
+        | 'soleado'
+        | 'nublado'
+        | 'lluvioso',
+    };
   },
-})
+});
 
 // Tool: Calcular
 export const calculate = tool({
@@ -74,15 +77,15 @@ export const calculate = tool({
       subtract: a - b,
       multiply: a * b,
       divide: b !== 0 ? a / b : 'Error: division por cero',
-    }
+    };
     return {
       operation,
       a,
       b,
       result: operations[operation],
-    }
+    };
   },
-})
+});
 
 // Tool: Buscar en base de datos
 export const searchProducts = tool({
@@ -101,16 +104,16 @@ export const searchProducts = tool({
         { id: 2, name: `Producto ${query} 2`, price: 200 },
       ],
       total: 2,
-    }
+    };
   },
-})
+});
 
 // Exportar todas las tools
 export const tools = {
   getWeather,
   calculate,
   searchProducts,
-}
+};
 ```
 
 ---
@@ -120,9 +123,9 @@ export const tools = {
 ```typescript
 // app/api/chat/route.ts
 
-import { openrouter, MODELS } from '@/lib/ai/openrouter'
-import { streamText, convertToModelMessages, stepCountIs, type UIMessage } from 'ai'
-import { tools } from '@/features/chat/tools'
+import { openrouter, MODELS } from '@/lib/ai/openrouter';
+import { streamText, convertToModelMessages, stepCountIs, type UIMessage } from 'ai';
+import { tools } from '@/features/chat/tools';
 
 const SYSTEM_PROMPT = `Eres un asistente con acceso a herramientas.
 
@@ -131,12 +134,12 @@ Herramientas disponibles:
 - calculate: Realizar calculos matematicos
 - searchProducts: Buscar productos en el catalogo
 
-Usa las herramientas cuando sea apropiado para responder al usuario.`
+Usa las herramientas cuando sea apropiado para responder al usuario.`;
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json()
+  const { messages }: { messages: UIMessage[] } = await req.json();
 
-  const modelMessages = convertToModelMessages(messages)
+  const modelMessages = convertToModelMessages(messages);
 
   const result = streamText({
     model: openrouter(MODELS.balanced),
@@ -144,10 +147,10 @@ export async function POST(req: Request) {
     messages: modelMessages,
     tools,
     // AI SDK 5: stopWhen reemplaza maxSteps
-    stopWhen: stepCountIs(5),  // Maximo 5 iteraciones del loop
-  })
+    stopWhen: stepCountIs(5), // Maximo 5 iteraciones del loop
+  });
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse();
 }
 ```
 
@@ -160,10 +163,10 @@ export async function POST(req: Request) {
 ```typescript
 // app/api/chat/route.ts
 
-import { streamText, stepCountIs } from 'ai'
+import { streamText, stepCountIs } from 'ai';
 
 export async function POST(req: Request) {
-  const { messages } = await req.json()
+  const { messages } = await req.json();
 
   const result = streamText({
     model: openrouter(MODELS.balanced),
@@ -177,29 +180,29 @@ export async function POST(req: Request) {
       // Ejemplo: Cambiar modelo segun complejidad
       if (stepNumber > 2) {
         return {
-          model: openrouter(MODELS.powerful),  // Usar modelo mas potente
-        }
+          model: openrouter(MODELS.powerful), // Usar modelo mas potente
+        };
       }
 
       // Ejemplo: Limitar tools despues de ciertos pasos
       if (stepNumber > 3) {
         return {
-          tools: { calculate },  // Solo permitir calcular
-        }
+          tools: { calculate }, // Solo permitir calcular
+        };
       }
 
       // Ejemplo: Comprimir mensajes si hay muchos
       if (previousSteps.length > 10) {
         return {
           messages: compressMessages(previousSteps),
-        }
+        };
       }
 
-      return {}  // Sin cambios
+      return {}; // Sin cambios
     },
-  })
+  });
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse();
 }
 ```
 
@@ -333,7 +336,7 @@ export const deleteItem = tool({
     itemName: z.string(),
   }),
   // Sin execute = requiere confirmacion manual
-})
+});
 ```
 
 ```typescript
@@ -341,12 +344,14 @@ export const deleteItem = tool({
 const handleToolConfirm = async (toolCallId: string, result: any) => {
   sendMessage({
     text: '',
-    toolResults: [{
-      toolCallId,
-      result,
-    }],
-  })
-}
+    toolResults: [
+      {
+        toolCallId,
+        result,
+      },
+    ],
+  });
+};
 ```
 
 ---
@@ -354,7 +359,7 @@ const handleToolConfirm = async (toolCallId: string, result: any) => {
 ## 6. Condiciones de Parada Personalizadas
 
 ```typescript
-import { streamText, stopWhen, hasToolCall, and, or, stepCountIs } from 'ai'
+import { streamText, stopWhen, hasToolCall, and, or, stepCountIs } from 'ai';
 
 const result = streamText({
   model: openrouter(MODELS.balanced),
@@ -362,17 +367,11 @@ const result = streamText({
   tools,
 
   // Parar cuando: 5 pasos O se llama a finalAnswer
-  stopWhen: or(
-    stepCountIs(5),
-    hasToolCall('finalAnswer')
-  ),
+  stopWhen: or(stepCountIs(5), hasToolCall('finalAnswer')),
 
   // O combinar condiciones
-  stopWhen: and(
-    stepCountIs(3),
-    hasToolCall('searchProducts')
-  ),
-})
+  stopWhen: and(stepCountIs(3), hasToolCall('searchProducts')),
+});
 ```
 
 ---
@@ -390,20 +389,20 @@ export const queryDatabase = tool({
     limit: z.number().default(10),
   }),
   execute: async ({ table, filters, limit }) => {
-    const supabase = createClient()
-    let query = supabase.from(table).select('*').limit(limit)
+    const supabase = createClient();
+    let query = supabase.from(table).select('*').limit(limit);
 
     if (filters) {
       Object.entries(filters).forEach(([key, value]) => {
-        query = query.eq(key, value)
-      })
+        query = query.eq(key, value);
+      });
     }
 
-    const { data, error } = await query
-    if (error) return { error: error.message }
-    return { data, count: data?.length }
+    const { data, error } = await query;
+    if (error) return { error: error.message };
+    return { data, count: data?.length };
   },
-})
+});
 ```
 
 ### Tool: Enviar Email
@@ -418,10 +417,10 @@ export const sendEmail = tool({
   }),
   execute: async ({ to, subject, body }) => {
     // Integrar con Resend, SendGrid, etc.
-    console.log(`Enviando email a ${to}: ${subject}`)
-    return { success: true, messageId: 'msg_123' }
+    console.log(`Enviando email a ${to}: ${subject}`);
+    return { success: true, messageId: 'msg_123' };
   },
-})
+});
 ```
 
 ### Tool: Crear Registro
@@ -434,17 +433,13 @@ export const createRecord = tool({
     data: z.record(z.any()),
   }),
   execute: async ({ table, data }) => {
-    const supabase = createClient()
-    const { data: result, error } = await supabase
-      .from(table)
-      .insert(data)
-      .select()
-      .single()
+    const supabase = createClient();
+    const { data: result, error } = await supabase.from(table).insert(data).select().single();
 
-    if (error) return { error: error.message }
-    return { created: result }
+    if (error) return { error: error.message };
+    return { created: result };
   },
-})
+});
 ```
 
 ---
@@ -463,12 +458,12 @@ export const createRecord = tool({
 
 ## Cuando usar Tools vs Regex Detection
 
-| Usa Tools cuando: | Usa Regex Detection cuando: |
-|-------------------|----------------------------|
+| Usa Tools cuando:                       | Usa Regex Detection cuando:          |
+| --------------------------------------- | ------------------------------------ |
 | El modelo debe DECIDIR que accion tomar | La accion es predecible por keywords |
-| Necesitas confirmacion del usuario | Solo necesitas enriquecer contexto |
-| La accion tiene side effects | Es read-only (queries) |
-| Multiples opciones complejas | Patron simple y conocido |
+| Necesitas confirmacion del usuario      | Solo necesitas enriquecer contexto   |
+| La accion tiene side effects            | Es read-only (queries)               |
+| Multiples opciones complejas            | Patron simple y conocido             |
 
 **Ejemplo**: Para un CFO que consulta finanzas, regex es mas eficiente.
 Para un asistente general que puede enviar emails, crear registros, etc., usa Tools.

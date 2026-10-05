@@ -1,9 +1,9 @@
 export interface UsuarioAdminActionState {
-  ok: boolean
-  message: string | null
-  generatedUsername: string | null
-  temporaryPassword: string | null
-  temporaryEmail: string | null
+  ok: boolean;
+  message: string | null;
+  generatedUsername: string | null;
+  temporaryPassword: string | null;
+  temporaryEmail: string | null;
 }
 
 export const ESTADO_USUARIO_ADMIN_INICIAL: UsuarioAdminActionState = {
@@ -12,4 +12,4 @@ export const ESTADO_USUARIO_ADMIN_INICIAL: UsuarioAdminActionState = {
   generatedUsername: null,
   temporaryPassword: null,
   temporaryEmail: null,
-}
+};

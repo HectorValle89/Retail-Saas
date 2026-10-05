@@ -1,45 +1,49 @@
+import { formatearDistanciaMetrica } from '@/lib/geo/distanceFormat';
+
 export interface GeofencePushAlertInput {
-  attendanceId: string
-  cuentaClienteId: string
-  empleadoId: string
-  supervisorEmpleadoId: string | null
-  pdvId: string
-  pdvNombre: string | null
-  estadoGps: string | null
-  distanciaCheckInMetros: number | null
-  justificacionFueraGeocerca: string | null
-  checkInUtc: string | null
+  attendanceId: string;
+  cuentaClienteId: string;
+  empleadoId: string;
+  supervisorEmpleadoId: string | null;
+  pdvId: string;
+  pdvNombre: string | null;
+  estadoGps: string | null;
+  distanciaCheckInMetros: number | null;
+  justificacionFueraGeocerca: string | null;
+  checkInUtc: string | null;
 }
 
 export interface GeofencePushAlertPayload {
-  employeeIds: string[]
-  title: string
-  body: string
-  path: string
-  tag: string
-  cuentaClienteId: string
+  employeeIds: string[];
+  title: string;
+  body: string;
+  path: string;
+  tag: string;
+  cuentaClienteId: string;
   audit: {
-    tabla: string
-    registroId: string
-    accion: string
-  }
-  data: Record<string, unknown>
+    tabla: string;
+    registroId: string;
+    accion: string;
+  };
+  data: Record<string, unknown>;
 }
 
-export function buildGeofencePushAlert(input: GeofencePushAlertInput): GeofencePushAlertPayload | null {
+export function buildGeofencePushAlert(
+  input: GeofencePushAlertInput
+): GeofencePushAlertPayload | null {
   if (!input.supervisorEmpleadoId) {
-    return null
+    return null;
   }
 
   if (!input.checkInUtc || input.estadoGps !== 'FUERA_GEOCERCA') {
-    return null
+    return null;
   }
 
-  const pdvLabel = input.pdvNombre?.trim() || input.pdvId
+  const pdvLabel = input.pdvNombre?.trim() || input.pdvId;
   const distanceLabel =
     typeof input.distanciaCheckInMetros === 'number'
-      ? `${Math.round(input.distanciaCheckInMetros)} m`
-      : 'distancia no disponible'
+      ? formatearDistanciaMetrica(input.distanciaCheckInMetros)
+      : 'distancia no disponible';
 
   return {
     employeeIds: [input.supervisorEmpleadoId],
@@ -63,5 +67,5 @@ export function buildGeofencePushAlert(input: GeofencePushAlertInput): GeofenceP
       justificacionFueraGeocerca: input.justificacionFueraGeocerca,
       checkInUtc: input.checkInUtc,
     },
-  }
+  };
 }

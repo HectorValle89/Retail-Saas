@@ -1,22 +1,22 @@
-'use client'
+'use client';
 
-import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog'
-import { OfflineStatusCard } from '@/components/pwa/OfflineStatusCard'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
-import { useOfflineSync } from '@/hooks/useOfflineSync'
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog';
+import { OfflineStatusCard } from '@/components/pwa/OfflineStatusCard';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
+import { useOfflineSync } from '@/hooks/useOfflineSync';
 import {
   getGeolocationPermissionRecoveryState,
   type PermissionRecoveryState,
-} from '@/lib/device/permissionRecovery'
-import type { ActorActual } from '@/lib/auth/session'
-import { queueOfflineAsistencia, syncAsistenciaNow } from '@/lib/offline/syncQueue'
-import { useScopedWidgetData } from '@/lib/ui-change/client'
-import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
+} from '@/lib/device/permissionRecovery';
+import type { ActorActual } from '@/lib/auth/session';
+import { queueOfflineAsistencia, syncAsistenciaNow } from '@/lib/offline/syncQueue';
+import { useScopedWidgetData } from '@/lib/ui-change/client';
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
 import {
   calcularDistanciaMetros,
   calcularHashArchivo,
@@ -25,46 +25,52 @@ import {
   stampAttendanceSelfie,
   type CapturedPosition,
   type SelfieCapture,
-} from '../lib/attendanceCapture'
-import { isReusableAttendanceDraftContext } from '../lib/attendanceDraftContext'
-import type { AsistenciasPanelData } from '../services/asistenciaService'
-import { selectAttendanceMission } from '../lib/attendanceMission'
+} from '../lib/attendanceCapture';
+import { isReusableAttendanceDraftContext } from '../lib/attendanceDraftContext';
+import type { AsistenciasPanelData } from '../services/asistenciaService';
+import { selectAttendanceMission } from '../lib/attendanceMission';
 
 function buildPageHref(data: AsistenciasPanelData, page: number) {
-  const params = new URLSearchParams()
-  params.set('page', String(page))
-  params.set('pageSize', String(data.paginacion.pageSize))
-  return `/asistencias?${params.toString()}`
+  const params = new URLSearchParams();
+  params.set('page', String(page));
+  params.set('pageSize', String(data.paginacion.pageSize));
+  return `/asistencias?${params.toString()}`;
 }
 
 export function AsistenciasPanel({
   actor,
   data: initialData,
 }: {
-  actor: ActorActual
-  data: AsistenciasPanelData
+  actor: ActorActual;
+  data: AsistenciasPanelData;
 }) {
-  const offline = useOfflineSync()
-  const searchParams = useSearchParams()
-  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
-  const fetcher = useCallback(async (signal: AbortSignal) => {
-    const params = new URLSearchParams()
-    params.set('page', searchParams.get('page') ?? String(initialData.paginacion.page))
-    params.set('pageSize', searchParams.get('pageSize') ?? String(initialData.paginacion.pageSize))
+  const offline = useOfflineSync();
+  const searchParams = useSearchParams();
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
+  const fetcher = useCallback(
+    async (signal: AbortSignal) => {
+      const params = new URLSearchParams();
+      params.set('page', searchParams.get('page') ?? String(initialData.paginacion.page));
+      params.set(
+        'pageSize',
+        searchParams.get('pageSize') ?? String(initialData.paginacion.pageSize)
+      );
 
-    const response = await fetch(`/api/asistencias/panel?${params.toString()}`, {
-      cache: 'no-store',
-      credentials: 'same-origin',
-      signal,
-    })
-    const payload = (await response.json()) as { data?: AsistenciasPanelData; message?: string }
+      const response = await fetch(`/api/asistencias/panel?${params.toString()}`, {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal,
+      });
+      const payload = (await response.json()) as { data?: AsistenciasPanelData; message?: string };
 
-    if (!response.ok || !payload.data) {
-      throw new Error(payload.message ?? 'No fue posible refrescar el panel de asistencias.')
-    }
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.message ?? 'No fue posible refrescar el panel de asistencias.');
+      }
 
-    return payload.data
-  }, [initialData.paginacion.page, initialData.paginacion.pageSize, searchParams])
+      return payload.data;
+    },
+    [initialData.paginacion.page, initialData.paginacion.pageSize, searchParams]
+  );
   const { data } = useScopedWidgetData({
     initialData,
     module: 'asistencias',
@@ -73,86 +79,87 @@ export function AsistenciasPanel({
     roleTargets: [actor.puesto],
     fetcher,
     debounceMs: 650,
-  })
+  });
   const reusableContexts = useMemo(
     () => data.asistencias.filter(isReusableAttendanceDraftContext),
     [data.asistencias]
-  )
-  const [contextId, setContextId] = useState('')
-  const [fechaOperacion, setFechaOperacion] = useState(getLocalDateValue())
-  const [horaCheckIn, setHoraCheckIn] = useState(getLocalTimeValue())
+  );
+  const [contextId, setContextId] = useState('');
+  const [fechaOperacion, setFechaOperacion] = useState(getLocalDateValue());
+  const [horaCheckIn, setHoraCheckIn] = useState(getLocalTimeValue());
   const [estadoGps, setEstadoGps] = useState<
     'PENDIENTE' | 'DENTRO_GEOCERCA' | 'FUERA_GEOCERCA' | 'SIN_GPS'
-  >('PENDIENTE')
+  >('PENDIENTE');
   const [biometriaEstado, setBiometriaEstado] = useState<
     'PENDIENTE' | 'VALIDA' | 'RECHAZADA' | 'NO_EVALUADA'
-  >('PENDIENTE')
+  >('PENDIENTE');
   const [estatus, setEstatus] = useState<
     'PENDIENTE_VALIDACION' | 'VALIDA' | 'RECHAZADA' | 'CERRADA'
-  >('PENDIENTE_VALIDACION')
-  const [distancia, setDistancia] = useState('')
-  const [justificacion, setJustificacion] = useState('')
-  const [capturedPosition, setCapturedPosition] = useState<CapturedPosition | null>(null)
-  const [gpsRecoveryState, setGpsRecoveryState] = useState<PermissionRecoveryState | null>(null)
-  const [selfieCapture, setSelfieCapture] = useState<SelfieCapture | null>(null)
-  const [isLocating, setIsLocating] = useState(false)
-  const [isReadingSelfie, setIsReadingSelfie] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [misionConfirmada, setMisionConfirmada] = useState(false)
-  const [checkoutPosition, setCheckoutPosition] = useState<CapturedPosition | null>(null)
+  >('PENDIENTE_VALIDACION');
+  const [distancia, setDistancia] = useState('');
+  const [justificacion, setJustificacion] = useState('');
+  const [capturedPosition, setCapturedPosition] = useState<CapturedPosition | null>(null);
+  const [gpsRecoveryState, setGpsRecoveryState] = useState<PermissionRecoveryState | null>(null);
+  const [selfieCapture, setSelfieCapture] = useState<SelfieCapture | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
+  const [isReadingSelfie, setIsReadingSelfie] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [misionConfirmada, setMisionConfirmada] = useState(false);
+  const [checkoutPosition, setCheckoutPosition] = useState<CapturedPosition | null>(null);
   const [checkoutEstadoGps, setCheckoutEstadoGps] = useState<
     'PENDIENTE' | 'DENTRO_GEOCERCA' | 'FUERA_GEOCERCA' | 'SIN_GPS'
-  >('PENDIENTE')
-  const [checkoutJustificacion, setCheckoutJustificacion] = useState('')
-  const [checkoutSelfieCapture, setCheckoutSelfieCapture] = useState<SelfieCapture | null>(null)
-  const [checkoutGpsRecoveryState, setCheckoutGpsRecoveryState] = useState<PermissionRecoveryState | null>(null)
-  const [activeCameraFlow, setActiveCameraFlow] = useState<'check-in' | 'check-out' | null>(null)
-  const [isCapturingCheckoutPosition, setIsCapturingCheckoutPosition] = useState(false)
-  const [isReadingCheckoutSelfie, setIsReadingCheckoutSelfie] = useState(false)
-  const [isClosingShift, setIsClosingShift] = useState(false)
+  >('PENDIENTE');
+  const [checkoutJustificacion, setCheckoutJustificacion] = useState('');
+  const [checkoutSelfieCapture, setCheckoutSelfieCapture] = useState<SelfieCapture | null>(null);
+  const [checkoutGpsRecoveryState, setCheckoutGpsRecoveryState] =
+    useState<PermissionRecoveryState | null>(null);
+  const [activeCameraFlow, setActiveCameraFlow] = useState<'check-in' | 'check-out' | null>(null);
+  const [isCapturingCheckoutPosition, setIsCapturingCheckoutPosition] = useState(false);
+  const [isReadingCheckoutSelfie, setIsReadingCheckoutSelfie] = useState(false);
+  const [isClosingShift, setIsClosingShift] = useState(false);
   const [feedback, setFeedback] = useState<{
-    tone: 'success' | 'error'
-    message: string
-  } | null>(null)
+    tone: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   useEffect(() => {
     if (reusableContexts.length === 0) {
       if (contextId !== '') {
-        setContextId('')
+        setContextId('');
       }
-      return
+      return;
     }
 
-    const hasCurrentSelection = reusableContexts.some((item) => item.id === contextId)
+    const hasCurrentSelection = reusableContexts.some((item) => item.id === contextId);
     if (!hasCurrentSelection) {
-      setContextId(reusableContexts[0]?.id ?? '')
+      setContextId(reusableContexts[0]?.id ?? '');
     }
-  }, [contextId, reusableContexts])
+  }, [contextId, reusableContexts]);
 
   const buildSyncFallbackMessage = useCallback(
     (entityLabel: 'check-in' | 'check-out', error: unknown) => {
       const reason =
         error instanceof Error && error.message.trim()
           ? error.message.trim()
-          : 'No fue posible contactar al servidor.'
+          : 'No fue posible contactar al servidor.';
 
-      return `El ${entityLabel} no se sincronizo con el servidor. Motivo: ${reason}. Quedo guardado solo en este dispositivo y se reenviara cuando la app confirme conectividad real.`
+      return `El ${entityLabel} no se sincronizo con el servidor. Motivo: ${reason}. Quedo guardado solo en este dispositivo y se reenviara cuando la app confirme conectividad real.`;
     },
     []
-  )
+  );
 
-  const selectedContext = reusableContexts.find((item) => item.id === contextId) ?? null
+  const selectedContext = reusableContexts.find((item) => item.id === contextId) ?? null;
   const tieneGeocerca =
     selectedContext?.geocercaLatitud !== null &&
     selectedContext?.geocercaLongitud !== null &&
-    selectedContext?.geocercaRadioMetros !== null
+    selectedContext?.geocercaRadioMetros !== null;
   const openAttendance = useMemo(
     () => (selectedContext?.checkInUtc && !selectedContext.checkOutUtc ? selectedContext : null),
     [selectedContext]
-  )
+  );
   const missionSelection = useMemo(() => {
     if (!selectedContext) {
-      return { mission: null, avoidedImmediateRepeat: false }
+      return { mission: null, avoidedImmediateRepeat: false };
     }
 
     return selectAttendanceMission({
@@ -161,43 +168,43 @@ export function AsistenciasPanel({
       fechaOperacion,
       previousMissionId: selectedContext.ultimaMisionDiaId,
       missions: data.misionesCatalogo,
-    })
-  }, [data.misionesCatalogo, fechaOperacion, selectedContext])
-  const currentMission = missionSelection.mission
-  const canPrev = data.paginacion.page > 1
-  const canNext = data.paginacion.page < data.paginacion.totalPages
+    });
+  }, [data.misionesCatalogo, fechaOperacion, selectedContext]);
+  const currentMission = missionSelection.mission;
+  const canPrev = data.paginacion.page > 1;
+  const canNext = data.paginacion.page < data.paginacion.totalPages;
 
   useEffect(() => {
-    setCapturedPosition(null)
-    setGpsRecoveryState(null)
-    setSelfieCapture(null)
-    setDistancia('')
-    setJustificacion('')
-    setEstadoGps('PENDIENTE')
-    setBiometriaEstado('PENDIENTE')
-    setEstatus('PENDIENTE_VALIDACION')
-    setCheckoutPosition(null)
-    setCheckoutGpsRecoveryState(null)
-    setCheckoutEstadoGps('PENDIENTE')
-    setCheckoutJustificacion('')
-    setCheckoutSelfieCapture(null)
-    setActiveCameraFlow(null)
-    setMisionConfirmada(false)
-    setFeedback(null)
-  }, [contextId])
+    setCapturedPosition(null);
+    setGpsRecoveryState(null);
+    setSelfieCapture(null);
+    setDistancia('');
+    setJustificacion('');
+    setEstadoGps('PENDIENTE');
+    setBiometriaEstado('PENDIENTE');
+    setEstatus('PENDIENTE_VALIDACION');
+    setCheckoutPosition(null);
+    setCheckoutGpsRecoveryState(null);
+    setCheckoutEstadoGps('PENDIENTE');
+    setCheckoutJustificacion('');
+    setCheckoutSelfieCapture(null);
+    setActiveCameraFlow(null);
+    setMisionConfirmada(false);
+    setFeedback(null);
+  }, [contextId]);
 
   useEffect(() => {
-    setMisionConfirmada(false)
-  }, [fechaOperacion, contextId])
+    setMisionConfirmada(false);
+  }, [fechaOperacion, contextId]);
 
   const handleCapturePosition = async () => {
     if (!selectedContext) {
-      setFeedback({ tone: 'error', message: 'Selecciona primero un contexto base.' })
-      return
+      setFeedback({ tone: 'error', message: 'Selecciona primero un contexto base.' });
+      return;
     }
 
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
-      const capturedAt = new Date().toISOString()
+      const capturedAt = new Date().toISOString();
       setCapturedPosition({
         latitud: null,
         longitud: null,
@@ -205,8 +212,8 @@ export function AsistenciasPanel({
         distanciaMetros: null,
         dentroGeocerca: null,
         capturadaEn: capturedAt,
-      })
-      setEstadoGps('SIN_GPS')
+      });
+      setEstadoGps('SIN_GPS');
       setGpsRecoveryState({
         kind: 'geolocation',
         title: 'Activa tu GPS',
@@ -218,18 +225,18 @@ export function AsistenciasPanel({
         ],
         retryLabel: 'Volver a pedir GPS',
         requiresSettings: true,
-      })
-      setEstatus('PENDIENTE_VALIDACION')
+      });
+      setEstatus('PENDIENTE_VALIDACION');
       setFeedback({
         tone: 'success',
         message:
           'Este dispositivo no pudo obtener GPS. Puedes continuar, pero el check-in quedara en PENDIENTE_VALIDACION.',
-      })
-      return
+      });
+      return;
     }
 
-    setIsLocating(true)
-    setFeedback(null)
+    setIsLocating(true);
+    setFeedback(null);
 
     try {
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -237,19 +244,19 @@ export function AsistenciasPanel({
           enableHighAccuracy: true,
           timeout: 15000,
           maximumAge: 0,
-        })
-      })
+        });
+      });
 
-      const latitud = position.coords.latitude
-      const longitud = position.coords.longitude
+      const latitud = position.coords.latitude;
+      const longitud = position.coords.longitude;
       const precision = Number.isFinite(position.coords.accuracy)
         ? Number(position.coords.accuracy)
-        : null
+        : null;
 
-      let distanciaMetros: number | null = null
-      let dentroGeocerca: boolean | null = null
+      let distanciaMetros: number | null = null;
+      let dentroGeocerca: boolean | null = null;
       let siguienteEstadoGps: 'PENDIENTE' | 'DENTRO_GEOCERCA' | 'FUERA_GEOCERCA' | 'SIN_GPS' =
-        'PENDIENTE'
+        'PENDIENTE';
 
       if (tieneGeocerca && selectedContext) {
         distanciaMetros = calcularDistanciaMetros(
@@ -257,12 +264,12 @@ export function AsistenciasPanel({
           longitud,
           selectedContext.geocercaLatitud as number,
           selectedContext.geocercaLongitud as number
-        )
-        dentroGeocerca = distanciaMetros <= (selectedContext.geocercaRadioMetros as number)
-        siguienteEstadoGps = dentroGeocerca ? 'DENTRO_GEOCERCA' : 'FUERA_GEOCERCA'
-        setDistancia(String(Math.round(distanciaMetros)))
+        );
+        dentroGeocerca = distanciaMetros <= (selectedContext.geocercaRadioMetros as number);
+        siguienteEstadoGps = dentroGeocerca ? 'DENTRO_GEOCERCA' : 'FUERA_GEOCERCA';
+        setDistancia(String(Math.round(distanciaMetros)));
       } else {
-        siguienteEstadoGps = 'PENDIENTE'
+        siguienteEstadoGps = 'PENDIENTE';
       }
 
       setCapturedPosition({
@@ -272,11 +279,11 @@ export function AsistenciasPanel({
         distanciaMetros,
         dentroGeocerca,
         capturadaEn: new Date().toISOString(),
-      })
-      setEstadoGps(siguienteEstadoGps)
-      setGpsRecoveryState(null)
+      });
+      setEstadoGps(siguienteEstadoGps);
+      setGpsRecoveryState(null);
       if (siguienteEstadoGps === 'DENTRO_GEOCERCA') {
-        setJustificacion('')
+        setJustificacion('');
       }
       setFeedback({
         tone: 'success',
@@ -284,12 +291,12 @@ export function AsistenciasPanel({
           siguienteEstadoGps === 'FUERA_GEOCERCA'
             ? 'Ubicacion capturada. El check-in quedo fuera de geocerca y requiere justificacion.'
             : 'Ubicacion capturada correctamente.',
-      })
+      });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : 'No fue posible capturar la ubicacion actual.'
-      const capturedAt = new Date().toISOString()
-      const recoveryState = getGeolocationPermissionRecoveryState(error)
+        error instanceof Error ? error.message : 'No fue posible capturar la ubicacion actual.';
+      const capturedAt = new Date().toISOString();
+      const recoveryState = getGeolocationPermissionRecoveryState(error);
 
       setCapturedPosition({
         latitud: null,
@@ -298,27 +305,30 @@ export function AsistenciasPanel({
         distanciaMetros: null,
         dentroGeocerca: null,
         capturadaEn: capturedAt,
-      })
-      setEstadoGps('SIN_GPS')
-      setGpsRecoveryState(recoveryState)
-      setEstatus('PENDIENTE_VALIDACION')
+      });
+      setEstadoGps('SIN_GPS');
+      setGpsRecoveryState(recoveryState);
+      setEstatus('PENDIENTE_VALIDACION');
       setFeedback({
         tone: 'success',
         message: `${recoveryState.message} El check-in quedara en PENDIENTE_VALIDACION por falta de GPS.`,
-      })
+      });
     } finally {
-      setIsLocating(false)
+      setIsLocating(false);
     }
-  }
+  };
 
   const handleCheckoutPosition = async () => {
     if (!openAttendance) {
-      setFeedback({ tone: 'error', message: 'Selecciona una jornada abierta para capturar el cierre.' })
-      return
+      setFeedback({
+        tone: 'error',
+        message: 'Selecciona una jornada abierta para capturar el cierre.',
+      });
+      return;
     }
 
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
-      setFeedback({ tone: 'error', message: 'Este navegador no soporta geolocalizacion.' })
+      setFeedback({ tone: 'error', message: 'Este navegador no soporta geolocalizacion.' });
       setCheckoutGpsRecoveryState({
         kind: 'geolocation',
         title: 'Activa tu GPS',
@@ -329,12 +339,12 @@ export function AsistenciasPanel({
         ],
         retryLabel: 'Volver a pedir GPS',
         requiresSettings: true,
-      })
-      return
+      });
+      return;
     }
 
-    setIsCapturingCheckoutPosition(true)
-    setFeedback(null)
+    setIsCapturingCheckoutPosition(true);
+    setFeedback(null);
 
     try {
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -342,19 +352,19 @@ export function AsistenciasPanel({
           enableHighAccuracy: true,
           timeout: 15000,
           maximumAge: 0,
-        })
-      })
+        });
+      });
 
-      const latitud = position.coords.latitude
-      const longitud = position.coords.longitude
+      const latitud = position.coords.latitude;
+      const longitud = position.coords.longitude;
       const precision = Number.isFinite(position.coords.accuracy)
         ? Number(position.coords.accuracy)
-        : null
+        : null;
 
-      let distanciaMetros: number | null = null
-      let dentroGeocerca: boolean | null = null
+      let distanciaMetros: number | null = null;
+      let dentroGeocerca: boolean | null = null;
       let siguienteEstadoGps: 'PENDIENTE' | 'DENTRO_GEOCERCA' | 'FUERA_GEOCERCA' | 'SIN_GPS' =
-        'PENDIENTE'
+        'PENDIENTE';
 
       if (tieneGeocerca && selectedContext) {
         distanciaMetros = calcularDistanciaMetros(
@@ -362,9 +372,9 @@ export function AsistenciasPanel({
           longitud,
           selectedContext.geocercaLatitud as number,
           selectedContext.geocercaLongitud as number
-        )
-        dentroGeocerca = distanciaMetros <= (selectedContext.geocercaRadioMetros as number)
-        siguienteEstadoGps = dentroGeocerca ? 'DENTRO_GEOCERCA' : 'FUERA_GEOCERCA'
+        );
+        dentroGeocerca = distanciaMetros <= (selectedContext.geocercaRadioMetros as number);
+        siguienteEstadoGps = dentroGeocerca ? 'DENTRO_GEOCERCA' : 'FUERA_GEOCERCA';
       }
 
       setCheckoutPosition({
@@ -374,11 +384,11 @@ export function AsistenciasPanel({
         distanciaMetros,
         dentroGeocerca,
         capturadaEn: new Date().toISOString(),
-      })
-      setCheckoutEstadoGps(siguienteEstadoGps)
-      setCheckoutGpsRecoveryState(null)
+      });
+      setCheckoutEstadoGps(siguienteEstadoGps);
+      setCheckoutGpsRecoveryState(null);
       if (siguienteEstadoGps === 'DENTRO_GEOCERCA') {
-        setCheckoutJustificacion('')
+        setCheckoutJustificacion('');
       }
       setFeedback({
         tone: 'success',
@@ -386,16 +396,16 @@ export function AsistenciasPanel({
           siguienteEstadoGps === 'FUERA_GEOCERCA'
             ? 'Ubicacion de salida capturada. El check-out requerira justificacion fuera de geocerca.'
             : 'Ubicacion de salida capturada correctamente.',
-      })
+      });
     } catch (error) {
-      const recoveryState = getGeolocationPermissionRecoveryState(error)
+      const recoveryState = getGeolocationPermissionRecoveryState(error);
 
-      setCheckoutGpsRecoveryState(recoveryState)
-      setFeedback({ tone: 'error', message: recoveryState.message })
+      setCheckoutGpsRecoveryState(recoveryState);
+      setFeedback({ tone: 'error', message: recoveryState.message });
     } finally {
-      setIsCapturingCheckoutPosition(false)
+      setIsCapturingCheckoutPosition(false);
     }
-  }
+  };
 
   const processAttendanceSelfieCapture = async ({
     file,
@@ -405,30 +415,30 @@ export function AsistenciasPanel({
     successMessage,
     target,
   }: {
-    file: File
-    flowLabel: 'Check-in' | 'Check-out'
-    latitude: number | null
-    longitude: number | null
-    successMessage: string
-    target: 'check-in' | 'check-out'
+    file: File;
+    flowLabel: 'Check-in' | 'Check-out';
+    latitude: number | null;
+    longitude: number | null;
+    successMessage: string;
+    target: 'check-in' | 'check-out';
   }) => {
     if (target === 'check-in') {
-      setIsReadingSelfie(true)
+      setIsReadingSelfie(true);
     } else {
-      setIsReadingCheckoutSelfie(true)
+      setIsReadingCheckoutSelfie(true);
     }
 
-    setFeedback(null)
+    setFeedback(null);
 
     try {
-      const capturedAt = new Date().toISOString()
+      const capturedAt = new Date().toISOString();
       const stampedResult = await stampAttendanceSelfie(file, {
         capturedAt,
         latitude,
         longitude,
         flowLabel,
-      })
-      const hash = await calcularHashArchivo(stampedResult.file)
+      });
+      const hash = await calcularHashArchivo(stampedResult.file);
       const nextCapture: SelfieCapture = {
         file: stampedResult.file,
         previewUrl: URL.createObjectURL(stampedResult.file),
@@ -444,21 +454,21 @@ export function AsistenciasPanel({
         originalBytes: file.size,
         targetBytes: stampedResult.targetBytes,
         targetMet: stampedResult.targetMet,
-      }
+      };
 
       if (target === 'check-in') {
-        setSelfieCapture(nextCapture)
+        setSelfieCapture(nextCapture);
         if (biometriaEstado === 'NO_EVALUADA') {
-          setBiometriaEstado('PENDIENTE')
+          setBiometriaEstado('PENDIENTE');
         }
       } else {
-        setCheckoutSelfieCapture(nextCapture)
+        setCheckoutSelfieCapture(nextCapture);
       }
 
       setFeedback({
         tone: 'success',
         message: successMessage,
-      })
+      });
     } catch (error) {
       setFeedback({
         tone: 'error',
@@ -468,23 +478,23 @@ export function AsistenciasPanel({
             : target === 'check-in'
               ? 'No fue posible procesar la selfie.'
               : 'No fue posible procesar la selfie de salida.',
-      })
+      });
 
       if (target === 'check-in') {
-        setSelfieCapture(null)
+        setSelfieCapture(null);
       } else {
-        setCheckoutSelfieCapture(null)
+        setCheckoutSelfieCapture(null);
       }
 
-      throw error
+      throw error;
     } finally {
       if (target === 'check-in') {
-        setIsReadingSelfie(false)
+        setIsReadingSelfie(false);
       } else {
-        setIsReadingCheckoutSelfie(false)
+        setIsReadingCheckoutSelfie(false);
       }
     }
-  }
+  };
 
   const handleCaptureCheckInSelfie = async (file: File) =>
     processAttendanceSelfieCapture({
@@ -492,9 +502,10 @@ export function AsistenciasPanel({
       flowLabel: 'Check-in',
       latitude: capturedPosition?.latitud ?? null,
       longitude: capturedPosition?.longitud ?? null,
-      successMessage: 'Selfie de check-in capturada desde la cámara nativa y sellada con fecha, hora y GPS operativo.',
+      successMessage:
+        'Selfie de check-in capturada desde la cámara nativa y sellada con fecha, hora y GPS operativo.',
       target: 'check-in',
-    })
+    });
 
   const handleCaptureCheckOutSelfie = async (file: File) =>
     processAttendanceSelfieCapture({
@@ -502,66 +513,77 @@ export function AsistenciasPanel({
       flowLabel: 'Check-out',
       latitude: checkoutPosition?.latitud ?? null,
       longitude: checkoutPosition?.longitud ?? null,
-      successMessage: 'Selfie de salida capturada desde la cámara nativa y sellada para el cierre local.',
+      successMessage:
+        'Selfie de salida capturada desde la cámara nativa y sellada para el cierre local.',
       target: 'check-out',
-    })
+    });
 
   const handleQueueDraft = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+    event.preventDefault();
 
     if (!selectedContext) {
-      setFeedback({ tone: 'error', message: 'Selecciona un contexto reciente para clonar la jornada.' })
-      return
+      setFeedback({
+        tone: 'error',
+        message: 'Selecciona un contexto reciente para clonar la jornada.',
+      });
+      return;
     }
 
     if (!currentMission) {
-      setFeedback({ tone: 'error', message: 'No hay una mision activa disponible para este check-in.' })
-      return
+      setFeedback({
+        tone: 'error',
+        message: 'No hay una mision activa disponible para este check-in.',
+      });
+      return;
     }
 
     if (!misionConfirmada) {
-      setFeedback({ tone: 'error', message: 'Debes leer y confirmar la mision del dia antes de guardar el check-in.' })
-      return
+      setFeedback({
+        tone: 'error',
+        message: 'Debes leer y confirmar la mision del dia antes de guardar el check-in.',
+      });
+      return;
     }
 
     if (estadoGps === 'FUERA_GEOCERCA' && !selectedContext.permiteCheckinConJustificacion) {
       setFeedback({
         tone: 'error',
         message: 'El PDV no admite excepcion fuera de geocerca para este check-in.',
-      })
-      return
+      });
+      return;
     }
 
     if (estadoGps === 'FUERA_GEOCERCA' && !justificacion.trim()) {
       setFeedback({
         tone: 'error',
         message: 'La justificacion es obligatoria cuando el check-in queda fuera de geocerca.',
-      })
-      return
+      });
+      return;
     }
 
     if (!selfieCapture) {
       setFeedback({
         tone: 'error',
-        message: 'Debes capturar la selfie de check-in desde la cámara nativa antes de guardar la jornada.',
-      })
-      return
+        message:
+          'Debes capturar la selfie de check-in desde la cámara nativa antes de guardar la jornada.',
+      });
+      return;
     }
 
-    const distanciaValue = distancia.trim() === '' ? null : Number(distancia)
+    const distanciaValue = distancia.trim() === '' ? null : Number(distancia);
 
     if (distanciaValue !== null && Number.isNaN(distanciaValue)) {
-      setFeedback({ tone: 'error', message: 'La distancia debe ser numerica.' })
-      return
+      setFeedback({ tone: 'error', message: 'La distancia debe ser numerica.' });
+      return;
     }
 
-    const checkInUtc = new Date(`${fechaOperacion}T${horaCheckIn}:00`).toISOString()
+    const checkInUtc = new Date(`${fechaOperacion}T${horaCheckIn}:00`).toISOString();
 
-    setIsSaving(true)
-    setFeedback(null)
+    setIsSaving(true);
+    setFeedback(null);
 
     try {
-      const resolvedCuentaClienteId = actor.cuentaClienteId ?? selectedContext.cuentaClienteId
+      const resolvedCuentaClienteId = actor.cuentaClienteId ?? selectedContext.cuentaClienteId;
       const attendancePayload = {
         id: crypto.randomUUID(),
         cuenta_cliente_id: resolvedCuentaClienteId,
@@ -588,19 +610,17 @@ export function AsistenciasPanel({
         mision_dia_id: selectedContext.misionDiaId,
         mision_codigo: selectedContext.misionCodigo,
         mision_instruccion: selectedContext.misionInstruccion,
-        biometria_estado: (selfieCapture
-          ? 'PENDIENTE'
-          : biometriaEstado) as 'PENDIENTE' | 'VALIDA' | 'RECHAZADA' | 'NO_EVALUADA',
+        biometria_estado: (selfieCapture ? 'PENDIENTE' : biometriaEstado) as
+          | 'PENDIENTE'
+          | 'VALIDA'
+          | 'RECHAZADA'
+          | 'NO_EVALUADA',
         biometria_score: null,
         selfie_check_in_hash: selfieCapture?.hash ?? null,
         selfie_check_in_url: null,
         selfie_check_out_hash: null,
         selfie_check_out_url: null,
-        estatus: estatus as
-          | 'PENDIENTE_VALIDACION'
-          | 'VALIDA'
-          | 'RECHAZADA'
-          | 'CERRADA',
+        estatus: estatus as 'PENDIENTE_VALIDACION' | 'VALIDA' | 'RECHAZADA' | 'CERRADA',
         origen: 'OFFLINE_SYNC' as const,
         offline_selfie_check_in: selfieCapture
           ? {
@@ -636,74 +656,78 @@ export function AsistenciasPanel({
               }
             : null,
         },
-      }
+      };
 
       if (offline.isOnline) {
         try {
-          await syncAsistenciaNow(attendancePayload)
+          await syncAsistenciaNow(attendancePayload);
           setFeedback({
             tone: 'success',
             message: 'Check-in enviado correctamente y sincronizado con operacion.',
-          })
-          setDistancia('')
-          setJustificacion('')
-          setEstadoGps('PENDIENTE')
-          setBiometriaEstado('PENDIENTE')
-          setEstatus('PENDIENTE_VALIDACION')
-          setCapturedPosition(null)
-          setSelfieCapture(null)
-          setActiveCameraFlow(null)
-          await offline.refreshSummary()
-          return
+          });
+          setDistancia('');
+          setJustificacion('');
+          setEstadoGps('PENDIENTE');
+          setBiometriaEstado('PENDIENTE');
+          setEstatus('PENDIENTE_VALIDACION');
+          setCapturedPosition(null);
+          setSelfieCapture(null);
+          setActiveCameraFlow(null);
+          await offline.refreshSummary();
+          return;
         } catch (error) {
-          await queueOfflineAsistencia(attendancePayload)
-          await offline.refreshSummary()
+          await queueOfflineAsistencia(attendancePayload);
+          await offline.refreshSummary();
           setFeedback({
             tone: 'error',
             message: buildSyncFallbackMessage('check-in', error),
-          })
-          setDistancia('')
-          setJustificacion('')
-          setEstadoGps('PENDIENTE')
-          setBiometriaEstado('PENDIENTE')
-          setEstatus('PENDIENTE_VALIDACION')
-          setCapturedPosition(null)
-          setSelfieCapture(null)
-          setActiveCameraFlow(null)
-          return
+          });
+          setDistancia('');
+          setJustificacion('');
+          setEstadoGps('PENDIENTE');
+          setBiometriaEstado('PENDIENTE');
+          setEstatus('PENDIENTE_VALIDACION');
+          setCapturedPosition(null);
+          setSelfieCapture(null);
+          setActiveCameraFlow(null);
+          return;
         }
       }
 
-      await queueOfflineAsistencia(attendancePayload)
-      await offline.refreshSummary()
+      await queueOfflineAsistencia(attendancePayload);
+      await offline.refreshSummary();
 
-        setFeedback({
-          tone: 'success',
-          message:
-            'Borrador guardado solo en este dispositivo. La asistencia sigue pendiente hasta que se sincronice con el servidor.',
-        })
-      setDistancia('')
-      setJustificacion('')
-      setEstadoGps('PENDIENTE')
-      setBiometriaEstado('PENDIENTE')
-      setEstatus('PENDIENTE_VALIDACION')
-      setCapturedPosition(null)
-      setSelfieCapture(null)
-      setActiveCameraFlow(null)
+      setFeedback({
+        tone: 'success',
+        message:
+          'Borrador guardado solo en este dispositivo. La asistencia sigue pendiente hasta que se sincronice con el servidor.',
+      });
+      setDistancia('');
+      setJustificacion('');
+      setEstadoGps('PENDIENTE');
+      setBiometriaEstado('PENDIENTE');
+      setEstatus('PENDIENTE_VALIDACION');
+      setCapturedPosition(null);
+      setSelfieCapture(null);
+      setActiveCameraFlow(null);
     } catch (error) {
       setFeedback({
         tone: 'error',
-        message: error instanceof Error ? error.message : 'No fue posible guardar el borrador offline.',
-      })
+        message:
+          error instanceof Error ? error.message : 'No fue posible guardar el borrador offline.',
+      });
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }
+  };
 
   const handleQueueCheckout = async () => {
     if (!openAttendance) {
-      setFeedback({ tone: 'error', message: 'Selecciona una jornada abierta para registrar el check-out.' })
-      return
+      setFeedback({
+        tone: 'error',
+        message: 'Selecciona una jornada abierta para registrar el check-out.',
+      });
+      return;
     }
 
     if (openAttendance.ventasPendientesConfirmacion > 0) {
@@ -711,36 +735,36 @@ export function AsistenciasPanel({
         tone: 'error',
         message:
           'No puedes cerrar la jornada mientras existan ventas pendientes por confirmar en esta asistencia.',
-      })
-      return
+      });
+      return;
     }
 
     if (!checkoutPosition) {
-      setFeedback({ tone: 'error', message: 'Primero captura la ubicacion de salida.' })
-      return
+      setFeedback({ tone: 'error', message: 'Primero captura la ubicacion de salida.' });
+      return;
     }
 
     if (checkoutEstadoGps === 'FUERA_GEOCERCA' && !openAttendance.permiteCheckinConJustificacion) {
       setFeedback({
         tone: 'error',
         message: 'El PDV no permite excepcion fuera de geocerca para el cierre de jornada.',
-      })
-      return
+      });
+      return;
     }
 
     if (checkoutEstadoGps === 'FUERA_GEOCERCA' && !checkoutJustificacion.trim()) {
       setFeedback({
         tone: 'error',
         message: 'La justificacion es obligatoria cuando el check-out queda fuera de geocerca.',
-      })
-      return
+      });
+      return;
     }
 
-    setIsClosingShift(true)
-    setFeedback(null)
+    setIsClosingShift(true);
+    setFeedback(null);
 
     try {
-      const resolvedCuentaClienteId = actor.cuentaClienteId ?? openAttendance.cuentaClienteId
+      const resolvedCuentaClienteId = actor.cuentaClienteId ?? openAttendance.cuentaClienteId;
       const attendancePayload = {
         id: openAttendance.id,
         cuenta_cliente_id: resolvedCuentaClienteId,
@@ -758,7 +782,9 @@ export function AsistenciasPanel({
         latitud_check_out: checkoutPosition.latitud,
         longitud_check_out: checkoutPosition.longitud,
         distancia_check_out_metros:
-          checkoutPosition.distanciaMetros !== null ? Math.round(checkoutPosition.distanciaMetros) : null,
+          checkoutPosition.distanciaMetros !== null
+            ? Math.round(checkoutPosition.distanciaMetros)
+            : null,
         estado_gps: checkoutEstadoGps,
         biometria_estado: (typeof openAttendance.biometriaEstado === 'string' &&
         openAttendance.biometriaEstado.length > 0
@@ -804,59 +830,60 @@ export function AsistenciasPanel({
                   target_met: checkoutSelfieCapture.targetMet,
                 }
               : null,
-            },
+          },
         },
-      }
+      };
 
       if (offline.isOnline) {
         try {
-          await syncAsistenciaNow(attendancePayload)
+          await syncAsistenciaNow(attendancePayload);
           setFeedback({
             tone: 'success',
             message: 'Check-out enviado correctamente y sincronizado con operacion.',
-          })
-          setCheckoutPosition(null)
-          setCheckoutEstadoGps('PENDIENTE')
-          setCheckoutJustificacion('')
-          setCheckoutSelfieCapture(null)
-          await offline.refreshSummary()
-          return
+          });
+          setCheckoutPosition(null);
+          setCheckoutEstadoGps('PENDIENTE');
+          setCheckoutJustificacion('');
+          setCheckoutSelfieCapture(null);
+          await offline.refreshSummary();
+          return;
         } catch (error) {
-          await queueOfflineAsistencia(attendancePayload)
-          await offline.refreshSummary()
+          await queueOfflineAsistencia(attendancePayload);
+          await offline.refreshSummary();
           setFeedback({
             tone: 'error',
             message: buildSyncFallbackMessage('check-out', error),
-          })
-          setCheckoutPosition(null)
-          setCheckoutEstadoGps('PENDIENTE')
-          setCheckoutJustificacion('')
-          setCheckoutSelfieCapture(null)
-          return
+          });
+          setCheckoutPosition(null);
+          setCheckoutEstadoGps('PENDIENTE');
+          setCheckoutJustificacion('');
+          setCheckoutSelfieCapture(null);
+          return;
         }
       }
 
-      await queueOfflineAsistencia(attendancePayload)
-      await offline.refreshSummary()
+      await queueOfflineAsistencia(attendancePayload);
+      await offline.refreshSummary();
 
-        setFeedback({
-          tone: 'success',
-          message:
-            'Check-out guardado solo en este dispositivo. La jornada seguira pendiente hasta sincronizarse con el servidor.',
-        })
-      setCheckoutPosition(null)
-      setCheckoutEstadoGps('PENDIENTE')
-      setCheckoutJustificacion('')
-      setCheckoutSelfieCapture(null)
+      setFeedback({
+        tone: 'success',
+        message:
+          'Check-out guardado solo en este dispositivo. La jornada seguira pendiente hasta sincronizarse con el servidor.',
+      });
+      setCheckoutPosition(null);
+      setCheckoutEstadoGps('PENDIENTE');
+      setCheckoutJustificacion('');
+      setCheckoutSelfieCapture(null);
     } catch (error) {
       setFeedback({
         tone: 'error',
-        message: error instanceof Error ? error.message : 'No fue posible guardar el check-out local.',
-      })
+        message:
+          error instanceof Error ? error.message : 'No fue posible guardar el check-out local.',
+      });
     } finally {
-      setIsClosingShift(false)
+      setIsClosingShift(false);
     }
-  }
+  };
 
   return (
     <div className="space-y-6">
@@ -876,7 +903,10 @@ export function AsistenciasPanel({
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
         <MetricCard label="Registros totales" value={String(data.resumen.total)} />
         <MetricCard label="Jornadas abiertas" value={String(data.resumen.abiertas)} />
-        <MetricCard label="Pendientes validacion" value={String(data.resumen.pendientesValidacion)} />
+        <MetricCard
+          label="Pendientes validacion"
+          value={String(data.resumen.pendientesValidacion)}
+        />
         <MetricCard label="Fuera geocerca" value={String(data.resumen.fueraGeocerca)} />
         <MetricCard label="Cerradas" value={String(data.resumen.cerradas)} />
         <MetricCard label="Dias justificados" value={String(data.resumen.justificadas)} />
@@ -909,21 +939,34 @@ export function AsistenciasPanel({
               Faltas, retardos y ausencias justificadas
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Este corte deriva incidencias sobre asignaciones publicadas, asistencias validas y solicitudes aprobadas.
-              La falta administrativa se genera automaticamente al acumular tres retardos en el periodo visible.
+              Este corte deriva incidencias sobre asignaciones publicadas, asistencias validas y
+              solicitudes aprobadas. La falta administrativa se genera automaticamente al acumular
+              tres retardos en el periodo visible.
             </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            Incidencias visibles: <span className="font-semibold text-slate-950">{data.incidenciasDisciplina.length}</span>
+            Incidencias visibles:{' '}
+            <span className="font-semibold text-slate-950">
+              {data.incidenciasDisciplina.length}
+            </span>
           </div>
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <MetricCard label="Retardos" value={String(data.disciplinaResumen.retardos)} />
           <MetricCard label="Faltas" value={String(data.disciplinaResumen.faltas)} />
-          <MetricCard label="Ausencias justificadas" value={String(data.disciplinaResumen.ausenciasJustificadas)} />
-          <MetricCard label="Pendientes validacion" value={String(data.disciplinaResumen.pendientesValidacion)} />
-          <MetricCard label="Falta administrativa" value={String(data.disciplinaResumen.faltasAdministrativas)} />
+          <MetricCard
+            label="Ausencias justificadas"
+            value={String(data.disciplinaResumen.ausenciasJustificadas)}
+          />
+          <MetricCard
+            label="Pendientes validacion"
+            value={String(data.disciplinaResumen.pendientesValidacion)}
+          />
+          <MetricCard
+            label="Falta administrativa"
+            value={String(data.disciplinaResumen.faltasAdministrativas)}
+          />
         </div>
 
         {data.incidenciasDisciplina.length === 0 ? (
@@ -950,7 +993,9 @@ export function AsistenciasPanel({
                   >
                     <td className="px-4 py-3 text-slate-600">{item.fecha}</td>
                     <td className="px-4 py-3 text-slate-900">{item.empleado}</td>
-                    <td className="px-4 py-3 text-slate-600">{item.cuentaCliente ?? 'Sin cliente'}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {item.cuentaCliente ?? 'Sin cliente'}
+                    </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
                         {item.estado}
@@ -983,21 +1028,27 @@ export function AsistenciasPanel({
               Nuevo borrador de asistencia
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Esta captura ya puede tomar geolocalizacion viva y selfie local. Cuando sincroniza, la selfie
-              se sube por el pipeline compartido de evidencias manteniendo hash, metadata y posicion.
+              Esta captura ya puede tomar geolocalizacion viva y selfie local. Cuando sincroniza, la
+              selfie se sube por el pipeline compartido de evidencias manteniendo hash, metadata y
+              posicion.
             </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            Contextos activos: <span className="font-semibold text-slate-950">{reusableContexts.length}</span>
+            Contextos activos:{' '}
+            <span className="font-semibold text-slate-950">{reusableContexts.length}</span>
           </div>
         </div>
 
         {reusableContexts.length === 0 ? (
           <p className="mt-6 text-sm text-amber-700">
-            Aun no hay un contexto activo disponible para capturar. Los expedientes cerrados viven en Base operativa.
+            Aun no hay un contexto activo disponible para capturar. Los expedientes cerrados viven
+            en Base operativa.
           </p>
         ) : (
-          <form className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={handleQueueDraft}>
+          <form
+            className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4"
+            onSubmit={handleQueueDraft}
+          >
             <label className="block text-sm text-slate-600 xl:col-span-2">
               Contexto base
               <select
@@ -1047,7 +1098,9 @@ export function AsistenciasPanel({
                       </span>
                     )}
                   </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-700">{currentMission.instruccion}</p>
+                  <p className="mt-3 text-sm leading-6 text-slate-700">
+                    {currentMission.instruccion}
+                  </p>
                   {selectedContext?.ultimaMisionCodigo && (
                     <p className="mt-2 text-xs text-slate-500">
                       Ultima mision en este PDV: {selectedContext.ultimaMisionCodigo}
@@ -1060,11 +1113,15 @@ export function AsistenciasPanel({
                       checked={misionConfirmada}
                       onChange={(event) => setMisionConfirmada(event.target.checked)}
                     />
-                    <span>Lei la mision del dia y confirmo que la ejecutare durante esta jornada.</span>
+                    <span>
+                      Lei la mision del dia y confirmo que la ejecutare durante esta jornada.
+                    </span>
                   </label>
                 </>
               ) : (
-                <p className="mt-2 text-sm text-rose-700">No hay misiones activas disponibles para asignar este check-in.</p>
+                <p className="mt-2 text-sm text-rose-700">
+                  No hay misiones activas disponibles para asignar este check-in.
+                </p>
               )}
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700 md:col-span-2 xl:col-span-2">
@@ -1083,7 +1140,8 @@ export function AsistenciasPanel({
                 </>
               ) : (
                 <p className="mt-2 text-amber-700">
-                  Este contexto no tiene geocerca disponible; puedes capturar sin validacion espacial.
+                  Este contexto no tiene geocerca disponible; puedes capturar sin validacion
+                  espacial.
                 </p>
               )}
               {capturedPosition && (
@@ -1094,7 +1152,9 @@ export function AsistenciasPanel({
                       ? `${capturedPosition.latitud.toFixed(6)}, ${capturedPosition.longitud.toFixed(6)}`
                       : 'GPS no disponible'}
                   </p>
-                  <p className="mt-1">Precision estimada: {capturedPosition.precision ?? 'N/D'} m</p>
+                  <p className="mt-1">
+                    Precision estimada: {capturedPosition.precision ?? 'N/D'} m
+                  </p>
                   <p className="mt-1">
                     Distancia a geocerca:{' '}
                     {capturedPosition.distanciaMetros !== null
@@ -1105,7 +1165,12 @@ export function AsistenciasPanel({
                 </div>
               )}
               <div className="mt-4 flex flex-wrap gap-3">
-                <Button type="button" variant="outline" onClick={handleCapturePosition} isLoading={isLocating}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCapturePosition}
+                  isLoading={isLocating}
+                >
                   Capturar ubicacion
                 </Button>
                 {capturedPosition && (
@@ -1125,11 +1190,17 @@ export function AsistenciasPanel({
                   </div>
                   {gpsRecoveryState.requiresSettings ? (
                     <p className="mt-3 text-xs text-amber-800">
-                      Si tu telefono ya bloqueo el permiso, primero debes activarlo en los ajustes del navegador o de la app.
+                      Si tu telefono ya bloqueo el permiso, primero debes activarlo en los ajustes
+                      del navegador o de la app.
                     </p>
                   ) : null}
                   <div className="mt-4">
-                    <Button type="button" variant="outline" onClick={handleCapturePosition} isLoading={isLocating}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleCapturePosition}
+                      isLoading={isLocating}
+                    >
                       {gpsRecoveryState.retryLabel}
                     </Button>
                   </div>
@@ -1140,7 +1211,9 @@ export function AsistenciasPanel({
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700 md:col-span-2 xl:col-span-2">
               <p className="font-semibold text-slate-950">Selfie de check-in</p>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                La captura usa la cámara nativa vía getUserMedia, sella la selfie con fecha, hora y GPS visible, y la comprime en cliente antes de subirla para mantener un peso operativo controlado.
+                La captura usa la cámara nativa vía getUserMedia, sella la selfie con fecha, hora y
+                GPS visible, y la comprime en cliente antes de subirla para mantener un peso
+                operativo controlado.
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
                 <Button
@@ -1163,9 +1236,16 @@ export function AsistenciasPanel({
               {selfieCapture ? (
                 <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
                   <p className="font-semibold text-slate-950">{selfieCapture.fileName}</p>
-                  <p className="mt-1">Tamano final: {Math.round(selfieCapture.fileSize / 1024)} KB</p>
-                  <p className="mt-1">Tamano original: {Math.round(selfieCapture.originalBytes / 1024)} KB</p>
-                  <p className="mt-1">Objetivo cliente: {Math.round(selfieCapture.targetBytes / 1024)} KB ({selfieCapture.targetMet ? 'cumplido' : 'parcial'})</p>
+                  <p className="mt-1">
+                    Tamano final: {Math.round(selfieCapture.fileSize / 1024)} KB
+                  </p>
+                  <p className="mt-1">
+                    Tamano original: {Math.round(selfieCapture.originalBytes / 1024)} KB
+                  </p>
+                  <p className="mt-1">
+                    Objetivo cliente: {Math.round(selfieCapture.targetBytes / 1024)} KB (
+                    {selfieCapture.targetMet ? 'cumplido' : 'parcial'})
+                  </p>
                   <p className="mt-1 break-all">Hash: {selfieCapture.hash}</p>
                   <p className="mt-1">
                     GPS:{' '}
@@ -1186,7 +1266,11 @@ export function AsistenciasPanel({
                 value={estadoGps}
                 onChange={(event) =>
                   setEstadoGps(
-                    event.target.value as 'PENDIENTE' | 'DENTRO_GEOCERCA' | 'FUERA_GEOCERCA' | 'SIN_GPS'
+                    event.target.value as
+                      | 'PENDIENTE'
+                      | 'DENTRO_GEOCERCA'
+                      | 'FUERA_GEOCERCA'
+                      | 'SIN_GPS'
                   )
                 }
               >
@@ -1202,7 +1286,8 @@ export function AsistenciasPanel({
               <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
                 <p className="font-medium text-slate-950">Validacion biometrica del servidor</p>
                 <p className="mt-1 text-xs text-slate-600">
-                  El check-in se sincroniza con selfie nativa y el servidor decide el estado final contra la referencia del expediente.
+                  El check-in se sincroniza con selfie nativa y el servidor decide el estado final
+                  contra la referencia del expediente.
                 </p>
                 <p className="mt-2 text-xs text-slate-500">
                   Estado inicial enviado: {selfieCapture ? 'PENDIENTE' : biometriaEstado}
@@ -1217,7 +1302,11 @@ export function AsistenciasPanel({
                 value={estatus}
                 onChange={(event) =>
                   setEstatus(
-                    event.target.value as 'PENDIENTE_VALIDACION' | 'VALIDA' | 'RECHAZADA' | 'CERRADA'
+                    event.target.value as
+                      | 'PENDIENTE_VALIDACION'
+                      | 'VALIDA'
+                      | 'RECHAZADA'
+                      | 'CERRADA'
                   )
                 }
               >
@@ -1276,12 +1365,14 @@ export function AsistenciasPanel({
             </p>
             <h2 className="mt-2 text-lg font-semibold text-slate-950">Check-out operativo</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              El cierre usa la asistencia abierta seleccionada, requiere coordenadas de salida y bloquea la jornada si quedan ventas sin confirmar.
+              El cierre usa la asistencia abierta seleccionada, requiere coordenadas de salida y
+              bloquea la jornada si quedan ventas sin confirmar.
             </p>
           </div>
           {openAttendance ? (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              Jornada abierta: <span className="font-semibold text-slate-950">{openAttendance.pdvClaveBtl}</span>
+              Jornada abierta:{' '}
+              <span className="font-semibold text-slate-950">{openAttendance.pdvClaveBtl}</span>
             </div>
           ) : (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -1292,14 +1383,25 @@ export function AsistenciasPanel({
 
         {!openAttendance ? (
           <p className="mt-6 text-sm text-slate-600">
-            Selecciona una asistencia con check-in activo y sin check-out para capturar el cierre de jornada.
+            Selecciona una asistencia con check-in activo y sin check-out para capturar el cierre de
+            jornada.
           </p>
         ) : (
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700 md:col-span-2">
               <p className="font-semibold text-slate-950">Resumen comercial</p>
-              <p className="mt-2">Ventas confirmadas: <span className="font-semibold text-emerald-700">{openAttendance.ventasConfirmadas}</span></p>
-              <p className="mt-1">Ventas pendientes: <span className="font-semibold text-rose-700">{openAttendance.ventasPendientesConfirmacion}</span></p>
+              <p className="mt-2">
+                Ventas confirmadas:{' '}
+                <span className="font-semibold text-emerald-700">
+                  {openAttendance.ventasConfirmadas}
+                </span>
+              </p>
+              <p className="mt-1">
+                Ventas pendientes:{' '}
+                <span className="font-semibold text-rose-700">
+                  {openAttendance.ventasPendientesConfirmacion}
+                </span>
+              </p>
               <p className="mt-3 text-xs text-slate-500">
                 Si hay ventas pendientes, el endpoint rechazara el cierre con conflicto operacional.
               </p>
@@ -1315,14 +1417,21 @@ export function AsistenciasPanel({
                       ? `${checkoutPosition.latitud.toFixed(6)}, ${checkoutPosition.longitud.toFixed(6)}`
                       : 'GPS no disponible'}
                   </p>
-                  <p className="mt-1">Precision estimada: {checkoutPosition.precision ?? 'N/D'} m</p>
+                  <p className="mt-1">
+                    Precision estimada: {checkoutPosition.precision ?? 'N/D'} m
+                  </p>
                   <p className="mt-1">
                     Distancia a geocerca:{' '}
-                    {checkoutPosition.distanciaMetros !== null ? Math.round(checkoutPosition.distanciaMetros) : 'N/D'} m
+                    {checkoutPosition.distanciaMetros !== null
+                      ? Math.round(checkoutPosition.distanciaMetros)
+                      : 'N/D'}{' '}
+                    m
                   </p>
                 </div>
               ) : (
-                <p className="mt-2 text-sm text-slate-600">Aun no se capturan coordenadas de salida.</p>
+                <p className="mt-2 text-sm text-slate-600">
+                  Aun no se capturan coordenadas de salida.
+                </p>
               )}
               <div className="mt-4 flex flex-wrap gap-3">
                 <Button
@@ -1350,7 +1459,8 @@ export function AsistenciasPanel({
                   </div>
                   {checkoutGpsRecoveryState.requiresSettings ? (
                     <p className="mt-3 text-xs text-amber-800">
-                      Si el navegador ya dejo el GPS bloqueado, primero activalo en ajustes y luego vuelve aqui para reintentarlo.
+                      Si el navegador ya dejo el GPS bloqueado, primero activalo en ajustes y luego
+                      vuelve aqui para reintentarlo.
                     </p>
                   ) : null}
                   <div className="mt-4">
@@ -1374,7 +1484,11 @@ export function AsistenciasPanel({
                 value={checkoutEstadoGps}
                 onChange={(event) =>
                   setCheckoutEstadoGps(
-                    event.target.value as 'PENDIENTE' | 'DENTRO_GEOCERCA' | 'FUERA_GEOCERCA' | 'SIN_GPS'
+                    event.target.value as
+                      | 'PENDIENTE'
+                      | 'DENTRO_GEOCERCA'
+                      | 'FUERA_GEOCERCA'
+                      | 'SIN_GPS'
                   )
                 }
               >
@@ -1397,30 +1511,45 @@ export function AsistenciasPanel({
                   Abrir cámara de salida
                 </Button>
                 {checkoutSelfieCapture ? (
-                  <Button type="button" variant="ghost" onClick={() => setCheckoutSelfieCapture(null)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setCheckoutSelfieCapture(null)}
+                  >
                     Limpiar selfie
                   </Button>
                 ) : null}
               </div>
               <p className="mt-3 text-xs text-slate-500">
-                La selfie de salida se captura también con cámara nativa; sigue siendo opcional si la política del cliente no la exige.
+                La selfie de salida se captura también con cámara nativa; sigue siendo opcional si
+                la política del cliente no la exige.
               </p>
               {checkoutSelfieCapture ? (
                 <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
                   <p className="font-semibold text-slate-950">{checkoutSelfieCapture.fileName}</p>
-                  <p className="mt-1">Tamano final: {Math.round(checkoutSelfieCapture.fileSize / 1024)} KB</p>
-                  <p className="mt-1">Tamano original: {Math.round(checkoutSelfieCapture.originalBytes / 1024)} KB</p>
-                  <p className="mt-1">Objetivo cliente: {Math.round(checkoutSelfieCapture.targetBytes / 1024)} KB ({checkoutSelfieCapture.targetMet ? 'cumplido' : 'parcial'})</p>
+                  <p className="mt-1">
+                    Tamano final: {Math.round(checkoutSelfieCapture.fileSize / 1024)} KB
+                  </p>
+                  <p className="mt-1">
+                    Tamano original: {Math.round(checkoutSelfieCapture.originalBytes / 1024)} KB
+                  </p>
+                  <p className="mt-1">
+                    Objetivo cliente: {Math.round(checkoutSelfieCapture.targetBytes / 1024)} KB (
+                    {checkoutSelfieCapture.targetMet ? 'cumplido' : 'parcial'})
+                  </p>
                   <p className="mt-1 break-all">Hash: {checkoutSelfieCapture.hash}</p>
                   <p className="mt-1">
                     GPS:{' '}
-                    {checkoutSelfieCapture.latitud !== null && checkoutSelfieCapture.longitud !== null
+                    {checkoutSelfieCapture.latitud !== null &&
+                    checkoutSelfieCapture.longitud !== null
                       ? `${checkoutSelfieCapture.latitud.toFixed(6)}, ${checkoutSelfieCapture.longitud.toFixed(6)}`
                       : 'No disponible'}
                   </p>
                 </div>
               ) : (
-                <p className="mt-3 text-xs text-slate-500">La selfie de salida es opcional si la politica del cliente no la exige.</p>
+                <p className="mt-3 text-xs text-slate-500">
+                  La selfie de salida es opcional si la politica del cliente no la exige.
+                </p>
               )}
             </div>
 
@@ -1457,8 +1586,8 @@ export function AsistenciasPanel({
         <p className="text-sm text-slate-500">Cobertura funcional</p>
         <p className="mt-2 text-sm leading-6 text-slate-700">
           Base de jornada diaria con check-in, check-out, GPS, mision del dia, biometria y
-          justificacion fuera de geocerca. La lectura operativa ya reconoce solicitudes aprobadas como dias justificados,
-          sin eximir metas ni cuotas comerciales.
+          justificacion fuera de geocerca. La lectura operativa ya reconoce solicitudes aprobadas
+          como dias justificados, sin eximir metas ni cuotas comerciales.
         </p>
       </Card>
 
@@ -1466,7 +1595,8 @@ export function AsistenciasPanel({
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-950">Asistencias recientes</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Trazabilidad de jornada por empleado, PDV, estatus operativo y justificacion por solicitud.
+            Trazabilidad de jornada por empleado, PDV, estatus operativo y justificacion por
+            solicitud.
           </p>
         </div>
 
@@ -1537,7 +1667,9 @@ export function AsistenciasPanel({
                       <div className="mt-2 text-xs text-slate-500">
                         Ventas OK: {asistencia.ventasConfirmadas}
                       </div>
-                      <div className={`mt-1 text-xs ${asistencia.ventasPendientesConfirmacion > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                      <div
+                        className={`mt-1 text-xs ${asistencia.ventasPendientesConfirmacion > 0 ? 'text-rose-700' : 'text-emerald-700'}`}
+                      >
                         Pendientes: {asistencia.ventasPendientesConfirmacion}
                       </div>
                     </td>
@@ -1603,11 +1735,11 @@ export function AsistenciasPanel({
         </div>
       </Card>
     </div>
-  )
+  );
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return <SharedMetricCard label={label} value={value} />
+  return <SharedMetricCard label={label} value={value} />;
 }
 
 function StatusPill({ active, label }: { active: boolean; label: string }) {
@@ -1619,16 +1751,24 @@ function StatusPill({ active, label }: { active: boolean; label: string }) {
     >
       {label}
     </span>
-  )
+  );
 }
 
-function PaginationLink({ href, disabled, children }: { href: string; disabled: boolean; children: string }) {
+function PaginationLink({
+  href,
+  disabled,
+  children,
+}: {
+  href: string;
+  disabled: boolean;
+  children: string;
+}) {
   if (disabled) {
     return (
       <span className="inline-flex items-center rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-400">
         {children}
       </span>
-    )
+    );
   }
 
   return (
@@ -1638,5 +1778,5 @@ function PaginationLink({ href, disabled, children }: { href: string; disabled: 
     >
       {children}
     </Link>
-  )
+  );
 }

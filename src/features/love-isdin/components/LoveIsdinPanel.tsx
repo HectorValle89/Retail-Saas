@@ -1,40 +1,34 @@
-'use client'
+'use client';
 
-import Link from 'next/link'
-import { useActionState, useCallback, useMemo, useState, type ReactNode } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { useFormStatus } from 'react-dom'
-import type { ActorActual } from '@/lib/auth/session'
-import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { EvidencePreview } from '@/components/ui/evidence-preview'
-import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
-import { ExtemporaneoQueueSection } from '@/features/solicitudes/components/ExtemporaneoQueueSection'
+import Link from 'next/link';
+import { useActionState, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useFormStatus } from 'react-dom';
+import type { ActorActual } from '@/lib/auth/session';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { EvidencePreview } from '@/components/ui/evidence-preview';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
+import { ExtemporaneoQueueSection } from '@/features/solicitudes/components/ExtemporaneoQueueSection';
 import {
   getSingleTenantAccountLabel,
   isSingleTenantUiEnabled,
   resolveSingleTenantAccountOption,
-} from '@/lib/tenant/singleTenant'
-import { useScopedWidgetData } from '@/lib/ui-change/client'
-import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
-import { asignarQrDisponibleLoveIsdin, registrarCargaMasivaQrIncremental } from '../actions'
-import { ESTADO_LOVE_ISDIN_INICIAL } from '../state'
+} from '@/lib/tenant/singleTenant';
+import { useScopedWidgetData } from '@/lib/ui-change/client';
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
+import { asignarQrDisponibleLoveIsdin, registrarCargaMasivaQrIncremental } from '../actions';
+import { ESTADO_LOVE_ISDIN_INICIAL } from '../state';
 import type {
   LoveAggregateItem,
   LoveIsdinListadoItem,
   LoveIsdinPanelData,
   LoveKpiDatasetItem,
   LoveQrImportLotItem,
-} from '../services/loveIsdinService'
+} from '../services/loveIsdinService';
 
-type LoveSection = 'kpis' | 'inventario' | 'carga'
-type LoveRange = 'hoy' | 'semana' | 'mes'
+type LoveSection = 'kpis' | 'inventario' | 'carga' | 'fallidos';
+type LoveRange = 'hoy' | 'semana' | 'mes' | 'personalizado';
 
 function getMexicoDateIso(value: string | Date) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -42,35 +36,35 @@ function getMexicoDateIso(value: string | Date) {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(typeof value === 'string' ? new Date(value) : value)
+  }).format(typeof value === 'string' ? new Date(value) : value);
 }
 
 function getTodayMexicoIso() {
-  return getMexicoDateIso(new Date())
+  return getMexicoDateIso(new Date());
 }
 
 function getWeekStartIso(dayIso: string) {
-  const [year, month, day] = dayIso.split('-').map((value) => Number.parseInt(value, 10))
-  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0))
-  const weekday = date.getUTCDay() === 0 ? 7 : date.getUTCDay()
-  date.setUTCDate(date.getUTCDate() - weekday + 1)
-  return date.toISOString().slice(0, 10)
+  const [year, month, day] = dayIso.split('-').map((value) => Number.parseInt(value, 10));
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const weekday = date.getUTCDay() === 0 ? 7 : date.getUTCDay();
+  date.setUTCDate(date.getUTCDate() - weekday + 1);
+  return date.toISOString().slice(0, 10);
 }
 
 function formatNumber(value: number) {
-  return new Intl.NumberFormat('es-MX').format(value)
+  return new Intl.NumberFormat('es-MX').format(value);
 }
 
 function formatDateLabel(value: string) {
   return new Intl.DateTimeFormat('es-MX', {
     month: 'short',
     day: '2-digit',
-  }).format(new Date(`${value}T12:00:00`))
+  }).format(new Date(`${value}T12:00:00`));
 }
 
 function formatDateTimeLabel(value: string | null) {
   if (!value) {
-    return 'Sin registro'
+    return 'Sin registro';
   }
 
   return new Intl.DateTimeFormat('es-MX', {
@@ -79,14 +73,14 @@ function formatDateTimeLabel(value: string | null) {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(value))
+  }).format(new Date(value));
 }
 
 function formatWeekBucket(value: string) {
-  const [year, month, day] = value.split('-').map((part) => Number.parseInt(part, 10))
-  const start = new Date(Date.UTC(year, month - 1, day, 12, 0, 0))
-  const end = new Date(start)
-  end.setUTCDate(end.getUTCDate() + 6)
+  const [year, month, day] = value.split('-').map((part) => Number.parseInt(part, 10));
+  const start = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 6);
 
   return `${new Intl.DateTimeFormat('es-MX', {
     month: 'short',
@@ -94,48 +88,48 @@ function formatWeekBucket(value: string) {
   }).format(start)} - ${new Intl.DateTimeFormat('es-MX', {
     month: 'short',
     day: '2-digit',
-  }).format(end)}`
+  }).format(end)}`;
 }
 
 function buildPageHref(page: number, pageSize: number) {
-  return `/love-isdin?page=${page}&pageSize=${pageSize}`
+  return `/love-isdin?page=${page}&pageSize=${pageSize}`;
 }
 
 function chartWidth(value: number, max: number) {
   if (max <= 0) {
-    return '0%'
+    return '0%';
   }
 
-  const percent = Math.round((value / max) * 100)
-  return `${Math.max(percent, value > 0 ? 8 : 0)}%`
+  const percent = Math.round((value / max) * 100);
+  return `${Math.max(percent, value > 0 ? 8 : 0)}%`;
 }
 
 function toUniqueOptions(items: Array<{ id: string | null; label: string | null }>) {
-  const map = new Map<string, string>()
+  const map = new Map<string, string>();
 
   for (const item of items) {
     if (!item.id || !item.label) {
-      continue
+      continue;
     }
 
     if (!map.has(item.id)) {
-      map.set(item.id, item.label)
+      map.set(item.id, item.label);
     }
   }
 
   return Array.from(map.entries())
     .map(([id, label]) => ({ id, label }))
-    .sort((left, right) => left.label.localeCompare(right.label, 'es-MX'))
+    .sort((left, right) => left.label.localeCompare(right.label, 'es-MX'));
 }
 
 function aggregateDataset(
   dataset: LoveKpiDatasetItem[],
   selector: (item: LoveKpiDatasetItem) => { id: string; label: string; helper?: string | null }
 ) {
-  const map = new Map<string, LoveAggregateItem>()
+  const map = new Map<string, LoveAggregateItem>();
 
   for (const item of dataset) {
-    const target = selector(item)
+    const target = selector(item);
     const existing =
       map.get(target.id) ??
       ({
@@ -148,24 +142,24 @@ function aggregateDataset(
         pendientes: 0,
         rechazadas: 0,
         duplicadas: 0,
-      } satisfies LoveAggregateItem)
+      } satisfies LoveAggregateItem);
 
-    existing.total += item.total
-    existing.objetivo += item.objetivo
-    existing.validas += item.validas
-    existing.pendientes += item.pendientes
-    existing.rechazadas += item.rechazadas
-    existing.duplicadas += item.duplicadas
-    map.set(target.id, existing)
+    existing.total += item.total;
+    existing.objetivo += item.objetivo;
+    existing.validas += item.validas;
+    existing.pendientes += item.pendientes;
+    existing.rechazadas += item.rechazadas;
+    existing.duplicadas += item.duplicadas;
+    map.set(target.id, existing);
   }
 
   return Array.from(map.values()).sort((left, right) => {
     if (right.total !== left.total) {
-      return right.total - left.total
+      return right.total - left.total;
     }
 
-    return left.label.localeCompare(right.label, 'es-MX')
-  })
+    return left.label.localeCompare(right.label, 'es-MX');
+  });
 }
 
 function aggregateTimeline(
@@ -175,50 +169,50 @@ function aggregateTimeline(
   const map = new Map<
     string,
     {
-      bucket: string
-      total: number
-      objetivo: number
-      validas: number
-      pendientes: number
-      rechazadas: number
-      duplicadas: number
+      bucket: string;
+      total: number;
+      objetivo: number;
+      validas: number;
+      pendientes: number;
+      rechazadas: number;
+      duplicadas: number;
     }
-  >()
+  >();
 
   for (const item of dataset) {
-    const bucket = selector(item)
-    const existing =
-      map.get(bucket) ??
-      {
-        bucket,
-        total: 0,
-        objetivo: 0,
-        validas: 0,
-        pendientes: 0,
-        rechazadas: 0,
-        duplicadas: 0,
-      }
+    const bucket = selector(item);
+    const existing = map.get(bucket) ?? {
+      bucket,
+      total: 0,
+      objetivo: 0,
+      validas: 0,
+      pendientes: 0,
+      rechazadas: 0,
+      duplicadas: 0,
+    };
 
-    existing.total += item.total
-    existing.objetivo += item.objetivo
-    existing.validas += item.validas
-    existing.pendientes += item.pendientes
-    existing.rechazadas += item.rechazadas
-    existing.duplicadas += item.duplicadas
-    map.set(bucket, existing)
+    existing.total += item.total;
+    existing.objetivo += item.objetivo;
+    existing.validas += item.validas;
+    existing.pendientes += item.pendientes;
+    existing.rechazadas += item.rechazadas;
+    existing.duplicadas += item.duplicadas;
+    map.set(bucket, existing);
   }
 
-  return Array.from(map.values()).sort((left, right) => left.bucket.localeCompare(right.bucket, 'es-MX'))
+  return Array.from(map.values()).sort((left, right) =>
+    left.bucket.localeCompare(right.bucket, 'es-MX')
+  );
 }
 
 function filterAffiliaciones(
   afiliaciones: LoveIsdinListadoItem[],
   filters: {
-    pdvId: string
-    empleadoId: string
-    supervisorId: string
-    zona: string
-    cadena: string
+    pdvId: string;
+    empleadoId: string;
+    supervisorId: string;
+    zona: string;
+    cadena: string;
   },
   supervisorByEmployeeId: Map<string, string | null>,
   range: LoveRange,
@@ -226,99 +220,133 @@ function filterAffiliaciones(
   weekStartIso: string
 ) {
   return afiliaciones.filter((item) => {
-    const dayIso = getMexicoDateIso(item.fechaUtc)
-    const itemWeek = getWeekStartIso(dayIso)
-    const supervisorId = supervisorByEmployeeId.get(item.empleadoId) ?? null
+    const dayIso = getMexicoDateIso(item.fechaUtc);
+    const itemWeek = getWeekStartIso(dayIso);
+    const supervisorId = item.supervisorId ?? supervisorByEmployeeId.get(item.empleadoId) ?? null;
 
     if (range === 'hoy' && dayIso !== todayIso) {
-      return false
+      return false;
     }
 
     if (range === 'semana' && itemWeek !== weekStartIso) {
-      return false
+      return false;
     }
 
     if (filters.pdvId && item.pdvId !== filters.pdvId) {
-      return false
+      return false;
     }
 
     if (filters.empleadoId && item.empleadoId !== filters.empleadoId) {
-      return false
+      return false;
     }
 
     if (filters.supervisorId && supervisorId !== filters.supervisorId) {
-      return false
+      return false;
     }
 
     if (filters.zona && (item.zona ?? 'Sin zona') !== filters.zona) {
-      return false
+      return false;
     }
 
     if (filters.cadena && (item.cadena ?? 'Sin cadena') !== filters.cadena) {
-      return false
+      return false;
     }
 
-    return true
-  })
+    return true;
+  });
 }
 
 function buildImportTone(state: LoveQrImportLotItem['estado']) {
   switch (state) {
     case 'CONFIRMADO':
-      return 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200'
+      return 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200';
     case 'CANCELADO':
-      return 'bg-rose-100 text-rose-800 ring-1 ring-rose-200'
+      return 'bg-rose-100 text-rose-800 ring-1 ring-rose-200';
     default:
-      return 'bg-amber-100 text-amber-800 ring-1 ring-amber-200'
+      return 'bg-amber-100 text-amber-800 ring-1 ring-amber-200';
   }
 }
 
 function buildQrTone(state: 'DISPONIBLE' | 'ACTIVO' | 'BLOQUEADO' | 'BAJA') {
   switch (state) {
     case 'ACTIVO':
-      return 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200'
+      return 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200';
     case 'DISPONIBLE':
-      return 'bg-sky-100 text-sky-800 ring-1 ring-sky-200'
+      return 'bg-sky-100 text-sky-800 ring-1 ring-sky-200';
     case 'BLOQUEADO':
-      return 'bg-amber-100 text-amber-800 ring-1 ring-amber-200'
+      return 'bg-amber-100 text-amber-800 ring-1 ring-amber-200';
     case 'BAJA':
-      return 'bg-slate-200 text-slate-700 ring-1 ring-slate-300'
+      return 'bg-slate-200 text-slate-700 ring-1 ring-slate-300';
     default:
-      return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200'
+      return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200';
   }
 }
 
 function fieldClassName() {
-  return 'w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] transition focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]'
+  return 'w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] transition focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]';
 }
 
 export function LoveIsdinPanel({
   actor,
   data: initialData,
 }: {
-  actor: ActorActual
-  data: LoveIsdinPanelData
+  actor: ActorActual;
+  data: LoveIsdinPanelData;
 }) {
-  const searchParams = useSearchParams()
-  const queryString = searchParams.toString()
-  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
-  const fetchPanel = useCallback(
-    async (signal: AbortSignal) => {
-      const response = await fetch(queryString ? `/api/love-isdin/panel?${queryString}` : '/api/love-isdin/panel', {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const esVisualizadorReporte = ['ADMINISTRADOR', 'COORDINADOR', 'SUPERVISOR'].includes(
+    actor.puesto
+  );
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('refresh', 'true');
+
+      const response = await fetch(`/api/love-isdin/panel?${params.toString()}`, {
         cache: 'no-store',
         credentials: 'same-origin',
-        signal,
-      })
-      const payload = (await response.json()) as { data?: LoveIsdinPanelData; message?: string }
-
-      if (!response.ok || !payload.data) {
-        throw new Error(payload.message ?? 'No fue posible refrescar LOVE ISDIN.')
+      });
+      if (!response.ok) {
+        throw new Error('No fue posible actualizar LOVE ISDIN.');
       }
 
-      return payload.data
+      router.refresh();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 600);
+    }
+  };
+
+  const queryString = searchParams.toString();
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
+  const fetchPanel = useCallback(
+    async (signal: AbortSignal) => {
+      const response = await fetch(
+        queryString ? `/api/love-isdin/panel?${queryString}` : '/api/love-isdin/panel',
+        {
+          cache: 'no-store',
+          credentials: 'same-origin',
+          signal,
+        }
+      );
+      const payload = (await response.json()) as { data?: LoveIsdinPanelData; message?: string };
+
+      if (!response.ok || !payload.data) {
+        throw new Error(payload.message ?? 'No fue posible refrescar LOVE ISDIN.');
+      }
+
+      return payload.data;
     },
     [queryString]
-  )
+  );
   const { data } = useScopedWidgetData({
     initialData,
     module: 'love-isdin',
@@ -327,39 +355,73 @@ export function LoveIsdinPanel({
     roleTargets: [actor.puesto],
     fetcher: (signal) => fetchPanel(signal),
     debounceMs: 650,
-  })
-  const [activeSection, setActiveSection] = useState<LoveSection>('kpis')
-  const [range, setRange] = useState<LoveRange>('mes')
-  const [selectedPdvId, setSelectedPdvId] = useState('')
-  const [selectedEmpleadoId, setSelectedEmpleadoId] = useState('')
-  const [selectedSupervisorId, setSelectedSupervisorId] = useState('')
-  const [selectedZona, setSelectedZona] = useState('')
-  const [selectedCadena, setSelectedCadena] = useState('')
-  const [inventorySearch, setInventorySearch] = useState('')
-  const [inventoryStatus, setInventoryStatus] = useState('')
+  });
+  const [activeSection, setActiveSection] = useState<LoveSection>('kpis');
+  const [range, setRange] = useState<LoveRange>('mes');
+  const [fechaInicio, setFechaInicio] = useState<string>('');
+  const [fechaFin, setFechaFin] = useState<string>('');
+  const [selectedPdvId, setSelectedPdvId] = useState('');
+  const [selectedEmpleadoId, setSelectedEmpleadoId] = useState('');
+  const [selectedSupervisorId, setSelectedSupervisorId] = useState('');
+  const [selectedZona, setSelectedZona] = useState('');
+  const [selectedCadena, setSelectedCadena] = useState('');
+  const [inventorySearch, setInventorySearch] = useState('');
+  const [inventoryStatus, setInventoryStatus] = useState('');
   const [uploadState, uploadAction] = useActionState(
     registrarCargaMasivaQrIncremental,
     ESTADO_LOVE_ISDIN_INICIAL
-  )
+  );
   const [assignState, assignAction] = useActionState(
     asignarQrDisponibleLoveIsdin,
     ESTADO_LOVE_ISDIN_INICIAL
-  )
+  );
 
-  const todayIso = useMemo(() => getTodayMexicoIso(), [])
-  const weekStartIso = useMemo(() => getWeekStartIso(todayIso), [todayIso])
+  const todayIso = useMemo(() => getTodayMexicoIso(), []);
+  const weekStartIso = useMemo(() => getWeekStartIso(todayIso), [todayIso]);
+  const currentMonth = useMemo(
+    () => searchParams.get('month') || todayIso.slice(0, 7),
+    [searchParams, todayIso]
+  );
+
+  const monthLimits = useMemo(() => {
+    const [yearStr, monthStr] = currentMonth.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+    const lastDay = new Date(year, month, 0).getDate();
+    return {
+      start: `${currentMonth}-01`,
+      end: `${currentMonth}-${String(lastDay).padStart(2, '0')}`,
+    };
+  }, [currentMonth]);
+
+  useEffect(() => {
+    if (range === 'mes') {
+      setFechaInicio(monthLimits.start);
+      setFechaFin(monthLimits.end);
+    } else if (range === 'hoy') {
+      setFechaInicio(todayIso);
+      setFechaFin(todayIso);
+    } else if (range === 'semana') {
+      const weekStart = getWeekStartIso(todayIso);
+      const startDate = new Date(`${weekStart}T12:00:00Z`);
+      const endDate = new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000);
+      const weekEnd = endDate.toISOString().slice(0, 10);
+      setFechaInicio(weekStart);
+      setFechaFin(weekEnd);
+    }
+  }, [range, monthLimits, todayIso]);
 
   const supervisorByEmployeeId = useMemo(() => {
-    const map = new Map<string, string | null>()
+    const map = new Map<string, string | null>();
 
     for (const item of data.kpiDataset) {
       if (!map.has(item.empleadoId)) {
-        map.set(item.empleadoId, item.supervisorId)
+        map.set(item.empleadoId, item.supervisorId);
       }
     }
 
-    return map
-  }, [data.kpiDataset])
+    return map;
+  }, [data.kpiDataset]);
 
   const supervisorOptions = useMemo(
     () =>
@@ -370,7 +432,7 @@ export function LoveIsdinPanel({
         }))
       ),
     [data.kpiDataset]
-  )
+  );
 
   const zonaOptions = useMemo(
     () =>
@@ -379,7 +441,7 @@ export function LoveIsdinPanel({
         .sort((left, right) => left.localeCompare(right, 'es-MX'))
         .map((value) => ({ id: value, label: value })),
     [data.kpiDataset]
-  )
+  );
 
   const cadenaOptions = useMemo(
     () =>
@@ -388,79 +450,78 @@ export function LoveIsdinPanel({
         .sort((left, right) => left.localeCompare(right, 'es-MX'))
         .map((value) => ({ id: value, label: value })),
     [data.kpiDataset]
-  )
+  );
 
   const filteredDataset = useMemo(() => {
     return data.kpiDataset.filter((item) => {
-      if (range === 'hoy' && item.fechaOperacion !== todayIso) {
-        return false
+      if (fechaInicio && item.fechaOperacion < fechaInicio) {
+        return false;
       }
 
-      if (range === 'semana' && item.weekBucket !== weekStartIso) {
-        return false
+      if (fechaFin && item.fechaOperacion > fechaFin) {
+        return false;
       }
 
       if (selectedPdvId && item.pdvId !== selectedPdvId) {
-        return false
+        return false;
       }
 
       if (selectedEmpleadoId && item.empleadoId !== selectedEmpleadoId) {
-        return false
+        return false;
       }
 
       if (selectedSupervisorId && item.supervisorId !== selectedSupervisorId) {
-        return false
+        return false;
       }
 
       if (selectedZona && item.zona !== selectedZona) {
-        return false
+        return false;
       }
 
       if (selectedCadena && item.cadena !== selectedCadena) {
-        return false
+        return false;
       }
 
-      return true
-    })
+      return true;
+    });
   }, [
     data.kpiDataset,
-    range,
+    fechaInicio,
+    fechaFin,
     selectedCadena,
     selectedEmpleadoId,
     selectedPdvId,
     selectedSupervisorId,
     selectedZona,
-    todayIso,
-    weekStartIso,
-  ])
+  ]);
 
   const filteredKpi = useMemo(() => {
     return filteredDataset.reduce(
       (acc, item) => {
-        acc.total += item.total
-        acc.objetivo += item.objetivo
-        acc.validas += item.validas
-        acc.pendientes += item.pendientes
-        acc.rechazadas += item.rechazadas
-        acc.duplicadas += item.duplicadas
-        return acc
+        acc.total += item.total;
+        acc.objetivo += item.objetivo;
+        acc.validas += item.validas;
+        acc.pendientes += item.pendientes;
+        acc.rechazadas += item.rechazadas;
+        acc.duplicadas += item.duplicadas;
+        return acc;
       },
       { total: 0, objetivo: 0, validas: 0, pendientes: 0, rechazadas: 0, duplicadas: 0 }
-    )
-  }, [filteredDataset])
+    );
+  }, [filteredDataset]);
   const filteredQuota = useMemo(() => {
     if (filteredKpi.objetivo <= 0) {
       return {
         cumplimientoPct: 0,
         restante: 0,
-      }
+      };
     }
 
     return {
       cumplimientoPct: Math.round((filteredKpi.total / filteredKpi.objetivo) * 10000) / 100,
       restante: Math.max(filteredKpi.objetivo - filteredKpi.total, 0),
-    }
-  }, [filteredKpi])
+    };
+  }, [filteredKpi]);
 
   const afiliacionesFiltradas = useMemo(
     () =>
@@ -490,7 +551,7 @@ export function LoveIsdinPanel({
       todayIso,
       weekStartIso,
     ]
-  )
+  );
 
   const charts = useMemo(
     () => ({
@@ -523,18 +584,66 @@ export function LoveIsdinPanel({
       semanal: aggregateTimeline(filteredDataset, (item) => item.weekBucket),
     }),
     [filteredDataset]
-  )
+  );
+
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportExcel = async () => {
+    setIsExporting(true);
+    try {
+      const { exportarLoveIsdinKpisToExcel } = await import('../lib/loveIsdinExport');
+
+      const pdvLabel = selectedPdvId
+        ? data.pdvs.find((p) => p.id === selectedPdvId)?.label
+        : undefined;
+      const empleadoLabel = selectedEmpleadoId
+        ? data.empleados.find((e) => e.id === selectedEmpleadoId)?.label
+        : undefined;
+      const supervisorLabel = selectedSupervisorId
+        ? supervisorOptions.find((s) => s.id === selectedSupervisorId)?.label
+        : undefined;
+      const zona = selectedZona || undefined;
+      const cadena = selectedCadena || undefined;
+
+      await exportarLoveIsdinKpisToExcel({
+        range,
+        filters: { pdvLabel, empleadoLabel, supervisorLabel, zona, cadena },
+        kpiSummary: {
+          total: filteredKpi.total,
+          objetivo: filteredKpi.objetivo,
+          validas: filteredKpi.validas,
+          pendientes: filteredKpi.pendientes,
+          rechazadas: filteredKpi.rechazadas,
+          duplicadas: filteredKpi.duplicadas,
+          cumplimientoPct: filteredQuota.cumplimientoPct,
+          restante: filteredQuota.restante,
+        },
+        kpiDataset: filteredDataset,
+        porPdv: charts.porPdv,
+        porDc: charts.porDc,
+        porSupervisor: charts.porSupervisor,
+        porCadena: charts.porCadena,
+        diaria: charts.diaria,
+        semanal: charts.semanal,
+      });
+    } catch (error) {
+      console.error('Error al exportar Excel:', error);
+      alert('Hubo un error al generar el archivo de Excel.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const filteredInventory = useMemo(() => {
-    const needle = inventorySearch.trim().toLowerCase()
+    const needle = inventorySearch.trim().toLowerCase();
 
     return data.qrInventario.filter((item) => {
       if (inventoryStatus && item.estado !== inventoryStatus) {
-        return false
+        return false;
       }
 
       if (!needle) {
-        return true
+        return true;
       }
 
       return [
@@ -546,9 +655,9 @@ export function LoveIsdinPanel({
       ]
         .join(' ')
         .toLowerCase()
-        .includes(needle)
-    })
-  }, [data.qrInventario, inventorySearch, inventoryStatus])
+        .includes(needle);
+    });
+  }, [data.qrInventario, inventorySearch, inventoryStatus]);
 
   const availableQrOptions = useMemo(
     () =>
@@ -559,11 +668,11 @@ export function LoveIsdinPanel({
           label: item.codigo,
         })),
     [data.qrInventario]
-  )
+  );
 
-  const fixedAccount = resolveSingleTenantAccountOption(data.cuentas)
-  const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount)
-  const defaultAccountId = fixedAccount?.id ?? data.cuentas[0]?.id ?? ''
+  const fixedAccount = resolveSingleTenantAccountOption(data.cuentas);
+  const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount);
+  const defaultAccountId = fixedAccount?.id ?? data.cuentas[0]?.id ?? '';
 
   return (
     <div className="space-y-6">
@@ -585,16 +694,28 @@ export function LoveIsdinPanel({
               </p>
               <h2 className="mt-2 text-2xl font-semibold text-slate-950">{data.scopeLabel}</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-                El QR identifica a la dermoconsejera, pero la afiliacion se registra y se reporta por el
-                PDV real donde ocurrio. El modulo se divide en KPIs, inventario QR y carga masiva
-                incremental para mantener la operacion mas clara.
+                El QR identifica a la dermoconsejera, pero la afiliacion se registra y se reporta
+                por el PDV real donde ocurrio. El modulo se divide en KPIs, inventario QR y carga
+                masiva incremental para mantener la operacion mas clara.
               </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
-              <MetricCard label="Afiliaciones hoy" value={formatNumber(data.afiliacionesKpi.hoy)} tone="rose" />
-              <MetricCard label="Afiliaciones semana" value={formatNumber(data.afiliacionesKpi.semana)} tone="sky" />
-              <MetricCard label="QR activos" value={formatNumber(data.qrResumen.activos)} tone="emerald" />
+              <MetricCard
+                label="Afiliaciones hoy"
+                value={formatNumber(data.afiliacionesKpi.hoy)}
+                tone="rose"
+              />
+              <MetricCard
+                label="Afiliaciones semana"
+                value={formatNumber(data.afiliacionesKpi.semana)}
+                tone="sky"
+              />
+              <MetricCard
+                label="QR activos"
+                value={formatNumber(data.qrResumen.activos)}
+                tone="emerald"
+              />
             </div>
           </div>
         </div>
@@ -619,6 +740,12 @@ export function LoveIsdinPanel({
               label="Carga masiva"
               helper="Manifiesto incremental y ZIP de imagenes"
             />
+            <SectionButton
+              active={activeSection === 'fallidos'}
+              onClick={() => setActiveSection('fallidos')}
+              label="Registros fallidos"
+              helper="Reporte de rechazos, duplicados e intentos fallidos"
+            />
           </div>
         </div>
       </Card>
@@ -635,19 +762,108 @@ export function LoveIsdinPanel({
             </CardHeader>
 
             <CardContent className="space-y-5">
-              <div className="flex flex-wrap gap-3">
-                <RangeButton active={range === 'hoy'} onClick={() => setRange('hoy')}>
-                  Hoy
-                </RangeButton>
-                <RangeButton active={range === 'semana'} onClick={() => setRange('semana')}>
-                  Semana
-                </RangeButton>
-                <RangeButton active={range === 'mes'} onClick={() => setRange('mes')}>
-                  Mes
-                </RangeButton>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap gap-3">
+                  <RangeButton active={range === 'hoy'} onClick={() => setRange('hoy')}>
+                    Hoy
+                  </RangeButton>
+                  <RangeButton active={range === 'semana'} onClick={() => setRange('semana')}>
+                    Semana
+                  </RangeButton>
+                  <RangeButton active={range === 'mes'} onClick={() => setRange('mes')}>
+                    Mes
+                  </RangeButton>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  {esVisualizadorReporte && (
+                    <Button
+                      onClick={handleRefresh}
+                      disabled={isRefreshing}
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[14px] border border-slate-200 bg-white px-4.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all duration-200 shadow-sm"
+                    >
+                      {isRefreshing ? (
+                        <>
+                          <span className="animate-spin h-4 w-4 border-2 border-slate-700/60 border-t-transparent rounded-full" />
+                          <span>Actualizando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>🔄</span>
+                          <span>Actualizar datos</span>
+                        </>
+                      )}
+                    </Button>
+                  )}
+
+                  <Button
+                    onClick={handleExportExcel}
+                    disabled={isExporting}
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[14px] border border-emerald-600 bg-emerald-600 px-4.5 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-emerald-700 hover:border-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 disabled:opacity-50"
+                  >
+                    {isExporting ? (
+                      <>
+                        <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                        <span>Generando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <i className="bi bi-file-earmark-excel text-base leading-none" />
+                        <span>Exportar Reporte (Excel)</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
+                <FilterField label="Mes">
+                  <input
+                    type="month"
+                    className={fieldClassName()}
+                    value={currentMonth}
+                    onChange={(event) => {
+                      const newMonth = event.target.value;
+                      const params = new URLSearchParams(window.location.search);
+                      if (newMonth) {
+                        params.set('month', newMonth);
+                      } else {
+                        params.delete('month');
+                      }
+                      params.set('page', '1');
+                      router.push(`/love-isdin?${params.toString()}`);
+                    }}
+                  />
+                </FilterField>
+
+                <FilterField label="Fecha Inicio">
+                  <input
+                    type="date"
+                    className={fieldClassName()}
+                    value={fechaInicio}
+                    min={monthLimits.start}
+                    max={fechaFin || monthLimits.end}
+                    onChange={(event) => {
+                      setFechaInicio(event.target.value);
+                      setRange('personalizado');
+                    }}
+                  />
+                </FilterField>
+
+                <FilterField label="Fecha Fin">
+                  <input
+                    type="date"
+                    className={fieldClassName()}
+                    value={fechaFin}
+                    min={fechaInicio || monthLimits.start}
+                    max={monthLimits.end}
+                    onChange={(event) => {
+                      setFechaFin(event.target.value);
+                      setRange('personalizado');
+                    }}
+                  />
+                </FilterField>
+
                 <FilterField label="PDV">
                   <select
                     className={fieldClassName()}
@@ -729,8 +945,16 @@ export function LoveIsdinPanel({
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <MetricCard label="Afiliaciones" value={formatNumber(filteredKpi.total)} tone="rose" />
             <MetricCard label="Meta" value={formatNumber(filteredKpi.objetivo)} tone="sky" />
-            <MetricCard label="Cumplimiento" value={`${filteredQuota.cumplimientoPct.toFixed(2)}%`} tone="emerald" />
-            <MetricCard label="Pendiente" value={formatNumber(filteredQuota.restante)} tone="amber" />
+            <MetricCard
+              label="Cumplimiento"
+              value={`${filteredQuota.cumplimientoPct.toFixed(2)}%`}
+              tone="emerald"
+            />
+            <MetricCard
+              label="Pendiente"
+              value={formatNumber(filteredQuota.restante)}
+              tone="amber"
+            />
             <MetricCard label="Validas" value={formatNumber(filteredKpi.validas)} tone="slate" />
           </section>
 
@@ -752,12 +976,10 @@ export function LoveIsdinPanel({
               description="Consolida el resultado operativo del equipo por supervisora."
               items={charts.porSupervisor}
               emptyLabel="Sin afiliaciones acumuladas para este corte."
-            />
-            <KpiBarChartCard
-              title="Acumulado por zona"
-              description="Lectura regional para seguimiento comercial y operativo."
-              items={charts.porZona}
-              emptyLabel="Sin afiliaciones acumuladas para este corte."
+              showPercentageAsPrimary={true}
+              showAll={true}
+              gridCols={2}
+              className="xl:col-span-2"
             />
             <KpiBarChartCard
               title="Acumulado por cadena"
@@ -787,8 +1009,8 @@ export function LoveIsdinPanel({
             <CardHeader className="border-b border-border/70 px-6 py-5">
               <CardTitle>Afiliaciones recientes del corte</CardTitle>
               <CardDescription>
-                Registros recientes filtrados por la misma lectura del tablero. El QR queda como traza
-                operativa, pero el hecho se consolida por PDV.
+                Registros recientes filtrados por la misma lectura del tablero. El QR queda como
+                traza operativa, pero el hecho se consolida por PDV.
               </CardDescription>
             </CardHeader>
 
@@ -811,9 +1033,13 @@ export function LoveIsdinPanel({
                     <tbody>
                       {afiliacionesFiltradas.slice(0, 20).map((item) => (
                         <tr key={item.id} className="border-t border-border/60">
-                          <td className="px-6 py-4 text-slate-600">{formatDateTimeLabel(item.fechaUtc)}</td>
+                          <td className="px-6 py-4 text-slate-600">
+                            {formatDateTimeLabel(item.fechaUtc)}
+                          </td>
                           <td className="px-6 py-4">
-                            <div className="font-medium text-slate-950">{item.pdvNombre ?? 'Sin PDV'}</div>
+                            <div className="font-medium text-slate-950">
+                              {item.pdvNombre ?? 'Sin PDV'}
+                            </div>
                             <div className="text-xs text-slate-500">
                               {[item.pdvClaveBtl, item.cadena].filter(Boolean).join(' · ')}
                             </div>
@@ -821,10 +1047,14 @@ export function LoveIsdinPanel({
                           <td className="px-6 py-4">
                             <div className="font-medium text-slate-950">{item.empleado}</div>
                             <div className="text-xs text-slate-500">
-                              {[item.idNomina ? `Nomina ${item.idNomina}` : null, item.zona].filter(Boolean).join(' · ')}
+                              {[item.idNomina ? `Nomina ${item.idNomina}` : null, item.zona]
+                                .filter(Boolean)
+                                .join(' · ')}
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-slate-600">{item.qrPersonal ?? 'Sin QR snapshot'}</td>
+                          <td className="px-6 py-4 text-slate-600">
+                            {item.qrPersonal ?? 'Sin QR snapshot'}
+                          </td>
                           <td className="px-6 py-4">
                             <StatusPill value={item.estatus} />
                           </td>
@@ -844,8 +1074,8 @@ export function LoveIsdinPanel({
 
               <div className="flex flex-col gap-4 border-t border-border/60 px-6 py-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
                 <p>
-                  Mostrando {data.afiliaciones.length} de {formatNumber(data.paginacion.totalItems)} afiliaciones
-                  visibles en el listado principal.
+                  Mostrando {data.afiliaciones.length} de {formatNumber(data.paginacion.totalItems)}{' '}
+                  afiliaciones visibles en el listado principal.
                 </p>
                 <div className="flex items-center gap-3">
                   <Link
@@ -854,7 +1084,10 @@ export function LoveIsdinPanel({
                         ? 'pointer-events-none border-slate-200 text-slate-300'
                         : 'border-border text-slate-700 hover:bg-slate-50'
                     }`}
-                    href={buildPageHref(Math.max(1, data.paginacion.page - 1), data.paginacion.pageSize)}
+                    href={buildPageHref(
+                      Math.max(1, data.paginacion.page - 1),
+                      data.paginacion.pageSize
+                    )}
                   >
                     Anterior
                   </Link>
@@ -901,12 +1134,32 @@ export function LoveIsdinPanel({
           )}
 
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-            <MetricCard label="QR activos" value={formatNumber(data.qrResumen.activos)} tone="emerald" />
-            <MetricCard label="Disponibles" value={formatNumber(data.qrResumen.disponibles)} tone="sky" />
-            <MetricCard label="Bloqueados" value={formatNumber(data.qrResumen.bloqueados)} tone="amber" />
+            <MetricCard
+              label="QR activos"
+              value={formatNumber(data.qrResumen.activos)}
+              tone="emerald"
+            />
+            <MetricCard
+              label="Disponibles"
+              value={formatNumber(data.qrResumen.disponibles)}
+              tone="sky"
+            />
+            <MetricCard
+              label="Bloqueados"
+              value={formatNumber(data.qrResumen.bloqueados)}
+              tone="amber"
+            />
             <MetricCard label="Bajas" value={formatNumber(data.qrResumen.bajas)} tone="slate" />
-            <MetricCard label="DC activas con QR" value={formatNumber(data.qrResumen.dcActivasConQr)} tone="rose" />
-            <MetricCard label="DC activas sin QR" value={formatNumber(data.qrResumen.dcActivasSinQr)} tone="amber" />
+            <MetricCard
+              label="DC activas con QR"
+              value={formatNumber(data.qrResumen.dcActivasConQr)}
+              tone="rose"
+            />
+            <MetricCard
+              label="DC activas sin QR"
+              value={formatNumber(data.qrResumen.dcActivasSinQr)}
+              tone="amber"
+            />
           </section>
 
           <Card>
@@ -1023,9 +1276,16 @@ export function LoveIsdinPanel({
                   <p className="font-medium text-slate-950">Reglas de esta asignación</p>
                   <ul className="mt-2 space-y-1">
                     <li>- Solo aparecen QR que ya estan en inventario como DISPONIBLE.</li>
-                    <li>- Solo aparecen dermoconsejeras activas que hoy no tienen QR oficial activo.</li>
-                    <li>- Este flujo no reemplaza QR existentes; para eso usaremos un reemplazo dedicado.</li>
-                    <li>- En cuanto se confirma, el dashboard de la DC ya debe mostrar su QR oficial.</li>
+                    <li>
+                      - Solo aparecen dermoconsejeras activas que hoy no tienen QR oficial activo.
+                    </li>
+                    <li>
+                      - Este flujo no reemplaza QR existentes; para eso usaremos un reemplazo
+                      dedicado.
+                    </li>
+                    <li>
+                      - En cuanto se confirma, el dashboard de la DC ya debe mostrar su QR oficial.
+                    </li>
                   </ul>
                 </div>
 
@@ -1042,7 +1302,9 @@ export function LoveIsdinPanel({
                 )}
 
                 <AssignSubmitButton
-                  disabled={availableQrOptions.length === 0 || data.dermoconsejerasSinQr.length === 0}
+                  disabled={
+                    availableQrOptions.length === 0 || data.dermoconsejerasSinQr.length === 0
+                  }
                 />
               </form>
             </CardContent>
@@ -1052,9 +1314,9 @@ export function LoveIsdinPanel({
             <CardHeader>
               <CardTitle>Inventario oficial de QR</CardTitle>
               <CardDescription>
-                Aqui administramos los codigos que identifican a cada dermoconsejera frente al sistema
-                externo de ISDIN. Las afiliaciones siguen contando por PDV, pero el QR debe estar
-                correctamente asignado para que la captura sea valida.
+                Aqui administramos los codigos que identifican a cada dermoconsejera frente al
+                sistema externo de ISDIN. Las afiliaciones siguen contando por PDV, pero el QR debe
+                estar correctamente asignado para que la captura sea valida.
               </CardDescription>
             </CardHeader>
 
@@ -1115,14 +1377,20 @@ export function LoveIsdinPanel({
                             <QrStatusPill value={item.estado} />
                           </td>
                           <td className="px-6 py-4">
-                            <div className="font-medium text-slate-950">{item.empleado ?? 'Sin asignar'}</div>
+                            <div className="font-medium text-slate-950">
+                              {item.empleado ?? 'Sin asignar'}
+                            </div>
                             <div className="text-xs text-slate-500">
                               {item.idNomina ? `Nomina ${item.idNomina}` : 'Sin nomina'}
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-slate-600">{item.supervisor ?? 'Sin supervisor'}</td>
+                          <td className="px-6 py-4 text-slate-600">
+                            {item.supervisor ?? 'Sin supervisor'}
+                          </td>
                           <td className="px-6 py-4 text-slate-600">{item.zona ?? 'Sin zona'}</td>
-                          <td className="px-6 py-4 text-slate-600">{formatDateTimeLabel(item.fechaInicio)}</td>
+                          <td className="px-6 py-4 text-slate-600">
+                            {formatDateTimeLabel(item.fechaInicio)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1134,25 +1402,166 @@ export function LoveIsdinPanel({
         </section>
       )}
 
+      {activeSection === 'fallidos' && (
+        <section className="space-y-6">
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Total de fallas"
+              value={formatNumber(data.registrosFallidos.length)}
+              tone="rose"
+            />
+            <MetricCard
+              label="Intentos fallidos (DC)"
+              value={formatNumber(
+                data.registrosFallidos.filter((item) => item.tipoFalla === 'INTENTO_FALLIDO').length
+              )}
+              tone="sky"
+            />
+            <MetricCard
+              label="Registros rechazados"
+              value={formatNumber(
+                data.registrosFallidos.filter((item) => item.tipoFalla === 'RECHAZADA').length
+              )}
+              tone="amber"
+            />
+            <MetricCard
+              label="Registros duplicados"
+              value={formatNumber(
+                data.registrosFallidos.filter((item) => item.tipoFalla === 'DUPLICADA').length
+              )}
+              tone="slate"
+            />
+          </section>
+
+          <div className="grid gap-6 xl:grid-cols-[1fr_2fr]">
+            <Card>
+              <CardHeader>
+                <CardTitle>Causas principales de fallo</CardTitle>
+                <CardDescription>
+                  Distribución porcentual de las razones operativas y del sistema reportadas.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {data.causasFallas.length === 0 ? (
+                  <StateMessage label="Sin registros de fallas para analizar." minimal />
+                ) : (
+                  <div className="space-y-4">
+                    {data.causasFallas.map((item) => (
+                      <div key={item.causa} className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span className="font-medium text-slate-800">{item.causa}</span>
+                          <span className="text-slate-500">
+                            {item.total} ({item.porcentaje.toFixed(1)}%)
+                          </span>
+                        </div>
+                        <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-rose-500 to-amber-500 transition-all"
+                            style={{ width: `${item.porcentaje}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="overflow-hidden p-0">
+              <CardHeader className="border-b border-border/70 px-6 py-5">
+                <CardTitle>Historial detallado de fallas</CardTitle>
+                <CardDescription>
+                  Listado cronológico de afiliaciones fallidas reportadas por el equipo o
+                  rechazadas.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="px-0 py-0">
+                {data.registrosFallidos.length === 0 ? (
+                  <StateMessage label="No hay registros fallidos en el historial." />
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.16em] text-slate-500">
+                        <tr>
+                          <th className="px-6 py-4">Fecha</th>
+                          <th className="px-6 py-4">Dermoconsejera</th>
+                          <th className="px-6 py-4">Tienda</th>
+                          <th className="px-6 py-4">Tipo Falla</th>
+                          <th className="px-6 py-4">Detalle / Causa</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.registrosFallidos.map((item) => (
+                          <tr key={item.id} className="border-t border-border/60">
+                            <td className="px-6 py-4 text-slate-600 whitespace-nowrap">
+                              {formatDateTimeLabel(item.fecha)}
+                            </td>
+                            <td className="px-6 py-4 font-medium text-slate-900">
+                              {item.empleado}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="font-medium text-slate-950">{item.pdv}</div>
+                              <div className="text-xs text-slate-500">{item.pdvClave}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span
+                                className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider ${
+                                  item.tipoFalla === 'INTENTO_FALLIDO'
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : item.tipoFalla === 'DUPLICADA'
+                                      ? 'bg-slate-100 text-slate-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                }`}
+                              >
+                                {item.tipoFalla === 'INTENTO_FALLIDO'
+                                  ? 'Intento'
+                                  : item.tipoFalla === 'DUPLICADA'
+                                    ? 'Duplicado'
+                                    : 'Rechazado'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-slate-600 leading-relaxed max-w-xs">
+                              <div className="font-medium text-slate-900">{item.causa}</div>
+                              {item.detalles && (
+                                <p className="mt-1 text-xs text-slate-500 italic break-words">
+                                  "{item.detalles}"
+                                </p>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+      )}
+
       {activeSection === 'carga' && (
         <section className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
           <Card>
             <CardHeader>
               <CardTitle>Carga masiva incremental</CardTitle>
               <CardDescription>
-                Sube un manifiesto con codigos y asignaciones, junto con el ZIP de imagenes oficiales de
-                QR. El sistema procesa la carga en ese momento, convierte TIFF/TIF si hace falta y deja
-                el QR realmente asignado a la dermoconsejera para dashboard y LOVE ISDIN.
+                Sube un manifiesto con codigos y asignaciones, junto con el ZIP de imagenes
+                oficiales de QR. El sistema procesa la carga en ese momento, convierte TIFF/TIF si
+                hace falta y deja el QR realmente asignado a la dermoconsejera para dashboard y LOVE
+                ISDIN.
               </CardDescription>
             </CardHeader>
 
             <CardContent className="space-y-5">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-[18px] border border-[var(--module-border)] bg-[var(--module-soft-bg)] px-4 py-4">
                 <div>
-                  <p className="text-sm font-medium text-slate-950">Plantilla oficial del manifiesto QR</p>
+                  <p className="text-sm font-medium text-slate-950">
+                    Plantilla oficial del manifiesto QR
+                  </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Descarga el Excel base con columnas, ejemplos y hoja de instrucciones para que el
-                    manifiesto y el ZIP empaten desde el primer intento.
+                    Descarga el Excel base con columnas, ejemplos y hoja de instrucciones para que
+                    el manifiesto y el ZIP empaten desde el primer intento.
                   </p>
                 </div>
 
@@ -1216,14 +1625,28 @@ export function LoveIsdinPanel({
                 <div className="rounded-[18px] border border-[var(--module-border)] bg-[var(--module-soft-bg)] px-4 py-4 text-sm leading-6 text-slate-600">
                   <p className="font-medium text-slate-950">Reglas de esta carga</p>
                   <ul className="mt-2 space-y-1">
-                    <li>- El manifiesto y el ZIP se guardan como lote incremental para trazabilidad.</li>
+                    <li>
+                      - El manifiesto y el ZIP se guardan como lote incremental para trazabilidad.
+                    </li>
                     <li>- El sistema procesa la asignacion QR en el momento de la carga.</li>
-                    <li>- El QR sigue siendo de la DC, pero las afiliaciones contaran por el PDV real.</li>
-                    <li>- `IMAGEN_ARCHIVO` debe coincidir exactamente con el nombre dentro del ZIP.</li>
-                    <li>- Se aceptan imagenes `.png`, `.jpg`, `.jpeg`, `.webp`, `.tif` y `.tiff`.</li>
-                    <li>- Los TIFF/TIF se convierten automaticamente para que puedan mostrarse en dashboard.</li>
+                    <li>
+                      - El QR sigue siendo de la DC, pero las afiliaciones contaran por el PDV real.
+                    </li>
+                    <li>
+                      - `IMAGEN_ARCHIVO` debe coincidir exactamente con el nombre dentro del ZIP.
+                    </li>
+                    <li>
+                      - Se aceptan imagenes `.png`, `.jpg`, `.jpeg`, `.webp`, `.tif` y `.tiff`.
+                    </li>
+                    <li>
+                      - Los TIFF/TIF se convierten automaticamente para que puedan mostrarse en
+                      dashboard.
+                    </li>
                     <li>- Si el QR ya esta asignado, usa `ESTADO_QR = ACTIVO` y llena la DC.</li>
-                    <li>- Si el QR queda libre para futura reasignacion, usa `ESTADO_QR = DISPONIBLE` y deja la DC vacia.</li>
+                    <li>
+                      - Si el QR queda libre para futura reasignacion, usa `ESTADO_QR = DISPONIBLE`
+                      y deja la DC vacia.
+                    </li>
                   </ul>
                 </div>
 
@@ -1248,7 +1671,8 @@ export function LoveIsdinPanel({
             <CardHeader className="border-b border-border/70 px-6 py-5">
               <CardTitle>Lotes recientes de carga</CardTitle>
               <CardDescription>
-                Historial operativo de manifiestos incrementales registrados para inventario QR de LOVE.
+                Historial operativo de manifiestos incrementales registrados para inventario QR de
+                LOVE.
               </CardDescription>
             </CardHeader>
 
@@ -1262,7 +1686,9 @@ export function LoveIsdinPanel({
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                           <div className="flex flex-wrap items-center gap-3">
-                            <h3 className="text-base font-semibold text-slate-950">{item.archivoNombre}</h3>
+                            <h3 className="text-base font-semibold text-slate-950">
+                              {item.archivoNombre}
+                            </h3>
                             <span
                               className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${buildImportTone(item.estado)}`}
                             >
@@ -1276,7 +1702,10 @@ export function LoveIsdinPanel({
                         </div>
 
                         <div className="grid gap-3 sm:grid-cols-3">
-                          <MetricMini label="Advertencias" value={formatNumber(item.advertencias)} />
+                          <MetricMini
+                            label="Advertencias"
+                            value={formatNumber(item.advertencias)}
+                          />
                           <MetricMini label="Tipo" value={item.tipoCarga ?? 'Sin tipo'} />
                           <MetricMini label="ZIP" value={item.zipPath ? 'Cargado' : 'Pendiente'} />
                         </div>
@@ -1290,7 +1719,7 @@ export function LoveIsdinPanel({
         </section>
       )}
     </div>
-  )
+  );
 }
 
 function SectionButton({
@@ -1299,10 +1728,10 @@ function SectionButton({
   helper,
   onClick,
 }: {
-  active: boolean
-  label: string
-  helper: string
-  onClick: () => void
+  active: boolean;
+  label: string;
+  helper: string;
+  onClick: () => void;
 }) {
   return (
     <button
@@ -1317,7 +1746,7 @@ function SectionButton({
       <p className="text-sm font-semibold text-slate-950">{label}</p>
       <p className="mt-1 text-xs text-slate-500">{helper}</p>
     </button>
-  )
+  );
 }
 
 function RangeButton({
@@ -1325,9 +1754,9 @@ function RangeButton({
   children,
   onClick,
 }: {
-  active: boolean
-  children: ReactNode
-  onClick: () => void
+  active: boolean;
+  children: ReactNode;
+  onClick: () => void;
 }) {
   return (
     <button
@@ -1341,16 +1770,10 @@ function RangeButton({
     >
       {children}
     </button>
-  )
+  );
 }
 
-function FilterField({
-  label,
-  children,
-}: {
-  label: string
-  children: ReactNode
-}) {
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
       <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -1358,7 +1781,7 @@ function FilterField({
       </span>
       {children}
     </label>
-  )
+  );
 }
 
 function MetricCard({
@@ -1366,26 +1789,22 @@ function MetricCard({
   value,
   tone = 'emerald',
 }: {
-  label: string
-  value: string
-  tone?: 'emerald' | 'rose' | 'sky' | 'amber' | 'slate'
+  label: string;
+  value: string;
+  tone?: 'emerald' | 'rose' | 'sky' | 'amber' | 'slate';
 }) {
-  return (
-    <SharedMetricCard
-      label={label}
-      value={value}
-      tone={tone}
-    />
-  )
+  return <SharedMetricCard label={label} value={value} tone={tone} />;
 }
 
 function MetricMini({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-[16px] border border-border/70 bg-slate-50 px-4 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+        {label}
+      </p>
       <p className="mt-2 text-sm font-semibold text-slate-950">{value}</p>
     </div>
-  )
+  );
 }
 
 function KpiBarChartCard({
@@ -1393,57 +1812,93 @@ function KpiBarChartCard({
   description,
   items,
   emptyLabel,
+  showPercentageAsPrimary = false,
+  showAll = false,
+  gridCols = 1,
+  className,
 }: {
-  title: string
-  description: string
-  items: LoveAggregateItem[]
-  emptyLabel: string
+  title: string;
+  description: string;
+  items: LoveAggregateItem[];
+  emptyLabel: string;
+  showPercentageAsPrimary?: boolean;
+  showAll?: boolean;
+  gridCols?: 1 | 2;
+  className?: string;
 }) {
-  const visibleItems = items.slice(0, 8)
-  const maxValue = visibleItems.reduce((current, item) => Math.max(current, item.objetivo, item.total), 0)
+  const visibleItems = [...items].sort((left, right) => {
+    if (showPercentageAsPrimary) {
+      const pctLeft = left.objetivo > 0 ? left.total / left.objetivo : 0;
+      const pctRight = right.objetivo > 0 ? right.total / right.objetivo : 0;
+      if (pctRight !== pctLeft) {
+        return pctRight - pctLeft;
+      }
+    } else {
+      if (right.total !== left.total) {
+        return right.total - left.total;
+      }
+    }
+    return left.label.localeCompare(right.label, 'es-MX');
+  });
+
+  const finalItems = showAll ? visibleItems : visibleItems.slice(0, 8);
+
+  const maxValue = finalItems.reduce(
+    (current, item) => Math.max(current, item.objetivo, item.total),
+    0
+  );
 
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent>
-        {visibleItems.length === 0 ? (
+        {finalItems.length === 0 ? (
           <StateMessage label={emptyLabel} minimal />
         ) : (
-          <div className="space-y-4">
-            {visibleItems.map((item) => (
-              <div key={item.id} className="grid gap-3 sm:grid-cols-[1fr_120px] sm:items-center">
-                <div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-slate-950">{item.label}</p>
-                      {item.helper && <p className="text-xs text-slate-500">{item.helper}</p>}
+          <div className={gridCols === 2 ? 'grid gap-6 md:grid-cols-2' : 'space-y-4'}>
+            {finalItems.map((item) => {
+              const pct = item.objetivo > 0 ? (item.total / item.objetivo) * 100 : 0;
+              return (
+                <div key={item.id} className="grid gap-3 sm:grid-cols-[1fr_120px] sm:items-center">
+                  <div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-slate-950">{item.label}</p>
+                        {item.helper && <p className="text-xs text-slate-500">{item.helper}</p>}
+                      </div>
+                      <span className="text-sm font-semibold text-slate-950">
+                        {showPercentageAsPrimary
+                          ? `${pct.toFixed(2)}%`
+                          : `${formatNumber(item.total)} / ${formatNumber(item.objetivo)}`}
+                      </span>
                     </div>
-                    <span className="text-sm font-semibold text-slate-950">
-                      {formatNumber(item.total)} / {formatNumber(item.objetivo)}
-                    </span>
+                    <div className="mt-3 h-3 rounded-full bg-slate-100">
+                      <div
+                        className="h-3 rounded-full bg-[linear-gradient(90deg,var(--module-primary)_0%,rgba(236,72,153,0.35)_100%)]"
+                        style={{
+                          width: showPercentageAsPrimary
+                            ? `${Math.min(100, pct)}%`
+                            : chartWidth(item.total, maxValue),
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="mt-3 h-3 rounded-full bg-slate-100">
-                    <div
-                      className="h-3 rounded-full bg-[linear-gradient(90deg,var(--module-primary)_0%,rgba(236,72,153,0.35)_100%)]"
-                      style={{ width: chartWidth(item.total, maxValue) }}
-                    />
+                  <div className="text-right text-xs text-slate-500">
+                    <p>Meta {formatNumber(item.objetivo)}</p>
+                    <p>Validas {formatNumber(item.validas)}</p>
+                    <p>Pendientes {formatNumber(item.pendientes)}</p>
                   </div>
                 </div>
-                <div className="text-right text-xs text-slate-500">
-                  <p>Meta {formatNumber(item.objetivo)}</p>
-                  <p>Validas {formatNumber(item.validas)}</p>
-                  <p>Pendientes {formatNumber(item.pendientes)}</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>
     </Card>
-  )
+  );
 }
 
 function TimelineChartCard({
@@ -1453,22 +1908,25 @@ function TimelineChartCard({
   kind,
   emptyLabel,
 }: {
-  title: string
-  description: string
+  title: string;
+  description: string;
   items: Array<{
-    bucket: string
-    total: number
-    objetivo: number
-    validas: number
-    pendientes: number
-    rechazadas: number
-    duplicadas: number
-  }>
-  kind: 'day' | 'week'
-  emptyLabel: string
+    bucket: string;
+    total: number;
+    objetivo: number;
+    validas: number;
+    pendientes: number;
+    rechazadas: number;
+    duplicadas: number;
+  }>;
+  kind: 'day' | 'week';
+  emptyLabel: string;
 }) {
-  const visibleItems = items.slice(-8)
-  const maxValue = visibleItems.reduce((current, item) => Math.max(current, item.objetivo, item.total), 0)
+  const visibleItems = items.slice(-8);
+  const maxValue = visibleItems.reduce(
+    (current, item) => Math.max(current, item.objetivo, item.total),
+    0
+  );
 
   return (
     <Card>
@@ -1482,7 +1940,10 @@ function TimelineChartCard({
         ) : (
           <div className="space-y-4">
             {visibleItems.map((item) => (
-              <div key={item.bucket} className="grid gap-3 sm:grid-cols-[140px_1fr_110px] sm:items-center">
+              <div
+                key={item.bucket}
+                className="grid gap-3 sm:grid-cols-[140px_1fr_110px] sm:items-center"
+              >
                 <p className="text-sm font-medium text-slate-700">
                   {kind === 'day' ? formatDateLabel(item.bucket) : formatWeekBucket(item.bucket)}
                 </p>
@@ -1504,7 +1965,7 @@ function TimelineChartCard({
         )}
       </CardContent>
     </Card>
-  )
+  );
 }
 
 function StatusPill({ value }: { value: string }) {
@@ -1515,27 +1976,25 @@ function StatusPill({ value }: { value: string }) {
         ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-200'
         : value === 'DUPLICADA'
           ? 'bg-slate-200 text-slate-700 ring-1 ring-slate-300'
-          : 'bg-rose-100 text-rose-800 ring-1 ring-rose-200'
+          : 'bg-rose-100 text-rose-800 ring-1 ring-rose-200';
 
   return (
-    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${tone}`}>
+    <span
+      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${tone}`}
+    >
       {value}
     </span>
-  )
+  );
 }
 
-function QrStatusPill({
-  value,
-}: {
-  value: 'DISPONIBLE' | 'ACTIVO' | 'BLOQUEADO' | 'BAJA'
-}) {
+function QrStatusPill({ value }: { value: 'DISPONIBLE' | 'ACTIVO' | 'BLOQUEADO' | 'BAJA' }) {
   return (
     <span
       className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${buildQrTone(value)}`}
     >
       {value}
     </span>
-  )
+  );
 }
 
 function StateMessage({ label, minimal = false }: { label: string; minimal?: boolean }) {
@@ -1547,25 +2006,25 @@ function StateMessage({ label, minimal = false }: { label: string; minimal?: boo
     >
       {label}
     </div>
-  )
+  );
 }
 
 function UploadSubmitButton() {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   return (
     <Button type="submit" size="lg" disabled={pending} className="w-full sm:w-auto">
       {pending ? 'Registrando carga...' : 'Registrar carga incremental'}
     </Button>
-  )
+  );
 }
 
 function AssignSubmitButton({ disabled }: { disabled: boolean }) {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   return (
     <Button type="submit" size="lg" disabled={disabled || pending} className="w-full sm:w-auto">
       {pending ? 'Asignando QR...' : 'Asignar QR disponible'}
     </Button>
-  )
+  );
 }

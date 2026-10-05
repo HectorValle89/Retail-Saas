@@ -1,118 +1,114 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   buildAssignmentTransitionPlan,
   resolveAssignmentsForDate,
   type AssignmentEngineDraft,
   type AssignmentEngineRow,
-} from '@/features/asignaciones/lib/assignmentEngine'
+} from '@/features/asignaciones/lib/assignmentEngine';
 import {
   evaluateRotationMasterImpact,
   loadAssignmentRotationValidationData,
   type AssignmentRotationValidationData,
   type AssignmentRotationValidationMember,
-} from '@/features/asignaciones/lib/assignmentRotationValidation'
-import type { AssignmentIssue } from '@/features/asignaciones/lib/assignmentValidation'
+} from '@/features/asignaciones/lib/assignmentRotationValidation';
+import type { AssignmentIssue } from '@/features/asignaciones/lib/assignmentValidation';
 
-type TypedSupabaseClient = SupabaseClient<any>
+type TypedSupabaseClient = SupabaseClient<any>;
 
 type PdvLiteRow = {
-  id: string
-  clave_btl: string
-  nombre: string
-  cadena_id: string | null
-}
+  id: string;
+  clave_btl: string;
+  nombre: string;
+  cadena_id: string | null;
+};
 
 type EmployeeLiteRow = {
-  id: string
-  nombre_completo: string
-}
+  id: string;
+  nombre_completo: string;
+};
 
 type CampanaPdvPreviewRow = {
-  id: string
-  pdv_id: string
-  dc_empleado_id: string | null
-  metadata: Record<string, unknown> | null
-}
+  id: string;
+  pdv_id: string;
+  dc_empleado_id: string | null;
+  metadata: Record<string, unknown> | null;
+};
 
 export interface CampaignRotationAssignmentRow extends AssignmentEngineRow {
-  created_at: string
+  created_at: string;
 }
 
 export interface CampaignRotationSuggestedCandidate {
-  empleadoId: string
-  empleado: string
-  currentPdvId: string | null
-  currentPdv: string | null
-  currentPdvClave: string | null
-  rankingBucket: 'MISMA_CADENA_MISMO_SUPERVISOR' | 'MISMA_CADENA_OTRO_SUPERVISOR' | 'OTRA_CADENA'
-  issues: AssignmentIssue[]
+  empleadoId: string;
+  empleado: string;
+  currentPdvId: string | null;
+  currentPdv: string | null;
+  currentPdvClave: string | null;
+  rankingBucket: 'MISMA_CADENA_MISMO_SUPERVISOR' | 'MISMA_CADENA_OTRO_SUPERVISOR' | 'OTRA_CADENA';
+  issues: AssignmentIssue[];
 }
 
 export interface CampaignRotationImpactNode {
-  nodeId: string
-  grupoRotacionCodigo: string
-  primaryPdvId: string
-  primaryPdv: string
-  primaryPdvClave: string
-  primaryEmpleadoId: string | null
-  primaryEmpleado: string | null
-  impactedPdvId: string
-  impactedPdv: string
-  impactedPdvClave: string
-  impactedCampanaPdvId: string | null
-  reservedEmployeeId: string | null
-  reservedEmployee: string | null
-  suggestedCandidates: CampaignRotationSuggestedCandidate[]
-  selectedDecision?: 'ASIGNAR' | 'RESERVAR' | null
-  selectedEmployeeId?: string | null
+  nodeId: string;
+  grupoRotacionCodigo: string;
+  primaryPdvId: string;
+  primaryPdv: string;
+  primaryPdvClave: string;
+  primaryEmpleadoId: string | null;
+  primaryEmpleado: string | null;
+  impactedPdvId: string;
+  impactedPdv: string;
+  impactedPdvClave: string;
+  impactedCampanaPdvId: string | null;
+  reservedEmployeeId: string | null;
+  reservedEmployee: string | null;
+  suggestedCandidates: CampaignRotationSuggestedCandidate[];
+  selectedDecision?: 'ASIGNAR' | 'RESERVAR' | null;
+  selectedEmployeeId?: string | null;
 }
 
 export interface CampaignRotationImpactPreview {
-  campanaId: string
-  accountId: string
-  fechaInicio: string
-  fechaFin: string
-  totalGroups: number
-  totalNodes: number
-  nodes: CampaignRotationImpactNode[]
+  campanaId: string;
+  accountId: string;
+  fechaInicio: string;
+  fechaFin: string;
+  totalGroups: number;
+  totalNodes: number;
+  nodes: CampaignRotationImpactNode[];
 }
 
 export interface CampaignRotationDecision {
-  nodeId: string
-  decision: 'ASIGNAR' | 'RESERVAR'
-  empleadoId: string | null
+  nodeId: string;
+  decision: 'ASIGNAR' | 'RESERVAR';
+  empleadoId: string | null;
 }
 
 export interface CampaignRotationResolvedDecision extends CampaignRotationDecision {
-  node: CampaignRotationImpactNode
-}
-
-function rangesOverlapIso(leftStart: string, leftEnd: string | null, rightStart: string, rightEnd: string | null) {
-  const normalizedLeftEnd = leftEnd ?? '9999-12-31'
-  const normalizedRightEnd = rightEnd ?? '9999-12-31'
-  return leftStart <= normalizedRightEnd && rightStart <= normalizedLeftEnd
+  node: CampaignRotationImpactNode;
 }
 
 function asRecord(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {} as Record<string, unknown>
+    return {} as Record<string, unknown>;
   }
 
-  return value as Record<string, unknown>
+  return value as Record<string, unknown>;
 }
 
 function readPriorityValue(metadata: unknown) {
-  const record = asRecord(metadata)
-  const raw = record.prioridad_operativa ?? record.priority ?? 100
-  const parsed = Number(raw)
-  return Number.isFinite(parsed) ? parsed : 100
+  const record = asRecord(metadata);
+  const raw = record.prioridad_operativa ?? record.priority ?? 100;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 100;
 }
 
 function buildCoverageDaysFromRestDay(restDay: string | null | undefined) {
-  const days = ['LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB', 'DOM']
-  const normalizedRestDay = String(restDay ?? '').trim().toUpperCase()
-  const effective = days.filter((day) => day !== normalizedRestDay)
-  return effective.join(',')
+  const days = ['LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB', 'DOM'];
+  const normalizedRestDay = String(restDay ?? '')
+    .trim()
+    .toUpperCase();
+  const effective = days.filter((day) => day !== normalizedRestDay);
+  return effective.join(',');
 }
 
 function sortMembersByPriority(
@@ -121,18 +117,18 @@ function sortMembersByPriority(
   pdvById: Map<string, PdvLiteRow>
 ) {
   return [...members].sort((left, right) => {
-    const leftPriority = readPriorityValue(campaignRowsByPdvId.get(left.pdvId)?.metadata)
-    const rightPriority = readPriorityValue(campaignRowsByPdvId.get(right.pdvId)?.metadata)
+    const leftPriority = readPriorityValue(campaignRowsByPdvId.get(left.pdvId)?.metadata);
+    const rightPriority = readPriorityValue(campaignRowsByPdvId.get(right.pdvId)?.metadata);
 
     if (leftPriority !== rightPriority) {
-      return leftPriority - rightPriority
+      return leftPriority - rightPriority;
     }
 
     return (pdvById.get(left.pdvId)?.clave_btl ?? left.pdvId).localeCompare(
       pdvById.get(right.pdvId)?.clave_btl ?? right.pdvId,
       'es-MX'
-    )
-  })
+    );
+  });
 }
 
 function buildCandidateRankingBucket(
@@ -141,75 +137,87 @@ function buildCandidateRankingBucket(
   assignment: CampaignRotationAssignmentRow,
   pdvById: Map<string, PdvLiteRow>
 ): CampaignRotationSuggestedCandidate['rankingBucket'] {
-  const currentPdv = pdvById.get(assignment.pdv_id) ?? null
-  const sameChain = Boolean(targetPdv?.cadena_id && currentPdv?.cadena_id && targetPdv.cadena_id === currentPdv.cadena_id)
-  const sameSupervisor = Boolean(targetSupervisorId && assignment.supervisor_empleado_id && targetSupervisorId === assignment.supervisor_empleado_id)
+  const currentPdv = pdvById.get(assignment.pdv_id) ?? null;
+  const sameChain = Boolean(
+    targetPdv?.cadena_id && currentPdv?.cadena_id && targetPdv.cadena_id === currentPdv.cadena_id
+  );
+  const sameSupervisor = Boolean(
+    targetSupervisorId &&
+    assignment.supervisor_empleado_id &&
+    targetSupervisorId === assignment.supervisor_empleado_id
+  );
 
   if (sameChain && sameSupervisor) {
-    return 'MISMA_CADENA_MISMO_SUPERVISOR'
+    return 'MISMA_CADENA_MISMO_SUPERVISOR';
   }
 
   if (sameChain) {
-    return 'MISMA_CADENA_OTRO_SUPERVISOR'
+    return 'MISMA_CADENA_OTRO_SUPERVISOR';
   }
 
-  return 'OTRA_CADENA'
+  return 'OTRA_CADENA';
 }
 
-function sortSuggestedCandidates(left: CampaignRotationSuggestedCandidate, right: CampaignRotationSuggestedCandidate) {
+function sortSuggestedCandidates(
+  left: CampaignRotationSuggestedCandidate,
+  right: CampaignRotationSuggestedCandidate
+) {
   const bucketWeight = {
     MISMA_CADENA_MISMO_SUPERVISOR: 0,
     MISMA_CADENA_OTRO_SUPERVISOR: 1,
     OTRA_CADENA: 2,
-  } as const
+  } as const;
 
-  const leftWeight = bucketWeight[left.rankingBucket]
-  const rightWeight = bucketWeight[right.rankingBucket]
+  const leftWeight = bucketWeight[left.rankingBucket];
+  const rightWeight = bucketWeight[right.rankingBucket];
 
   if (leftWeight !== rightWeight) {
-    return leftWeight - rightWeight
+    return leftWeight - rightWeight;
   }
 
   if (left.issues.length !== right.issues.length) {
-    return left.issues.length - right.issues.length
+    return left.issues.length - right.issues.length;
   }
 
-  return left.empleado.localeCompare(right.empleado, 'es-MX')
+  return left.empleado.localeCompare(right.empleado, 'es-MX');
 }
 
 function buildSuggestedCandidates(options: {
-  accountId: string
-  fechaInicio: string
-  fechaFin: string
-  rotationData: AssignmentRotationValidationData
-  activeAssignments: CampaignRotationAssignmentRow[]
-  employeesById: Map<string, EmployeeLiteRow>
-  pdvById: Map<string, PdvLiteRow>
-  primaryEmpleadoId: string | null
-  impactedMember: AssignmentRotationValidationMember
-  targetSupervisorId: string | null
+  accountId: string;
+  fechaInicio: string;
+  fechaFin: string;
+  rotationData: AssignmentRotationValidationData;
+  activeAssignments: CampaignRotationAssignmentRow[];
+  employeesById: Map<string, EmployeeLiteRow>;
+  pdvById: Map<string, PdvLiteRow>;
+  primaryEmpleadoId: string | null;
+  impactedMember: AssignmentRotationValidationMember;
+  targetSupervisorId: string | null;
 }) {
-  const effectiveAssignments = resolveAssignmentsForDate(options.activeAssignments, options.fechaInicio)
-  const usedEmployees = new Set<string>()
-  const suggested: CampaignRotationSuggestedCandidate[] = []
-  const targetPdv = options.pdvById.get(options.impactedMember.pdvId) ?? null
+  const effectiveAssignments = resolveAssignmentsForDate(
+    options.activeAssignments,
+    options.fechaInicio
+  );
+  const usedEmployees = new Set<string>();
+  const suggested: CampaignRotationSuggestedCandidate[] = [];
+  const targetPdv = options.pdvById.get(options.impactedMember.pdvId) ?? null;
 
   for (const assignment of effectiveAssignments) {
     if (!assignment.empleado_id || usedEmployees.has(assignment.empleado_id)) {
-      continue
+      continue;
     }
 
     if (options.primaryEmpleadoId && assignment.empleado_id === options.primaryEmpleadoId) {
-      continue
+      continue;
     }
 
     if (assignment.pdv_id === options.impactedMember.pdvId) {
-      continue
+      continue;
     }
 
-    usedEmployees.add(assignment.empleado_id)
-    const employee = options.employeesById.get(assignment.empleado_id)
-    const currentPdv = options.pdvById.get(assignment.pdv_id) ?? null
+    usedEmployees.add(assignment.empleado_id);
+    const employee = options.employeesById.get(assignment.empleado_id);
+    const currentPdv = options.pdvById.get(assignment.pdv_id) ?? null;
     const draft = {
       id: null,
       cuenta_cliente_id: options.accountId,
@@ -222,11 +230,11 @@ function buildSuggestedCandidates(options: {
       dias_laborales: buildCoverageDaysFromRestDay(assignment.dia_descanso),
       dia_descanso: assignment.dia_descanso,
       horario_referencia: assignment.horario_referencia,
-    }
+    };
     const issues = evaluateRotationMasterImpact(draft, {
       rotationData: options.rotationData,
       previousPdvId: assignment.pdv_id,
-    })
+    });
 
     suggested.push({
       empleadoId: assignment.empleado_id,
@@ -234,29 +242,34 @@ function buildSuggestedCandidates(options: {
       currentPdvId: currentPdv?.id ?? assignment.pdv_id,
       currentPdv: currentPdv?.nombre ?? null,
       currentPdvClave: currentPdv?.clave_btl ?? null,
-      rankingBucket: buildCandidateRankingBucket(targetPdv, options.targetSupervisorId, assignment, options.pdvById),
+      rankingBucket: buildCandidateRankingBucket(
+        targetPdv,
+        options.targetSupervisorId,
+        assignment,
+        options.pdvById
+      ),
       issues,
-    })
+    });
   }
 
-  return suggested.sort(sortSuggestedCandidates).slice(0, 6)
+  return suggested.sort(sortSuggestedCandidates).slice(0, 6);
 }
 
 export async function buildCampaignRotationImpactPreview(
   supabase: TypedSupabaseClient,
   options: {
-    campanaId: string
-    accountId: string
-    fechaInicio: string
-    fechaFin: string
-    campaignPdvs: CampanaPdvPreviewRow[]
+    campanaId: string;
+    accountId: string;
+    fechaInicio: string;
+    fechaFin: string;
+    campaignPdvs: CampanaPdvPreviewRow[];
   }
 ): Promise<CampaignRotationImpactPreview | null> {
-  const pdvIds = Array.from(new Set(options.campaignPdvs.map((item) => item.pdv_id)))
+  const pdvIds = Array.from(new Set(options.campaignPdvs.map((item) => item.pdv_id)));
   const rotationData = await loadAssignmentRotationValidationData(supabase, {
     accountId: options.accountId,
     pdvIds,
-  })
+  });
 
   const impactedGroupCodes = Array.from(
     new Set(
@@ -264,23 +277,22 @@ export async function buildCampaignRotationImpactPreview(
         .map((pdvId) => rotationData.rotationByPdvId[pdvId]?.grupoRotacionCodigo ?? null)
         .filter((item): item is string => Boolean(item))
     )
-  )
+  );
 
   if (impactedGroupCodes.length === 0) {
-    return null
+    return null;
   }
 
-  const groupMembers = impactedGroupCodes.flatMap((code) => rotationData.groupsByCode[code] ?? [])
-  const groupPdvIds = Array.from(new Set(groupMembers.map((item) => item.pdvId)))
+  const groupMembers = impactedGroupCodes.flatMap((code) => rotationData.groupsByCode[code] ?? []);
+  const groupPdvIds = Array.from(new Set(groupMembers.map((item) => item.pdvId)));
 
   const [pdvsResult, groupAssignmentsResult, candidateAssignmentsResult] = await Promise.all([
-    supabase
-      .from('pdv')
-      .select('id, clave_btl, nombre, cadena_id')
-      .in('id', groupPdvIds),
+    supabase.from('pdv').select('id, clave_btl, nombre, cadena_id').in('id', groupPdvIds),
     supabase
       .from('asignacion')
-      .select('id, empleado_id, pdv_id, supervisor_empleado_id, cuenta_cliente_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, estado_publicacion, created_at')
+      .select(
+        'id, empleado_id, pdv_id, supervisor_empleado_id, cuenta_cliente_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, estado_publicacion, created_at'
+      )
       .eq('cuenta_cliente_id', options.accountId)
       .eq('estado_publicacion', 'PUBLICADA')
       .in('pdv_id', groupPdvIds)
@@ -288,68 +300,89 @@ export async function buildCampaignRotationImpactPreview(
       .or(`fecha_fin.is.null,fecha_fin.gte.${options.fechaInicio}`),
     supabase
       .from('asignacion')
-      .select('id, empleado_id, pdv_id, supervisor_empleado_id, cuenta_cliente_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, estado_publicacion, created_at')
+      .select(
+        'id, empleado_id, pdv_id, supervisor_empleado_id, cuenta_cliente_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, estado_publicacion, created_at'
+      )
       .eq('cuenta_cliente_id', options.accountId)
       .eq('estado_publicacion', 'PUBLICADA')
       .lte('fecha_inicio', options.fechaFin)
       .or(`fecha_fin.is.null,fecha_fin.gte.${options.fechaInicio}`)
       .limit(2500),
-  ])
+  ]);
 
-  const infraError = pdvsResult.error?.message ?? groupAssignmentsResult.error?.message ?? candidateAssignmentsResult.error?.message
+  const infraError =
+    pdvsResult.error?.message ??
+    groupAssignmentsResult.error?.message ??
+    candidateAssignmentsResult.error?.message;
   if (infraError) {
-    throw new Error(infraError)
+    throw new Error(infraError);
   }
 
-  const pdvs = (pdvsResult.data ?? []) as PdvLiteRow[]
-  const groupAssignments = (groupAssignmentsResult.data ?? []) as CampaignRotationAssignmentRow[]
-  const candidateAssignments = (candidateAssignmentsResult.data ?? []) as CampaignRotationAssignmentRow[]
-  const employeeIds = Array.from(new Set(candidateAssignments.map((item) => item.empleado_id).filter(Boolean)))
-  const { data: employeeRows, error: employeeError } = employeeIds.length === 0
-    ? { data: [], error: null }
-    : await supabase.from('empleado').select('id, nombre_completo').in('id', employeeIds)
+  const pdvs = (pdvsResult.data ?? []) as PdvLiteRow[];
+  const groupAssignments = (groupAssignmentsResult.data ?? []) as CampaignRotationAssignmentRow[];
+  const candidateAssignments = (candidateAssignmentsResult.data ??
+    []) as CampaignRotationAssignmentRow[];
+  const employeeIds = Array.from(
+    new Set(candidateAssignments.map((item) => item.empleado_id).filter(Boolean))
+  );
+  const { data: employeeRows, error: employeeError } =
+    employeeIds.length === 0
+      ? { data: [], error: null }
+      : await supabase.from('empleado').select('id, nombre_completo').in('id', employeeIds);
 
   if (employeeError) {
-    throw new Error(employeeError.message)
+    throw new Error(employeeError.message);
   }
 
-  const pdvById = new Map(pdvs.map((item) => [item.id, item]))
-  const employeesById = new Map(((employeeRows ?? []) as EmployeeLiteRow[]).map((item) => [item.id, item]))
-  const campaignRowsByPdvId = new Map(options.campaignPdvs.map((item) => [item.pdv_id, item]))
-  const effectiveGroupAssignments = resolveAssignmentsForDate(groupAssignments, options.fechaInicio)
-  const effectiveByPdvId = new Map(effectiveGroupAssignments.map((item) => [item.pdv_id, item]))
-  const nodes: CampaignRotationImpactNode[] = []
+  const pdvById = new Map(pdvs.map((item) => [item.id, item]));
+  const employeesById = new Map(
+    ((employeeRows ?? []) as EmployeeLiteRow[]).map((item) => [item.id, item])
+  );
+  const campaignRowsByPdvId = new Map(options.campaignPdvs.map((item) => [item.pdv_id, item]));
+  const effectiveGroupAssignments = resolveAssignmentsForDate(
+    groupAssignments,
+    options.fechaInicio
+  );
+  const effectiveByPdvId = new Map(effectiveGroupAssignments.map((item) => [item.pdv_id, item]));
+  const nodes: CampaignRotationImpactNode[] = [];
 
   for (const groupCode of impactedGroupCodes) {
-    const members = rotationData.groupsByCode[groupCode] ?? []
+    const members = rotationData.groupsByCode[groupCode] ?? [];
     const campaignMembers = sortMembersByPriority(
       members.filter((member) => campaignRowsByPdvId.has(member.pdvId)),
       campaignRowsByPdvId,
       pdvById
-    )
+    );
 
     if (campaignMembers.length === 0) {
-      continue
+      continue;
     }
 
-    const primaryMember = campaignMembers[0]
-    const primaryAssignment = effectiveByPdvId.get(primaryMember.pdvId) ?? null
-    const primaryEmployeeId = primaryAssignment?.empleado_id ?? campaignRowsByPdvId.get(primaryMember.pdvId)?.dc_empleado_id ?? null
-    const primaryEmployee = primaryEmployeeId ? employeesById.get(primaryEmployeeId)?.nombre_completo ?? null : null
-    const primaryPdv = pdvById.get(primaryMember.pdvId) ?? null
+    const primaryMember = campaignMembers[0];
+    const primaryAssignment = effectiveByPdvId.get(primaryMember.pdvId) ?? null;
+    const primaryEmployeeId =
+      primaryAssignment?.empleado_id ??
+      campaignRowsByPdvId.get(primaryMember.pdvId)?.dc_empleado_id ??
+      null;
+    const primaryEmployee = primaryEmployeeId
+      ? (employeesById.get(primaryEmployeeId)?.nombre_completo ?? null)
+      : null;
+    const primaryPdv = pdvById.get(primaryMember.pdvId) ?? null;
 
     for (const member of members) {
       if (member.pdvId === primaryMember.pdvId) {
-        continue
+        continue;
       }
 
-      const existingAssignment = effectiveByPdvId.get(member.pdvId) ?? null
-      const isActuallyDisplaced = !existingAssignment || Boolean(primaryEmployeeId && existingAssignment.empleado_id === primaryEmployeeId)
+      const existingAssignment = effectiveByPdvId.get(member.pdvId) ?? null;
+      const isActuallyDisplaced =
+        !existingAssignment ||
+        Boolean(primaryEmployeeId && existingAssignment.empleado_id === primaryEmployeeId);
       if (!isActuallyDisplaced) {
-        continue
+        continue;
       }
 
-      const impactedPdv = pdvById.get(member.pdvId) ?? null
+      const impactedPdv = pdvById.get(member.pdvId) ?? null;
       const suggestedCandidates = buildSuggestedCandidates({
         accountId: options.accountId,
         fechaInicio: options.fechaInicio,
@@ -360,13 +393,17 @@ export async function buildCampaignRotationImpactPreview(
         pdvById,
         primaryEmpleadoId: primaryEmployeeId,
         impactedMember: member,
-        targetSupervisorId: existingAssignment?.supervisor_empleado_id ?? primaryAssignment?.supervisor_empleado_id ?? null,
-      })
+        targetSupervisorId:
+          existingAssignment?.supervisor_empleado_id ??
+          primaryAssignment?.supervisor_empleado_id ??
+          null,
+      });
 
       nodes.push({
         nodeId: member.pdvId,
         grupoRotacionCodigo: groupCode,
-        primaryPdvId: member.pdvId === primaryMember.pdvId ? primaryMember.pdvId : primaryMember.pdvId,
+        primaryPdvId:
+          member.pdvId === primaryMember.pdvId ? primaryMember.pdvId : primaryMember.pdvId,
         primaryPdv: primaryPdv?.nombre ?? primaryMember.pdvId,
         primaryPdvClave: primaryPdv?.clave_btl ?? primaryMember.pdvId,
         primaryEmpleadoId: primaryEmployeeId,
@@ -378,12 +415,12 @@ export async function buildCampaignRotationImpactPreview(
         reservedEmployeeId: primaryEmployeeId,
         reservedEmployee: primaryEmployee,
         suggestedCandidates,
-      })
+      });
     }
   }
 
   if (nodes.length === 0) {
-    return null
+    return null;
   }
 
   return {
@@ -394,7 +431,7 @@ export async function buildCampaignRotationImpactPreview(
     totalGroups: impactedGroupCodes.length,
     totalNodes: nodes.length,
     nodes,
-  }
+  };
 }
 
 export function parseCampaignRotationDecisions(
@@ -402,132 +439,158 @@ export function parseCampaignRotationDecisions(
   preview: CampaignRotationImpactPreview
 ): CampaignRotationResolvedDecision[] {
   return preview.nodes.map((node) => {
-    const decisionRaw = String(formData.get(`rotation_decision__${node.nodeId}`) ?? '').trim().toUpperCase()
-    const empleadoId = String(formData.get(`rotation_employee__${node.nodeId}`) ?? '').trim() || null
-    const decision = decisionRaw === 'ASIGNAR' ? 'ASIGNAR' : 'RESERVAR'
+    const decisionRaw = String(formData.get(`rotation_decision__${node.nodeId}`) ?? '')
+      .trim()
+      .toUpperCase();
+    const empleadoId =
+      String(formData.get(`rotation_employee__${node.nodeId}`) ?? '').trim() || null;
+    const decision = decisionRaw === 'ASIGNAR' ? 'ASIGNAR' : 'RESERVAR';
 
     return {
       nodeId: node.nodeId,
       decision,
       empleadoId,
       node,
-    }
-  })
+    };
+  });
 }
 
 function applySelectedDecisionsToPreview(
   preview: CampaignRotationImpactPreview,
   decisions: CampaignRotationResolvedDecision[]
 ): CampaignRotationImpactPreview {
-  const decisionByNodeId = new Map(decisions.map((item) => [item.nodeId, item]))
+  const decisionByNodeId = new Map(decisions.map((item) => [item.nodeId, item]));
 
   return {
     ...preview,
     nodes: preview.nodes.map((node) => {
-      const decision = decisionByNodeId.get(node.nodeId)
+      const decision = decisionByNodeId.get(node.nodeId);
       return {
         ...node,
         selectedDecision: decision?.decision ?? node.selectedDecision ?? null,
         selectedEmployeeId: decision?.empleadoId ?? node.selectedEmployeeId ?? null,
-      }
+      };
     }),
-  }
+  };
 }
 
 export async function expandCampaignRotationCascadePreview(
   supabase: TypedSupabaseClient,
   options: {
-    accountId: string
-    fechaInicio: string
-    fechaFin: string
-    preview: CampaignRotationImpactPreview
-    decisions: CampaignRotationResolvedDecision[]
+    accountId: string;
+    fechaInicio: string;
+    fechaFin: string;
+    preview: CampaignRotationImpactPreview;
+    decisions: CampaignRotationResolvedDecision[];
   }
 ): Promise<CampaignRotationImpactPreview> {
-  const selectedPreview = applySelectedDecisionsToPreview(options.preview, options.decisions)
-  const existingNodeIds = new Set(selectedPreview.nodes.map((node) => node.nodeId))
+  const selectedPreview = applySelectedDecisionsToPreview(options.preview, options.decisions);
+  const existingNodeIds = new Set(selectedPreview.nodes.map((node) => node.nodeId));
 
   const sourcePdvIds = Array.from(
     new Set(
       options.decisions
         .filter((decision) => decision.decision === 'ASIGNAR' && Boolean(decision.empleadoId))
         .flatMap((decision) => {
-          const selectedCandidate = decision.node.suggestedCandidates.find((item) => item.empleadoId === decision.empleadoId) ?? null
-          if (!selectedCandidate || selectedCandidate.issues.length === 0 || !selectedCandidate.currentPdvId) {
-            return []
+          const selectedCandidate =
+            decision.node.suggestedCandidates.find(
+              (item) => item.empleadoId === decision.empleadoId
+            ) ?? null;
+          if (
+            !selectedCandidate ||
+            selectedCandidate.issues.length === 0 ||
+            !selectedCandidate.currentPdvId
+          ) {
+            return [];
           }
 
           if (existingNodeIds.has(selectedCandidate.currentPdvId)) {
-            return []
+            return [];
           }
 
-          return [selectedCandidate.currentPdvId]
+          return [selectedCandidate.currentPdvId];
         })
     )
-  )
+  );
 
   if (sourcePdvIds.length === 0) {
-    return selectedPreview
+    return selectedPreview;
   }
 
   const rotationData = await loadAssignmentRotationValidationData(supabase, {
     accountId: options.accountId,
     pdvIds: sourcePdvIds,
-  })
-  const rotativeSourcePdvIds = sourcePdvIds.filter((pdvId) => Boolean(rotationData.rotationByPdvId[pdvId]?.grupoRotacionCodigo))
+  });
+  const rotativeSourcePdvIds = sourcePdvIds.filter((pdvId) =>
+    Boolean(rotationData.rotationByPdvId[pdvId]?.grupoRotacionCodigo)
+  );
 
   if (rotativeSourcePdvIds.length === 0) {
-    return selectedPreview
+    return selectedPreview;
   }
 
   const [pdvsResult, activeAssignmentsResult, employeesResult] = await Promise.all([
     supabase.from('pdv').select('id, clave_btl, nombre, cadena_id').in('id', rotativeSourcePdvIds),
     supabase
       .from('asignacion')
-      .select('id, empleado_id, pdv_id, supervisor_empleado_id, cuenta_cliente_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, estado_publicacion, created_at')
+      .select(
+        'id, empleado_id, pdv_id, supervisor_empleado_id, cuenta_cliente_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, estado_publicacion, created_at'
+      )
       .eq('cuenta_cliente_id', options.accountId)
       .eq('estado_publicacion', 'PUBLICADA')
       .lte('fecha_inicio', options.fechaFin)
       .or(`fecha_fin.is.null,fecha_fin.gte.${options.fechaInicio}`)
       .limit(2500),
     supabase.from('empleado').select('id, nombre_completo').limit(2500),
-  ])
+  ]);
 
-  const infraError = pdvsResult.error?.message ?? activeAssignmentsResult.error?.message ?? employeesResult.error?.message
+  const infraError =
+    pdvsResult.error?.message ??
+    activeAssignmentsResult.error?.message ??
+    employeesResult.error?.message;
   if (infraError) {
-    throw new Error(infraError)
+    throw new Error(infraError);
   }
 
-  const pdvById = new Map(((pdvsResult.data ?? []) as PdvLiteRow[]).map((item) => [item.id, item]))
-  const activeAssignments = (activeAssignmentsResult.data ?? []) as CampaignRotationAssignmentRow[]
-  const employeesById = new Map(((employeesResult.data ?? []) as EmployeeLiteRow[]).map((item) => [item.id, item]))
-  const extraNodes: CampaignRotationImpactNode[] = []
+  const pdvById = new Map(((pdvsResult.data ?? []) as PdvLiteRow[]).map((item) => [item.id, item]));
+  const activeAssignments = (activeAssignmentsResult.data ?? []) as CampaignRotationAssignmentRow[];
+  const employeesById = new Map(
+    ((employeesResult.data ?? []) as EmployeeLiteRow[]).map((item) => [item.id, item])
+  );
+  const extraNodes: CampaignRotationImpactNode[] = [];
 
   for (const decision of options.decisions) {
     if (decision.decision !== 'ASIGNAR' || !decision.empleadoId) {
-      continue
+      continue;
     }
 
-    const selectedCandidate = decision.node.suggestedCandidates.find((item) => item.empleadoId === decision.empleadoId) ?? null
-    if (!selectedCandidate || selectedCandidate.issues.length === 0 || !selectedCandidate.currentPdvId) {
-      continue
+    const selectedCandidate =
+      decision.node.suggestedCandidates.find((item) => item.empleadoId === decision.empleadoId) ??
+      null;
+    if (
+      !selectedCandidate ||
+      selectedCandidate.issues.length === 0 ||
+      !selectedCandidate.currentPdvId
+    ) {
+      continue;
     }
 
     if (existingNodeIds.has(selectedCandidate.currentPdvId)) {
-      continue
+      continue;
     }
 
-    const sourceMember = rotationData.rotationByPdvId[selectedCandidate.currentPdvId]
+    const sourceMember = rotationData.rotationByPdvId[selectedCandidate.currentPdvId];
     if (!sourceMember?.grupoRotacionCodigo) {
-      continue
+      continue;
     }
 
-    const sourceAssignment = resolveAssignmentsForDate(
-      activeAssignments.filter((item) => item.empleado_id === decision.empleadoId),
-      options.fechaInicio
-    )[0] ?? null
+    const sourceAssignment =
+      resolveAssignmentsForDate(
+        activeAssignments.filter((item) => item.empleado_id === decision.empleadoId),
+        options.fechaInicio
+      )[0] ?? null;
 
-    const sourcePdv = pdvById.get(selectedCandidate.currentPdvId) ?? null
+    const sourcePdv = pdvById.get(selectedCandidate.currentPdvId) ?? null;
     const suggestedCandidates = buildSuggestedCandidates({
       accountId: options.accountId,
       fechaInicio: options.fechaInicio,
@@ -539,7 +602,7 @@ export async function expandCampaignRotationCascadePreview(
       primaryEmpleadoId: decision.empleadoId,
       impactedMember: sourceMember,
       targetSupervisorId: sourceAssignment?.supervisor_empleado_id ?? null,
-    })
+    });
 
     const extraNode = {
       nodeId: sourceMember.pdvId,
@@ -551,7 +614,8 @@ export async function expandCampaignRotationCascadePreview(
       primaryEmpleado: selectedCandidate.empleado,
       impactedPdvId: sourceMember.pdvId,
       impactedPdv: sourcePdv?.nombre ?? selectedCandidate.currentPdv ?? sourceMember.pdvId,
-      impactedPdvClave: sourcePdv?.clave_btl ?? selectedCandidate.currentPdvClave ?? sourceMember.pdvId,
+      impactedPdvClave:
+        sourcePdv?.clave_btl ?? selectedCandidate.currentPdvClave ?? sourceMember.pdvId,
       impactedCampanaPdvId: null,
       reservedEmployeeId: decision.empleadoId,
       reservedEmployee: selectedCandidate.empleado,
@@ -560,17 +624,17 @@ export async function expandCampaignRotationCascadePreview(
       selectedEmployeeId: null,
     };
 
-    extraNodes.push(extraNode)
-    existingNodeIds.add(extraNode.nodeId)
+    extraNodes.push(extraNode);
+    existingNodeIds.add(extraNode.nodeId);
   }
 
   if (extraNodes.length === 0) {
-    return selectedPreview
+    return selectedPreview;
   }
 
-  const groupCodes = new Set(selectedPreview.nodes.map((node) => node.grupoRotacionCodigo))
+  const groupCodes = new Set(selectedPreview.nodes.map((node) => node.grupoRotacionCodigo));
   for (const node of extraNodes) {
-    groupCodes.add(node.grupoRotacionCodigo)
+    groupCodes.add(node.grupoRotacionCodigo);
   }
 
   return {
@@ -578,62 +642,75 @@ export async function expandCampaignRotationCascadePreview(
     totalGroups: groupCodes.size,
     totalNodes: selectedPreview.nodes.length + extraNodes.length,
     nodes: [...selectedPreview.nodes, ...extraNodes],
-  }
+  };
 }
 
 export async function applyCampaignRotationDecisions(
   supabase: TypedSupabaseClient,
   options: {
-    actorUsuarioId: string
-    campanaId: string
-    campanaNombre: string
-    accountId: string
-    fechaInicio: string
-    fechaFin: string
-    decisions: CampaignRotationResolvedDecision[]
+    actorUsuarioId: string;
+    campanaId: string;
+    campanaNombre: string;
+    accountId: string;
+    fechaInicio: string;
+    fechaFin: string;
+    decisions: CampaignRotationResolvedDecision[];
   }
 ) {
-  const assignDecisions = options.decisions.filter((item) => item.decision === 'ASIGNAR')
-  const assigneeIds = Array.from(new Set(assignDecisions.map((item) => item.empleadoId).filter((item): item is string => Boolean(item))))
-  const impactedPdvIds = Array.from(new Set(options.decisions.map((item) => item.node.impactedPdvId)))
+  const assignDecisions = options.decisions.filter((item) => item.decision === 'ASIGNAR');
+  const assigneeIds = Array.from(
+    new Set(
+      assignDecisions.map((item) => item.empleadoId).filter((item): item is string => Boolean(item))
+    )
+  );
+  const impactedPdvIds = Array.from(
+    new Set(options.decisions.map((item) => item.node.impactedPdvId))
+  );
 
   const [activeAssignmentsResult, pdvRowsResult] = await Promise.all([
     assigneeIds.length === 0
       ? Promise.resolve({ data: [], error: null })
       : supabase
           .from('asignacion')
-          .select('id, empleado_id, pdv_id, supervisor_empleado_id, cuenta_cliente_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, estado_publicacion, created_at')
+          .select(
+            'id, empleado_id, pdv_id, supervisor_empleado_id, cuenta_cliente_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, estado_publicacion, created_at'
+          )
           .eq('cuenta_cliente_id', options.accountId)
           .eq('estado_publicacion', 'PUBLICADA')
           .in('empleado_id', assigneeIds)
           .lte('fecha_inicio', options.fechaFin)
           .or(`fecha_fin.is.null,fecha_fin.gte.${options.fechaInicio}`),
     supabase.from('pdv').select('id, nombre, clave_btl').in('id', impactedPdvIds),
-  ])
+  ]);
 
-  const infraError = activeAssignmentsResult.error?.message ?? pdvRowsResult.error?.message
+  const infraError = activeAssignmentsResult.error?.message ?? pdvRowsResult.error?.message;
   if (infraError) {
-    throw new Error(infraError)
+    throw new Error(infraError);
   }
 
   const rotationData = await loadAssignmentRotationValidationData(supabase, {
     accountId: options.accountId,
     pdvIds: impactedPdvIds,
-  })
-  const activeAssignments = (activeAssignmentsResult.data ?? []) as CampaignRotationAssignmentRow[]
-  const pdvById = new Map(((pdvRowsResult.data ?? []) as Array<{ id: string; nombre: string; clave_btl: string }>).map((item) => [item.id, item]))
-  const activeAssignmentsByEmployee = activeAssignments.reduce<Record<string, CampaignRotationAssignmentRow[]>>((acc, item) => {
-    const current = acc[item.empleado_id] ?? []
-    current.push(item)
-    acc[item.empleado_id] = current
-    return acc
-  }, {})
+  });
+  const activeAssignments = (activeAssignmentsResult.data ?? []) as CampaignRotationAssignmentRow[];
+  const pdvById = new Map(
+    ((pdvRowsResult.data ?? []) as Array<{ id: string; nombre: string; clave_btl: string }>).map(
+      (item) => [item.id, item]
+    )
+  );
+  const activeAssignmentsByEmployee = activeAssignments.reduce<
+    Record<string, CampaignRotationAssignmentRow[]>
+  >((acc, item) => {
+    const current = acc[item.empleado_id] ?? [];
+    current.push(item);
+    acc[item.empleado_id] = current;
+    return acc;
+  }, {});
 
   for (const decision of options.decisions) {
     if (decision.decision === 'RESERVAR') {
-      const { error } = await supabase
-        .from('pdv_cobertura_operativa')
-        .upsert({
+      const { error } = await supabase.from('pdv_cobertura_operativa').upsert(
+        {
           cuenta_cliente_id: options.accountId,
           pdv_id: decision.node.impactedPdvId,
           estado_operativo: 'RESERVADO_PENDIENTE_ACCESO',
@@ -646,10 +723,12 @@ export async function applyCampaignRotationDecisions(
             campana_id: options.campanaId,
             primary_pdv_id: decision.node.primaryPdvId,
           },
-        }, { onConflict: 'cuenta_cliente_id,pdv_id' })
+        },
+        { onConflict: 'cuenta_cliente_id,pdv_id' }
+      );
 
       if (error) {
-        throw new Error(error.message)
+        throw new Error(error.message);
       }
 
       if (decision.node.impactedCampanaPdvId) {
@@ -663,25 +742,28 @@ export async function applyCampaignRotationDecisions(
               primary_pdv_id: decision.node.primaryPdvId,
             },
           })
-          .eq('id', decision.node.impactedCampanaPdvId)
+          .eq('id', decision.node.impactedCampanaPdvId);
 
         if (updateCampaignPdvError) {
-          throw new Error(updateCampaignPdvError.message)
+          throw new Error(updateCampaignPdvError.message);
         }
       }
 
-      continue
+      continue;
     }
 
     if (!decision.empleadoId) {
-      throw new Error(`Debes seleccionar una DC para cubrir ${decision.node.impactedPdvClave}.`)
+      throw new Error(`Debes seleccionar una DC para cubrir ${decision.node.impactedPdvClave}.`);
     }
 
-    const employeeAssignments = activeAssignmentsByEmployee[decision.empleadoId] ?? []
-    const effectiveAssignment = resolveAssignmentsForDate(employeeAssignments, options.fechaInicio)[0] ?? null
+    const employeeAssignments = activeAssignmentsByEmployee[decision.empleadoId] ?? [];
+    const effectiveAssignment =
+      resolveAssignmentsForDate(employeeAssignments, options.fechaInicio)[0] ?? null;
 
     if (!effectiveAssignment) {
-      throw new Error(`No encontramos una asignacion activa para la DC seleccionada en ${decision.node.impactedPdvClave}.`)
+      throw new Error(
+        `No encontramos una asignacion activa para la DC seleccionada en ${decision.node.impactedPdvClave}.`
+      );
     }
 
     const draft = {
@@ -704,18 +786,20 @@ export async function applyCampaignRotationDecisions(
       motivo_movimiento: 'CAMPANA_ROTATIVA',
       observaciones: `[AUTO CAMPANA ${options.campanaNombre}] Cobertura temporal para ${decision.node.impactedPdvClave}.`,
       id: null,
-    } satisfies AssignmentEngineDraft
+    } satisfies AssignmentEngineDraft;
 
     const issues = evaluateRotationMasterImpact(draft, {
       rotationData,
       previousPdvId: effectiveAssignment.pdv_id,
-    })
+    });
 
     if (issues.length > 0) {
-      throw new Error(`La cobertura propuesta para ${decision.node.impactedPdvClave} rompe otra rotacion: ${issues.map((item) => item.label).join(', ')}.`)
+      throw new Error(
+        `La cobertura propuesta para ${decision.node.impactedPdvClave} rompe otra rotacion: ${issues.map((item) => item.label).join(', ')}.`
+      );
     }
 
-    const enginePlan = buildAssignmentTransitionPlan(draft, employeeAssignments)
+    const enginePlan = buildAssignmentTransitionPlan(draft, employeeAssignments);
 
     for (const update of enginePlan.updates) {
       const { error } = await supabase
@@ -724,10 +808,10 @@ export async function applyCampaignRotationDecisions(
           ...update.patch,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', update.id)
+        .eq('id', update.id);
 
       if (error) {
-        throw new Error(error.message)
+        throw new Error(error.message);
       }
     }
 
@@ -753,29 +837,26 @@ export async function applyCampaignRotationDecisions(
       generado_automaticamente: true,
       estado_publicacion: 'PUBLICADA',
       updated_at: new Date().toISOString(),
-    }
+    };
 
-    const { error: insertError } = await supabase.from('asignacion').insert(insertPayload)
+    const { error: insertError } = await supabase.from('asignacion').insert(insertPayload);
     if (insertError) {
-      throw new Error(insertError.message)
+      throw new Error(insertError.message);
     }
 
     if (enginePlan.continuationInsert) {
-      const { error: continuationError } = await supabase
-        .from('asignacion')
-        .insert({
-          ...enginePlan.continuationInsert,
-          updated_at: new Date().toISOString(),
-        })
+      const { error: continuationError } = await supabase.from('asignacion').insert({
+        ...enginePlan.continuationInsert,
+        updated_at: new Date().toISOString(),
+      });
 
       if (continuationError) {
-        throw new Error(continuationError.message)
+        throw new Error(continuationError.message);
       }
     }
 
-    const { error: clearReservationError } = await supabase
-      .from('pdv_cobertura_operativa')
-      .upsert({
+    const { error: clearReservationError } = await supabase.from('pdv_cobertura_operativa').upsert(
+      {
         cuenta_cliente_id: options.accountId,
         pdv_id: decision.node.impactedPdvId,
         estado_operativo: 'CUBIERTO',
@@ -788,10 +869,12 @@ export async function applyCampaignRotationDecisions(
           campana_id: options.campanaId,
           primary_pdv_id: decision.node.primaryPdvId,
         },
-      }, { onConflict: 'cuenta_cliente_id,pdv_id' })
+      },
+      { onConflict: 'cuenta_cliente_id,pdv_id' }
+    );
 
     if (clearReservationError) {
-      throw new Error(clearReservationError.message)
+      throw new Error(clearReservationError.message);
     }
 
     if (decision.node.impactedCampanaPdvId) {
@@ -806,10 +889,10 @@ export async function applyCampaignRotationDecisions(
             primary_pdv_id: decision.node.primaryPdvId,
           },
         })
-        .eq('id', decision.node.impactedCampanaPdvId)
+        .eq('id', decision.node.impactedCampanaPdvId);
 
       if (updateCampaignPdvError) {
-        throw new Error(updateCampaignPdvError.message)
+        throw new Error(updateCampaignPdvError.message);
       }
     }
   }

@@ -77,12 +77,12 @@ CREATE POLICY "Users can CRUD actions in own sessions"
 // features/agent/types/index.ts
 
 export interface AgentSession {
-  id: string
-  user_id: string
-  title: string
-  model: string
-  created_at: string
-  updated_at: string
+  id: string;
+  user_id: string;
+  title: string;
+  model: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export type ActionType =
@@ -92,60 +92,60 @@ export type ActionType =
   | 'analyze'
   | 'calculate'
   | 'recommend'
-  | 'alert'
+  | 'alert';
 
 export interface AgentActionRecord {
-  id: string
-  session_id: string
-  action_type: ActionType
-  content: Record<string, unknown>
-  created_at: string
+  id: string;
+  session_id: string;
+  action_type: ActionType;
+  content: Record<string, unknown>;
+  created_at: string;
 }
 
 // Tipos para UI (las acciones en memoria)
 export interface BaseAction {
-  _type: ActionType
-  complete: boolean
+  _type: ActionType;
+  complete: boolean;
 }
 
 export interface UserMessageAction extends BaseAction {
-  _type: 'user_message'
-  text: string
+  _type: 'user_message';
+  text: string;
 }
 
 export interface ThinkAction extends BaseAction {
-  _type: 'think'
-  text: string
+  _type: 'think';
+  text: string;
 }
 
 export interface MessageAction extends BaseAction {
-  _type: 'message'
-  text: string
+  _type: 'message';
+  text: string;
 }
 
 export interface AnalyzeAction extends BaseAction {
-  _type: 'analyze'
-  title: string
-  points: string[]
+  _type: 'analyze';
+  title: string;
+  points: string[];
 }
 
 export interface CalculateAction extends BaseAction {
-  _type: 'calculate'
-  label: string
-  value: string | number
-  trend?: 'up' | 'down' | 'neutral'
+  _type: 'calculate';
+  label: string;
+  value: string | number;
+  trend?: 'up' | 'down' | 'neutral';
 }
 
 export interface RecommendAction extends BaseAction {
-  _type: 'recommend'
-  title: string
-  items: string[]
+  _type: 'recommend';
+  title: string;
+  items: string[];
 }
 
 export interface AlertAction extends BaseAction {
-  _type: 'alert'
-  severity: 'info' | 'warning' | 'critical'
-  message: string
+  _type: 'alert';
+  severity: 'info' | 'warning' | 'critical';
+  message: string;
 }
 
 export type AgentAction =
@@ -155,7 +155,7 @@ export type AgentAction =
   | AnalyzeAction
   | CalculateAction
   | RecommendAction
-  | AlertAction
+  | AlertAction;
 ```
 
 ---
@@ -165,34 +165,36 @@ export type AgentAction =
 ```typescript
 // features/agent/services/historyService.ts
 
-import { createClient } from '@/lib/supabase/client'
-import type { AgentSession, AgentActionRecord, ActionType } from '../types'
+import { createClient } from '@/lib/supabase/client';
+import type { AgentSession, AgentActionRecord, ActionType } from '../types';
 
 export const agentHistoryService = {
   /**
    * Lista las sesiones del usuario actual
    */
   async listSessions(limit = 20): Promise<AgentSession[]> {
-    const supabase = createClient()
+    const supabase = createClient();
 
     const { data, error } = await supabase
       .from('agent_sessions')
       .select('*')
       .order('updated_at', { ascending: false })
-      .limit(limit)
+      .limit(limit);
 
-    if (error) throw error
-    return data || []
+    if (error) throw error;
+    return data || [];
   },
 
   /**
    * Crea una nueva sesion
    */
   async createSession(title?: string, model?: string): Promise<AgentSession> {
-    const supabase = createClient()
+    const supabase = createClient();
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) throw new Error('No autenticado')
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('No autenticado');
 
     const { data, error } = await supabase
       .from('agent_sessions')
@@ -202,26 +204,26 @@ export const agentHistoryService = {
         model: model || 'haiku-4.5',
       })
       .select()
-      .single()
+      .single();
 
-    if (error) throw error
-    return data
+    if (error) throw error;
+    return data;
   },
 
   /**
    * Carga las acciones de una sesion
    */
   async loadActions(sessionId: string): Promise<AgentActionRecord[]> {
-    const supabase = createClient()
+    const supabase = createClient();
 
     const { data, error } = await supabase
       .from('agent_actions')
       .select('*')
       .eq('session_id', sessionId)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: true });
 
-    if (error) throw error
-    return data || []
+    if (error) throw error;
+    return data || [];
   },
 
   /**
@@ -232,27 +234,27 @@ export const agentHistoryService = {
     actionType: ActionType,
     content: Record<string, unknown>
   ): Promise<AgentActionRecord> {
-    const supabase = createClient()
+    const supabase = createClient();
 
     const { data, error } = await supabase
       .from('agent_actions')
       .insert({
         session_id: sessionId,
         action_type: actionType,
-        content
+        content,
       })
       .select()
-      .single()
+      .single();
 
-    if (error) throw error
+    if (error) throw error;
 
     // Actualizar updated_at de la sesion
     await supabase
       .from('agent_sessions')
       .update({ updated_at: new Date().toISOString() })
-      .eq('id', sessionId)
+      .eq('id', sessionId);
 
-    return data
+    return data;
   },
 
   /**
@@ -261,81 +263,75 @@ export const agentHistoryService = {
   async saveActions(
     sessionId: string,
     actions: Array<{
-      actionType: ActionType
-      content: Record<string, unknown>
+      actionType: ActionType;
+      content: Record<string, unknown>;
     }>
   ): Promise<AgentActionRecord[]> {
-    const supabase = createClient()
+    const supabase = createClient();
 
-    const records = actions.map(a => ({
+    const records = actions.map((a) => ({
       session_id: sessionId,
       action_type: a.actionType,
       content: a.content,
-    }))
+    }));
 
-    const { data, error } = await supabase
-      .from('agent_actions')
-      .insert(records)
-      .select()
+    const { data, error } = await supabase.from('agent_actions').insert(records).select();
 
-    if (error) throw error
+    if (error) throw error;
 
     // Actualizar updated_at de la sesion
     await supabase
       .from('agent_sessions')
       .update({ updated_at: new Date().toISOString() })
-      .eq('id', sessionId)
+      .eq('id', sessionId);
 
-    return data || []
+    return data || [];
   },
 
   /**
    * Actualiza el titulo de una sesion
    */
   async updateSessionTitle(sessionId: string, title: string): Promise<void> {
-    const supabase = createClient()
+    const supabase = createClient();
 
     const { error } = await supabase
       .from('agent_sessions')
       .update({ title: title.slice(0, 100) })
-      .eq('id', sessionId)
+      .eq('id', sessionId);
 
-    if (error) throw error
+    if (error) throw error;
   },
 
   /**
    * Elimina una sesion (cascade elimina las acciones)
    */
   async deleteSession(sessionId: string): Promise<void> {
-    const supabase = createClient()
+    const supabase = createClient();
 
-    const { error } = await supabase
-      .from('agent_sessions')
-      .delete()
-      .eq('id', sessionId)
+    const { error } = await supabase.from('agent_sessions').delete().eq('id', sessionId);
 
-    if (error) throw error
+    if (error) throw error;
   },
 
   /**
    * Obtiene una sesion por ID
    */
   async getSession(sessionId: string): Promise<AgentSession | null> {
-    const supabase = createClient()
+    const supabase = createClient();
 
     const { data, error } = await supabase
       .from('agent_sessions')
       .select('*')
       .eq('id', sessionId)
-      .single()
+      .single();
 
     if (error) {
-      if (error.code === 'PGRST116') return null // No encontrado
-      throw error
+      if (error.code === 'PGRST116') return null; // No encontrado
+      throw error;
     }
-    return data
+    return data;
   },
-}
+};
 ```
 
 ---
@@ -345,231 +341,228 @@ export const agentHistoryService = {
 ```typescript
 // features/agent/hooks/useAgentHistory.ts
 
-'use client'
+'use client';
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react';
 import {
   agentHistoryService,
   type AgentSession,
   type AgentActionRecord,
   type ActionType,
-} from '../services/historyService'
+} from '../services/historyService';
 
 interface UseAgentHistoryOptions {
-  autoLoad?: boolean
+  autoLoad?: boolean;
 }
 
 export function useAgentHistory(options: UseAgentHistoryOptions = {}) {
-  const { autoLoad = true } = options
+  const { autoLoad = true } = options;
 
-  const [sessions, setSessions] = useState<AgentSession[]>([])
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
-  const [currentActions, setCurrentActions] = useState<AgentActionRecord[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [sessions, setSessions] = useState<AgentSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [currentActions, setCurrentActions] = useState<AgentActionRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Cargar lista de sesiones al montar
   useEffect(() => {
     if (autoLoad) {
-      loadSessions()
+      loadSessions();
     }
-  }, [autoLoad])
+  }, [autoLoad]);
 
   /**
    * Carga la lista de sesiones
    */
   const loadSessions = useCallback(async () => {
     try {
-      setIsLoading(true)
-      setError(null)
-      const data = await agentHistoryService.listSessions()
-      setSessions(data)
+      setIsLoading(true);
+      setError(null);
+      const data = await agentHistoryService.listSessions();
+      setSessions(data);
     } catch (err) {
-      console.error('Error loading sessions:', err)
-      setError('Error al cargar sesiones')
+      console.error('Error loading sessions:', err);
+      setError('Error al cargar sesiones');
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }, [])
+  }, []);
 
   /**
    * Crea una nueva sesion
    */
   const createSession = useCallback(async (title?: string, model?: string) => {
     try {
-      setIsSaving(true)
-      setError(null)
-      const session = await agentHistoryService.createSession(title, model)
-      setSessions(prev => [session, ...prev])
-      setCurrentSessionId(session.id)
-      setCurrentActions([])
-      return session
+      setIsSaving(true);
+      setError(null);
+      const session = await agentHistoryService.createSession(title, model);
+      setSessions((prev) => [session, ...prev]);
+      setCurrentSessionId(session.id);
+      setCurrentActions([]);
+      return session;
     } catch (err) {
-      console.error('Error creating session:', err)
-      setError('Error al crear sesion')
-      throw err
+      console.error('Error creating session:', err);
+      setError('Error al crear sesion');
+      throw err;
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }, [])
+  }, []);
 
   /**
    * Selecciona una sesion y carga sus acciones
    */
   const selectSession = useCallback(async (sessionId: string) => {
     try {
-      setIsLoading(true)
-      setError(null)
-      setCurrentSessionId(sessionId)
-      const actions = await agentHistoryService.loadActions(sessionId)
-      setCurrentActions(actions)
-      return actions
+      setIsLoading(true);
+      setError(null);
+      setCurrentSessionId(sessionId);
+      const actions = await agentHistoryService.loadActions(sessionId);
+      setCurrentActions(actions);
+      return actions;
     } catch (err) {
-      console.error('Error loading session:', err)
-      setError('Error al cargar sesion')
-      throw err
+      console.error('Error loading session:', err);
+      setError('Error al cargar sesion');
+      throw err;
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }, [])
+  }, []);
 
   /**
    * Guarda una accion en la sesion actual
    */
-  const saveAction = useCallback(async (
-    actionType: ActionType,
-    content: Record<string, unknown>
-  ) => {
-    if (!currentSessionId) {
-      // Crear sesion si no existe
-      const session = await createSession()
-      const action = await agentHistoryService.saveAction(
-        session.id,
-        actionType,
-        content
-      )
-      setCurrentActions(prev => [...prev, action])
-      return action
-    }
+  const saveAction = useCallback(
+    async (actionType: ActionType, content: Record<string, unknown>) => {
+      if (!currentSessionId) {
+        // Crear sesion si no existe
+        const session = await createSession();
+        const action = await agentHistoryService.saveAction(session.id, actionType, content);
+        setCurrentActions((prev) => [...prev, action]);
+        return action;
+      }
 
-    try {
-      setIsSaving(true)
-      const action = await agentHistoryService.saveAction(
-        currentSessionId,
-        actionType,
-        content
-      )
-      setCurrentActions(prev => [...prev, action])
+      try {
+        setIsSaving(true);
+        const action = await agentHistoryService.saveAction(currentSessionId, actionType, content);
+        setCurrentActions((prev) => [...prev, action]);
 
-      // Actualizar la sesion en la lista (mover al inicio)
-      setSessions(prev => {
-        const session = prev.find(s => s.id === currentSessionId)
-        if (!session) return prev
-        const updated = { ...session, updated_at: new Date().toISOString() }
-        return [updated, ...prev.filter(s => s.id !== currentSessionId)]
-      })
+        // Actualizar la sesion en la lista (mover al inicio)
+        setSessions((prev) => {
+          const session = prev.find((s) => s.id === currentSessionId);
+          if (!session) return prev;
+          const updated = { ...session, updated_at: new Date().toISOString() };
+          return [updated, ...prev.filter((s) => s.id !== currentSessionId)];
+        });
 
-      return action
-    } catch (err) {
-      console.error('Error saving action:', err)
-      setError('Error al guardar accion')
-      throw err
-    } finally {
-      setIsSaving(false)
-    }
-  }, [currentSessionId, createSession])
+        return action;
+      } catch (err) {
+        console.error('Error saving action:', err);
+        setError('Error al guardar accion');
+        throw err;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [currentSessionId, createSession]
+  );
 
   /**
    * Guarda multiples acciones (batch) - util al final de una respuesta
    */
-  const saveActions = useCallback(async (
-    actions: Array<{
-      actionType: ActionType
-      content: Record<string, unknown>
-    }>
-  ) => {
-    if (!currentSessionId) {
-      const session = await createSession()
-      const saved = await agentHistoryService.saveActions(session.id, actions)
-      setCurrentActions(prev => [...prev, ...saved])
-      return saved
-    }
+  const saveActions = useCallback(
+    async (
+      actions: Array<{
+        actionType: ActionType;
+        content: Record<string, unknown>;
+      }>
+    ) => {
+      if (!currentSessionId) {
+        const session = await createSession();
+        const saved = await agentHistoryService.saveActions(session.id, actions);
+        setCurrentActions((prev) => [...prev, ...saved]);
+        return saved;
+      }
 
-    try {
-      setIsSaving(true)
-      const saved = await agentHistoryService.saveActions(currentSessionId, actions)
-      setCurrentActions(prev => [...prev, ...saved])
+      try {
+        setIsSaving(true);
+        const saved = await agentHistoryService.saveActions(currentSessionId, actions);
+        setCurrentActions((prev) => [...prev, ...saved]);
 
-      // Actualizar la sesion en la lista
-      setSessions(prev => {
-        const session = prev.find(s => s.id === currentSessionId)
-        if (!session) return prev
-        const updated = { ...session, updated_at: new Date().toISOString() }
-        return [updated, ...prev.filter(s => s.id !== currentSessionId)]
-      })
+        // Actualizar la sesion en la lista
+        setSessions((prev) => {
+          const session = prev.find((s) => s.id === currentSessionId);
+          if (!session) return prev;
+          const updated = { ...session, updated_at: new Date().toISOString() };
+          return [updated, ...prev.filter((s) => s.id !== currentSessionId)];
+        });
 
-      return saved
-    } catch (err) {
-      console.error('Error saving actions:', err)
-      setError('Error al guardar acciones')
-      throw err
-    } finally {
-      setIsSaving(false)
-    }
-  }, [currentSessionId, createSession])
+        return saved;
+      } catch (err) {
+        console.error('Error saving actions:', err);
+        setError('Error al guardar acciones');
+        throw err;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [currentSessionId, createSession]
+  );
 
   /**
    * Actualiza el titulo de la sesion actual
    */
-  const updateTitle = useCallback(async (title: string) => {
-    if (!currentSessionId) return
+  const updateTitle = useCallback(
+    async (title: string) => {
+      if (!currentSessionId) return;
 
-    try {
-      await agentHistoryService.updateSessionTitle(currentSessionId, title)
-      setSessions(prev =>
-        prev.map(s =>
-          s.id === currentSessionId ? { ...s, title } : s
-        )
-      )
-    } catch (err) {
-      console.error('Error updating title:', err)
-      setError('Error al actualizar titulo')
-    }
-  }, [currentSessionId])
+      try {
+        await agentHistoryService.updateSessionTitle(currentSessionId, title);
+        setSessions((prev) => prev.map((s) => (s.id === currentSessionId ? { ...s, title } : s)));
+      } catch (err) {
+        console.error('Error updating title:', err);
+        setError('Error al actualizar titulo');
+      }
+    },
+    [currentSessionId]
+  );
 
   /**
    * Elimina una sesion
    */
-  const deleteSession = useCallback(async (sessionId: string) => {
-    try {
-      await agentHistoryService.deleteSession(sessionId)
-      setSessions(prev => prev.filter(s => s.id !== sessionId))
+  const deleteSession = useCallback(
+    async (sessionId: string) => {
+      try {
+        await agentHistoryService.deleteSession(sessionId);
+        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
 
-      // Si es la sesion actual, limpiar
-      if (currentSessionId === sessionId) {
-        setCurrentSessionId(null)
-        setCurrentActions([])
+        // Si es la sesion actual, limpiar
+        if (currentSessionId === sessionId) {
+          setCurrentSessionId(null);
+          setCurrentActions([]);
+        }
+      } catch (err) {
+        console.error('Error deleting session:', err);
+        setError('Error al eliminar sesion');
+        throw err;
       }
-    } catch (err) {
-      console.error('Error deleting session:', err)
-      setError('Error al eliminar sesion')
-      throw err
-    }
-  }, [currentSessionId])
+    },
+    [currentSessionId]
+  );
 
   /**
    * Inicia una nueva conversacion (limpia estado actual)
    */
   const startNewConversation = useCallback(() => {
-    setCurrentSessionId(null)
-    setCurrentActions([])
-  }, [])
+    setCurrentSessionId(null);
+    setCurrentActions([]);
+  }, []);
 
   /**
    * Obtiene la sesion actual
    */
-  const currentSession = sessions.find(s => s.id === currentSessionId) || null
+  const currentSession = sessions.find((s) => s.id === currentSessionId) || null;
 
   return {
     // Estado
@@ -590,7 +583,7 @@ export function useAgentHistory(options: UseAgentHistoryOptions = {}) {
     updateTitle,
     deleteSession,
     startNewConversation,
-  }
+  };
 }
 ```
 
@@ -958,16 +951,16 @@ export default function AgentPage() {
 
 ## Mejoras vs Template Original
 
-| Feature | Original | Mejorado |
-|---------|----------|----------|
-| Schema | `conversations` + `messages` | `agent_sessions` + `agent_actions` |
-| Content | TEXT simple | JSONB (objetos complejos) |
-| Tipos | Solo `user`/`assistant` | 7 action types con CHECK |
-| Save | Individual | Batch support |
-| Titulo | Manual | Auto-generado |
-| Modelo | No soportado | Guardado por sesion |
-| Sidebar | Basico | Mobile + delete confirm |
-| Indices | Basico | Optimizado para queries |
+| Feature | Original                     | Mejorado                           |
+| ------- | ---------------------------- | ---------------------------------- |
+| Schema  | `conversations` + `messages` | `agent_sessions` + `agent_actions` |
+| Content | TEXT simple                  | JSONB (objetos complejos)          |
+| Tipos   | Solo `user`/`assistant`      | 7 action types con CHECK           |
+| Save    | Individual                   | Batch support                      |
+| Titulo  | Manual                       | Auto-generado                      |
+| Modelo  | No soportado                 | Guardado por sesion                |
+| Sidebar | Basico                       | Mobile + delete confirm            |
+| Indices | Basico                       | Optimizado para queries            |
 
 ---
 
@@ -984,17 +977,17 @@ export default function AgentPage() {
 function actionsToHistory(
   actions: AgentAction[]
 ): Array<{ role: 'user' | 'assistant'; content: string }> {
-  const history: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  const history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
   for (const action of actions) {
     if (action._type === 'user_message' && action.text?.trim()) {
-      history.push({ role: 'user', content: action.text })
+      history.push({ role: 'user', content: action.text });
     } else if (action._type === 'message' && action.text?.trim()) {
-      history.push({ role: 'assistant', content: action.text })
+      history.push({ role: 'assistant', content: action.text });
     }
   }
 
-  return history
+  return history;
 }
 ```
 
@@ -1007,7 +1000,7 @@ const handleSubmit = async (e: FormEvent) => {
   // ...
 
   // Convertir acciones previas a historial para memoria
-  const history = actionsToHistory(actions)
+  const history = actionsToHistory(actions);
 
   const res = await fetch('/api/agent', {
     method: 'POST',
@@ -1018,9 +1011,9 @@ const handleSubmit = async (e: FormEvent) => {
       model: selectedModel,
       history, // ← NUEVO: Pasar historial
     }),
-  })
+  });
   // ...
-}
+};
 ```
 
 ### 7.3 Usar Historial en el API Route
@@ -1030,8 +1023,8 @@ const handleSubmit = async (e: FormEvent) => {
 
 // Tipo para mensajes del historial
 interface HistoryMessage {
-  role: 'user' | 'assistant'
-  content: string
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 export async function POST(req: Request) {
@@ -1039,31 +1032,31 @@ export async function POST(req: Request) {
     prompt,
     context,
     model: modelKey,
-    history = [] // ← NUEVO: Recibir historial
-  } = await req.json() as {
-    prompt: string
-    context?: string
-    model?: string
-    history?: HistoryMessage[]
-  }
+    history = [], // ← NUEVO: Recibir historial
+  } = (await req.json()) as {
+    prompt: string;
+    context?: string;
+    model?: string;
+    history?: HistoryMessage[];
+  };
 
   // ... setup del modelo ...
 
   // Construir mensajes con historial previo (ultimos 10)
-  const previousMessages = history.slice(-10).map(m => ({
+  const previousMessages = history.slice(-10).map((m) => ({
     role: m.role as 'user' | 'assistant',
-    content: m.content
-  }))
+    content: m.content,
+  }));
 
   const { textStream } = streamText({
     model: openrouter(modelId),
     system: systemPrompt,
     messages: [
-      ...previousMessages,       // ← Mensajes anteriores
-      { role: 'user', content: userContent }  // ← Mensaje actual
+      ...previousMessages, // ← Mensajes anteriores
+      { role: 'user', content: userContent }, // ← Mensaje actual
     ],
     temperature: 0,
-  })
+  });
 
   // ... resto del streaming ...
 }
@@ -1078,17 +1071,17 @@ MEMORIA: Tienes acceso al historial de la conversacion.
 Recuerda nombres, preferencias y contexto previo del usuario.
 
 // ... resto del prompt ...
-`
+`;
 ```
 
 ### Por que esto importa
 
-| Sin Memoria | Con Memoria |
-|-------------|-------------|
-| Usuario: "Me llamo Juan" | Usuario: "Me llamo Juan" |
-| AI: "Hola Juan!" | AI: "Hola Juan!" |
+| Sin Memoria               | Con Memoria               |
+| ------------------------- | ------------------------- |
+| Usuario: "Me llamo Juan"  | Usuario: "Me llamo Juan"  |
+| AI: "Hola Juan!"          | AI: "Hola Juan!"          |
 | Usuario: "Como me llamo?" | Usuario: "Como me llamo?" |
-| AI: "No lo se" ❌ | AI: "Te llamas Juan" ✅ |
+| AI: "No lo se" ❌         | AI: "Te llamas Juan" ✅   |
 
 ### Notas
 

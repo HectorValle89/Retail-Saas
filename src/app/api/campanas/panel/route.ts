@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server'
-import { readRequestAccountScope } from '@/lib/tenant/accountScope'
-import { requerirPuestosActivos } from '@/lib/auth/session'
-import { obtenerInicioCampanasParaActor } from '@/features/campanas/services/campanaService'
+import { NextResponse } from 'next/server';
+import { readRequestAccountScope } from '@/lib/tenant/accountScope';
+import { requerirPuestosActivos } from '@/lib/auth/session';
+import { obtenerInicioCampanasParaActor } from '@/features/campanas/services/campanaService';
 
 const CAMPANA_ROLES = [
   'ADMINISTRADOR',
@@ -11,17 +11,17 @@ const CAMPANA_ROLES = [
   'LOGISTICA',
   'DERMOCONSEJERO',
   'CLIENTE',
-] as const
+] as const;
 
 export async function GET() {
   try {
-    const actor = await requerirPuestosActivos([...CAMPANA_ROLES])
-    const accountScope = await readRequestAccountScope()
+    const actor = await requerirPuestosActivos([...CAMPANA_ROLES]);
+    const accountScope = await readRequestAccountScope();
     const data = await obtenerInicioCampanasParaActor(actor, {
       scopeAccountId: accountScope.accountId,
-    })
+    });
 
-    return NextResponse.json({ data })
+    return NextResponse.json({ data });
   } catch (error) {
     return NextResponse.json(
       {
@@ -31,6 +31,6 @@ export async function GET() {
             : 'No fue posible refrescar el resumen de campanas.',
       },
       { status: 500 }
-    )
+    );
   }
 }

@@ -17,16 +17,16 @@ Ese pendiente es una excepción histórica de bootstrap. El repositorio actual s
 
 ### Avance por fase
 
-| Fase | Cerradas | Total | Avance |
-|---|---:|---:|---:|
-| Fase 0 - Fundación | 37 | 38 | 97.4% |
-| Fase 1 - Auth y Gestión de Usuarios | 28 | 28 | 100% |
-| Fase 2 - Estructura Maestra | 26 | 26 | 100% |
-| Fase 3 - Planeación Operativa | 26 | 26 | 100% |
-| Fase 4 - Ejecución Diaria (PWA Móvil) | 44 | 44 | 100% |
-| Fase 5 - Control y Validación | 37 | 37 | 100% |
-| Fase 6 - Análisis y Gobierno | 34 | 34 | 100% |
-| Fase 7 - Optimización y Calidad | 54 | 54 | 100% |
+| Fase                                  | Cerradas | Total | Avance |
+| ------------------------------------- | -------: | ----: | -----: |
+| Fase 0 - Fundación                    |       37 |    38 |  97.4% |
+| Fase 1 - Auth y Gestión de Usuarios   |       28 |    28 |   100% |
+| Fase 2 - Estructura Maestra           |       26 |    26 |   100% |
+| Fase 3 - Planeación Operativa         |       26 |    26 |   100% |
+| Fase 4 - Ejecución Diaria (PWA Móvil) |       44 |    44 |   100% |
+| Fase 5 - Control y Validación         |       37 |    37 |   100% |
+| Fase 6 - Análisis y Gobierno          |       34 |    34 |   100% |
+| Fase 7 - Optimización y Calidad       |       54 |    54 |   100% |
 
 ## Qué es la app
 

@@ -1,13 +1,13 @@
-'use client'
+'use client';
 
-import { EvidencePreview } from '@/components/ui'
-import { Card } from '@/components/ui/card'
-import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
-import { resolverRegistroExtemporaneoDesdePanel } from '../extemporaneoActions'
+import { EvidencePreview } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
+import { resolverRegistroExtemporaneoDesdePanel } from '../extemporaneoActions';
 import type {
   RegistroExtemporaneoListadoItem,
   RegistroExtemporaneoResumen,
-} from '../extemporaneoService'
+} from '../extemporaneoService';
 
 export function ExtemporaneoQueueSection({
   title,
@@ -16,11 +16,11 @@ export function ExtemporaneoQueueSection({
   resumen,
   registros,
 }: {
-  title: string
-  description: string
-  emptyMessage: string
-  resumen: RegistroExtemporaneoResumen
-  registros: RegistroExtemporaneoListadoItem[]
+  title: string;
+  description: string;
+  emptyMessage: string;
+  resumen: RegistroExtemporaneoResumen;
+  registros: RegistroExtemporaneoListadoItem[];
 }) {
   return (
     <Card className="overflow-hidden p-0">
@@ -66,7 +66,8 @@ export function ExtemporaneoQueueSection({
                     )}
                   </div>
                   <p className="text-sm text-slate-500">
-                    {item.pdvClaveBtl ?? 'Sin clave'} · {item.pdv ?? 'Sin PDV'} · {item.fechaOperativa}
+                    {item.pdvClaveBtl ?? 'Sin clave'} · {item.pdv ?? 'Sin PDV'} ·{' '}
+                    {item.fechaOperativa}
                     {item.supervisor ? ` · Supervisor: ${item.supervisor}` : ''}
                   </p>
                   <p className="text-sm text-slate-700">{item.motivo}</p>
@@ -77,15 +78,14 @@ export function ExtemporaneoQueueSection({
                         {String(item.ventaPayload.total_unidades ?? 0)} unidades
                       </p>
                     )}
-                  {item.tipoRegistro !== 'VENTA' &&
-                    Boolean(item.lovePayload.afiliado_nombre) && (
-                      <p className="text-xs text-slate-500">
-                        LOVE: {String(item.lovePayload.afiliado_nombre ?? '')}
-                        {item.lovePayload.afiliado_contacto
-                          ? ` · ${String(item.lovePayload.afiliado_contacto)}`
-                          : ''}
-                      </p>
-                    )}
+                  {item.tipoRegistro !== 'VENTA' && Boolean(item.lovePayload.afiliado_nombre) && (
+                    <p className="text-xs text-slate-500">
+                      LOVE: {String(item.lovePayload.afiliado_nombre ?? '')}
+                      {item.lovePayload.afiliado_contacto
+                        ? ` · ${String(item.lovePayload.afiliado_contacto)}`
+                        : ''}
+                    </p>
+                  )}
                   {(item.evidenciaThumbnailUrl || item.evidenciaUrl) && (
                     <EvidencePreview
                       url={item.evidenciaThumbnailUrl ?? item.evidenciaUrl}
@@ -148,7 +148,7 @@ export function ExtemporaneoQueueSection({
         )}
       </div>
     </Card>
-  )
+  );
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
@@ -160,7 +160,7 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
       labelClassName="text-[10px]"
       valueClassName="text-base sm:text-lg"
     />
-  )
+  );
 }
 
 function StatusPill({ active, label }: { active: boolean; label: string }) {
@@ -169,7 +169,7 @@ function StatusPill({ active, label }: { active: boolean; label: string }) {
       ? 'bg-rose-100 text-rose-700'
       : active
         ? 'bg-emerald-100 text-emerald-700'
-        : 'bg-slate-100 text-slate-700'
+        : 'bg-slate-100 text-slate-700';
 
-  return <span className={`rounded-full px-3 py-1 text-xs font-medium ${toneClass}`}>{label}</span>
+  return <span className={`rounded-full px-3 py-1 text-xs font-medium ${toneClass}`}>{label}</span>;
 }

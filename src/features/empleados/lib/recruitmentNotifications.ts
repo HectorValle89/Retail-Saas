@@ -1,26 +1,29 @@
-import { buildNuevoCandidatoCoordinacionNotification as buildNuevoCandidatoCoordinacionWorkflowNotification } from '@/lib/notifications/workflows/workflowCatalog'
+import { buildNuevoCandidatoCoordinacionNotification as buildNuevoCandidatoCoordinacionWorkflowNotification } from '@/lib/notifications/workflows/workflowCatalog';
 
 export function buildNuevoCandidatoCoordinacionNotification({
   empleadoId,
   nombreCompleto,
 }: {
-  empleadoId: string
-  nombreCompleto: string
+  empleadoId: string;
+  nombreCompleto: string;
 }): {
-  puestosDestino: Array<'COORDINADOR'>
-  workflow: string
-  title: string
-  body: string
-  path: string
-  tag: string
-  auditAction: string
-  pushTitle?: string
-  pushBody?: string
-  pushPath?: string
-  pushTag?: string
-  data?: Record<string, unknown>
+  puestosDestino: Array<'COORDINADOR'>;
+  workflow: string;
+  title: string;
+  body: string;
+  path: string;
+  tag: string;
+  auditAction: string;
+  pushTitle?: string;
+  pushBody?: string;
+  pushPath?: string;
+  pushTag?: string;
+  data?: Record<string, unknown>;
 } {
-  const notification = buildNuevoCandidatoCoordinacionWorkflowNotification({ empleadoId, nombreCompleto })
+  const notification = buildNuevoCandidatoCoordinacionWorkflowNotification({
+    empleadoId,
+    nombreCompleto,
+  });
 
   return {
     puestosDestino: ['COORDINADOR'],
@@ -35,5 +38,5 @@ export function buildNuevoCandidatoCoordinacionNotification({
     pushPath: notification.pushPath,
     pushTag: notification.pushTag,
     data: notification.data,
-  }
+  };
 }

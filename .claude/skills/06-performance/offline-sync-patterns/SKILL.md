@@ -6,6 +6,7 @@ description: Patrones de sincronización offline con IndexedDB
 # Offline Sync Patterns - Beteele PWA
 
 ## Cuando Usar
+
 - Al implementar cualquier feature que modifique datos
 - Cambios en cola de sincronización
 - Debugging de conflictos offline
@@ -21,9 +22,9 @@ async function saveAttendanceOffline(record: AttendanceRecord) {
     action: 'create',
     data: record,
     timestamp: Date.now(),
-    synced: false
+    synced: false,
   });
-  
+
   // Intentar sync inmediato si hay conexión
   if (navigator.onLine) {
     await syncQueue();
@@ -32,14 +33,12 @@ async function saveAttendanceOffline(record: AttendanceRecord) {
 
 // 2. Sincronizar FIFO al recuperar conexión
 async function syncQueue() {
-  const pending = await db.offline_queue
-    .where('synced').equals(false)
-    .sortBy('timestamp');
-  
+  const pending = await db.offline_queue.where('synced').equals(false).sortBy('timestamp');
+
   for (const item of pending) {
     try {
       await pb.collection(item.collection).create(item.data);
-      
+
       // Marcar como sincronizado
       await db.offline_queue.update(item.id, { synced: true });
     } catch (error) {
@@ -47,7 +46,7 @@ async function syncQueue() {
       console.error('Sync failed for', item.id, error);
     }
   }
-  
+
   // Limpiar registros sincronizados
   await db.offline_queue.where('synced').equals(true).delete();
 }
@@ -57,6 +56,7 @@ window.addEventListener('online', syncQueue);
 ```
 
 ## Manejo de Conflictos
+
 ```typescript
 // Si registro fue modificado online mientras estaba offline
 async function handleConflict(local: Record, remote: Record) {

@@ -1,6 +1,6 @@
 # ⚡ Bucle Agéntico: Modo SPRINT
 
-> *"No pienses. Ejecuta. Itera. Confirma."*
+> _"No pienses. Ejecuta. Itera. Confirma."_
 
 El modo SPRINT es para tareas que no requieren planificación formal. Ejecución directa con MCPs on-demand.
 
@@ -81,33 +81,39 @@ El agente decide **dinámicamente** cuándo usarlos:
 ### 🧠 Next.js DevTools MCP
 
 **Usar cuando:**
+
 - Hay un error y no está claro qué lo causa
 - Necesito verificar que no hay errores de tipos
 - Quiero ver el estado del servidor de desarrollo
 
 **NO usar cuando:**
+
 - El cambio es puramente visual
 - Ya sé exactamente qué está mal
 
 ### 👁️ Playwright MCP
 
 **Usar cuando:**
+
 - Necesito verificar cómo se ve algo visualmente
 - El usuario reportó un problema visual
 - Quiero confirmar que un componente renderiza correctamente
 
 **NO usar cuando:**
+
 - El cambio es en lógica backend
 - Es un fix de tipos sin impacto visual
 
 ### 🗄️ Supabase MCP
 
 **Usar cuando:**
+
 - Necesito ver la estructura actual de una tabla
 - Quiero verificar que un query funciona
 - Necesito ver logs de auth o postgres
 
 **NO usar cuando:**
+
 - El cambio no involucra base de datos
 - Ya conozco la estructura de los datos
 
@@ -116,6 +122,7 @@ El agente decide **dinámicamente** cuándo usarlos:
 ## 📝 Ejemplo Completo SPRINT
 
 ### Tarea
+
 ```
 Usuario: "El botón de login no funciona, se queda cargando infinitamente"
 ```
@@ -173,4 +180,4 @@ Si la tarea cumple alguna de estas condiciones, usar **BLUEPRINT**:
 
 ---
 
-*"No pienses de más. Ejecuta, observa, ajusta."*
+_"No pienses de más. Ejecuta, observa, ajusta."_

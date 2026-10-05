@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requerirPuestosActivos } from '@/lib/auth/session'
-import { obtenerDetallePdv } from '@/features/pdvs/services/pdvService'
-import { createServiceClient } from '@/lib/supabase/server'
+import { NextRequest, NextResponse } from 'next/server';
+import { requerirPuestosActivos } from '@/lib/auth/session';
+import { obtenerDetallePdv } from '@/features/pdvs/services/pdvService';
+import { createServiceClient } from '@/lib/supabase/server';
 
 const PDV_ROLES = [
   'ADMINISTRADOR',
@@ -11,28 +11,27 @@ const PDV_ROLES = [
   'LOVE_IS',
   'VENTAS',
   'CLIENTE',
-] as const
+] as const;
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ pdvId: string }> }
 ) {
   try {
-    await requerirPuestosActivos([...PDV_ROLES])
-    const { pdvId } = await params
-    const supabase = createServiceClient()
-    const data = await obtenerDetallePdv(supabase, pdvId)
+    await requerirPuestosActivos([...PDV_ROLES]);
+    const { pdvId } = await params;
+    const month = request.nextUrl.searchParams.get('month');
+    const supabase = createServiceClient();
+    const data = await obtenerDetallePdv(supabase, pdvId, month);
 
-    return NextResponse.json({ data })
+    return NextResponse.json({ data });
   } catch (error) {
     return NextResponse.json(
       {
         message:
-          error instanceof Error
-            ? error.message
-            : 'No fue posible cargar el detalle del PDV.',
+          error instanceof Error ? error.message : 'No fue posible cargar el detalle del PDV.',
       },
       { status: 500 }
-    )
+    );
   }
 }

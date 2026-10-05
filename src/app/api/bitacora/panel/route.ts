@@ -1,26 +1,26 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { requerirAdministradorActivo } from '@/lib/auth/session'
-import { createClient } from '@/lib/supabase/server'
-import { obtenerBitacoraPanel } from '@/features/bitacora/services/bitacoraService'
+import { NextRequest, NextResponse } from 'next/server';
+import { requerirAdministradorActivo } from '@/lib/auth/session';
+import { createClient } from '@/lib/supabase/server';
+import { obtenerBitacoraPanel } from '@/features/bitacora/services/bitacoraService';
 
 function pickString(value: string | null) {
-  return value?.trim() || undefined
+  return value?.trim() || undefined;
 }
 
 function parsePositiveInt(value: string | null, fallback: number) {
-  const parsed = Number(value)
+  const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback
+    return fallback;
   }
 
-  return Math.floor(parsed)
+  return Math.floor(parsed);
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const actor = await requerirAdministradorActivo()
-    const supabase = await createClient({ bypassTenantScope: true })
-    const { searchParams } = request.nextUrl
+    const actor = await requerirAdministradorActivo();
+    const supabase = await createClient({ bypassTenantScope: true });
+    const { searchParams } = request.nextUrl;
 
     const data = await obtenerBitacoraPanel(supabase, {
       actor,
@@ -32,9 +32,9 @@ export async function GET(request: NextRequest) {
       cursor: pickString(searchParams.get('cursor')),
       history: pickString(searchParams.get('history')),
       pageSize: parsePositiveInt(searchParams.get('pageSize'), 50),
-    })
+    });
 
-    return NextResponse.json({ data })
+    return NextResponse.json({ data });
   } catch (error) {
     return NextResponse.json(
       {
@@ -44,6 +44,6 @@ export async function GET(request: NextRequest) {
             : 'No fue posible refrescar la bitacora administrativa.',
       },
       { status: 500 }
-    )
+    );
   }
 }

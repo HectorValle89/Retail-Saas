@@ -1,14 +1,14 @@
-export type PrimerAccesoEstado = 'PENDIENTE' | 'CONFIRMADO' | 'CORRECCION_SOLICITADA'
+export type PrimerAccesoEstado = 'PENDIENTE' | 'CONFIRMADO' | 'CORRECCION_SOLICITADA';
 
 export interface PrimerAccesoMetadata {
-  required: boolean
-  estado: PrimerAccesoEstado
-  source: string | null
-  importedAt: string | null
-  reviewedAt: string | null
-  correctionRequestedAt: string | null
-  correctionNote: string | null
-  correctionMessageId: string | null
+  required: boolean;
+  estado: PrimerAccesoEstado;
+  source: string | null;
+  importedAt: string | null;
+  reviewedAt: string | null;
+  correctionRequestedAt: string | null;
+  correctionNote: string | null;
+  correctionMessageId: string | null;
 }
 
 const DEFAULT_PRIMER_ACCESO_METADATA: PrimerAccesoMetadata = {
@@ -20,31 +20,31 @@ const DEFAULT_PRIMER_ACCESO_METADATA: PrimerAccesoMetadata = {
   correctionRequestedAt: null,
   correctionNote: null,
   correctionMessageId: null,
-}
+};
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null
+    return null;
   }
 
-  return value as Record<string, unknown>
+  return value as Record<string, unknown>;
 }
 
 function normalizeEstado(value: unknown): PrimerAccesoEstado {
   if (value === 'PENDIENTE' || value === 'CONFIRMADO' || value === 'CORRECCION_SOLICITADA') {
-    return value
+    return value;
   }
 
-  return DEFAULT_PRIMER_ACCESO_METADATA.estado
+  return DEFAULT_PRIMER_ACCESO_METADATA.estado;
 }
 
 export function readPrimerAccesoMetadata(metadata: unknown): PrimerAccesoMetadata {
-  const root = asRecord(metadata)
-  const onboarding = asRecord(root?.onboarding_inicial)
-  const primerAcceso = asRecord(onboarding?.primer_acceso)
+  const root = asRecord(metadata);
+  const onboarding = asRecord(root?.onboarding_inicial);
+  const primerAcceso = asRecord(onboarding?.primer_acceso);
 
   if (!primerAcceso) {
-    return DEFAULT_PRIMER_ACCESO_METADATA
+    return DEFAULT_PRIMER_ACCESO_METADATA;
   }
 
   return {
@@ -63,21 +63,21 @@ export function readPrimerAccesoMetadata(metadata: unknown): PrimerAccesoMetadat
       typeof primerAcceso.correctionMessageId === 'string'
         ? primerAcceso.correctionMessageId
         : null,
-  }
+  };
 }
 
 export function isPrimerAccesoPendiente(metadata: unknown) {
-  const current = readPrimerAccesoMetadata(metadata)
-  return current.required && current.estado === 'PENDIENTE'
+  const current = readPrimerAccesoMetadata(metadata);
+  return current.required && current.estado === 'PENDIENTE';
 }
 
 export function writePrimerAccesoMetadata(
   metadata: unknown,
   patch: Partial<PrimerAccesoMetadata>
 ): Record<string, unknown> {
-  const root = asRecord(metadata) ?? {}
-  const onboarding = asRecord(root.onboarding_inicial) ?? {}
-  const current = readPrimerAccesoMetadata(metadata)
+  const root = asRecord(metadata) ?? {};
+  const onboarding = asRecord(root.onboarding_inicial) ?? {};
+  const current = readPrimerAccesoMetadata(metadata);
 
   return {
     ...root,
@@ -88,5 +88,5 @@ export function writePrimerAccesoMetadata(
         ...patch,
       },
     },
-  }
+  };
 }

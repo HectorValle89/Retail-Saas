@@ -1,55 +1,59 @@
-'use client'
-import { useActionState, useCallback, useMemo, useRef, useState } from 'react'
-import { useFormStatus } from 'react-dom'
-import { Button, Card, EvidencePreview, MetricCard as SharedMetricCard } from '@/components/ui'
-import { ClientImageFileInput } from '@/components/ui/client-image-file-input'
-import { getSingleTenantAccountLabel, isSingleTenantUiEnabled, resolveSingleTenantAccountOption } from '@/lib/tenant/singleTenant'
-import type { ActorActual } from '@/lib/auth/session'
-import { useScopedWidgetData } from '@/lib/ui-change/client'
-import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
-import { actualizarEstatusGasto, registrarGastoOperativo } from '../actions'
-import { injectDirectR2Upload } from '@/lib/storage/directR2Client'
-import { ESTADO_GASTO_INICIAL } from '../state'
-import type { GastosPanelData } from '../services/gastoService'
+'use client';
+import { useActionState, useCallback, useMemo, useRef, useState } from 'react';
+import { useFormStatus } from 'react-dom';
+import { Button, Card, EvidencePreview, MetricCard as SharedMetricCard } from '@/components/ui';
+import { ClientImageFileInput } from '@/components/ui/client-image-file-input';
+import {
+  getSingleTenantAccountLabel,
+  isSingleTenantUiEnabled,
+  resolveSingleTenantAccountOption,
+} from '@/lib/tenant/singleTenant';
+import type { ActorActual } from '@/lib/auth/session';
+import { useScopedWidgetData } from '@/lib/ui-change/client';
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
+import { actualizarEstatusGasto, registrarGastoOperativo } from '../actions';
+import { injectDirectR2Upload } from '@/lib/storage/directR2Client';
+import { ESTADO_GASTO_INICIAL } from '../state';
+import type { GastosPanelData } from '../services/gastoService';
 
 function formatCurrency(value: number, currency = 'MXN') {
   return new Intl.NumberFormat('es-MX', {
     style: 'currency',
     currency,
     maximumFractionDigits: 2,
-  }).format(value)
+  }).format(value);
 }
 
 function getLocalDateValue() {
-  return new Intl.DateTimeFormat('en-CA').format(new Date())
+  return new Intl.DateTimeFormat('en-CA').format(new Date());
 }
 
 function formatApprovalStage(value: string) {
-  return value.replace(/_/g, ' ')
+  return value.replace(/_/g, ' ');
 }
 
 export function GastosPanel({
   actor,
   data: initialData,
 }: {
-  actor: ActorActual
-  data: GastosPanelData
+  actor: ActorActual;
+  data: GastosPanelData;
 }) {
-  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
   const fetcher = useCallback(async (signal: AbortSignal) => {
     const response = await fetch('/api/gastos/panel', {
       cache: 'no-store',
       credentials: 'same-origin',
       signal,
-    })
-    const payload = (await response.json()) as { data?: GastosPanelData; message?: string }
+    });
+    const payload = (await response.json()) as { data?: GastosPanelData; message?: string };
 
     if (!response.ok || !payload.data) {
-      throw new Error(payload.message ?? 'No fue posible refrescar el panel de gastos.')
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de gastos.');
     }
 
-    return payload.data
-  }, [])
+    return payload.data;
+  }, []);
 
   const { data } = useScopedWidgetData({
     initialData,
@@ -59,34 +63,34 @@ export function GastosPanel({
     roleTargets: [actor.puesto],
     fetcher,
     debounceMs: 650,
-  })
+  });
 
-  const [state, formAction] = useActionState(registrarGastoOperativo, ESTADO_GASTO_INICIAL)
-  const [isUploadingR2, setIsUploadingR2] = useState(false)
-  const formRef = useRef<HTMLFormElement>(null)
-  const fixedAccount = resolveSingleTenantAccountOption(data.cuentas)
-  const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount)
+  const [state, formAction] = useActionState(registrarGastoOperativo, ESTADO_GASTO_INICIAL);
+  const [isUploadingR2, setIsUploadingR2] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const fixedAccount = resolveSingleTenantAccountOption(data.cuentas);
+  const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount);
 
   const handleInterceptedSubmit = async (formData: FormData) => {
-    const comprobante = formData.get('comprobante') as File | null
+    const comprobante = formData.get('comprobante') as File | null;
     if (comprobante && comprobante.size > 0) {
-      setIsUploadingR2(true)
+      setIsUploadingR2(true);
       try {
         await injectDirectR2Upload(formData, comprobante, {
           modulo: 'gastos',
           removeFieldName: 'comprobante',
-        })
+        });
       } catch (err) {
-        console.error('Error en subida R2:', err)
+        console.error('Error en subida R2:', err);
       } finally {
-        setIsUploadingR2(false)
+        setIsUploadingR2(false);
       }
     }
 
     // Submit form con datos R2 o fallback tradicional
-    const action = formAction as unknown as (formData: FormData) => void
-    action(formData)
-  }
+    const action = formAction as unknown as (formData: FormData) => void;
+    action(formData);
+  };
 
   return (
     <div className="space-y-6">
@@ -111,7 +115,8 @@ export function GastosPanel({
           </p>
           <h2 className="mt-2 text-lg font-semibold text-slate-950">Registrar gasto</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Base funcional para viaticos y gastos operativos ligados a cuenta, persona, PDV y evento de formacion cuando aplique.
+            Base funcional para viaticos y gastos operativos ligados a cuenta, persona, PDV y evento
+            de formacion cuando aplique.
           </p>
         </div>
 
@@ -133,7 +138,10 @@ export function GastosPanel({
           ) : (
             <label className="block text-sm text-slate-600">
               Cuenta cliente
-              <select name="cuenta_cliente_id" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900">
+              <select
+                name="cuenta_cliente_id"
+                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+              >
                 {data.cuentas.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.label}
@@ -145,7 +153,10 @@ export function GastosPanel({
 
           <label className="block text-sm text-slate-600">
             Empleado
-            <select name="empleado_id" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900">
+            <select
+              name="empleado_id"
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+            >
               {data.empleados.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.label}
@@ -156,7 +167,10 @@ export function GastosPanel({
 
           <label className="block text-sm text-slate-600">
             Supervisor
-            <select name="supervisor_empleado_id" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900">
+            <select
+              name="supervisor_empleado_id"
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+            >
               <option value="">Sin supervisor</option>
               {data.supervisores.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -178,7 +192,10 @@ export function GastosPanel({
 
           <label className="block text-sm text-slate-600">
             Tipo
-            <select name="tipo" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900">
+            <select
+              name="tipo"
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+            >
               <option value="VIATICOS">VIATICOS</option>
               <option value="TRANSPORTE">TRANSPORTE</option>
               <option value="ALIMENTOS">ALIMENTOS</option>
@@ -202,7 +219,10 @@ export function GastosPanel({
 
           <label className="block text-sm text-slate-600 xl:col-span-2">
             PDV
-            <select name="pdv_id" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900">
+            <select
+              name="pdv_id"
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+            >
               <option value="">Sin PDV asociado</option>
               {data.pdvs.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -214,7 +234,10 @@ export function GastosPanel({
 
           <label className="block text-sm text-slate-600 xl:col-span-2">
             Formacion relacionada
-            <select name="formacion_evento_id" className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900">
+            <select
+              name="formacion_evento_id"
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900"
+            >
               <option value="">Sin formacion asociada</option>
               {data.formaciones.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -257,7 +280,8 @@ export function GastosPanel({
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-950">Reporte por empleado y categoria</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Consolidado operativo por periodo, persona y categoria para seguimiento y conciliacion rapida.
+            Consolidado operativo por periodo, persona y categoria para seguimiento y conciliacion
+            rapida.
           </p>
         </div>
 
@@ -288,9 +312,15 @@ export function GastosPanel({
                     <td className="px-6 py-4 font-medium text-slate-900">{item.empleado}</td>
                     <td className="px-6 py-4 text-slate-600">{item.tipo}</td>
                     <td className="px-6 py-4 text-slate-600">{item.registros}</td>
-                    <td className="px-6 py-4 text-slate-600">{formatCurrency(item.montoSolicitado)}</td>
-                    <td className="px-6 py-4 text-slate-600">{formatCurrency(item.montoAprobado)}</td>
-                    <td className="px-6 py-4 font-medium text-emerald-700">{formatCurrency(item.montoReembolsado)}</td>
+                    <td className="px-6 py-4 text-slate-600">
+                      {formatCurrency(item.montoSolicitado)}
+                    </td>
+                    <td className="px-6 py-4 text-slate-600">
+                      {formatCurrency(item.montoAprobado)}
+                    </td>
+                    <td className="px-6 py-4 font-medium text-emerald-700">
+                      {formatCurrency(item.montoReembolsado)}
+                    </td>
                   </tr>
                 ))
               )}
@@ -331,12 +361,16 @@ export function GastosPanel({
                     <td className="px-6 py-4 text-slate-600">{item.fechaGasto}</td>
                     <td className="px-6 py-4">
                       <div className="font-medium text-slate-900">{item.empleado}</div>
-                      <div className="mt-1 text-xs text-slate-400">{item.supervisor ?? 'Sin supervisor'}</div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {item.supervisor ?? 'Sin supervisor'}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-slate-600">
                       <div>{item.cuentaCliente ?? 'Sin cliente'}</div>
                       <div className="mt-1 text-xs text-slate-400">{item.pdv ?? 'Sin PDV'}</div>
-                      <div className="mt-1 text-xs text-slate-400">{item.formacion ?? 'Sin formacion'}</div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {item.formacion ?? 'Sin formacion'}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-slate-600">
                       <div className="font-medium text-slate-900">{item.tipo}</div>
@@ -353,14 +387,26 @@ export function GastosPanel({
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <StatusPill active={item.estatus === 'APROBADO' || item.estatus === 'REEMBOLSADO'} label={item.estatus} />
+                      <StatusPill
+                        active={item.estatus === 'APROBADO' || item.estatus === 'REEMBOLSADO'}
+                        label={item.estatus}
+                      />
                       <div className="mt-2 text-xs text-slate-500">
                         Etapa: {formatApprovalStage(item.approvalStage)}
                       </div>
-                      {item.notas && <div className="mt-2 text-xs text-slate-500">{item.notas}</div>}
-                      <form action={actualizarEstatusGasto} className="mt-3 flex flex-wrap items-center gap-2">
+                      {item.notas && (
+                        <div className="mt-2 text-xs text-slate-500">{item.notas}</div>
+                      )}
+                      <form
+                        action={actualizarEstatusGasto}
+                        className="mt-3 flex flex-wrap items-center gap-2"
+                      >
                         <input type="hidden" name="gasto_id" value={item.id} />
-                        <input type="hidden" name="cuenta_cliente_id" value={item.cuentaClienteId} />
+                        <input
+                          type="hidden"
+                          name="cuenta_cliente_id"
+                          value={item.cuentaClienteId}
+                        />
                         <select
                           name="estatus"
                           defaultValue={item.estatus}
@@ -387,11 +433,11 @@ export function GastosPanel({
         </div>
       </Card>
     </div>
-  )
+  );
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return <SharedMetricCard label={label} value={value} />
+  return <SharedMetricCard label={label} value={value} />;
 }
 
 function StatusPill({ active, label }: { active: boolean; label: string }) {
@@ -403,23 +449,23 @@ function StatusPill({ active, label }: { active: boolean; label: string }) {
     >
       {label}
     </span>
-  )
+  );
 }
 
 function StateMessage({ ok, message }: { ok: boolean; message: string | null }) {
   if (!message) {
-    return null
+    return null;
   }
 
-  return <p className={`text-sm ${ok ? 'text-emerald-700' : 'text-rose-700'}`}>{message}</p>
+  return <p className={`text-sm ${ok ? 'text-emerald-700' : 'text-rose-700'}`}>{message}</p>;
 }
 
 function SubmitButton({ label, pendingLabel }: { label: string; pendingLabel: string }) {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   return (
     <Button type="submit" isLoading={pending}>
       {pending ? pendingLabel : label}
     </Button>
-  )
+  );
 }

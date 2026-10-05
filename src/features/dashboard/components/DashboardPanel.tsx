@@ -14,7 +14,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useFormStatus } from 'react-dom';
 import { MexicoMap, type MexicoMapPoint } from '@/components/maps/MexicoMap';
 import { ModalPanel } from '@/components/ui/modal-panel';
@@ -25,14 +25,9 @@ import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
 import { PremiumLineIcon, type PremiumIconName } from '@/components/ui/premium-icons';
 import { resolveKpiSemantic, withAlpha } from '@/components/ui/kpi-semantics';
 import { ToastBanner } from '@/components/ui/toast-banner';
-import { useOfflineSync } from '@/hooks/useOfflineSync';
 import type { ActorActual } from '@/lib/auth/session';
-import { queueOfflineLoveIsdin, queueOfflineVenta } from '@/lib/offline/syncQueue';
-import { signout } from '@/actions/auth';
 import { ejecutarTareasCampanaPdv } from '@/features/campanas/actions';
 import { ESTADO_CAMPANA_ADMIN_INICIAL } from '@/features/campanas/state';
-import { registrarAfiliacionLoveIsdin } from '@/features/love-isdin/actions';
-import { ESTADO_LOVE_ISDIN_INICIAL } from '@/features/love-isdin/state';
 import { injectDirectR2Manifest, injectDirectR2Upload } from '@/lib/storage/directR2Client';
 import {
   enviarMensajeSoporteDermoconsejo,
@@ -44,12 +39,17 @@ import { ESTADO_MENSAJE_INICIAL } from '@/features/mensajes/state';
 import {
   registrarSolicitudOperativa,
   resolverSolicitudDesdeDashboard,
+  obtenerEquipoSupervisor,
 } from '@/features/solicitudes/actions';
 import { registrarRegistroExtemporaneo } from '@/features/solicitudes/extemporaneoActions';
 import { ESTADO_SOLICITUD_INICIAL } from '@/features/solicitudes/state';
 import { DermoCheckInSheet } from './DermoCheckInSheet';
 import { DermoCheckOutSheet } from './DermoCheckOutSheet';
-import { DermoLoveCartSheet, DermoRegistroExtemporaneoSheet, DermoVentasCartSheet } from './DermoCommercialSheets';
+import {
+  DermoLoveCartSheet,
+  DermoRegistroExtemporaneoSheet,
+  DermoVentasCartSheet,
+} from './DermoCommercialSheets';
 import { NativeCameraSelfieDialog } from '@/features/asistencias/components/NativeCameraSelfieDialog';
 import {
   captureAttendancePosition,
@@ -60,22 +60,28 @@ import {
   registrarSalidaFormacionDashboard,
 } from '@/features/formaciones/actions';
 import { ESTADO_FORMACION_ADMIN_INICIAL } from '@/features/formaciones/state';
-import { resolverAsistenciaSupervisor } from '@/features/asistencias/actions';
+import {
+  resolverAsistenciaSupervisor,
+  registrarAsistenciaManualSupervisor,
+} from '@/features/asistencias/actions';
 import { ESTADO_SUPERVISOR_ASISTENCIA_INICIAL } from '@/features/asistencias/state';
 import { SupervisorMonthlyRoleSheet } from './SupervisorMonthlyRoleSheet';
+import { SupervisorFullScreenView } from './SupervisorFullScreenView';
+import { SupervisorKpiStrip } from './SupervisorKpiStrip';
+import { FormulariosEnviadosPorDcView } from './FormulariosEnviadosPorDcView';
+import { AppGlyph } from '@/components/ui/AppGlyph';
+import type { ClienteDashboardKpiSummary } from '@/features/dashboard/services/clienteDashboardService';
+import { EvidenciasEntregasHub } from '@/features/evidencias/components/EvidenciasEntregasHub';
 import type {
   RutaSemanalPanelData,
   SupervisorTodayRouteData,
 } from '@/features/rutas/services/rutaSemanalService';
-import { NominaWorkspacePanel } from '@/features/nomina/components/NominaWorkspacePanel'
-import {
-  buildDashboardHref,
-  EMPTY_DASHBOARD_FILTERS,
-} from '@/features/dashboard/types/dashboardFilters';
+import { NominaWorkspacePanel } from '@/features/nomina/components/NominaWorkspacePanel';
 import {
   markSupervisorNotificationAsRead,
   mergeSupervisorNotificationsSummary,
 } from '@/features/dashboard/lib/supervisorNotifications';
+import { summarizeSupervisorDailyAttendanceProgress } from '@/features/dashboard/lib/supervisorAttendanceSummary';
 import { useScopedWidgetData } from '@/lib/ui-change/client';
 import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
 import type {
@@ -85,16 +91,20 @@ import type {
   DashboardLiveAlertItem,
   DashboardMapItem,
   DashboardPanelData,
+  DashboardSupervisorDailyBoard,
   DashboardSupervisorDailyItem,
   DashboardSupervisorRequestItem,
   DashboardTrendItem,
   DashboardVacationPolicySummary,
-  DashboardSupervisorRouteSnapshot,
   VisitReachDashboardSummary,
+  RecruitmentCoverageSummary,
 } from '../services/dashboardService';
 
 const DashboardRutaSemanalPanel = dynamic(
-  () => import('@/features/rutas/components/RutaSemanalPanel').then((module) => module.RutaSemanalPanel),
+  () =>
+    import('@/features/rutas/components/RutaSemanalPanel').then(
+      (module) => module.RutaSemanalPanel
+    ),
   {
     loading: () => <DashboardLazySheetFallback label="Preparando ruta semanal..." />,
   }
@@ -185,7 +195,9 @@ function useDashboardSurfaceData<T>({
       const payload = (await response.json()) as { data?: T; message?: string };
 
       if (!response.ok || !payload.data) {
-        throw new Error(payload.message ?? 'No fue posible refrescar esta superficie del dashboard.');
+        throw new Error(
+          payload.message ?? 'No fue posible refrescar esta superficie del dashboard.'
+        );
       }
 
       return payload.data;
@@ -260,8 +272,8 @@ const NominaDashboard = memo(function NominaDashboard({
   actor,
   data,
 }: {
-  actor: ActorActual
-  data: NonNullable<DashboardPanelData['nominaWorkspace']>
+  actor: ActorActual;
+  data: NonNullable<DashboardPanelData['nominaWorkspace']>;
 }) {
   return (
     <div className="space-y-6">
@@ -280,11 +292,23 @@ const NominaDashboard = memo(function NominaDashboard({
               Hoy
             </p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <SnapshotMetric label="Altas pendientes" value={String(data.summary.altasPendientes)} />
-              <SnapshotMetric label="Bajas pendientes" value={String(data.summary.bajasPendientes)} />
-              <SnapshotMetric label="Altas devueltas" value={String(data.summary.devueltasAReclutamiento)} />
+              <SnapshotMetric
+                label="Altas pendientes"
+                value={String(data.summary.altasPendientes)}
+              />
+              <SnapshotMetric
+                label="Bajas pendientes"
+                value={String(data.summary.bajasPendientes)}
+              />
+              <SnapshotMetric
+                label="Altas devueltas"
+                value={String(data.summary.devueltasAReclutamiento)}
+              />
               <SnapshotMetric label="Cerradas" value={String(data.summary.movimientosCerrados)} />
-              <SnapshotMetric label="Incapacidades" value={String(data.summary.incapacidadesPendientes)} />
+              <SnapshotMetric
+                label="Incapacidades"
+                value={String(data.summary.incapacidadesPendientes)}
+              />
             </div>
           </div>
         </div>
@@ -299,301 +323,352 @@ const VisitReachDashboardSection = memo(function VisitReachDashboardSection({
   data,
   dashboardFilters,
 }: {
-  data: VisitReachDashboardSummary
-  dashboardFilters: DashboardPanelData['filtros']
+  data: VisitReachDashboardSummary;
+  dashboardFilters: DashboardPanelData['filtros'];
 }) {
-    const [expandedSupervisorId, setExpandedSupervisorId] = useState<string | null>(
+  const [expandedSupervisorId, setExpandedSupervisorId] = useState<string | null>(
+    data.filters.supervisorEmpleadoId || data.supervisors[0]?.supervisorEmpleadoId || null
+  );
+
+  useEffect(() => {
+    setExpandedSupervisorId(
       data.filters.supervisorEmpleadoId || data.supervisors[0]?.supervisorEmpleadoId || null
-    )
+    );
+  }, [data.filters.supervisorEmpleadoId, data.supervisors]);
 
-    useEffect(() => {
-      setExpandedSupervisorId(data.filters.supervisorEmpleadoId || data.supervisors[0]?.supervisorEmpleadoId || null)
-    }, [data.filters.supervisorEmpleadoId, data.supervisors])
+  const expandedSupervisor =
+    data.supervisors.find((item) => item.supervisorEmpleadoId === expandedSupervisorId) ??
+    data.supervisors[0] ??
+    null;
 
-    const expandedSupervisor =
-      data.supervisors.find((item) => item.supervisorEmpleadoId === expandedSupervisorId) ?? data.supervisors[0] ?? null
+  const buildVisitReachHref = (overrides: Partial<VisitReachDashboardSummary['filters']> = {}) => {
+    const next = { ...data.filters, ...overrides };
+    const params = new URLSearchParams();
 
-    const buildVisitReachHref = (overrides: Partial<VisitReachDashboardSummary['filters']> = {}) => {
-      const next = { ...data.filters, ...overrides }
-      const params = new URLSearchParams()
+    if (dashboardFilters.periodo) params.set('periodo', dashboardFilters.periodo);
+    if (dashboardFilters.estado) params.set('estado', dashboardFilters.estado);
+    if (dashboardFilters.zona) params.set('zona', dashboardFilters.zona);
+    if (dashboardFilters.supervisorId) params.set('supervisorId', dashboardFilters.supervisorId);
+    if (next.supervisorEmpleadoId) params.set('reachSupervisorId', next.supervisorEmpleadoId);
+    if (next.weekStart) params.set('reachWeekStart', next.weekStart);
+    if (next.cadenaCodigo) params.set('reachChain', next.cadenaCodigo);
+    if (next.storeType) params.set('reachStoreType', next.storeType);
 
-      if (dashboardFilters.periodo) params.set('periodo', dashboardFilters.periodo)
-      if (dashboardFilters.estado) params.set('estado', dashboardFilters.estado)
-      if (dashboardFilters.zona) params.set('zona', dashboardFilters.zona)
-      if (dashboardFilters.supervisorId) params.set('supervisorId', dashboardFilters.supervisorId)
-      if (next.supervisorEmpleadoId) params.set('reachSupervisorId', next.supervisorEmpleadoId)
-      if (next.weekStart) params.set('reachWeekStart', next.weekStart)
-      if (next.cadenaCodigo) params.set('reachChain', next.cadenaCodigo)
-      if (next.storeType) params.set('reachStoreType', next.storeType)
+    const query = params.toString();
+    return query ? `/dashboard?${query}` : '/dashboard';
+  };
 
-      const query = params.toString()
-      return query ? `/dashboard?${query}` : '/dashboard'
-    }
-
-    return (
-      <Card className="space-y-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--module-text)]">
-              Alcance de visitas
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-950">KPIs diarios de cobertura</h2>
-            <p className="mt-2 max-w-3xl text-sm text-slate-500">
-              Seguimos el objetivo mensual definido en Ruta semanal y el avance de la semana visible sin recalcular otro motor.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href="/ruta-semanal?tab=quotas"
-              className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
-            >
-              Ir a cuotas
-            </Link>
-            <Link
-              href="/ruta-semanal?tab=routes"
-              className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
-            >
-              Tablero de rutas
-            </Link>
-            <Link
-              href="/ruta-semanal?tab=coverage"
-              className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
-            >
-              Cobertura
-            </Link>
-          </div>
+  return (
+    <Card className="space-y-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--module-text)]">
+            Alcance de visitas
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-950">KPIs diarios de cobertura</h2>
+          <p className="mt-2 max-w-3xl text-sm text-slate-500">
+            Seguimos el objetivo mensual definido en Ruta semanal y el avance de la semana visible
+            sin recalcular otro motor.
+          </p>
         </div>
 
-        <form method="get" className="grid gap-4 lg:grid-cols-[1.15fr_1fr_1fr_1fr_auto] lg:items-end">
-          <input type="hidden" name="periodo" value={dashboardFilters.periodo} />
-          <input type="hidden" name="estado" value={dashboardFilters.estado} />
-          <input type="hidden" name="zona" value={dashboardFilters.zona} />
-          <input type="hidden" name="supervisorId" value={dashboardFilters.supervisorId} />
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/ruta-semanal?tab=quotas"
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            Ir a cuotas
+          </Link>
+          <Link
+            href="/ruta-semanal?tab=routes"
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            Tablero de rutas
+          </Link>
+          <Link
+            href="/ruta-semanal?tab=coverage"
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            Cobertura
+          </Link>
+        </div>
+      </div>
 
-          <Field label="Supervisor">
-            <select
-              name="reachSupervisorId"
-              defaultValue={data.filters.supervisorEmpleadoId}
-              className="w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
-            >
-              <option value="">Todos los supervisores</option>
-              {data.options.supervisors.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.nombre}
-                </option>
-              ))}
-            </select>
-          </Field>
+      <form method="get" className="grid gap-4 lg:grid-cols-[1.15fr_1fr_1fr_1fr_auto] lg:items-end">
+        <input type="hidden" name="periodo" value={dashboardFilters.periodo} />
+        <input type="hidden" name="estado" value={dashboardFilters.estado} />
+        <input type="hidden" name="zona" value={dashboardFilters.zona} />
+        <input type="hidden" name="supervisorId" value={dashboardFilters.supervisorId} />
 
-          <Field label="Semana visible">
-            <input
-              name="reachWeekStart"
-              type="date"
-              defaultValue={data.filters.weekStart}
-              className="w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
-            />
-          </Field>
+        <Field label="Supervisor">
+          <select
+            name="reachSupervisorId"
+            defaultValue={data.filters.supervisorEmpleadoId}
+            className="w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+          >
+            <option value="">Todos los supervisores</option>
+            {data.options.supervisors.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.nombre}
+              </option>
+            ))}
+          </select>
+        </Field>
 
-          <Field label="Cadena">
-            <select
-              name="reachChain"
-              defaultValue={data.filters.cadenaCodigo}
-              className="w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
-            >
-              <option value="">Todas las cadenas</option>
-              {data.options.cadenas.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </Field>
+        <Field label="Semana visible">
+          <input
+            name="reachWeekStart"
+            type="date"
+            defaultValue={data.filters.weekStart}
+            className="w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+          />
+        </Field>
 
-          <Field label="Tipo de tienda">
-            <select
-              name="reachStoreType"
-              defaultValue={data.filters.storeType}
-              className="w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
-            >
-              {data.options.storeTypes.map((item) => (
-                <option key={item.value || 'ALL'} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </Field>
+        <Field label="Cadena">
+          <select
+            name="reachChain"
+            defaultValue={data.filters.cadenaCodigo}
+            className="w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+          >
+            <option value="">Todas las cadenas</option>
+            {data.options.cadenas.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </Field>
 
-          <div className="flex gap-3">
-            <button
-              type="submit"
-              className="min-h-11 rounded-[14px] bg-[var(--module-primary)] px-5 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_var(--module-shadow)] transition hover:bg-[var(--module-hover)]"
-            >
-              Aplicar filtros
-            </button>
-            <Link
-              href={buildVisitReachHref({
-                supervisorEmpleadoId: '',
-                cadenaCodigo: '',
-                storeType: '',
+        <Field label="Tipo de tienda">
+          <select
+            name="reachStoreType"
+            defaultValue={data.filters.storeType}
+            className="w-full rounded-[12px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+          >
+            {data.options.storeTypes.map((item) => (
+              <option key={item.value || 'ALL'} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <div className="flex gap-3">
+          <button
+            type="submit"
+            className="min-h-11 rounded-[14px] bg-[var(--module-primary)] px-5 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_var(--module-shadow)] transition hover:bg-[var(--module-hover)]"
+          >
+            Aplicar filtros
+          </button>
+          <Link
+            href={buildVisitReachHref({
+              supervisorEmpleadoId: '',
+              cadenaCodigo: '',
+              storeType: '',
+            })}
+            className="min-h-11 rounded-[14px] border border-border bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            Limpiar
+          </Link>
+        </div>
+      </form>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
+        <div>
+          <p className="text-sm font-semibold text-slate-950">
+            Semana visible {formatWeekRangeLabel(data.weekStart, data.weekEnd)}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {data.visibleSupervisors} supervisor{data.visibleSupervisors === 1 ? '' : 'es'} visibles
+            con filtros actuales.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href={buildVisitReachHref({
+              weekStart: new Date(new Date(`${data.weekStart}T12:00:00`).getTime() - 7 * 86400000)
+                .toISOString()
+                .slice(0, 10),
+            })}
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            Semana anterior
+          </Link>
+          <Link
+            href={buildVisitReachHref({
+              weekStart: new Date(new Date(`${data.weekStart}T12:00:00`).getTime() + 7 * 86400000)
+                .toISOString()
+                .slice(0, 10),
+            })}
+            className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            Semana siguiente
+          </Link>
+        </div>
+      </div>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <MetricCard label="Objetivo mensual" value={String(data.monthlyTarget)} />
+        <MetricCard label="Realizadas mes" value={String(data.monthlyCompleted)} />
+        <MetricCard label="Pendientes mes" value={String(data.monthlyPending)} />
+        <MetricCard label="Cumplimiento mensual" value={`${data.monthlyCompletionPct}%`} />
+        <MetricCard label="Planeadas semana" value={String(data.weeklyPlanned)} />
+        <MetricCard label="Realizadas semana" value={String(data.weeklyCompleted)} />
+        <MetricCard label="Pendientes semana" value={String(data.weeklyPending)} />
+        <MetricCard label="Cumplimiento semanal" value={`${data.weeklyCompletionPct}%`} />
+        <MetricCard
+          label="Tiendas sin visita"
+          value={`${data.storesWithoutVisitMonth} mes / ${data.storesWithoutVisitWeek} semana`}
+        />
+      </section>
+
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-950">Detalle por supervisor</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            El dashboard abre primero el resumen ejecutivo. El detalle por PDV solo se despliega
+            cuando filtras un supervisor.
+          </p>
+        </div>
+
+        {data.supervisors.length === 0 ? (
+          <Card className="border-dashed text-center text-sm text-slate-500">
+            No hay supervisores visibles con los filtros actuales.
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-3 xl:grid-cols-2">
+              {data.supervisors.map((item) => {
+                const active =
+                  item.supervisorEmpleadoId === expandedSupervisor?.supervisorEmpleadoId;
+                return (
+                  <button
+                    key={item.supervisorEmpleadoId}
+                    type="button"
+                    onClick={() => setExpandedSupervisorId(item.supervisorEmpleadoId)}
+                    className={`rounded-[20px] border px-5 py-5 text-left transition ${
+                      active
+                        ? 'border-[var(--module-border)] bg-[var(--module-soft-bg)]'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-base font-semibold text-slate-950">{item.supervisor}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {item.zona ?? 'Sin zona'} · {item.visibleStores} tiendas visibles
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+                        {item.semaforo}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <MiniInsight
+                        label="Mes"
+                        value={`${item.monthlyCompleted}/${item.monthlyTarget}`}
+                      />
+                      <MiniInsight
+                        label="Semana"
+                        value={`${item.weeklyCompleted}/${item.weeklyPlanned}`}
+                      />
+                      <MiniInsight
+                        label="Sin visita"
+                        value={`${item.storesWithoutVisitMonth} mes`}
+                      />
+                    </div>
+                  </button>
+                );
               })}
-              className="min-h-11 rounded-[14px] border border-border bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm"
-            >
-              Limpiar
-            </Link>
-          </div>
-        </form>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
-          <div>
-            <p className="text-sm font-semibold text-slate-950">
-              Semana visible {formatWeekRangeLabel(data.weekStart, data.weekEnd)}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              {data.visibleSupervisors} supervisor{data.visibleSupervisors === 1 ? '' : 'es'} visibles con filtros actuales.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href={buildVisitReachHref({ weekStart: new Date(new Date(`${data.weekStart}T12:00:00`).getTime() - 7 * 86400000).toISOString().slice(0, 10) })}
-              className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
-            >
-              Semana anterior
-            </Link>
-            <Link
-              href={buildVisitReachHref({ weekStart: new Date(new Date(`${data.weekStart}T12:00:00`).getTime() + 7 * 86400000).toISOString().slice(0, 10) })}
-              className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-border bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm"
-            >
-              Semana siguiente
-            </Link>
-          </div>
-        </div>
-
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <MetricCard label="Objetivo mensual" value={String(data.monthlyTarget)} />
-          <MetricCard label="Realizadas mes" value={String(data.monthlyCompleted)} />
-          <MetricCard label="Pendientes mes" value={String(data.monthlyPending)} />
-          <MetricCard label="Cumplimiento mensual" value={`${data.monthlyCompletionPct}%`} />
-          <MetricCard label="Planeadas semana" value={String(data.weeklyPlanned)} />
-          <MetricCard label="Realizadas semana" value={String(data.weeklyCompleted)} />
-          <MetricCard label="Pendientes semana" value={String(data.weeklyPending)} />
-          <MetricCard label="Cumplimiento semanal" value={`${data.weeklyCompletionPct}%`} />
-          <MetricCard label="Tiendas sin visita" value={`${data.storesWithoutVisitMonth} mes / ${data.storesWithoutVisitWeek} semana`} />
-        </section>
-
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-950">Detalle por supervisor</h3>
-            <p className="mt-1 text-sm text-slate-500">
-              El dashboard abre primero el resumen ejecutivo. El detalle por PDV solo se despliega cuando filtras un supervisor.
-            </p>
-          </div>
-
-          {data.supervisors.length === 0 ? (
-            <Card className="border-dashed text-center text-sm text-slate-500">
-              No hay supervisores visibles con los filtros actuales.
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              <div className="grid gap-3 xl:grid-cols-2">
-                {data.supervisors.map((item) => {
-                  const active = item.supervisorEmpleadoId === expandedSupervisor?.supervisorEmpleadoId
-                  return (
-                    <button
-                      key={item.supervisorEmpleadoId}
-                      type="button"
-                      onClick={() => setExpandedSupervisorId(item.supervisorEmpleadoId)}
-                      className={`rounded-[20px] border px-5 py-5 text-left transition ${
-                        active
-                          ? 'border-[var(--module-border)] bg-[var(--module-soft-bg)]'
-                          : 'border-slate-200 bg-white hover:border-slate-300'
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-base font-semibold text-slate-950">{item.supervisor}</p>
-                          <p className="mt-1 text-xs text-slate-500">{item.zona ?? 'Sin zona'} · {item.visibleStores} tiendas visibles</p>
-                        </div>
-                        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700">
-                          {item.semaforo}
-                        </span>
-                      </div>
-                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                        <MiniInsight label="Mes" value={`${item.monthlyCompleted}/${item.monthlyTarget}`} />
-                        <MiniInsight label="Semana" value={`${item.weeklyCompleted}/${item.weeklyPlanned}`} />
-                        <MiniInsight label="Sin visita" value={`${item.storesWithoutVisitMonth} mes`} />
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-
-              {data.detailEnabled && expandedSupervisor ? (
-                <Card className="space-y-4">
-                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <h4 className="text-lg font-semibold text-slate-950">{expandedSupervisor.supervisor}</h4>
-                      <p className="mt-1 text-sm text-slate-500">
-                        Objetivo mensual {expandedSupervisor.monthlyTarget} · realizadas {expandedSupervisor.monthlyCompleted} · semana {formatWeekRangeLabel(data.weekStart, data.weekEnd)}
-                      </p>
-                    </div>
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                      {expandedSupervisor.pdvGaps.length} PDVs filtrados
-                    </span>
-                  </div>
-
-                  {expandedSupervisor.pdvGaps.length === 0 ? (
-                    <div className="rounded-[18px] border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
-                      No hay PDVs visibles para este supervisor con la combinacion actual de filtros.
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {expandedSupervisor.pdvGaps.map((item) => (
-                        <div key={item.pdvId} className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-semibold text-slate-950">{item.nombre}</p>
-                              <p className="mt-1 text-xs text-slate-500">
-                                {item.claveBtl} · {item.cadena ?? 'Sin cadena'} · {item.zona ?? 'Sin zona'}
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {item.clasificacionMaestra && (
-                                <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-slate-700">
-                                  {item.clasificacionMaestra}
-                                </span>
-                              )}
-                              {item.grupoRotacionCodigo && (
-                                <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-slate-700">
-                                  {item.grupoRotacionCodigo}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="mt-4 grid gap-3 sm:grid-cols-4 xl:grid-cols-8">
-                            <MiniInsight label="Objetivo mes" value={String(item.monthlyTarget)} />
-                            <MiniInsight label="Hechas mes" value={String(item.monthlyCompleted)} />
-                            <MiniInsight label="Pendientes mes" value={String(item.monthlyPending)} />
-                            <MiniInsight label="Cumplimiento mes" value={`${item.monthlyCompletionPct}%`} />
-                            <MiniInsight label="Planeadas semana" value={String(item.weeklyPlanned)} />
-                            <MiniInsight label="Hechas semana" value={String(item.weeklyCompleted)} />
-                            <MiniInsight label="Pendientes semana" value={String(item.weeklyPending)} />
-                            <MiniInsight label="Cumplimiento semana" value={`${item.weeklyCompletionPct}%`} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </Card>
-              ) : (
-                <Card className="border-dashed text-sm text-slate-500">
-                  Aplica un filtro de supervisor para abrir el detalle consultivo por PDV sin cargar toda la lista desde el inicio.
-                </Card>
-              )}
             </div>
-          )}
-        </div>
-      </Card>
+
+            {data.detailEnabled && expandedSupervisor ? (
+              <Card className="space-y-4">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h4 className="text-lg font-semibold text-slate-950">
+                      {expandedSupervisor.supervisor}
+                    </h4>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Objetivo mensual {expandedSupervisor.monthlyTarget} · realizadas{' '}
+                      {expandedSupervisor.monthlyCompleted} · semana{' '}
+                      {formatWeekRangeLabel(data.weekStart, data.weekEnd)}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                    {expandedSupervisor.pdvGaps.length} PDVs filtrados
+                  </span>
+                </div>
+
+                {expandedSupervisor.pdvGaps.length === 0 ? (
+                  <div className="rounded-[18px] border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+                    No hay PDVs visibles para este supervisor con la combinacion actual de filtros.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {expandedSupervisor.pdvGaps.map((item) => (
+                      <div
+                        key={item.pdvId}
+                        className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-950">{item.nombre}</p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {item.claveBtl} · {item.cadena ?? 'Sin cadena'} ·{' '}
+                              {item.zona ?? 'Sin zona'}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {item.clasificacionMaestra && (
+                              <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-slate-700">
+                                {item.clasificacionMaestra}
+                              </span>
+                            )}
+                            {item.grupoRotacionCodigo && (
+                              <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-slate-700">
+                                {item.grupoRotacionCodigo}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-4 xl:grid-cols-8">
+                          <MiniInsight label="Objetivo mes" value={String(item.monthlyTarget)} />
+                          <MiniInsight label="Hechas mes" value={String(item.monthlyCompleted)} />
+                          <MiniInsight label="Pendientes mes" value={String(item.monthlyPending)} />
+                          <MiniInsight
+                            label="Cumplimiento mes"
+                            value={`${item.monthlyCompletionPct}%`}
+                          />
+                          <MiniInsight
+                            label="Planeadas semana"
+                            value={String(item.weeklyPlanned)}
+                          />
+                          <MiniInsight label="Hechas semana" value={String(item.weeklyCompleted)} />
+                          <MiniInsight
+                            label="Pendientes semana"
+                            value={String(item.weeklyPending)}
+                          />
+                          <MiniInsight
+                            label="Cumplimiento semana"
+                            value={`${item.weeklyCompletionPct}%`}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            ) : (
+              <Card className="border-dashed text-sm text-slate-500">
+                Aplica un filtro de supervisor para abrir el detalle consultivo por PDV sin cargar
+                toda la lista desde el inicio.
+              </Card>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
   );
 });
 
@@ -606,102 +681,22 @@ function MiniInsight({ label, value }: { label: string; value: string }) {
       labelClassName="text-[10px]"
       valueClassName="text-base sm:text-lg"
     />
-  )
+  );
 }
 
 type ShortcutTone = 'emerald' | 'sky' | 'amber' | 'rose' | 'slate' | 'orange' | 'purple';
 
-type SupervisorRouteQuickAction = 'ruta-planning' | 'hoy' | 'solicitudes' | 'vacaciones' | 'incapacidad' | 'cumpleanos' | 'rol-mensual' | null;
+type SupervisorRouteQuickAction =
+  | 'ruta-planning'
+  | 'hoy'
+  | 'solicitudes'
+  | 'vacaciones'
+  | 'incapacidad'
+  | 'cumpleanos'
+  | 'rol-mensual'
+  | null;
 
 type RouteDataCatalogMode = 'full' | 'lean' | null;
-
-interface RoleShortcutItem {
-  key: string;
-  label: string;
-  helper: string;
-  href: string;
-  accent: ShortcutTone;
-}
-
-const SUPERVISOR_SHORTCUTS: RoleShortcutItem[] = [
-  {
-    key: 'pdvs',
-    label: 'PDVs',
-    helper: 'Mapa, catalogo y detalle de tiendas.',
-    href: '/pdvs',
-    accent: 'emerald',
-  },
-  {
-    key: 'ruta-semanal',
-    label: 'Ruta semanal',
-    helper: 'Planea visitas y seguimiento de ruta.',
-    href: '/ruta-semanal',
-    accent: 'sky',
-  },
-  {
-    key: 'asignaciones',
-    label: 'Asignaciones',
-    helper: 'Consulta cobertura y movimientos del equipo.',
-    href: '/asignaciones',
-    accent: 'sky',
-  },
-  {
-    key: 'asistencias',
-    label: 'Asistencias',
-    helper: 'Monitorea check-ins y disciplina operativa.',
-    href: '/asistencias',
-    accent: 'emerald',
-  },
-  {
-    key: 'solicitudes',
-    label: 'Solicitudes',
-    helper: 'Gestiona ausencias y movimientos pendientes.',
-    href: '/solicitudes',
-    accent: 'amber',
-  },
-  {
-    key: 'ventas',
-    label: 'Ventas',
-    helper: 'Consulta captura y avance comercial.',
-    href: '/ventas',
-    accent: 'emerald',
-  },
-  {
-    key: 'campanas',
-    label: 'Campanas',
-    helper: 'Activa evidencias y seguimiento en tienda.',
-    href: '/campanas',
-    accent: 'rose',
-  },
-  {
-    key: 'mensajes',
-    label: 'Mensajes',
-    helper: 'Abre el canal operativo del equipo.',
-    href: '/mensajes',
-    accent: 'slate',
-  },
-  {
-    key: 'gastos',
-    label: 'Gastos',
-    helper: 'Registra y revisa comprobaciones.',
-    href: '/gastos',
-    accent: 'amber',
-  },
-  {
-    key: 'materiales',
-    label: 'Materiales',
-    helper: 'Solicita y revisa entregas de apoyo.',
-    href: '/materiales',
-    accent: 'sky',
-  },
-  {
-    key: 'formaciones',
-    label: 'Formaciones',
-    helper: 'Sigue entrenamientos y asistencia.',
-    href: '/formaciones',
-    accent: 'amber',
-  },
-];
 
 export const DashboardPanel = memo(function DashboardPanel({
   actor,
@@ -712,7 +707,6 @@ export const DashboardPanel = memo(function DashboardPanel({
   data: DashboardPanelData;
   isWidgetMode?: boolean;
 }) {
-
   const { data } = useDashboardSurfaceData({
     actor,
     initialData,
@@ -736,9 +730,6 @@ export const DashboardPanel = memo(function DashboardPanel({
     return <NominaDashboard actor={actor} data={data.nominaWorkspace} />;
   }
 
-  const widgets = new Set(data.widgets);
-  return (
-    <div className="space-y-6">
   const widgets = new Set(data.widgets);
   return (
     <div className="space-y-6">
@@ -784,8 +775,9 @@ export const DashboardPanel = memo(function DashboardPanel({
                     Pendientes IMSS
                   </p>
                   <h2 className="mt-2 text-lg font-semibold text-slate-950">
-                    Tienes {data.stats.imssPendientes} alta{data.stats.imssPendientes === 1 ? '' : 's'}{' '}
-                    pendiente{data.stats.imssPendientes === 1 ? '' : 's'} de IMSS
+                    Tienes {data.stats.imssPendientes} alta
+                    {data.stats.imssPendientes === 1 ? '' : 's'} pendiente
+                    {data.stats.imssPendientes === 1 ? '' : 's'} de IMSS
                   </h2>
                   <p className="mt-1 text-sm text-amber-900">
                     Revisa empleados para continuar el tramite.
@@ -812,7 +804,8 @@ export const DashboardPanel = memo(function DashboardPanel({
                     Revisión de currículos y handoff de candidatos
                   </h2>
                   <p className="mt-1 max-w-3xl text-sm text-slate-600">
-                    Aquí ves los candidatos que llegan desde Reclutamiento. Confirma el PDV final, pide documentos y deja la fecha tentativa de ingreso sin salir del dashboard.
+                    Aquí ves los candidatos que llegan desde Reclutamiento. Confirma el PDV final,
+                    pide documentos y deja la fecha tentativa de ingreso sin salir del dashboard.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -839,13 +832,32 @@ export const DashboardPanel = memo(function DashboardPanel({
 
           {widgets.has('filtros') && (
             <Card className="bg-white">
-              <form method="get" className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_1fr_auto] lg:items-end">
+              <form
+                method="get"
+                className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_1fr_auto] lg:items-end"
+              >
                 {data.visitReach && (
                   <>
-                    <input type="hidden" name="reachSupervisorId" value={data.visitReach.filters.supervisorEmpleadoId} />
-                    <input type="hidden" name="reachWeekStart" value={data.visitReach.filters.weekStart} />
-                    <input type="hidden" name="reachChain" value={data.visitReach.filters.cadenaCodigo} />
-                    <input type="hidden" name="reachStoreType" value={data.visitReach.filters.storeType} />
+                    <input
+                      type="hidden"
+                      name="reachSupervisorId"
+                      value={data.visitReach.filters.supervisorEmpleadoId}
+                    />
+                    <input
+                      type="hidden"
+                      name="reachWeekStart"
+                      value={data.visitReach.filters.weekStart}
+                    />
+                    <input
+                      type="hidden"
+                      name="reachChain"
+                      value={data.visitReach.filters.cadenaCodigo}
+                    />
+                    <input
+                      type="hidden"
+                      name="reachStoreType"
+                      value={data.visitReach.filters.storeType}
+                    />
                   </>
                 )}
                 <Field label="Periodo">
@@ -915,30 +927,38 @@ export const DashboardPanel = memo(function DashboardPanel({
       )}
 
       {/* 2. KPIs Section (if data present) */}
-      {widgets.has('metricas') && data.stats && (data.stats.promotoresActivosHoy > 0 || isWidgetMode) && (
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard
-            label="Promotores activos hoy"
-            value={String(data.stats.promotoresActivosHoy)}
-          />
-          <MetricCard label="Check-ins validos" value={String(data.stats.checkInsValidosHoy)} />
-          <MetricCard label="Ventas confirmadas" value={String(data.stats.ventasConfirmadasHoy)} />
-          <MetricCard
-            label="Monto confirmado"
-            value={formatCurrency(data.stats.montoConfirmadoHoy)}
-          />
-          <MetricCard label="Afiliaciones LOVE" value={String(data.stats.afiliacionesLoveHoy)} />
-          <MetricCard label="Cuotas cumplidas" value={String(data.stats.cuotasCumplidasPeriodo)} />
-          <MetricCard label="Neto nomina" value={formatCurrency(data.stats.netoNominaPeriodo)} />
-          <MetricCard
-            label="Asistencia operativa"
-            value={`${data.stats.asistenciaPorcentajeHoy.toFixed(2)}%`}
-          />
-          {actor.puesto === 'NOMINA' && (
-            <MetricCard label="Altas IMSS pendientes" value={String(data.stats.imssPendientes)} />
-          )}
-        </section>
-      )}
+      {widgets.has('metricas') &&
+        data.stats &&
+        (data.stats.promotoresActivosHoy > 0 || isWidgetMode) && (
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              label="Promotores activos hoy"
+              value={String(data.stats.promotoresActivosHoy)}
+            />
+            <MetricCard label="Check-ins validos" value={String(data.stats.checkInsValidosHoy)} />
+            <MetricCard
+              label="Ventas confirmadas"
+              value={String(data.stats.ventasConfirmadasHoy)}
+            />
+            <MetricCard
+              label="Monto confirmado"
+              value={formatCurrency(data.stats.montoConfirmadoHoy)}
+            />
+            <MetricCard label="Afiliaciones LOVE" value={String(data.stats.afiliacionesLoveHoy)} />
+            <MetricCard
+              label="Cuotas cumplidas"
+              value={String(data.stats.cuotasCumplidasPeriodo)}
+            />
+            <MetricCard label="Neto nomina" value={formatCurrency(data.stats.netoNominaPeriodo)} />
+            <MetricCard
+              label="Asistencia operativa"
+              value={`${data.stats.asistenciaPorcentajeHoy.toFixed(2)}%`}
+            />
+            {actor.puesto === 'NOMINA' && (
+              <MetricCard label="Altas IMSS pendientes" value={String(data.stats.imssPendientes)} />
+            )}
+          </section>
+        )}
 
       {/* 3. Reach Section */}
       {(actor.puesto === 'COORDINADOR' || actor.puesto === 'ADMINISTRADOR') && data.visitReach && (
@@ -946,29 +966,31 @@ export const DashboardPanel = memo(function DashboardPanel({
       )}
 
       {/* 4. Compact Supervisor View */}
-      {widgets.has('compacto_supervisor') && data.stats && (data.stats.promotoresActivosHoy > 0 || isWidgetMode) && (
-        <section className="grid gap-4 lg:hidden">
-          <Card className="bg-sky-50 ring-1 ring-sky-200">
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--module-text)]">
-              Supervisor en campo
-            </p>
-            <h2 className="mt-2 text-xl font-semibold text-slate-950">Vista compacta movil</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <CompactMetric label="Activos" value={String(data.stats.promotoresActivosHoy)} />
-              <CompactMetric
-                label="Alertas"
-                value={String(data.stats.alertasOperativas)}
-                tone="amber"
-              />
-              <CompactMetric label="Ventas" value={String(data.stats.ventasConfirmadasHoy)} />
-              <CompactMetric
-                label="Asistencia"
-                value={`${data.stats.asistenciaPorcentajeHoy.toFixed(0)}%`}
-              />
-            </div>
-          </Card>
-        </section>
-      )}
+      {widgets.has('compacto_supervisor') &&
+        data.stats &&
+        (data.stats.promotoresActivosHoy > 0 || isWidgetMode) && (
+          <section className="grid gap-4 lg:hidden">
+            <Card className="bg-sky-50 ring-1 ring-sky-200">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--module-text)]">
+                Supervisor en campo
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-slate-950">Vista compacta movil</h2>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <CompactMetric label="Activos" value={String(data.stats.promotoresActivosHoy)} />
+                <CompactMetric
+                  label="Alertas"
+                  value={String(data.stats.alertasOperativas)}
+                  tone="amber"
+                />
+                <CompactMetric label="Ventas" value={String(data.stats.ventasConfirmadasHoy)} />
+                <CompactMetric
+                  label="Asistencia"
+                  value={`${data.stats.asistenciaPorcentajeHoy.toFixed(0)}%`}
+                />
+              </div>
+            </Card>
+          </section>
+        )}
 
       {/* 5. Accounts Section */}
       {widgets.has('cartera') && data.clientes && (data.clientes.length > 0 || isWidgetMode) && (
@@ -1042,6 +1064,52 @@ export const DashboardPanel = memo(function DashboardPanel({
           </div>
         </Card>
       )}
+
+      {/* 7. Supervisor Board */}
+      {widgets.has('compacto_supervisor') && data.supervisorDailyBoard && (
+        <section>
+          <SupervisorDailyBoard data={data.supervisorDailyBoard} />
+        </section>
+      )}
+
+      {/* 8. Recruitment Section (if Admin/Recruitment) */}
+      {(actor.puesto === 'ADMINISTRADOR' || actor.puesto === 'RECLUTAMIENTO') &&
+        data.recruitmentCoverage && (
+          <section className="space-y-6 rounded-[32px] border border-slate-200/60 bg-slate-50/50 p-6 sm:p-8">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+              <div className="max-w-2xl">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.34em] text-emerald-600">
+                  Talento ISDIN
+                </p>
+                <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+                  Termómetro de cobertura
+                </h1>
+                <p className="max-w-3xl text-base leading-7 text-slate-600">
+                  Seguimos la plantilla activa, las DC en espera de acceso y la brecha contra la
+                  meta operativa para que Reclutamiento y Administración trabajen sobre la misma
+                  foto.
+                </p>
+              </div>
+            </div>
+            <Card className="p-6">
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                <SnapshotMetric
+                  label="Activas"
+                  value={String(data.recruitmentCoverage.plantillaActiva)}
+                />
+                <SnapshotMetric
+                  label="En tránsito"
+                  value={String(data.recruitmentCoverage.plantillaEsperaTransito)}
+                />
+                <SnapshotMetric
+                  label="Brecha"
+                  value={String(data.recruitmentCoverage.brechaContratacion)}
+                />
+                <SnapshotMetric label="Meta" value={String(data.recruitmentCoverage.target)} />
+              </div>
+            </Card>
+          </section>
+        )}
     </div>
   );
 });
@@ -1049,33 +1117,13 @@ export const DashboardPanel = memo(function DashboardPanel({
 const RecruitmentCoverageDashboard = memo(function RecruitmentCoverageDashboard({
   data,
 }: {
-  data: NonNullable<DashboardPanelData['recruitmentCoverage']>;
+  data: RecruitmentCoverageSummary;
 }) {
-  const activePct = data.target > 0 ? Math.min(100, Math.round((data.plantillaActiva / data.target) * 100)) : 0;
-  const waitingPct =
-    data.target > 0
-      ? Math.min(100 - activePct, Math.round((data.plantillaEsperaTransito / data.target) * 100))
-      : 0;
-  const gapPct = Math.max(0, 100 - activePct - waitingPct);
+  const activePct = (data.plantillaActiva / data.target) * 100;
+  const waitingPct = (data.plantillaEsperaTransito / data.target) * 100;
+  const gapPct = (data.brechaContratacion / data.target) * 100;
+
   const quickActions = [
-    {
-      label: 'Vacantes urgentes',
-      value: data.vacantesUrgentes,
-      helper: 'PDVs listos para cubrir sin DC reservada.',
-      tone: 'border-orange-200 bg-orange-50/85 text-orange-950',
-    },
-    {
-      label: 'Pendientes de acceso >48h',
-      value: data.pendientesAccesoVencidos,
-      helper: 'Tiendas reservadas que siguen bloqueadas.',
-      tone: 'border-amber-200 bg-amber-50/85 text-amber-950',
-    },
-    {
-      label: 'Vacantes en proceso de firma',
-      value: data.vacantesEnProcesoFirma,
-      helper: 'PDVs con candidato vinculado pero todavía no contratado.',
-      tone: 'border-sky-200 bg-sky-50/85 text-sky-950',
-    },
     {
       label: 'Listos para administración',
       value: data.listosAdministracion,
@@ -1098,56 +1146,6 @@ const RecruitmentCoverageDashboard = memo(function RecruitmentCoverageDashboard(
             <div className="space-y-2">
               <p className="text-[0.68rem] font-semibold uppercase tracking-[0.4em] text-emerald-600">
                 Cobertura Reclutamiento
-      {/* 6. Insights & Operations Section (Map, Alerts) */}
-      {(widgets.has('mapa') || widgets.has('alertas')) && (data.insights.alertasLive.length > 0 || data.insights.mapaPromotores.length > 0 || isWidgetMode) && (
-        <section className="grid gap-6 lg:grid-cols-[1fr_0.45fr]">
-          {widgets.has('mapa') && (
-            <Card className="min-h-[500px] overflow-hidden p-0">
-              <div className="border-b border-border/60 px-6 py-5">
-                <h2 className="text-lg font-semibold text-slate-950">Mapa operativo</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Ubicacion real de promotores vs PDV asignado.
-                </p>
-              </div>
-              <DashboardMap items={data.insights.mapaPromotores} />
-            </Card>
-          )}
-
-          {widgets.has('alertas') && (
-            <Card className="flex flex-col p-0">
-              <div className="border-b border-border/60 px-6 py-5">
-                <h2 className="text-lg font-semibold text-slate-950">Alertas criticas</h2>
-              </div>
-              <div className="flex-1 overflow-y-auto px-6 py-5">
-                {data.insights.alertasLive.length === 0 ? (
-                  <p className="text-sm text-slate-500">Sin alertas reportadas hoy.</p>
-                ) : (
-                  <div className="space-y-4">
-                    {data.insights.alertasLive.map((alerta, i) => (
-                      <LiveAlertItem key={i} alerta={alerta} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </Card>
-          )}
-        </section>
-      )}
-
-      {/* 7. Supervisor Board */}
-      {widgets.has('compacto_supervisor') && data.supervisorDailyBoard && (
-        <section>
-          <SupervisorDailyBoard data={data.supervisorDailyBoard} />
-        </section>
-      )}
-
-      {/* 8. Recruitment Section (if Admin/Recruitment) */}
-      {(actor.puesto === 'ADMINISTRADOR' || actor.puesto === 'RECLUTAMIENTO') && data.recruitmentCoverage && (
-        <section className="space-y-6 rounded-[32px] border border-slate-200/60 bg-slate-50/50 p-6 sm:p-8">
-           <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.34em] text-emerald-600">
-                Talento ISDIN
               </p>
               <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
                 Termómetro de cobertura
@@ -1157,19 +1155,144 @@ const RecruitmentCoverageDashboard = memo(function RecruitmentCoverageDashboard(
                 operativa para que Reclutamiento y Administración trabajen sobre la misma foto.
               </p>
             </div>
-            {/* ... simplified for brevity or keep the same ... */}
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/empleados"
+                className="inline-flex items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+              >
+                Abrir cobertura PDVs
+              </Link>
+              <Link
+                href="/mensajes"
+                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Abrir mensajes internos
+              </Link>
+            </div>
           </div>
-          {/* ... render recruitment data ... */}
-          <Card className="p-6">
-            <p className="text-sm text-slate-500">Resumen de reclutamiento cargado.</p>
-            {/* Aquí iría la lógica del termómetro si data.recruitmentCoverage está presente */}
+          <Card className="rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-sm shadow-slate-950/5">
+            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.34em] text-slate-500">
+              Meta operativa
+            </p>
+            <div className="mt-3 flex items-end justify-between gap-4">
+              <div>
+                <p className="text-4xl font-semibold tracking-tight text-slate-950">
+                  {data.totalContratadas}
+                </p>
+                <p className="mt-1 text-sm text-slate-500">de {data.target} contratadas</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-right">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                  Brecha
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-slate-950">
+                  {data.brechaContratacion}
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 h-4 overflow-hidden rounded-full bg-slate-100">
+              <div className="flex h-full w-full overflow-hidden rounded-full">
+                <div
+                  className="h-full bg-emerald-500"
+                  style={{ width: `${activePct}%` }}
+                  aria-label="Plantilla activa"
+                />
+                <div
+                  className="h-full bg-sky-500"
+                  style={{ width: `${waitingPct}%` }}
+                  aria-label="Plantilla en espera"
+                />
+                <div
+                  className="h-full bg-slate-300"
+                  style={{ width: `${gapPct}%` }}
+                  aria-label="Brecha pendiente"
+                />
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-emerald-700">
+                  Activas
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-emerald-950">
+                  {data.plantillaActiva}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-sky-700">
+                  En tránsito
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-sky-950">
+                  {data.plantillaEsperaTransito}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                  Cobertura
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-slate-950">{data.progressPct}%</p>
+              </div>
+            </div>
           </Card>
-        </section>
-      )}
+        </div>
+      </section>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SharedMetricCard
+          label="Plantilla activa"
+          value={String(data.plantillaActiva)}
+          tone="emerald"
+        />
+        <SharedMetricCard
+          label="Plantilla en espera / tránsito"
+          value={String(data.plantillaEsperaTransito)}
+          tone="sky"
+        />
+        <SharedMetricCard
+          label="Brecha de contratación"
+          value={String(data.brechaContratacion)}
+          tone="slate"
+        />
+        <SharedMetricCard
+          label="Total contratadas"
+          value={String(data.totalContratadas)}
+          tone="module"
+        />
+      </div>
+
+      <Card className="space-y-4 rounded-[28px] border border-slate-200/80 bg-white/90 p-6 shadow-sm shadow-slate-950/5">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.34em] text-slate-500">
+              Colas de acción
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              Lo que necesita movimiento hoy
+            </h2>
+          </div>
+          <p className="text-sm text-slate-500">
+            Cubiertos: <span className="font-semibold text-slate-900">{data.pdvsCubiertos}</span> ·
+            Reservados: <span className="font-semibold text-slate-900">{data.pdvsReservados}</span>{' '}
+            · Vacantes: <span className="font-semibold text-slate-900">{data.pdvsVacantes}</span> ·
+            Bloqueados: <span className="font-semibold text-slate-900">{data.pdvsBloqueados}</span>
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {quickActions.map((item) => (
+            <div
+              key={item.label}
+              className={`rounded-[24px] border px-4 py-4 shadow-sm shadow-slate-950/5 ${item.tone}`}
+            >
+              <p className="text-sm font-medium">{item.label}</p>
+              <p className="mt-3 text-3xl font-semibold tracking-tight">{item.value}</p>
+              <p className="mt-2 text-xs leading-5 opacity-80">{item.helper}</p>
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 });
-
 
 const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
   actor,
@@ -1264,15 +1387,16 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
     : postCheckoutMode
       ? 'Lista para reportes'
       : canStartShift
-      ? 'Lista para check-in'
-      : 'Sin asignacion activa';
+        ? 'Lista para check-in'
+        : 'Sin asignacion activa';
   const campaignNoticeMessage = resolvedData.activeCampaign
     ? `Tu PDV esta en la campana ${resolvedData.activeCampaign.nombre}.`
     : null;
   const formationNoticeMessage = resolvedData.activeFormation
     ? `Tienes formacion activa: ${resolvedData.activeFormation.nombre}.`
     : null;
-  const reportPending = resolvedData.reportWindow.status === 'PENDIENTE_REPORTE' || postCheckoutMode;
+  const reportPending =
+    resolvedData.reportWindow.status === 'PENDIENTE_REPORTE' || postCheckoutMode;
 
   const handleToast = (tone: 'success' | 'error' | 'info', message: string) => {
     setToast({ tone, message });
@@ -1326,9 +1450,7 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
           setSheetDataLoaded(true);
         } catch (error) {
           const message =
-            error instanceof Error
-              ? error.message
-              : 'No fue posible cargar el detalle operativo.';
+            error instanceof Error ? error.message : 'No fue posible cargar el detalle operativo.';
           setSheetDataError(message);
           handleToast('error', message);
         }
@@ -1337,10 +1459,7 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
   };
 
   const renderSheetDataState = (
-    target:
-      | DashboardDermoconsejoData['quickActions'][number]['key']
-      | 'campaign'
-      | 'notifications'
+    target: DashboardDermoconsejoData['quickActions'][number]['key'] | 'campaign' | 'notifications'
   ) => {
     if (isSheetDataLoading && !sheetData) {
       return (
@@ -1426,13 +1545,17 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
                 <p className="mt-1 text-sm font-medium text-rose-950">{campaignNoticeMessage}</p>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs text-rose-800">
                   {resolvedData.activeCampaign.productosFoco.slice(0, 2).map((item) => (
-                    <span key={item} className="rounded-full border border-rose-200 bg-white/80 px-2.5 py-1">
+                    <span
+                      key={item}
+                      className="rounded-full border border-rose-200 bg-white/80 px-2.5 py-1"
+                    >
                       {item}
                     </span>
                   ))}
                   {resolvedData.activeCampaign.evidenciasRequeridas.length > 0 && (
                     <span className="rounded-full border border-rose-200 bg-white/80 px-2.5 py-1">
-                      {resolvedData.activeCampaign.evidenciasRequeridas.length} evidencias requeridas
+                      {resolvedData.activeCampaign.evidenciasRequeridas.length} evidencias
+                      requeridas
                     </span>
                   )}
                   {resolvedData.activeCampaign.manualMercadeoNombre && (
@@ -1552,8 +1675,8 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
                 postCheckoutMode
                   ? 'border-amber-200 bg-amber-50 text-amber-900 shadow-[0_10px_20px_rgba(15,23,42,0.05)] hover:bg-amber-100'
                   : canStartShift
-                  ? 'border-slate-950/85 bg-[var(--module-primary)] text-white shadow-[0_10px_20px_rgba(15,23,42,0.08)] hover:bg-[var(--module-hover)]'
-                  : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 shadow-none'
+                    ? 'border-slate-950/85 bg-[var(--module-primary)] text-white shadow-[0_10px_20px_rgba(15,23,42,0.08)] hover:bg-[var(--module-hover)]'
+                    : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 shadow-none'
               }`}
             >
               <ActionIconGlyph icon="arrival" accent="emerald" light />
@@ -1563,7 +1686,7 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
           {!effectiveShiftOpen && !postCheckoutMode && (
             <p className="text-sm leading-6 text-slate-500">{shiftBlockedReason}</p>
           )}
-          {((resolvedData.reportWindow.canReportToday || postCheckoutMode)) && (
+          {(resolvedData.reportWindow.canReportToday || postCheckoutMode) && (
             <div
               ref={reportWindowRef}
               id="reportes-pendientes-dia"
@@ -1610,12 +1733,7 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
               icon="love"
               accent="rose"
             />
-            <DermoStatTile
-              title="Incidencias"
-              value="Ninguna"
-              icon="warning"
-              accent="amber"
-            />
+            <DermoStatTile title="Incidencias" value="Ninguna" icon="warning" accent="amber" />
           </section>
         </div>
       </div>
@@ -1688,8 +1806,8 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
         description={activeAction?.helper}
         initialSnap={activeAction?.preferredSnap ?? 'partial'}
       >
-        {activeSheet === 'ventas' && (
-          sheetData ? (
+        {activeSheet === 'ventas' &&
+          (sheetData ? (
             <DermoVentasCartSheet
               data={resolvedData}
               onSuccess={(message, savedCount) => {
@@ -1701,13 +1819,12 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
             />
           ) : (
             renderSheetDataState('ventas')
-          )
-        )}
+          ))}
 
         {activeSheet === 'calendario' && <DermoCalendarioSheet data={resolvedData} />}
 
-        {activeSheet === 'love-isdin' && (
-          sheetData ? (
+        {activeSheet === 'love-isdin' &&
+          (sheetData ? (
             <DermoLoveCartSheet
               data={resolvedData}
               onSuccess={(message, savedCount) => {
@@ -1719,14 +1836,13 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
             />
           ) : (
             renderSheetDataState('love-isdin')
-          )
-        )}
+          ))}
 
         {(activeSheet === 'incapacidad' ||
           activeSheet === 'justificacion-faltas' ||
           activeSheet === 'vacaciones' ||
-          activeSheet === 'permiso') && (
-          sheetData ? (
+          activeSheet === 'permiso') &&
+          (sheetData ? (
             <DermoSolicitudSheet
               data={resolvedData}
               tipo={activeSheet}
@@ -1738,8 +1854,7 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
             />
           ) : (
             renderSheetDataState(activeSheet)
-          )
-        )}
+          ))}
 
         {activeSheet === 'registro-extemporaneo' && (
           <DermoRegistroExtemporaneoSheet
@@ -1773,7 +1888,6 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
             }}
           />
         )}
-
       </BottomSheet>
 
       <ModalPanel
@@ -1837,6 +1951,27 @@ const DermoconsejoDashboard = memo(function DermoconsejoDashboard({
   );
 });
 
+function shiftIsoDate(isoDate: string, days: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days, 12, 0, 0));
+  return dt.toISOString().slice(0, 10);
+}
+
+function formatIsoDateMexican(dateIso: string): string {
+  const [y, m, d] = dateIso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  return `${days[dt.getUTCDay()]}, ${d} ${months[dt.getUTCMonth()]} ${y}`;
+}
+
+function formatAttendanceDateLabel(dateIso: string, todayIso: string): string {
+  if (dateIso === todayIso) return `Hoy · ${formatIsoDateMexican(dateIso)}`;
+  const yesterdayIso = shiftIsoDate(todayIso, -1);
+  if (dateIso === yesterdayIso) return `Ayer · ${formatIsoDateMexican(dateIso)}`;
+  return formatIsoDateMexican(dateIso);
+}
+
 const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
   actor,
   data,
@@ -1844,10 +1979,76 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
   actor: ActorActual;
   data: DashboardPanelData;
 }) {
+  const router = useRouter();
+  const todayIso = useMemo(() => {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Mexico_City',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  }, []);
+
+  const [selectedAttendanceDateIso, setSelectedAttendanceDateIso] = useState<string>(todayIso);
   const [dailyItems, setDailyItems] = useState<DashboardSupervisorDailyItem[]>(
     data.supervisorDailyBoard?.items ?? []
   );
-  const [selectedItem, setSelectedItem] = useState<DashboardSupervisorDailyItem | null>(null);
+  const [dailyBoardCache, setDailyBoardCache] = useState<
+    Record<string, DashboardSupervisorDailyItem[]>
+  >(() => ({
+    [todayIso]: data.supervisorDailyBoard?.items ?? [],
+  }));
+  const [isDateBoardLoading, setIsDateBoardLoading] = useState(false);
+
+  const fetchDailyBoardForDate = useCallback(async (targetDate: string) => {
+    try {
+      setIsDateBoardLoading(true);
+      const res = await fetch(`/api/dashboard/supervisor-daily-board?fecha=${targetDate}`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        throw new Error('No fue posible cargar las asistencias de la fecha.');
+      }
+      const json = await res.json();
+      const items: DashboardSupervisorDailyItem[] = json?.data?.items ?? [];
+      setDailyBoardCache((prev) => ({ ...prev, [targetDate]: items }));
+      return items;
+    } catch {
+      return null;
+    } finally {
+      setIsDateBoardLoading(false);
+    }
+  }, []);
+
+  const handleAttendanceDateChange = useCallback(
+    async (newDate: string) => {
+      if (newDate > todayIso) return;
+      setSelectedAttendanceDateIso(newDate);
+      if (dailyBoardCache[newDate]) {
+        setDailyItems(dailyBoardCache[newDate]);
+        return;
+      }
+      const items = await fetchDailyBoardForDate(newDate);
+      if (items) {
+        setDailyItems(items);
+      }
+    },
+    [dailyBoardCache, fetchDailyBoardForDate, todayIso]
+  );
+
+  const refreshAttendanceDate = useCallback(
+    async (targetDate: string) => {
+      const items = await fetchDailyBoardForDate(targetDate);
+      if (items) {
+        setDailyItems(items);
+      }
+    },
+    [fetchDailyBoardForDate]
+  );
+
+  const [selectedManualAttendanceItem, setSelectedManualAttendanceItem] =
+    useState<DashboardSupervisorDailyItem | null>(null);
+  const [isTeamRequestSheetOpen, setIsTeamRequestSheetOpen] = useState(false);
   const [activeQuickAction, setActiveQuickAction] = useState<
     | 'ruta-planning'
     | 'rol-mensual'
@@ -1856,9 +2057,51 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
     | 'vacaciones'
     | 'incapacidad'
     | 'cumpleanos'
+    | 'evidencias'
+    | 'uniformes'
+    | 'evidencias-entregas'
+    | 'entregas'
+    | 'asistencia-diaria'
+    | 'formularios-enviados'
     | null
   >(null);
-  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [attendanceFilterTab, setAttendanceFilterTab] = useState<
+    'TODAS' | 'FALTAN_ENTRADA' | 'FALTAN_SALIDA' | 'COMPLETADAS'
+  >('TODAS');
+  const [kpiResumen, setKpiResumen] = useState<ClienteDashboardKpiSummary | null>(null);
+  const [isKpiLoading, setIsKpiLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchKpis = async () => {
+      try {
+        const todayIso = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Mexico_City',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date());
+        const periodo = todayIso.slice(0, 7);
+        const res = await fetch(`/api/dashboard/cliente-panel?periodo=${periodo}`, {
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (isMounted && json?.data?.resumen) {
+            setKpiResumen(json.data.resumen);
+          }
+        }
+      } catch {
+        // graceful ignore
+      } finally {
+        if (isMounted) setIsKpiLoading(false);
+      }
+    };
+    void fetchKpis();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
   const [requestInboxItems, setRequestInboxItems] = useState(data.supervisorRequestInbox.items);
   const [routeData, setRouteData] = useState<RutaSemanalPanelData | null>(null);
   const [routeDataLoaded, setRouteDataLoaded] = useState(false);
@@ -1874,7 +2117,9 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
   const [isPanelDataLoading, startPanelDataTransition] = useTransition();
   const [panelNotifications, setPanelNotifications] = useState(data.supervisorNotifications);
   const [panelAuthorizations, setPanelAuthorizations] = useState(data.supervisorAuthorizations);
-  const [panelSelfRequestStatus, setPanelSelfRequestStatus] = useState(data.supervisorSelfRequestStatus);
+  const [panelSelfRequestStatus, setPanelSelfRequestStatus] = useState(
+    data.supervisorSelfRequestStatus
+  );
   const [panelVacationPolicy, setPanelVacationPolicy] = useState(data.supervisorVacationPolicy);
   const [toast, setToast] = useState<{
     tone: 'success' | 'error' | 'info';
@@ -1898,8 +2143,14 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
   );
 
   useEffect(() => {
-    setDailyItems(data.supervisorDailyBoard?.items ?? []);
-  }, [data.supervisorDailyBoard]);
+    if (selectedAttendanceDateIso === todayIso) {
+      setDailyItems(data.supervisorDailyBoard?.items ?? []);
+      setDailyBoardCache((prev) => ({
+        ...prev,
+        [todayIso]: data.supervisorDailyBoard?.items ?? [],
+      }));
+    }
+  }, [data.supervisorDailyBoard, selectedAttendanceDateIso, todayIso]);
 
   useEffect(() => {
     setRequestInboxItems(data.supervisorRequestInbox.items);
@@ -1937,6 +2188,43 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
   }, [toast]);
 
   const summary = useMemo(() => summarizeSupervisorDailyItems(dailyItems), [dailyItems]);
+  const attendanceProgress = useMemo(
+    () => summarizeSupervisorDailyAttendanceProgress(dailyItems),
+    [dailyItems]
+  );
+  const todayDailyItems = useMemo(
+    () => dailyBoardCache[todayIso] ?? data.supervisorDailyBoard?.items ?? [],
+    [dailyBoardCache, todayIso, data.supervisorDailyBoard]
+  );
+  const todayAttendanceProgress = useMemo(
+    () => summarizeSupervisorDailyAttendanceProgress(todayDailyItems),
+    [todayDailyItems]
+  );
+  const filteredDailyItems = useMemo(() => {
+    switch (attendanceFilterTab) {
+      case 'FALTAN_ENTRADA':
+        return dailyItems.filter(
+          (item) => item.flowState === 'SIN_CHECKIN' || item.flowState === 'ENTRADA_RECHAZADA'
+        );
+      case 'FALTAN_SALIDA':
+        return dailyItems.filter(
+          (item) =>
+            item.flowState === 'ESPERA_SALIDA' ||
+            item.flowState === 'REVISION_SALIDA' ||
+            item.flowState === 'SALIDA_RECHAZADA'
+        );
+      case 'COMPLETADAS':
+        return dailyItems.filter(
+          (item) =>
+            item.flowState === 'FINALIZADA' ||
+            item.flowState === 'VACACIONES' ||
+            item.flowState === 'INCAPACIDAD'
+        );
+      case 'TODAS':
+      default:
+        return dailyItems;
+    }
+  }, [dailyItems, attendanceFilterTab]);
   const requestSummary = useMemo(() => {
     if (requestInboxItems.length > 0) {
       return summarizeSupervisorRequestInbox(requestInboxItems);
@@ -1988,17 +2276,25 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
             throw new Error(payload.message ?? 'No fue posible cargar el detalle del supervisor.');
           }
 
-          setPanelNotifications(payload.data.supervisorNotifications ?? data.supervisorNotifications);
-          setPanelAuthorizations(payload.data.supervisorAuthorizations ?? data.supervisorAuthorizations);
+          setPanelNotifications(
+            payload.data.supervisorNotifications ?? data.supervisorNotifications
+          );
+          setPanelAuthorizations(
+            payload.data.supervisorAuthorizations ?? data.supervisorAuthorizations
+          );
           setRequestInboxItems(payload.data.supervisorRequestInbox?.items ?? []);
           setPanelSelfRequestStatus(
             payload.data.supervisorSelfRequestStatus ?? data.supervisorSelfRequestStatus
           );
-          setPanelVacationPolicy(payload.data.supervisorVacationPolicy ?? data.supervisorVacationPolicy);
+          setPanelVacationPolicy(
+            payload.data.supervisorVacationPolicy ?? data.supervisorVacationPolicy
+          );
           setPanelDataLoaded(true);
         } catch (error) {
           const message =
-            error instanceof Error ? error.message : 'No fue posible cargar el detalle del supervisor.';
+            error instanceof Error
+              ? error.message
+              : 'No fue posible cargar el detalle del supervisor.';
           setPanelDataError(message);
           setToast({ tone: 'error', message });
         }
@@ -2008,7 +2304,9 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
   const routeFocusNeedsPlanningCatalog = (focusQuickAction?: SupervisorRouteQuickAction) =>
     focusQuickAction === 'ruta-planning';
 
-  const getRouteCatalogModeForFocus = (focusQuickAction?: SupervisorRouteQuickAction): Exclude<RouteDataCatalogMode, null> =>
+  const getRouteCatalogModeForFocus = (
+    focusQuickAction?: SupervisorRouteQuickAction
+  ): Exclude<RouteDataCatalogMode, null> =>
     routeFocusNeedsPlanningCatalog(focusQuickAction) ? 'full' : 'lean';
 
   const loadRouteData = async (options?: {
@@ -2070,7 +2368,9 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
           setRouteDataCatalogMode(getRouteCatalogModeForFocus(focusQuickAction));
         } catch (error) {
           const message =
-            error instanceof Error ? error.message : 'No fue posible cargar la ruta semanal del supervisor.';
+            error instanceof Error
+              ? error.message
+              : 'No fue posible cargar la ruta semanal del supervisor.';
           setRouteDataError(message);
           setToast({ tone: 'error', message });
         }
@@ -2116,7 +2416,10 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
       cache: 'no-store',
     });
 
-    const payload = (await response.json()) as { data?: SupervisorTodayRouteData; message?: string };
+    const payload = (await response.json()) as {
+      data?: SupervisorTodayRouteData;
+      message?: string;
+    };
     if (!response.ok || !payload.data) {
       throw new Error(payload.message ?? 'No fue posible cargar la ruta de hoy del supervisor.');
     }
@@ -2141,7 +2444,9 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
           setTodayRouteDataLoaded(true);
         } catch (error) {
           const message =
-            error instanceof Error ? error.message : 'No fue posible cargar la ruta de hoy del supervisor.';
+            error instanceof Error
+              ? error.message
+              : 'No fue posible cargar la ruta de hoy del supervisor.';
           setTodayRouteDataError(message);
           setToast({ tone: 'error', message });
         }
@@ -2158,7 +2463,9 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
           setTodayRouteDataLoaded(true);
         } catch (error) {
           const message =
-            error instanceof Error ? error.message : 'No fue posible actualizar la ruta de hoy del supervisor.';
+            error instanceof Error
+              ? error.message
+              : 'No fue posible actualizar la ruta de hoy del supervisor.';
           setTodayRouteDataError(message);
           setToast({ tone: 'error', message });
         }
@@ -2205,133 +2512,6 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
       items: [routeReminder, ...panelNotifications.items],
     };
   }, [panelNotifications, routeReminder]);
-  const routeSummary = useMemo(() => {
-    if (!routeSnapshot) {
-      return null;
-    }
-
-    return {
-      rutas: routeSnapshot.totalRutas,
-      visitas: routeSnapshot.totalVisitas,
-      completadas: routeSnapshot.visitasCompletadas,
-      sinVisita: routeSnapshot.pendientesReposicion,
-    };
-  }, [routeSnapshot]);
-  const supervisorMetricCards = useMemo(
-    () => {
-      const cards: Array<{
-        label: string;
-        value: string;
-        helper: string;
-        tone?: ShortcutTone;
-        items: Array<{
-          label: string;
-          value: string;
-          tone?: ShortcutTone;
-        }>;
-      }> = [
-        {
-          label: 'Cobertura hoy',
-          value: String(summary.total),
-          helper: 'Tiendas activas y brechas de llegada',
-          tone: summary.noCheckIn > 0 ? 'rose' : 'emerald',
-          items: [
-            {
-              label: 'Tiendas',
-              value: String(summary.total),
-            },
-            {
-              label: 'Sin llegada',
-              value: String(summary.noCheckIn),
-              tone: summary.noCheckIn > 0 ? 'rose' : 'emerald',
-            },
-            {
-              label: 'Sin visita',
-              value: String(routeSummary?.sinVisita ?? 0),
-              tone: routeSummary && routeSummary.sinVisita > 0 ? 'amber' : 'emerald',
-            },
-          ],
-        },
-        {
-          label: 'Pendientes',
-          value: String(summary.pendingReview + requestSummary.actionable),
-          helper: 'Revision operativa y solicitudes',
-          tone: summary.pendingReview + requestSummary.actionable > 0 ? 'amber' : 'slate',
-          items: [
-            {
-              label: 'Entradas',
-              value: String(summary.pendingReview),
-              tone: summary.pendingReview > 0 ? 'amber' : 'slate',
-            },
-            {
-              label: 'Solicitudes',
-              value: String(requestSummary.actionable),
-              tone: requestSummary.actionable > 0 ? 'purple' : 'slate',
-            },
-          ],
-        },
-      ];
-
-      if (routeSummary) {
-        const completionPct =
-          routeSummary.visitas > 0
-            ? Math.round((routeSummary.completadas / routeSummary.visitas) * 100)
-            : 0;
-
-        cards.push(
-          {
-            label: 'Ruta y visitas',
-            value: `${routeSummary.completadas}/${routeSummary.visitas}`,
-            helper: `${completionPct}% completadas · ${routeSummary.rutas} semanas visibles`,
-            tone: 'sky',
-            items: [
-              {
-                label: 'Planeadas',
-                value: String(routeSummary.visitas),
-                tone: 'sky',
-              },
-              {
-                label: 'Completadas',
-                value: String(routeSummary.completadas),
-                tone: 'emerald',
-              },
-              {
-                label: 'Por reponer',
-                value: String(routeSummary.sinVisita),
-                tone: routeSummary.sinVisita > 0 ? 'amber' : 'emerald',
-              },
-            ],
-          }
-        );
-      }
-
-      if (data.supervisorLoveQuota) {
-        cards.push(
-          {
-            label: 'LOVE equipo',
-            value: `${data.supervisorLoveQuota.avanceHoy}/${data.supervisorLoveQuota.objetivoHoy}`,
-            helper: `${data.supervisorLoveQuota.cumplimientoHoyPct.toFixed(0)}% cumplimiento del dia`,
-            tone: 'rose',
-            items: [
-              {
-                label: 'Con meta',
-                value: String(data.supervisorLoveQuota.dcConMetaHoy),
-                tone: 'sky',
-              },
-              {
-                label: 'Pendiente',
-                value: String(data.supervisorLoveQuota.restanteHoy),
-                tone: data.supervisorLoveQuota.restanteHoy > 0 ? 'amber' : 'emerald',
-              },
-            ],
-          }
-        );
-      }
-
-      return cards;
-    },
-    [data.supervisorLoveQuota, requestSummary.actionable, routeSummary, summary.noCheckIn, summary.pendingReview, summary.total]
-  );
   const renderRouteSheetState = (focusQuickAction: SupervisorRouteQuickAction) => {
     if (isRouteDataLoading && !routeData) {
       return (
@@ -2425,60 +2605,14 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
 
   return (
     <div className="space-y-5">
-      <section className="page-hero overflow-hidden">
-        <div className="px-5 py-6 sm:px-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="page-hero-eyebrow">Supervisor</p>
-              <h1 className="page-hero-title text-3xl">Operacion diaria</h1>
-              <p className="mt-2 text-sm text-slate-600">
-                Revisa las tiendas asignadas hoy, valida llegadas y atiende solicitudes sin salir
-                del dashboard.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  ensurePanelData();
-                  setIsNotificationCenterOpen(true);
-                }}
-                className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
-                aria-label="Notificaciones"
-              >
-                <ActionIconGlyph icon="notification" accent="slate" />
-                {supervisorNotifications.unreadCount > 0 && (
-                  <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-semibold text-white shadow-sm">
-                    {supervisorNotifications.unreadCount > 9
-                      ? '9+'
-                      : supervisorNotifications.unreadCount}
-                  </span>
-                )}
-              </button>
-              <DashboardLogoutButton />
-            </div>
-          </div>
-
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {supervisorMetricCards.map((item) => (
-              <SupervisorIntegratedMetricCard
-                key={item.label}
-                label={item.label}
-                value={item.value}
-                helper={item.helper}
-                tone={item.tone}
-                items={item.items}
-              />
-            ))}
-          </div>
-        </div>
-      </section>
-
       {supervisorFormation && (
         <div className="rounded-[22px] border border-sky-200 bg-sky-50 px-4 py-4 text-sky-950 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Formacion activa</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
+            Formacion activa
+          </p>
           <p className="mt-1 text-sm font-medium text-sky-950">
-            Tienes formacion programada: {supervisorFormation.nombre}. Tus visitas de hoy quedan exentas mientras dure este evento.
+            Tienes formacion programada: {supervisorFormation.nombre}. Tus visitas de hoy quedan
+            exentas mientras dure este evento.
           </p>
           <p className="mt-2 text-xs text-sky-700">
             {supervisorFormation.sede
@@ -2508,365 +2642,700 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
               : 'border-amber-200 bg-amber-50 text-amber-950'
           }`}
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.16em]">Ruta semanal pendiente</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em]">
+            Ruta semanal pendiente
+          </p>
           <p className="mt-2 text-sm font-medium">{routeReminder.cuerpo}</p>
         </div>
       )}
 
-      <Card className="bg-white p-5 sm:p-6">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--module-text)]">
-              Acciones rapidas
-            </p>
-            <h2 className="mt-2 text-xl font-semibold text-slate-950">Ruta, visita y solicitudes</h2>
-            <p className="mt-2 text-sm text-slate-600">
-              Abre la agenda activa, define la semana y revisa correcciones sin mezclar flujos.
-            </p>
+      <Card className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5 shadow-xs">
+        <div>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="shrink-0 rounded-md bg-sky-50 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-sky-700 border border-sky-100">
+                Supervisor
+              </span>
+              <span className="shrink-0 whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-xs font-semibold text-sky-800">
+                {routeSnapshot?.hasCurrentWeekRoute ? 'Ruta activa' : 'Sin ruta'}
+              </span>
+            </div>
+            <DashboardLogoutButton />
           </div>
-          <span className="rounded-full border border-[var(--module-border)] bg-[var(--module-soft-bg)] px-3 py-1 text-xs font-semibold text-[var(--module-text)]">
-            {routeSnapshot?.hasCurrentWeekRoute ? 'Ruta activa' : 'Sin ruta cargada'}
-          </span>
+
+          <SupervisorKpiStrip kpis={kpiResumen} loading={isKpiLoading} />
+
+          {/* Tarjeta informativa compacta de Asistencia del Día */}
+          <div className="my-2.5 rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/60 p-2.5 sm:p-3 shadow-xs space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-xs">🏪</span>
+                <h3 className="text-xs sm:text-sm font-bold text-slate-950 truncate">
+                  Asistencia de hoy:
+                </h3>
+                <span className="text-xs text-slate-600 font-semibold truncate">
+                  {todayAttendanceProgress.completadas}/{todayAttendanceProgress.total}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="h-1.5 w-16 sm:w-24 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-sky-500 to-emerald-500 transition-all duration-500"
+                    style={{ width: `${todayAttendanceProgress.porcentajeCompletado}%` }}
+                  />
+                </div>
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    todayAttendanceProgress.porcentajeCompletado === 100
+                      ? 'border border-emerald-200 bg-emerald-50 text-emerald-800'
+                      : 'border border-sky-200 bg-sky-50 text-sky-800'
+                  }`}
+                >
+                  {todayAttendanceProgress.porcentajeCompletado}%
+                </span>
+              </div>
+            </div>
+
+            {/* 4 Contadores táctiles compactos horizontales */}
+            <div className="grid grid-cols-4 gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setAttendanceFilterTab('TODAS');
+                  void handleAttendanceDateChange(todayIso);
+                  setActiveQuickAction('asistencia-diaria');
+                }}
+                className="flex items-center justify-center gap-1 rounded-lg px-1.5 py-1 text-center transition-all border border-slate-200/80 bg-white text-slate-800 hover:bg-slate-50 active:scale-95 shadow-2xs"
+              >
+                <span className="text-xs font-bold leading-none">
+                  {todayAttendanceProgress.total}
+                </span>
+                <span className="text-[10px] font-medium text-slate-500 truncate">
+                  Todas
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAttendanceFilterTab('FALTAN_ENTRADA');
+                  void handleAttendanceDateChange(todayIso);
+                  setActiveQuickAction('asistencia-diaria');
+                }}
+                className={`flex items-center justify-center gap-1 rounded-lg px-1.5 py-1 text-center transition-all active:scale-95 shadow-2xs ${
+                  todayAttendanceProgress.faltanEntrada > 0
+                    ? 'border border-amber-300 bg-amber-50/80 text-amber-950 hover:bg-amber-100'
+                    : 'border border-slate-200/60 bg-white text-slate-400'
+                }`}
+              >
+                <span className="text-xs font-bold leading-none">
+                  {todayAttendanceProgress.faltanEntrada}
+                </span>
+                <span className="text-[10px] font-medium truncate">
+                  Entrada
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAttendanceFilterTab('FALTAN_SALIDA');
+                  void handleAttendanceDateChange(todayIso);
+                  setActiveQuickAction('asistencia-diaria');
+                }}
+                className={`flex items-center justify-center gap-1 rounded-lg px-1.5 py-1 text-center transition-all active:scale-95 shadow-2xs ${
+                  todayAttendanceProgress.faltanSalida > 0
+                    ? 'border border-sky-300 bg-sky-50/80 text-sky-950 hover:bg-sky-100'
+                    : 'border border-slate-200/60 bg-white text-slate-400'
+                }`}
+              >
+                <span className="text-xs font-bold leading-none">
+                  {todayAttendanceProgress.faltanSalida}
+                </span>
+                <span className="text-[10px] font-medium truncate">
+                  Salida
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAttendanceFilterTab('COMPLETADAS');
+                  void handleAttendanceDateChange(todayIso);
+                  setActiveQuickAction('asistencia-diaria');
+                }}
+                className={`flex items-center justify-center gap-1 rounded-lg px-1.5 py-1 text-center transition-all active:scale-95 shadow-2xs ${
+                  todayAttendanceProgress.completadas > 0
+                    ? 'border border-emerald-300 bg-emerald-50/80 text-emerald-950 hover:bg-emerald-100'
+                    : 'border border-slate-200/60 bg-white text-slate-400'
+                }`}
+              >
+                <span className="text-xs font-bold leading-none">
+                  {todayAttendanceProgress.completadas}
+                </span>
+                <span className="text-[10px] font-medium truncate">
+                  Listas
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+            Reportes y Operación
+          </p>
+
+          {/* Grilla de 2 en 2 para Reportes y Operación */}
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => setActiveQuickAction('formularios-enviados')}
+              aria-label="Abrir Formularios Enviados por DC"
+              className="group flex items-center gap-2.5 sm:gap-3 rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 text-left shadow-xs transition hover:border-sky-300 hover:bg-sky-50/50 hover:shadow-sm active:scale-[0.98] min-h-[58px]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 transition group-hover:scale-105">
+                <AppGlyph name="formularios" size="lg" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-sky-700 transition leading-tight">
+                  Formularios Enviados por DC
+                </p>
+              </div>
+            </button>
+
+            <Link
+              href="/ventas"
+              aria-label="Abrir reporte de ventas"
+              className="group flex items-center gap-2.5 sm:gap-3 rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 text-left shadow-xs transition hover:border-emerald-300 hover:bg-emerald-50/50 hover:shadow-sm active:scale-[0.98] min-h-[58px]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 transition group-hover:scale-105">
+                <AppGlyph name="ventas" size="lg" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-emerald-700 transition leading-tight">
+                  Reporte ventas
+                </p>
+              </div>
+            </Link>
+
+            <button
+              type="button"
+              onClick={() => setActiveQuickAction('asistencia-diaria')}
+              aria-label="Abrir registro de asistencia"
+              className="group flex items-center gap-2.5 sm:gap-3 rounded-xl border border-sky-200/90 bg-sky-50/40 p-2.5 sm:p-3 text-left shadow-xs transition hover:border-sky-300 hover:bg-sky-50 hover:shadow-sm active:scale-[0.98] min-h-[58px]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-white transition group-hover:scale-105">
+                <AppGlyph name="asistencia" size="lg" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-sky-800 transition leading-tight">
+                  Registrar asistencia
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsTeamRequestSheetOpen(true)}
+              aria-label="Registrar solicitud equipo"
+              className="group flex items-center gap-2.5 sm:gap-3 rounded-xl border border-sky-200/90 bg-sky-50/40 p-2.5 sm:p-3 text-left shadow-xs transition hover:border-sky-300 hover:bg-sky-50 hover:shadow-sm active:scale-[0.98] min-h-[58px]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 transition group-hover:scale-105">
+                <AppGlyph name="solicitudes" size="lg" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-sky-800 transition leading-tight">
+                  Solicitud equipo
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => ensureRouteData('ruta-planning')}
+              aria-label="Abrir planeación mensual"
+              className="group flex items-center gap-2.5 sm:gap-3 rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 text-left shadow-xs transition hover:border-sky-300 hover:bg-sky-50/50 hover:shadow-sm active:scale-[0.98] min-h-[58px]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 transition group-hover:scale-105">
+                <AppGlyph name="planeacion" size="lg" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-sky-700 transition leading-tight">
+                  Planeación mensual
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveQuickAction('rol-mensual')}
+              aria-label="Abrir rol mensual"
+              className="group flex items-center gap-2.5 sm:gap-3 rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 text-left shadow-xs transition hover:border-sky-300 hover:bg-sky-50/50 hover:shadow-sm active:scale-[0.98] min-h-[58px]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 transition group-hover:scale-105">
+                <AppGlyph name="rol" size="lg" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-sky-700 transition leading-tight">
+                  Rol mensual
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (supervisorFormation) {
+                  setToast({
+                    tone: 'info',
+                    message: `Tienes formacion activa${supervisorFormation.sede ? ` en ${supervisorFormation.sede}` : ''}. Tu ruta de hoy queda exenta.`,
+                  });
+                  return;
+                }
+                ensureTodayRouteData();
+              }}
+              aria-label="Abrir mi ruta de hoy"
+              className={`group flex items-center gap-2.5 sm:gap-3 rounded-xl border p-2.5 sm:p-3 text-left shadow-xs transition min-h-[58px] ${
+                supervisorFormation
+                  ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                  : 'border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/50 hover:shadow-sm active:scale-[0.98]'
+              }`}
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 transition group-hover:scale-105">
+                <AppGlyph name="ruta-hoy" size="lg" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-emerald-700 transition leading-tight">
+                  Mi ruta de hoy
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveQuickAction('evidencias-entregas')}
+              aria-label="Abrir Evidencias y Entregas"
+              className="group flex items-center gap-2.5 sm:gap-3 rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 text-left shadow-xs transition hover:border-sky-300 hover:bg-sky-50/50 hover:shadow-sm active:scale-[0.98] min-h-[58px]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 transition group-hover:scale-105">
+                <AppGlyph name="evidencias" size="lg" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-sky-700 transition leading-tight">
+                  Evidencias y Entregas
+                </p>
+              </div>
+            </button>
+          </div>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <button
-            type="button"
-            onClick={() => ensureRouteData('ruta-planning')}
-            aria-label="Abrir definir ruta semanal"
-            className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
-          >
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-sky-200 bg-sky-50 text-sky-700">
-              <ActionIconGlyph icon="route" accent="sky" />
-            </div>
-            <p className="mt-4 text-base font-semibold text-slate-950">Definir ruta semanal</p>
-            <p className="mt-1 text-sm text-slate-500">
-              Elige la semana, abre cada dia y arma el borrador antes de enviarlo a coordinacion.
-            </p>
-          </button>
+        <hr className="my-4 border-slate-100" />
 
-          <button
-            type="button"
-            onClick={() => setActiveQuickAction('rol-mensual')}
-            aria-label="Abrir rol mensual"
-            className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
-          >
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-sky-200 bg-sky-50 text-sky-700">
-              <ActionIconGlyph icon="calendar" accent="sky" />
-            </div>
-            <p className="mt-4 text-base font-semibold text-slate-950">Rol mensual</p>
-            <p className="mt-1 text-sm text-slate-500">
-              Consulta solo tus PDVs del mes, ordenados entre fijos y rotativos, con la DC asignada por dia.
+        {/* Sección inferior: Solicitudes y Gestión ("todo lo demás abajo") */}
+        <div>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Solicitudes y Gestión de Equipo
             </p>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (supervisorFormation) {
-                setToast({
-                  tone: 'info',
-                  message: `Tienes formacion activa${supervisorFormation.sede ? ` en ${supervisorFormation.sede}` : ''}. Tu ruta de hoy queda exenta.`,
-                });
-                return;
-              }
-              ensureTodayRouteData()
-            }}
-            aria-label="Abrir mi ruta de hoy"
-            className={`rounded-[22px] border px-4 py-4 text-left shadow-sm transition ${
-              supervisorFormation
-                ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                : 'border-[var(--module-border)] bg-white hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover'
-            }`}
-          >
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-emerald-200 bg-emerald-50 text-emerald-700">
-              <ActionIconGlyph icon="arrival" accent="emerald" />
-            </div>
-            <p className="mt-4 text-base font-semibold text-slate-950">Mi ruta de hoy</p>
-            <p className="mt-1 text-sm text-slate-500">
-              {supervisorFormation
-                ? 'Tienes formacion activa y tu visita de campo queda exenta mientras dure el evento.'
-                : 'Abre las tiendas del dia, registra llegada, checklist y salida por visita.'}
-            </p>
-          </button>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              ensurePanelData();
-              setActiveQuickAction('solicitudes');
-            }}
-            aria-label="Abrir solicitudes del equipo"
-            className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-amber-200 bg-amber-50 text-amber-700">
-                <ActionIconGlyph icon="requests" accent="amber" />
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                ensurePanelData();
+                setActiveQuickAction('solicitudes');
+              }}
+              aria-label="Abrir solicitudes"
+              className="group flex items-center gap-2.5 sm:gap-3 rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 text-left shadow-xs transition hover:border-amber-300 hover:bg-amber-50/50 hover:shadow-sm active:scale-[0.98] min-h-[58px]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 transition group-hover:scale-105">
+                <AppGlyph name="solicitudes" size="lg" />
               </div>
-              {requestSummary.actionable > 0 && (
-                <span className="rounded-full bg-rose-500 px-2.5 py-1 text-[11px] font-semibold text-white">
-                  {requestSummary.actionable}
-                </span>
-              )}
-            </div>
-            <p className="mt-4 text-base font-semibold text-slate-950">Solicitudes</p>
-            <p className="mt-1 text-sm text-slate-500">
-              Revisa vacaciones como aviso operativo y resuelve incapacidades o dia de cumpleanos cuando te toquen.
-            </p>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              ensurePanelData();
-              setActiveQuickAction('vacaciones');
-            }}
-            aria-label="Abrir mis vacaciones"
-            className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-emerald-200 bg-emerald-50 text-emerald-700">
-                <ActionIconGlyph icon="vacaciones" accent="emerald" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-amber-700 transition leading-tight">
+                  Solicitudes
+                </p>
               </div>
-              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
-                {
-                  panelSelfRequestStatus.filter((item) => item.tipo === 'VACACIONES').length
-                }
-              </span>
-            </div>
-            <p className="mt-4 text-base font-semibold text-slate-950">Vacaciones</p>
-            <p className="mt-1 text-sm text-slate-500">
-              Solicita tus vacaciones y revisa el estatus de tus envios.
-            </p>
-          </button>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              ensurePanelData();
-              setActiveQuickAction('incapacidad');
-            }}
-            aria-label="Abrir mi incapacidad"
-            className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-rose-200 bg-rose-50 text-rose-700">
-                <ActionIconGlyph icon="incapacidad" accent="rose" />
+            <button
+              type="button"
+              onClick={() => {
+                ensurePanelData();
+                setActiveQuickAction('vacaciones');
+              }}
+              aria-label="Abrir vacaciones"
+              className="group flex items-center gap-2.5 sm:gap-3 rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 text-left shadow-xs transition hover:border-emerald-300 hover:bg-emerald-50/50 hover:shadow-sm active:scale-[0.98] min-h-[58px]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 transition group-hover:scale-105">
+                <AppGlyph name="vacaciones" size="lg" />
               </div>
-              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
-                {
-                  panelSelfRequestStatus.filter((item) => item.tipo === 'INCAPACIDAD').length
-                }
-              </span>
-            </div>
-            <p className="mt-4 text-base font-semibold text-slate-950">Incapacidades</p>
-            <p className="mt-1 text-sm text-slate-500">
-              Registra tu incapacidad y da seguimiento a tu propio estatus.
-            </p>
-          </button>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-emerald-700 transition leading-tight">
+                  Vacaciones
+                </p>
+              </div>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              ensurePanelData();
-              setActiveQuickAction('cumpleanos');
-            }}
-            aria-label="Abrir mi dia cumple"
-            className="rounded-[22px] border border-[var(--module-border)] bg-white px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-[18px] border border-violet-200 bg-violet-50 text-violet-700">
-                <ActionIconGlyph icon="cumple" accent="purple" />
+            <button
+              type="button"
+              onClick={() => {
+                ensurePanelData();
+                setActiveQuickAction('incapacidad');
+              }}
+              aria-label="Abrir incapacidades"
+              className="group flex items-center gap-2.5 sm:gap-3 rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 text-left shadow-xs transition hover:border-rose-300 hover:bg-rose-50/50 hover:shadow-sm active:scale-[0.98] min-h-[58px]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 transition group-hover:scale-105">
+                <AppGlyph name="incapacidad" size="lg" />
               </div>
-              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
-                {panelSelfRequestStatus.filter((item) => item.tipo === 'PERMISO').length}
-              </span>
-            </div>
-            <p className="mt-4 text-base font-semibold text-slate-950">Dia cumple</p>
-            <p className="mt-1 text-sm text-slate-500">
-              Solicita tu dia de cumpleanos y revisa como va la aprobacion.
-            </p>
-          </button>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-rose-700 transition leading-tight">
+                  Incapacidades
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                ensurePanelData();
+                setActiveQuickAction('cumpleanos');
+              }}
+              aria-label="Abrir día cumple"
+              className="group flex items-center gap-2.5 sm:gap-3 rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 text-left shadow-xs transition hover:border-violet-300 hover:bg-violet-50/50 hover:shadow-sm active:scale-[0.98] min-h-[58px]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-violet-200 bg-violet-50 transition group-hover:scale-105">
+                <AppGlyph name="cumple" size="lg" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-semibold text-slate-900 group-hover:text-violet-700 transition leading-tight">
+                  Día cumple
+                </p>
+              </div>
+            </button>
+          </div>
         </div>
       </Card>
 
-      <Card className="bg-white p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--module-text)]">
-              Operacion del dia
-            </p>
-            <h2 className="mt-2 text-xl font-semibold text-slate-950">Tiendas asignadas hoy</h2>
-            <p className="mt-2 text-sm text-slate-600">
-              Cada fila resume el PDV, la persona asignada, su horario y si ya llego o sigue sin
-              check-in.
-            </p>
-          </div>
-          <span className="rounded-full border border-[var(--module-border)] bg-[var(--module-soft-bg)] px-3 py-1 text-xs font-semibold text-[var(--module-text)]">
-            {summary.total} visibles
-          </span>
-        </div>
-        {dailyItems.length === 0 ? (
-          <div className="mt-5 rounded-[22px] border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-600">
-            No tienes PDVs con asignacion activa para hoy.
-          </div>
-        ) : (
-          <div className="mt-5 space-y-3">
-            {dailyItems.map((item) => {
-              const actionLabel = getSupervisorAttendanceActionLabel(item);
+      <SupervisorFullScreenView
+        open={activeQuickAction === 'formularios-enviados'}
+        onClose={() => setActiveQuickAction(null)}
+        title="Formularios Enviados por DC"
+        badge="Equipo"
+        description="Consulta quién de tu equipo ya envió sus registros (ventas, love, canjes, desabastos) y quién falta por reportar."
+      >
+        <FormulariosEnviadosPorDcView actor={actor} />
+      </SupervisorFullScreenView>
 
-              return (
-              <div
-                key={item.assignmentId}
-                className="w-full rounded-[22px] border border-slate-200 bg-slate-50/80 px-4 py-4 text-left"
+      <SupervisorFullScreenView
+        open={activeQuickAction === 'asistencia-diaria'}
+        onClose={() => setActiveQuickAction(null)}
+        title="Registrar asistencia"
+        description={
+          selectedAttendanceDateIso === todayIso
+            ? 'Tiendas asignadas hoy para revisión y registro de asistencia del equipo.'
+            : `Tiendas asignadas el ${formatAttendanceDateLabel(selectedAttendanceDateIso, todayIso)} para revisión y registro extemporáneo.`
+        }
+      >
+        <div className="space-y-4">
+          {/* Selector de fecha ultra-compacto y táctil */}
+          <div className="flex items-center justify-between gap-1.5 sm:gap-2 rounded-2xl border border-slate-200/90 bg-white p-2 sm:p-2.5 shadow-xs">
+            <button
+              type="button"
+              onClick={() => void handleAttendanceDateChange(shiftIsoDate(selectedAttendanceDateIso, -1))}
+              disabled={isDateBoardLoading}
+              aria-label="Día anterior"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 transition hover:bg-slate-100 hover:text-slate-900 active:scale-95 disabled:opacity-50"
+            >
+              <span className="text-base font-bold leading-none">‹</span>
+            </button>
+
+            <div className="relative flex min-w-0 flex-1 items-center justify-center">
+              <label className="group flex cursor-pointer items-center justify-center gap-1.5 rounded-xl px-2.5 py-1.5 transition hover:bg-slate-50 active:bg-slate-100 select-none">
+                <span className="text-sm">📅</span>
+                <span className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                  {formatAttendanceDateLabel(selectedAttendanceDateIso, todayIso)}
+                </span>
+                {selectedAttendanceDateIso !== todayIso && (
+                  <span className="ml-1 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 shrink-0">
+                    Pasado
+                  </span>
+                )}
+                {isDateBoardLoading && (
+                  <span className="ml-1 inline-block h-2 w-2 animate-ping rounded-full bg-sky-500 shrink-0" />
+                )}
+                <input
+                  type="date"
+                  max={todayIso}
+                  value={selectedAttendanceDateIso}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      void handleAttendanceDateChange(e.target.value);
+                    }
+                  }}
+                  className="sr-only"
+                />
+              </label>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              {selectedAttendanceDateIso !== todayIso && (
+                <button
+                  type="button"
+                  onClick={() => void handleAttendanceDateChange(todayIso)}
+                  disabled={isDateBoardLoading}
+                  className="rounded-xl border border-sky-200 bg-sky-50 px-2 sm:px-2.5 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 transition active:scale-95"
+                >
+                  Hoy
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleAttendanceDateChange(shiftIsoDate(selectedAttendanceDateIso, 1))}
+                disabled={isDateBoardLoading || selectedAttendanceDateIso >= todayIso}
+                aria-label="Día siguiente"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 transition hover:bg-slate-100 hover:text-slate-900 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-center">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-950">{item.pdv}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {item.pdvClaveBtl ?? 'Sin clave'} · {item.zona ?? 'Sin zona'}
-                    </p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Dermoconsejero
-                    </p>
-                    <p className="mt-1 truncate text-sm font-medium text-slate-900">{item.empleado}</p>
-                  </div>
-                  <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-1">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Horario
-                      </p>
-                      <p className="mt-1 text-sm text-slate-900">{item.horario ?? 'Sin horario'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Estado
-                      </p>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                <span className="text-base font-bold leading-none">›</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 1. Header con progreso y contadores de filtro táctiles */}
+          <div className="rounded-2xl border border-slate-200/90 bg-white p-3.5 sm:p-4 shadow-xs space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm sm:text-base font-bold text-slate-950">
+                  Progreso del día
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {attendanceProgress.completadas} de {attendanceProgress.total} tiendas con jornada cerrada ({attendanceProgress.porcentajeCompletado}%)
+                </p>
+              </div>
+              <span
+                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                  attendanceProgress.porcentajeCompletado === 100
+                    ? 'border border-emerald-200 bg-emerald-50 text-emerald-800'
+                    : 'border border-sky-200 bg-sky-50 text-sky-800'
+                }`}
+              >
+                {attendanceProgress.porcentajeCompletado}% listo
+              </span>
+            </div>
+
+            {/* Barra de progreso */}
+            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-sky-500 to-emerald-500 transition-all duration-500"
+                style={{ width: `${attendanceProgress.porcentajeCompletado}%` }}
+              />
+            </div>
+
+            {/* 4 Contadores táctiles / Pestañas de filtro */}
+            <div className="grid grid-cols-4 gap-1.5 sm:gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setAttendanceFilterTab('TODAS')}
+                className={`flex flex-col items-center rounded-xl p-2 text-center transition-all ${
+                  attendanceFilterTab === 'TODAS'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'border border-slate-200/70 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <span className="text-base sm:text-lg font-bold leading-none">
+                  {attendanceProgress.total}
+                </span>
+                <span className="mt-1 text-[10px] font-semibold uppercase tracking-wider opacity-80">
+                  Todas
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAttendanceFilterTab('FALTAN_ENTRADA')}
+                className={`flex flex-col items-center rounded-xl p-2 text-center transition-all ${
+                  attendanceFilterTab === 'FALTAN_ENTRADA'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'border border-amber-200/80 bg-amber-50/70 text-amber-900 hover:bg-amber-100'
+                }`}
+              >
+                <span className="text-base sm:text-lg font-bold leading-none">
+                  {attendanceProgress.faltanEntrada}
+                </span>
+                <span className="mt-1 text-[10px] font-semibold uppercase tracking-wider opacity-80">
+                  Falta Entrada
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAttendanceFilterTab('FALTAN_SALIDA')}
+                className={`flex flex-col items-center rounded-xl p-2 text-center transition-all ${
+                  attendanceFilterTab === 'FALTAN_SALIDA'
+                    ? 'bg-sky-600 text-white shadow-xs'
+                    : 'border border-sky-200/80 bg-sky-50/70 text-sky-900 hover:bg-sky-100'
+                }`}
+              >
+                <span className="text-base sm:text-lg font-bold leading-none">
+                  {attendanceProgress.faltanSalida}
+                </span>
+                <span className="mt-1 text-[10px] font-semibold uppercase tracking-wider opacity-80">
+                  Falta Salida
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAttendanceFilterTab('COMPLETADAS')}
+                className={`flex flex-col items-center rounded-xl p-2 text-center transition-all ${
+                  attendanceFilterTab === 'COMPLETADAS'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'border border-emerald-200/80 bg-emerald-50/70 text-emerald-900 hover:bg-emerald-100'
+                }`}
+              >
+                <span className="text-base sm:text-lg font-bold leading-none">
+                  {attendanceProgress.completadas}
+                </span>
+                <span className="mt-1 text-[10px] font-semibold uppercase tracking-wider opacity-80">
+                  Listas
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* 2. Lista de colaboradoras filtradas */}
+          {isDateBoardLoading ? (
+            <div className="rounded-[22px] border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-500 shadow-xs flex flex-col items-center justify-center gap-2">
+              <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-sky-600 border-t-transparent" />
+              <span>Cargando asistencias de la fecha...</span>
+            </div>
+          ) : filteredDailyItems.length === 0 ? (
+            <div className="rounded-[22px] border border-dashed border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600 shadow-xs">
+              {attendanceFilterTab === 'FALTAN_ENTRADA' &&
+                (selectedAttendanceDateIso === todayIso
+                  ? '¡Excelente! Todas las colaboradoras de hoy ya tienen su entrada registrada.'
+                  : 'Todas las colaboradoras de esta fecha ya tienen su entrada registrada.')}
+              {attendanceFilterTab === 'FALTAN_SALIDA' &&
+                'No hay colaboradoras esperando registro de salida para esta fecha.'}
+              {attendanceFilterTab === 'COMPLETADAS' &&
+                (selectedAttendanceDateIso === todayIso
+                  ? 'Aún no hay colaboradoras con jornada completada el día de hoy.'
+                  : 'Aún no hay colaboradoras con jornada completada en esta fecha.')}
+              {attendanceFilterTab === 'TODAS' &&
+                (selectedAttendanceDateIso === todayIso
+                  ? 'No tienes tiendas con asignación activa para hoy.'
+                  : 'No tienes tiendas con asignación activa para esta fecha.')}
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {filteredDailyItems.map((item) => {
+                const helperText = getSupervisorAttendanceHelperText(item);
+                const isFaltaEntrada =
+                  item.flowState === 'SIN_CHECKIN' || item.flowState === 'ENTRADA_RECHAZADA';
+                const isFaltaSalida =
+                  item.flowState === 'ESPERA_SALIDA' || item.flowState === 'SALIDA_RECHAZADA';
+                const isCompletada =
+                  item.flowState === 'FINALIZADA' ||
+                  item.flowState === 'VACACIONES' ||
+                  item.flowState === 'INCAPACIDAD';
+
+                return (
+                  <div
+                    key={item.assignmentId}
+                    className="w-full rounded-2xl border border-slate-200/90 bg-white p-3.5 sm:p-4 text-left shadow-xs transition hover:border-slate-300"
+                  >
+                    {/* Fila 1: Tienda + Estado */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs">🏪</span>
+                          <h3 className="text-sm font-bold text-slate-950 truncate leading-snug">
+                            {item.pdv}
+                          </h3>
+                        </div>
+                        <p className="mt-0.5 text-xs text-slate-500 font-medium truncate">
+                          {item.pdvClaveBtl ?? 'Sin clave'}{item.zona ? ` · ${item.zona}` : ''}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1 shrink-0">
                         <SupervisorAttendanceStatusBadge item={item} />
                         {item.minutosRetardo !== null && (
-                          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
-                            {item.minutosRetardo} min retardo
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                            +{item.minutosRetardo}m retardo
                           </span>
                         )}
                       </div>
-                      <p className="mt-2 text-xs text-slate-500">{getSupervisorAttendanceHelperText(item)}</p>
+                    </div>
+
+                    {/* Fila 2: Colaborador, Horario y Acción */}
+                    <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2.5 border-t border-slate-100 pt-2.5">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs">👤</span>
+                          <p className="truncate text-xs sm:text-sm font-semibold text-slate-900">
+                            {item.empleado}
+                          </p>
+                        </div>
+                        <p className="mt-0.5 text-[11px] sm:text-xs text-slate-500 flex items-center gap-1.5">
+                          <span>🕒 {item.horario ?? 'Sin horario'}</span>
+                          {helperText && (
+                            <>
+                              <span className="text-slate-300">•</span>
+                              <span className="text-slate-500 truncate max-w-[150px] sm:max-w-none">
+                                {helperText}
+                              </span>
+                            </>
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-end shrink-0">
+                        {isFaltaEntrada ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedManualAttendanceItem(item)}
+                            className="inline-flex items-center justify-center rounded-xl bg-sky-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-sky-700 active:scale-95 transition-all"
+                          >
+                            Registrar entrada
+                          </button>
+                        ) : isFaltaSalida ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedManualAttendanceItem(item)}
+                            className="inline-flex items-center justify-center rounded-xl bg-amber-500 px-3.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-amber-600 active:scale-95 transition-all"
+                          >
+                            Registrar salida
+                          </button>
+                        ) : isCompletada ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedManualAttendanceItem(item)}
+                            className="inline-flex items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 active:scale-95 transition-all"
+                          >
+                            Ver / Editar
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
+                            Al día
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center justify-end">
-                    {actionLabel ? (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedItem(item)}
-                        className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-[var(--module-border)]"
-                      >
-                        {actionLabel}
-                      </button>
-                    ) : (
-                      <span className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 shadow-sm">
-                        Sin acción
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )})}
-          </div>
-        )}
-      </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </SupervisorFullScreenView>
 
-      <BottomSheet
-        open={Boolean(selectedItem)}
-        onClose={() => setSelectedItem(null)}
-        title={
-          selectedItem
-            ? `${selectedItem.reviewTarget === 'CHECK_OUT' ? 'Salida' : 'Entrada'} en ${selectedItem.pdv}`
-            : 'Revision operativa'
-        }
-        description={
-          selectedItem?.reviewTarget === 'CHECK_OUT'
-            ? 'Valida o rechaza la salida del dermoconsejero segun el check-out registrado.'
-            : 'Valida o rechaza la llegada del dermoconsejero segun el check-in registrado.'
-        }
-        initialSnap="expanded"
-      >
-        {selectedItem && (
-          <SupervisorAttendanceReviewSheet
-            item={selectedItem}
-            onClose={() => setSelectedItem(null)}
-            onResolved={(nextStatus, message) => {
-              setDailyItems((current) =>
-                current.map((candidate) =>
-                  candidate.assignmentId === selectedItem.assignmentId
-                    ? {
-                        ...candidate,
-                        estadoAsistencia:
-                          selectedItem.reviewTarget === 'CHECK_OUT'
-                            ? nextStatus === 'VALIDA'
-                              ? 'CERRADA'
-                              : 'VALIDA'
-                            : nextStatus,
-                        flowState:
-                          selectedItem.reviewTarget === 'CHECK_OUT'
-                            ? nextStatus === 'VALIDA'
-                              ? 'FINALIZADA'
-                              : 'SALIDA_RECHAZADA'
-                            : nextStatus === 'VALIDA'
-                              ? 'ESPERA_SALIDA'
-                              : 'ENTRADA_RECHAZADA',
-                        reviewTarget:
-                          selectedItem.reviewTarget === 'CHECK_OUT'
-                            ? nextStatus === 'VALIDA'
-                              ? null
-                              : null
-                            : null,
-                      }
-                    : candidate
-                )
-              );
-              setSelectedItem((current) =>
-                current
-                  ? {
-                      ...current,
-                      estadoAsistencia:
-                        current.reviewTarget === 'CHECK_OUT'
-                          ? nextStatus === 'VALIDA'
-                            ? 'CERRADA'
-                            : 'VALIDA'
-                          : nextStatus,
-                      flowState:
-                        current.reviewTarget === 'CHECK_OUT'
-                          ? nextStatus === 'VALIDA'
-                            ? 'FINALIZADA'
-                            : 'SALIDA_RECHAZADA'
-                          : nextStatus === 'VALIDA'
-                            ? 'ESPERA_SALIDA'
-                            : 'ENTRADA_RECHAZADA',
-                      reviewTarget:
-                        current.reviewTarget === 'CHECK_OUT'
-                          ? nextStatus === 'VALIDA'
-                            ? null
-                            : null
-                          : null,
-                    }
-                  : current
-              );
-              setToast({
-                tone: nextStatus === 'RECHAZADA' ? 'info' : 'success',
-                message,
-              });
-            }}
-          />
-        )}
-      </BottomSheet>
-
-      <BottomSheet
+      <SupervisorFullScreenView
         open={activeQuickAction === 'ruta-planning'}
         onClose={() => setActiveQuickAction(null)}
-        title="Definir ruta semanal"
-        description="Planeacion semanal guiada en una hoja inferior arrastrable."
-        initialSnap="expanded"
+        title="Planeación mensual"
+        description="Planeación mensual guiada de visitas y tiendas."
       >
         {routeData ? (
           <DashboardRutaSemanalPanel
@@ -2879,34 +3348,56 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
         ) : (
           renderRouteSheetState('ruta-planning')
         )}
-      </BottomSheet>
+      </SupervisorFullScreenView>
 
-      <BottomSheet
+      <SupervisorFullScreenView
         open={activeQuickAction === 'rol-mensual'}
         onClose={() => setActiveQuickAction(null)}
         title="Rol mensual"
-        description="Calendario mensual solo lectura de tus PDVs fijos y rotativos."
-        initialSnap="expanded"
+        description="Calendario mensual de tus PDVs fijos y rotativos."
+        contentClassName="max-w-full"
       >
         <SupervisorMonthlyRoleSheet open={activeQuickAction === 'rol-mensual'} />
-      </BottomSheet>
-      <BottomSheet
+      </SupervisorFullScreenView>
+
+      <SupervisorFullScreenView
+        open={
+          activeQuickAction === 'evidencias-entregas' ||
+          activeQuickAction === 'evidencias' ||
+          activeQuickAction === 'uniformes' ||
+          activeQuickAction === 'entregas'
+        }
+        onClose={() => setActiveQuickAction(null)}
+        title="Evidencias y Entregas"
+        description="Dispersiones (última milla), evidencias de campo y uniformes."
+      >
+        <EvidenciasEntregasHub
+          open={true}
+          onClose={() => setActiveQuickAction(null)}
+          actor={actor}
+          materialesData={null}
+          onSuccess={(message) => setToast({ tone: 'success', message })}
+          onError={(message) => setToast({ tone: 'error', message })}
+          isFullPage={true}
+        />
+      </SupervisorFullScreenView>
+
+      <SupervisorFullScreenView
         open={activeQuickAction === 'hoy'}
         onClose={() => setActiveQuickAction(null)}
         title="Mi ruta de hoy"
         description="Ejecuta visita por visita con llegada, checklist y salida."
-        initialSnap="expanded"
       >
         {todayRouteData ? (
           <DashboardSupervisorTodayRouteSheet
             data={todayRouteData}
             onSuccess={(message) => {
-              setToast({ tone: 'success', message })
-              refreshTodayRouteData()
+              setToast({ tone: 'success', message });
+              refreshTodayRouteData();
             }}
             onError={(message) => setToast({ tone: 'error', message })}
             onDayEventModalClose={() => {
-              refreshTodayRouteData()
+              refreshTodayRouteData();
             }}
             dayEventActionSlot={
               routeData?.agendaHoy ? (
@@ -2925,14 +3416,13 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
         ) : (
           renderTodayRouteSheetState()
         )}
-      </BottomSheet>
+      </SupervisorFullScreenView>
 
-      <BottomSheet
+      <SupervisorFullScreenView
         open={activeQuickAction === 'solicitudes'}
         onClose={() => setActiveQuickAction(null)}
         title="Solicitudes del equipo"
-        description="Consulta vacaciones como aviso operativo y atiende incapacidades o dias de cumpleanos del equipo."
-        initialSnap="expanded"
+        description="Consulta vacaciones como aviso operativo y atiende incapacidades o días de cumpleaños del equipo."
       >
         {panelDataLoaded ? (
           <SupervisorRequestsInboxSheet
@@ -2974,9 +3464,9 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
         ) : (
           renderPanelSheetState()
         )}
-      </BottomSheet>
+      </SupervisorFullScreenView>
 
-      <BottomSheet
+      <SupervisorFullScreenView
         open={
           activeQuickAction === 'vacaciones' ||
           activeQuickAction === 'incapacidad' ||
@@ -2988,64 +3478,244 @@ const SupervisorFieldDashboard = memo(function SupervisorFieldDashboard({
             ? 'Mis vacaciones'
             : activeQuickAction === 'incapacidad'
               ? 'Mi incapacidad'
-              : 'Mi dia cumple'
+              : 'Mi día cumple'
         }
         description={
           activeQuickAction === 'vacaciones'
             ? 'Registra tu solicitud personal y revisa su estatus sin salir del dashboard.'
             : activeQuickAction === 'incapacidad'
-              ? 'Registra tu incapacidad y adjunta evidencia para validacion de supervision, reclutamiento y nomina.'
-              : 'Solicita tu dia de cumpleanos y consulta el avance.'
+              ? 'Registra tu incapacidad y adjunta evidencia para validación de supervisión, reclutamiento y nómina.'
+              : 'Solicita tu día de cumpleaños y consulta el avance.'
         }
-        initialSnap="expanded"
       >
         {panelDataLoaded &&
           (activeQuickAction === 'vacaciones' ||
             activeQuickAction === 'incapacidad' ||
             activeQuickAction === 'cumpleanos') && (
-          <DermoSolicitudSheet
-            data={supervisorSelfRequestData}
-            requesterRole="SUPERVISOR"
-            tipo={
-              activeQuickAction === 'vacaciones'
-                ? 'vacaciones'
-                : activeQuickAction === 'incapacidad'
-                  ? 'incapacidad'
-                  : 'permiso'
-            }
-            onClose={() => setActiveQuickAction(null)}
-            onSuccess={(message) => {
-              setActiveQuickAction(null);
-              setToast({ tone: 'success', message });
-            }}
-          />
-        )}
+            <DermoSolicitudSheet
+              data={supervisorSelfRequestData}
+              requesterRole="SUPERVISOR"
+              tipo={
+                activeQuickAction === 'vacaciones'
+                  ? 'vacaciones'
+                  : activeQuickAction === 'incapacidad'
+                    ? 'incapacidad'
+                    : 'permiso'
+              }
+              onClose={() => setActiveQuickAction(null)}
+              onSuccess={(message) => {
+                setActiveQuickAction(null);
+                setToast({ tone: 'success', message });
+              }}
+            />
+          )}
         {!panelDataLoaded && renderPanelSheetState()}
-      </BottomSheet>
+      </SupervisorFullScreenView>
 
-      <BottomSheet
-        open={isNotificationCenterOpen}
-        onClose={() => setIsNotificationCenterOpen(false)}
-        title="Notificaciones"
-        description="Avisos breves y lectura rapida para supervision."
-        initialSnap="partial"
+      <SupervisorFullScreenView
+        open={selectedManualAttendanceItem !== null}
+        onClose={() => setSelectedManualAttendanceItem(null)}
+        zIndexClassName="z-[60]"
+        backLabel="Volver a la lista"
+        title={
+          selectedManualAttendanceItem?.checkInUtc ||
+          selectedManualAttendanceItem?.flowState === 'ESPERA_SALIDA'
+            ? 'Registrar salida de equipo'
+            : 'Registrar entrada de equipo'
+        }
+        description={
+          selectedManualAttendanceItem?.checkInUtc ||
+          selectedManualAttendanceItem?.flowState === 'ESPERA_SALIDA'
+            ? 'Registra la hora de salida de la colaboradora para concluir su jornada.'
+            : 'Registra la llegada, retardo, incapacidad, vacaciones o falta de la colaboradora de tu equipo.'
+        }
       >
-        {panelDataLoaded ? (
-          <NotificationCenterSheet
-            notifications={supervisorNotifications}
-            onMarkedRead={handleNotificationMarkedRead}
-            onOpenRoutePlanner={() => {
-              setIsNotificationCenterOpen(false);
-              ensureRouteData('ruta-planning');
+        {selectedManualAttendanceItem && (
+          <SupervisorAsistenciaManualSheet
+            item={selectedManualAttendanceItem}
+            onClose={() => setSelectedManualAttendanceItem(null)}
+            onSuccess={(message) => {
+              setSelectedManualAttendanceItem(null);
+              setToast({ tone: 'success', message });
+              void refreshAttendanceDate(selectedAttendanceDateIso);
+            }}
+            onError={(message) => {
+              setToast({ tone: 'error', message });
             }}
           />
-        ) : (
-          renderPanelSheetState()
         )}
-      </BottomSheet>
+      </SupervisorFullScreenView>
+
+      <SupervisorFullScreenView
+        open={isTeamRequestSheetOpen}
+        onClose={() => setIsTeamRequestSheetOpen(false)}
+        title="Registrar solicitud de equipo"
+        description="Genera una solicitud de vacaciones o incapacidad en representación de tu colaboradora."
+      >
+        {isTeamRequestSheetOpen && (
+          <SupervisorTeamRequestSheet
+            actor={actor}
+            onClose={() => setIsTeamRequestSheetOpen(false)}
+            onSuccess={(message) => {
+              setIsTeamRequestSheetOpen(false);
+              setToast({ tone: 'success', message });
+              setTimeout(() => {
+                window.location.reload();
+              }, 1200);
+            }}
+            onError={(message) => {
+              setToast({ tone: 'error', message });
+            }}
+          />
+        )}
+      </SupervisorFullScreenView>
 
       {toast && <ToastBanner tone={toast.tone} message={toast.message} />}
     </div>
+  );
+});
+const SupervisorDailyBoard = memo(function SupervisorDailyBoard({
+  data,
+  onRegistrarAsistencia,
+}: {
+  data: DashboardSupervisorDailyBoard;
+  onRegistrarAsistencia?: (item: DashboardSupervisorDailyItem) => void;
+}) {
+  const summary = useMemo(() => summarizeSupervisorDailyItems(data.items), [data.items]);
+
+  return (
+    <Card className="overflow-hidden border-slate-200/60 shadow-sm rounded-[32px]">
+      <div className="border-b border-slate-100 bg-slate-50/50 p-6 sm:p-8">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl">
+            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.34em] text-indigo-600">
+              Operacion del dia
+            </p>
+            <h3 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+              Tablero de asistencia
+            </h3>
+            <p className="mt-3 text-sm text-slate-600 leading-relaxed">
+              Consulta el estado de check-in de tu equipo. Las incidencias de entrada o salida se
+              validan directamente en el detalle de cada dermoconsejera.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <div className="flex flex-col items-center justify-center rounded-3xl border border-slate-200 bg-white px-5 py-4 min-w-[100px] shadow-sm">
+              <span className="text-2xl font-bold text-slate-900">{summary.total}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mt-1">
+                Total
+              </span>
+            </div>
+            <div className="flex flex-col items-center justify-center rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 min-w-[100px] shadow-sm">
+              <span className="text-2xl font-bold text-amber-700">{summary.pendingReview}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 mt-1">
+                Revision
+              </span>
+            </div>
+            <div className="flex flex-col items-center justify-center rounded-3xl border border-slate-200 bg-slate-100 px-5 py-4 min-w-[100px] shadow-sm">
+              <span className="text-2xl font-bold text-slate-600">{summary.noCheckIn}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mt-1">
+                S/Check-in
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-slate-100 bg-slate-50/30 text-[11px] font-bold uppercase tracking-widest text-slate-500">
+              <th className="px-8 py-5">Dermoconsejera</th>
+              <th className="px-8 py-5">Punto de Venta</th>
+              <th className="px-8 py-5">Horario</th>
+              <th className="px-8 py-5">Asistencia</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {data.items.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-8 py-16 text-center">
+                  <div className="flex flex-col items-center justify-center text-slate-400">
+                    <p className="text-sm font-medium">No hay asignaciones registradas para hoy.</p>
+                    <p className="mt-1 text-xs">
+                      Si esperabas ver datos aqui, verifica la planeacion mensual.
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              data.items.slice(0, 15).map((item) => (
+                <tr
+                  key={item.assignmentId}
+                  className="group hover:bg-slate-50/50 transition-colors"
+                >
+                  <td className="px-8 py-5">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 flex-shrink-0 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                        {item.empleado.charAt(0)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 truncate">{item.empleado}</p>
+                        <p className="text-[11px] text-slate-500 uppercase tracking-tight">
+                          {item.zona ?? 'Sin zona'}
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-8 py-5">
+                    <p className="font-medium text-slate-800">{item.pdv}</p>
+                    <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                      {item.pdvClaveBtl ?? '---'}
+                    </p>
+                  </td>
+                  <td className="px-8 py-5">
+                    <span className="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                      {item.horario ?? 'S/H'}
+                    </span>
+                  </td>
+                  <td className="px-8 py-5">
+                    <div className="flex items-center gap-3">
+                      <SupervisorAttendanceStatusBadge item={item} />
+                      {onRegistrarAsistencia &&
+                        (item.flowState === 'SIN_CHECKIN' ||
+                        item.flowState === 'ENTRADA_RECHAZADA' ? (
+                          <button
+                            type="button"
+                            onClick={() => onRegistrarAsistencia(item)}
+                            className="inline-flex items-center rounded-lg bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100 transition-colors active:scale-95 duration-150"
+                          >
+                            Registrar entrada
+                          </button>
+                        ) : item.flowState === 'ESPERA_SALIDA' ||
+                          item.flowState === 'SALIDA_RECHAZADA' ? (
+                          <button
+                            type="button"
+                            onClick={() => onRegistrarAsistencia(item)}
+                            className="inline-flex items-center rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition-colors active:scale-95 duration-150"
+                          >
+                            Registrar salida
+                          </button>
+                        ) : null)}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {data.items.length > 15 && (
+        <div className="border-t border-slate-100 bg-slate-50/40 px-8 py-4 text-center">
+          <p className="text-xs font-medium text-slate-500">
+            Mostrando 15 de {data.items.length} filas. El detalle completo esta disponible filtrando
+            en el panel de supervision.
+          </p>
+        </div>
+      )}
+    </Card>
   );
 });
 
@@ -3077,6 +3747,14 @@ function summarizeSupervisorDailyItems(items: DashboardSupervisorDailyItem[]) {
 }
 
 function getSupervisorAttendanceTone(item: DashboardSupervisorDailyItem) {
+  if (item.flowState === 'VACACIONES') {
+    return 'bg-violet-100 text-violet-700';
+  }
+
+  if (item.flowState === 'INCAPACIDAD') {
+    return 'bg-purple-100 text-purple-700';
+  }
+
   if (item.flowState === 'SIN_CHECKIN') {
     return 'bg-slate-100 text-slate-700';
   }
@@ -3098,6 +3776,10 @@ function getSupervisorAttendanceTone(item: DashboardSupervisorDailyItem) {
 
 function getSupervisorAttendanceLabel(item: DashboardSupervisorDailyItem) {
   switch (item.flowState) {
+    case 'VACACIONES':
+      return 'Vacaciones';
+    case 'INCAPACIDAD':
+      return 'Incapacidad';
     case 'SIN_CHECKIN':
       return 'Sin check-in';
     case 'REVISION_ENTRADA':
@@ -3105,7 +3787,9 @@ function getSupervisorAttendanceLabel(item: DashboardSupervisorDailyItem) {
     case 'ENTRADA_RECHAZADA':
       return 'Entrada rechazada';
     case 'ESPERA_SALIDA':
-      return item.minutosRetardo !== null ? 'Entrada aprobada · con retardo' : 'En espera de salida';
+      return item.minutosRetardo !== null
+        ? 'Entrada aprobada · con retardo'
+        : 'En espera de salida';
     case 'REVISION_SALIDA':
       return 'Salida enviada · revisar';
     case 'SALIDA_RECHAZADA':
@@ -3115,30 +3799,22 @@ function getSupervisorAttendanceLabel(item: DashboardSupervisorDailyItem) {
   }
 }
 
-function getSupervisorAttendanceActionLabel(item: DashboardSupervisorDailyItem) {
-  if (item.reviewTarget === 'CHECK_IN') {
-    return 'Revisar entrada';
-  }
-
-  if (item.reviewTarget === 'CHECK_OUT') {
-    return 'Revisar salida';
-  }
-
+function getSupervisorAttendanceActionLabel(_item: DashboardSupervisorDailyItem) {
   return null;
 }
 
 function getSupervisorAttendanceHelperText(item: DashboardSupervisorDailyItem) {
   switch (item.flowState) {
+    case 'VACACIONES':
+      return 'Día registrado como vacaciones';
+    case 'INCAPACIDAD':
+      return 'Día registrado como incapacidad';
     case 'SIN_CHECKIN':
       return 'Sin check-in registrado';
-    case 'REVISION_ENTRADA':
-      return 'Entrada pendiente de revisión';
     case 'ENTRADA_RECHAZADA':
       return 'Espera una nueva captura';
     case 'ESPERA_SALIDA':
-      return 'Entrada aprobada';
-    case 'REVISION_SALIDA':
-      return 'Salida pendiente de revisión';
+      return 'Entrada registrada';
     case 'SALIDA_RECHAZADA':
       return 'Espera una nueva salida';
     default:
@@ -3201,7 +3877,9 @@ function SupervisorRequestsInboxSheet({
   const [selectedAuthorization, setSelectedAuthorization] = useState<
     DashboardPanelData['supervisorAuthorizations'][number] | null
   >(null);
-  const [selectedInfoItem, setSelectedInfoItem] = useState<DashboardSupervisorRequestItem | null>(null);
+  const [selectedInfoItem, setSelectedInfoItem] = useState<DashboardSupervisorRequestItem | null>(
+    null
+  );
 
   useEffect(() => {
     setActiveFilter(initialFilter);
@@ -3224,8 +3902,9 @@ function SupervisorRequestsInboxSheet({
       <div className="rounded-[22px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
         <p className="text-sm font-semibold text-slate-950">Solicitudes del equipo</p>
         <p className="mt-1 text-sm text-slate-600">
-          Vacaciones quedan visibles como aviso operativo.
-          Dia de cumpleanos, justificaciones e incapacidades siguen tu filtro operativo; despues Reclutamiento y Nomina cierran la incapacidad.
+          Vacaciones quedan visibles como aviso operativo. Dia de cumpleanos, justificaciones e
+          incapacidades siguen tu filtro operativo; despues Reclutamiento y Nomina cierran la
+          incapacidad.
         </p>
       </div>
 
@@ -3356,7 +4035,9 @@ function SupervisorRequestsInboxSheet({
                     size="sm"
                     onClick={() => {
                       if (item.actionable) {
-                        const authorization = authorizations.find((candidate) => candidate.id === item.id);
+                        const authorization = authorizations.find(
+                          (candidate) => candidate.id === item.id
+                        );
                         if (authorization) {
                           setSelectedAuthorization(authorization);
                         }
@@ -3472,172 +4153,7 @@ function SupervisorRequestInfoSheet({ item }: { item: DashboardSupervisorRequest
   );
 }
 
-function SupervisorAttendanceReviewSheet({
-  item,
-  onClose,
-  onResolved,
-}: {
-  item: DashboardSupervisorDailyItem;
-  onClose: () => void;
-  onResolved: (nextStatus: 'VALIDA' | 'RECHAZADA', message: string) => void;
-}) {
-  const [state, formAction] = useActionState(
-    resolverAsistenciaSupervisor,
-    ESTADO_SUPERVISOR_ASISTENCIA_INICIAL
-  );
-  const [submittedStatus, setSubmittedStatus] = useState<'VALIDA' | 'RECHAZADA' | null>(null);
 
-  useEffect(() => {
-    if (!state.ok || !state.message || !submittedStatus) {
-      return;
-    }
-
-    onResolved(submittedStatus, state.message);
-    onClose();
-  }, [onClose, onResolved, state.message, state.ok, submittedStatus]);
-
-  const canResolve = Boolean(item.attendanceId) && Boolean(item.reviewTarget);
-  const reviewTitle = item.reviewTarget === 'CHECK_OUT' ? 'salida' : 'entrada';
-  const selfieThumbnailUrl =
-    item.reviewTarget === 'CHECK_OUT' ? item.checkOutSelfieThumbnailUrl : item.checkInSelfieThumbnailUrl;
-  const selfieUrl = item.reviewTarget === 'CHECK_OUT' ? item.checkOutSelfieUrl : item.checkInSelfieUrl;
-  const supervisionPlaceholder =
-    item.reviewTarget === 'CHECK_OUT'
-      ? 'Explica por que apruebas o rechazas esta salida.'
-      : 'Explica por que apruebas o rechazas esta llegada.';
-
-  return (
-    <form action={formAction} className="space-y-4">
-      <input type="hidden" name="asistencia_id" value={item.attendanceId ?? ''} />
-      <input type="hidden" name="review_target" value={item.reviewTarget ?? ''} />
-
-      <div className="grid gap-4 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <DetailValue label="Punto de venta" value={item.pdv} />
-          <DetailValue label="Dermoconsejero" value={item.empleado} />
-          <DetailValue label="Horario" value={item.horario ?? 'Sin horario'} />
-          <DetailValue label="Estado actual" value={getSupervisorAttendanceLabel(item)} />
-          <DetailValue
-            label={item.reviewTarget === 'CHECK_OUT' ? 'Check-out' : 'Check-in'}
-            value={
-              formatShortClock(item.reviewTarget === 'CHECK_OUT' ? item.checkOutUtc : item.checkInUtc) ??
-              'Sin registro'
-            }
-          />
-          <DetailValue label="GPS" value={item.estadoGps ?? 'Sin GPS'} />
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-              {item.reviewTarget === 'CHECK_OUT' ? 'Selfie de salida' : 'Selfie de entrada'}
-            </p>
-            <div className="mt-2 overflow-hidden rounded-[20px] border border-slate-200 bg-white">
-              {selfieThumbnailUrl ? (
-                <a
-                  href={selfieUrl ?? selfieThumbnailUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block"
-                >
-                  <img
-                    src={selfieThumbnailUrl}
-                    alt={`Selfie de ${item.reviewTarget === 'CHECK_OUT' ? 'salida' : 'entrada'} de ${item.empleado}`}
-                    className="h-44 w-full object-cover"
-                    loading="lazy"
-                  />
-                </a>
-              ) : (
-                <div className="flex h-44 items-center justify-center px-4 text-center text-sm text-slate-500">
-                  Esta {reviewTitle} no tiene miniatura de selfie disponible.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="min-w-0 rounded-[20px] border border-slate-200 bg-white px-4 py-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Mision del DC
-            </p>
-            {item.misionCodigo || item.misionInstruccion ? (
-              <div className="mt-3 space-y-3">
-                {item.misionCodigo ? (
-                  <span className="inline-flex rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
-                    {item.misionCodigo}
-                  </span>
-                ) : null}
-                <p className="text-sm leading-6 text-slate-700">
-                  {item.misionInstruccion ?? 'Sin detalle operativo capturado para esta mision.'}
-                </p>
-              </div>
-            ) : (
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                Esta entrada no trae una mision operativa asociada.
-              </p>
-            )}
-          </div>
-        </div>
-
-        {item.minutosRetardo !== null && (
-          <div className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            La llegada se registro con {item.minutosRetardo} minutos de retardo contra el horario esperado.
-          </div>
-        )}
-
-        {item.flowState === 'SIN_CHECKIN' && (
-          <div className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-            Todavia no existe un check-in enviado por el dermoconsejero para esta asignacion.
-          </div>
-        )}
-
-          <label className="block text-sm font-medium text-slate-700">
-          Comentarios de supervision
-          <textarea
-            name="comentarios"
-            rows={3}
-            className="mt-2 w-full rounded-[16px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--module-primary)] focus:ring-4 focus:ring-[var(--module-focus-ring)]"
-            placeholder={supervisionPlaceholder}
-          />
-        </label>
-      </div>
-
-      {state.message && !state.ok && (
-        <div className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {state.message}
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button type="button" variant="outline" className="rounded-[14px]" onClick={onClose}>
-          Cerrar
-        </Button>
-        <div className="flex flex-wrap justify-end gap-3">
-          <Button
-            type="submit"
-            name="estatus"
-            value="RECHAZADA"
-            variant="outline"
-            className="rounded-[14px] border-rose-200 text-rose-700 hover:bg-rose-50"
-            disabled={!canResolve}
-            onClick={() => setSubmittedStatus('RECHAZADA')}
-          >
-            {item.reviewTarget === 'CHECK_OUT' ? 'Rechazar salida' : 'Rechazar entrada'}
-          </Button>
-          <Button
-            type="submit"
-            name="estatus"
-            value="VALIDA"
-            className="rounded-[14px]"
-            disabled={!canResolve}
-            onClick={() => setSubmittedStatus('VALIDA')}
-          >
-            {item.reviewTarget === 'CHECK_OUT' ? 'Aprobar salida' : 'Aprobar entrada'}
-          </Button>
-        </div>
-      </div>
-    </form>
-  );
-}
 
 function DetailValue({ label, value }: { label: string; value: string }) {
   return (
@@ -3655,7 +4171,9 @@ function DermoFormationAttendanceCard({
 }) {
   const [currentFormation, setCurrentFormation] = useState(formation);
   const [cameraMode, setCameraMode] = useState<'CHECK_IN' | 'CHECK_OUT' | null>(null);
-  const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(
+    null
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -3741,10 +4259,7 @@ function DermoFormationAttendanceCard({
         previous
           ? {
               ...previous,
-              attendanceStatus:
-                mode === 'CHECK_IN'
-                  ? 'LLEGADA_REGISTRADA'
-                  : 'COMPLETA',
+              attendanceStatus: mode === 'CHECK_IN' ? 'LLEGADA_REGISTRADA' : 'COMPLETA',
               checkInUtc: mode === 'CHECK_IN' ? capturedAt : previous.checkInUtc,
               checkOutUtc: mode === 'CHECK_OUT' ? capturedAt : previous.checkOutUtc,
             }
@@ -3788,7 +4303,7 @@ function DermoFormationAttendanceCard({
                 currentFormation.sede,
                 currentFormation.horarioInicio && currentFormation.horarioFin
                   ? `${currentFormation.horarioInicio} - ${currentFormation.horarioFin}`
-                  : currentFormation.horarioInicio ?? currentFormation.horarioFin,
+                  : (currentFormation.horarioInicio ?? currentFormation.horarioFin),
                 currentFormation.supervisorNombre
                   ? `Supervisor: ${currentFormation.supervisorNombre}`
                   : null,
@@ -3832,7 +4347,9 @@ function DermoFormationAttendanceCard({
               Entrada
             </p>
             <p className="mt-1 text-sm font-medium text-slate-950">
-              {currentFormation.checkInUtc ? formatDateTime(currentFormation.checkInUtc) : 'Pendiente'}
+              {currentFormation.checkInUtc
+                ? formatDateTime(currentFormation.checkInUtc)
+                : 'Pendiente'}
             </p>
           </div>
           <div className="rounded-[18px] border border-white/70 bg-white/80 px-4 py-3">
@@ -3840,7 +4357,9 @@ function DermoFormationAttendanceCard({
               Salida
             </p>
             <p className="mt-1 text-sm font-medium text-slate-950">
-              {currentFormation.checkOutUtc ? formatDateTime(currentFormation.checkOutUtc) : 'Pendiente'}
+              {currentFormation.checkOutUtc
+                ? formatDateTime(currentFormation.checkOutUtc)
+                : 'Pendiente'}
             </p>
           </div>
         </div>
@@ -3938,7 +4457,9 @@ function DermoStatTile({
           <ActionIconGlyph icon={icon} accent={accent} />
         </div>
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{title}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+            {title}
+          </p>
           <p className="mt-1 text-base font-semibold text-slate-950">{value}</p>
         </div>
       </div>
@@ -3972,29 +4493,6 @@ function DermoQuickActionButton({
   );
 }
 
-function DermoSupportButton({
-  item,
-  onClick,
-}: {
-  item: RoleShortcutItem;
-  onClick: () => void;
-}) {
-  const icon = getRoleShortcutIcon(item.key);
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-[18px] border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:border-[var(--module-border)] hover:bg-[var(--module-soft-bg)]"
-    >
-      <div className="flex items-center gap-2">
-        <ActionIconGlyph icon={icon} accent={item.accent} small />
-        <span className="text-xs font-semibold text-slate-900">{item.label}</span>
-      </div>
-    </button>
-  );
-}
-
 function DashboardLogoutButton() {
   const [isPending, startTransition] = useTransition();
 
@@ -4010,9 +4508,9 @@ function DashboardLogoutButton() {
       variant="outline"
       onClick={handleLogout}
       isLoading={isPending}
-      className="min-h-10 rounded-[14px] border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+      className="min-h-9 sm:min-h-10 shrink-0 whitespace-nowrap rounded-[14px] border-slate-200 bg-white px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
     >
-      Cerrar sesion
+      Cerrar sesión
     </Button>
   );
 }
@@ -4077,22 +4575,21 @@ function ActionIconGlyph({
   small?: boolean;
   light?: boolean;
 }) {
-  const stroke =
-    light
-      ? '#ffffff'
-      : accent === 'amber'
-        ? '#d97706'
-        : accent === 'rose'
-          ? '#e11d48'
-          : accent === 'sky'
-            ? '#2563eb'
-            : accent === 'orange'
-              ? '#ea580c'
-              : accent === 'purple'
-                ? '#9333ea'
-            : accent === 'slate'
-              ? '#64748b'
-              : '#10b981';
+  const stroke = light
+    ? '#ffffff'
+    : accent === 'amber'
+      ? '#d97706'
+      : accent === 'rose'
+        ? '#e11d48'
+        : accent === 'sky'
+          ? '#2563eb'
+          : accent === 'orange'
+            ? '#ea580c'
+            : accent === 'purple'
+              ? '#9333ea'
+              : accent === 'slate'
+                ? '#64748b'
+                : '#10b981';
   const sizeClass = small ? 'h-[20px] w-[20px]' : 'h-[30px] w-[30px]';
   return (
     <PremiumLineIcon
@@ -4104,88 +4601,13 @@ function ActionIconGlyph({
   );
 }
 
-function getRoleShortcutIcon(key: RoleShortcutItem['key']): ActionGlyphName {
-  switch (key) {
-    case 'pdvs':
-      return 'stores';
-    case 'ruta-semanal':
-      return 'route';
-    case 'asignaciones':
-      return 'assignments';
-    case 'asistencias':
-      return 'attendance';
-    case 'solicitudes':
-      return 'requests';
-    case 'ventas':
-      return 'sales';
-    case 'campanas':
-      return 'campaigns';
-    case 'mensajes':
-      return 'messages';
-    case 'gastos':
-      return 'expenses';
-    case 'materiales':
-      return 'materials';
-    case 'formaciones':
-      return 'training';
-    default:
-      return 'module';
-  }
-}
-
-function RoleShortcutButton({
-  item,
-  onClick,
-  compact = false,
-}: {
-  item: RoleShortcutItem;
-  onClick: () => void;
-  compact?: boolean;
-}) {
-  const icon = getRoleShortcutIcon(item.key);
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-[24px] border border-[var(--module-border)] bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-[var(--module-soft-bg)] hover:shadow-card-hover ${
-        compact ? 'p-4' : 'p-4 sm:p-5'
-      }`}
-    >
-      <div
-        className={`inline-flex h-12 w-12 items-center justify-center rounded-[18px] ${getQuickActionTone(item.accent)}`}
-      >
-        <ActionIconGlyph icon={icon} accent={item.accent} small />
-      </div>
-      <p className="mt-4 text-sm font-semibold text-slate-950">{item.label}</p>
-      <p className="mt-1 text-xs leading-5 text-slate-500">{item.helper}</p>
-    </button>
-  );
-}
-
-function RoleShortcutSheet({ item }: { item: RoleShortcutItem }) {
-  return (
-    <div className="space-y-4">
-      <div className="rounded-[22px] border border-[var(--module-border)] bg-[var(--module-soft-bg)] p-4">
-        <p className="text-base font-semibold text-slate-950">{item.label}</p>
-        <p className="mt-2 text-sm leading-6 text-slate-600">{item.helper}</p>
-      </div>
-      <Link
-        href={item.href}
-        className="inline-flex min-h-11 w-full items-center justify-center rounded-[14px] bg-[var(--module-primary)] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[var(--module-hover)]"
-      >
-        Abrir modulo
-      </Link>
-    </div>
-  );
-}
-
 function SupervisorIntegratedMetricCard({
   label,
   value,
   helper,
   items,
   tone = 'slate',
+  compact = false,
 }: {
   label: string;
   value: string;
@@ -4196,6 +4618,7 @@ function SupervisorIntegratedMetricCard({
     tone?: ShortcutTone;
   }>;
   tone?: ShortcutTone;
+  compact?: boolean;
 }) {
   const semantic = resolveKpiSemantic(label);
   const icon = semantic.icon;
@@ -4218,12 +4641,69 @@ function SupervisorIntegratedMetricCard({
             ? 'border-rose-100/80 bg-gradient-to-b from-rose-100/90 via-rose-50/45 to-white'
             : metricTone === 'violet'
               ? 'border-violet-100/80 bg-gradient-to-b from-violet-100/90 via-violet-50/45 to-white'
-            : 'border-[var(--module-border)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--module-primary)_14%,white)_0%,var(--module-soft-bg)_38%,rgba(255,255,255,0.95)_100%)]';
+              : 'border-[var(--module-border)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--module-primary)_14%,white)_0%,var(--module-soft-bg)_38%,rgba(255,255,255,0.95)_100%)]';
   const indicatorStyle = {
     borderColor: withAlpha(semantic.color, 0.24),
     backgroundColor: withAlpha(semantic.color, 0.1),
     color: semantic.color,
   };
+
+  if (compact) {
+    return (
+      <div
+        className={`rounded-xl border p-2.5 sm:p-3 shadow-2xs transition ${toneSurfaceClassName}`}
+      >
+        <div className="flex items-center justify-between gap-1.5">
+          <p className="truncate text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            {label}
+          </p>
+          <span
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
+            style={indicatorStyle}
+          >
+            <PremiumLineIcon
+              name={icon}
+              className="h-3 w-3"
+              stroke={semantic.color}
+              strokeWidth={2}
+              variant={semantic.variant}
+            />
+          </span>
+        </div>
+        <p className="mt-1 text-lg sm:text-xl font-bold leading-none tracking-tight text-slate-900">
+          {value}
+        </p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[9px] sm:text-[10px] text-slate-600">
+          {items.map((item) => {
+            const itemSemantic = resolveKpiSemantic(item.label);
+            const itemColor =
+              item.tone === 'emerald'
+                ? '#16a34a'
+                : item.tone === 'sky'
+                  ? '#0284c7'
+                  : item.tone === 'amber'
+                    ? '#d97706'
+                    : item.tone === 'rose'
+                      ? '#e11d48'
+                      : item.tone === 'purple'
+                        ? '#7c3aed'
+                        : itemSemantic.color;
+            return (
+              <span
+                key={item.label}
+                className="inline-flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 border border-white/80 font-medium"
+              >
+                <span className="font-bold" style={{ color: itemColor }}>
+                  {item.value}
+                </span>
+                <span className="text-slate-500 text-[8px] sm:text-[9px]">{item.label}</span>
+              </span>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -4237,7 +4717,9 @@ function SupervisorIntegratedMetricCard({
           <p className="mt-1 text-[1.35rem] font-semibold leading-none tracking-[-0.04em] text-slate-950">
             {value}
           </p>
-          <p className="mt-1 line-clamp-2 min-w-0 text-[10px] leading-3.5 text-slate-500">{helper}</p>
+          <p className="mt-1 line-clamp-2 min-w-0 text-[10px] leading-3.5 text-slate-500">
+            {helper}
+          </p>
         </div>
         <span
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[11px]"
@@ -4396,421 +4878,821 @@ function SupervisorAuthorizationsSection({
   );
 }
 
-function DermoVentasSheet({
-  data,
+function getLocalTimeHHMM(utcString: string | null): string {
+  if (!utcString) return '';
+  const date = new Date(utcString);
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'America/Mexico_City',
+  });
+  return formatter.format(date);
+}
+
+function getCurrentLocalTimeHHMM(): string {
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'America/Mexico_City',
+  });
+  return formatter.format(new Date());
+}
+
+function parseScheduleTimes(horario: string | null): { entry: string | null; exit: string | null } {
+  if (!horario) return { entry: null, exit: null };
+  const matches = horario.match(/(\d{1,2}):(\d{2})/g);
+  if (!matches || matches.length === 0) return { entry: null, exit: null };
+  const pad = (t: string) => {
+    const [h, m] = t.split(':');
+    return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+  };
+  return {
+    entry: pad(matches[0]),
+    exit: matches.length > 1 ? pad(matches[1]) : null,
+  };
+}
+
+function adjustMinutes(timeHHMM: string, deltaMinutes: number): string {
+  const [h, m] = timeHHMM.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return timeHHMM;
+  let total = h * 60 + m + deltaMinutes;
+  if (total < 0) total += 24 * 60;
+  total = total % (24 * 60);
+  const newH = String(Math.floor(total / 60)).padStart(2, '0');
+  const newM = String(total % 60).padStart(2, '0');
+  return `${newH}:${newM}`;
+}
+
+function formatTime12h(timeHHMM: string): string {
+  if (!timeHHMM || !timeHHMM.includes(':')) return timeHHMM;
+  const [h, m] = timeHHMM.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return timeHHMM;
+  const isPm = h >= 12;
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${isPm ? 'PM' : 'AM'}`;
+}
+
+function SimpleTimePicker({
+  value,
+  onChange,
+  name,
+  label,
+  suggestedTime,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  name: string;
+  label: string;
+  suggestedTime?: string | null;
+}) {
+  const currentTime = getCurrentLocalTimeHHMM();
+  const [h, m] = (value || '08:00').split(':');
+  const hourNum = parseInt(h, 10) || 8;
+  const minuteNum = parseInt(m, 10) || 0;
+
+  const setHours = (newH: number) => {
+    const clampedH = Math.max(0, Math.min(23, newH));
+    onChange(`${String(clampedH).padStart(2, '0')}:${String(minuteNum).padStart(2, '0')}`);
+  };
+
+  const setMinutes = (newM: number) => {
+    const clampedM = Math.max(0, Math.min(59, newM));
+    onChange(`${String(hourNum).padStart(2, '0')}:${String(clampedM).padStart(2, '0')}`);
+  };
+
+  const presets = useMemo(() => {
+    const list: string[] = [];
+    if (suggestedTime && suggestedTime.includes(':')) {
+      list.push(adjustMinutes(suggestedTime, -15), suggestedTime, adjustMinutes(suggestedTime, 15));
+    }
+    return Array.from(new Set(list));
+  }, [suggestedTime]);
+
+  return (
+    <div className="rounded-2xl border border-slate-200/90 bg-slate-50/70 p-3.5 space-y-3">
+      <input type="hidden" name={name} value={value} />
+
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-xs font-bold uppercase tracking-wider text-slate-700">
+          {label}
+        </label>
+        <button
+          type="button"
+          onClick={() => onChange(currentTime)}
+          className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-bold text-sky-800 hover:bg-sky-200 active:scale-95 transition-all shadow-2xs"
+        >
+          <span>⚡</span>
+          <span>Poner hora actual ({currentTime})</span>
+        </button>
+      </div>
+
+      {/* Reloj Digital Grande con Controles Táctiles -15m y +15m */}
+      <div className="flex items-center justify-between gap-2 bg-white rounded-xl border border-slate-200 p-2 shadow-2xs">
+        <button
+          type="button"
+          onClick={() => onChange(adjustMinutes(value || '08:00', -15))}
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 hover:bg-slate-100 active:scale-90 transition-all shadow-2xs"
+          title="Restar 15 minutos"
+        >
+          -15m
+        </button>
+
+        <div className="flex flex-col items-center flex-1 py-1">
+          <div className="text-3xl font-black tracking-tight text-slate-950 font-mono">
+            {value || '--:--'}
+          </div>
+          <span className="text-xs font-semibold text-sky-700">
+            {formatTime12h(value)}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onChange(adjustMinutes(value || '08:00', 15))}
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 hover:bg-slate-100 active:scale-90 transition-all shadow-2xs"
+          title="Sumar 15 minutos"
+        >
+          +15m
+        </button>
+      </div>
+
+      {/* Selectores desplegables simples de Hora y Minuto */}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <span className="text-[11px] font-semibold text-slate-500 block mb-1">Hora</span>
+          <select
+            value={hourNum}
+            onChange={(e) => setHours(Number(e.target.value))}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100 min-h-[44px]"
+          >
+            {Array.from({ length: 24 }, (_, i) => {
+              const h12 = i % 12 === 0 ? 12 : i % 12;
+              const ampm = i >= 12 ? 'PM' : 'AM';
+              return (
+                <option key={i} value={i}>
+                  {String(i).padStart(2, '0')}:00 ({h12} {ampm})
+                </option>
+              );
+            })}
+          </select>
+        </div>
+        <div>
+          <span className="text-[11px] font-semibold text-slate-500 block mb-1">Minutos</span>
+          <select
+            value={minuteNum}
+            onChange={(e) => setMinutes(Number(e.target.value))}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100 min-h-[44px]"
+          >
+            {Array.from({ length: 12 }, (_, i) => i * 5).map((mVal) => (
+              <option key={mVal} value={mVal}>
+                :{String(mVal).padStart(2, '0')} min
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Chips Rápidos Sugeridos si existen */}
+      {presets.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mr-1">
+            Turno sugerido:
+          </span>
+          {presets.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => onChange(preset)}
+              className={`rounded-lg px-2.5 py-1 text-xs font-bold transition-all min-h-[32px] ${
+                value === preset
+                  ? 'bg-sky-600 text-white shadow-xs'
+                  : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              {preset} ({formatTime12h(preset)})
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SupervisorAsistenciaManualSheet({
+  item,
   onClose,
   onSuccess,
   onError,
 }: {
-  data: DashboardDermoconsejoData;
+  item: DashboardSupervisorDailyItem;
   onClose: () => void;
   onSuccess: (message: string) => void;
   onError: (message: string) => void;
 }) {
-  const offline = useOfflineSync();
-  const [productoId, setProductoId] = useState(data.catalogoProductos[0]?.id ?? '');
-  const [unidades, setUnidades] = useState('1');
-  const [isSaving, setIsSaving] = useState(false);
-  const [savedMessage, setSavedMessage] = useState<string | null>(null);
-  const selectedProducto =
-    data.catalogoProductos.find((item) => item.id === productoId) ?? null;
+  const [state, formAction] = useActionState(
+    registrarAsistenciaManualSupervisor,
+    ESTADO_SUPERVISOR_ASISTENCIA_INICIAL
+  );
+  const [isPending, startTransition] = useTransition();
 
-  const canSubmit = Boolean(
-    data.context.cuentaClienteId &&
-    data.context.pdvId &&
-    data.context.attendanceId &&
-    data.reportWindow.canReportToday &&
-    selectedProducto
+  const yaTieneEntrada = Boolean(
+    item.checkInUtc ||
+    item.flowState === 'ESPERA_SALIDA' ||
+    item.flowState === 'REVISION_SALIDA'
   );
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const [modo, setModo] = useState<'ENTRADA' | 'SALIDA'>(() =>
+    yaTieneEntrada ? 'SALIDA' : 'ENTRADA'
+  );
 
-    if (
-      !canSubmit ||
-      !data.context.cuentaClienteId ||
-      !data.context.pdvId ||
-      !data.context.attendanceId
-    ) {
-      onError('Primero necesitas una jornada activa para registrar ventas desde el dashboard.');
-      return;
+  const [tipoRegistro, setTipoRegistro] = useState<
+    'PUNTUAL' | 'RETARDO' | 'INCAPACIDAD' | 'VACACIONES' | 'FALTA_JUSTIFICADA' | 'FALTA'
+  >('PUNTUAL');
+
+  const scheduleTimes = useMemo(() => parseScheduleTimes(item.horario), [item.horario]);
+
+  const [checkInTime, setCheckInTime] = useState(() => {
+    if (item.checkInUtc) {
+      return getLocalTimeHHMM(item.checkInUtc);
     }
+    return scheduleTimes.entry ?? '08:00';
+  });
 
-    if (!selectedProducto) {
-      onError('Selecciona un producto del catalogo activo.');
-      return;
+  const [checkOutTime, setCheckOutTime] = useState(() => {
+    if (item.checkOutUtc) {
+      return getLocalTimeHHMM(item.checkOutUtc);
     }
+    return scheduleTimes.exit ?? getCurrentLocalTimeHHMM();
+  });
 
-    const totalUnidades = Number(unidades);
-
-    if (!Number.isFinite(totalUnidades) || totalUnidades <= 0) {
-      onError('Las unidades deben ser mayores a cero.');
-      return;
-    }
-
-    setIsSaving(true);
-    setSavedMessage(null);
-
-    try {
-      await queueOfflineVenta({
-        id: crypto.randomUUID(),
-        cuenta_cliente_id: data.context.cuentaClienteId,
-        asistencia_id: data.context.attendanceId,
-        empleado_id: data.context.empleadoId,
-        pdv_id: data.context.pdvId,
-        producto_id: selectedProducto.id,
-        producto_sku: selectedProducto.sku,
-        producto_nombre: selectedProducto.nombre,
-        producto_nombre_corto: selectedProducto.nombreCorto,
-        fecha_utc: new Date().toISOString(),
-        total_unidades: totalUnidades,
-        total_monto: 0,
-        confirmada: true,
-        validada_por_empleado_id: data.context.empleadoId,
-        validada_en: new Date().toISOString(),
-        observaciones: null,
-        origen: 'OFFLINE_SYNC',
-        metadata: {
-          captura_local: true,
-          origen_panel: 'dashboard_bottom_sheet',
-          jornada_contexto_id: data.context.attendanceId,
-          fecha_operativa: data.context.fechaOperacion,
-          metodo_ingreso: offline.isOnline ? 'ONLINE' : 'OFFLINE_SYNC',
-          ventana_timezone: data.reportWindow.timezone,
-          ventana_estado: data.reportWindow.stateName,
-        },
-      });
-
-      if (offline.isOnline) {
-        await offline.syncNow();
+  useEffect(() => {
+    if (!state.ok || !state.message) {
+      if (state.message) {
+        onError(state.message);
       }
-
-      const successMessage =
-        offline.isOnline
-          ? `${selectedProducto.nombreCorto} guardado. Puedes capturar otra venta.`
-          : `${selectedProducto.nombreCorto} guardado en local. Puedes capturar otra venta.`;
-
-      setUnidades('1');
-      setSavedMessage(successMessage);
-      onSuccess(successMessage);
-    } catch (error) {
-      onError(error instanceof Error ? error.message : 'No fue posible guardar la venta.');
-    } finally {
-      setIsSaving(false);
+      return;
     }
+
+    onSuccess(state.message);
+    onClose();
+  }, [onClose, onSuccess, onError, state.message, state.ok]);
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(() => {
+      void formAction(formData);
+    });
   };
 
+  const isSalida = modo === 'SALIDA';
+
   return (
-    <form id="dermo-ventas-sheet-form" onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid gap-4">
-        <SheetField label="Producto">
-          <select
-            value={productoId}
-            onChange={(event) => setProductoId(event.target.value)}
-            className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
-          >
-            <option value="">Selecciona un producto</option>
-            {data.catalogoProductos.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.nombreCorto}
-              </option>
-            ))}
-          </select>
-        </SheetField>
-        {selectedProducto && (
-          <div className="rounded-[18px] border border-[var(--module-border)] bg-[var(--module-soft-bg)] px-4 py-3 text-sm text-[var(--module-text)]">
-            <p className="font-semibold text-slate-950">{selectedProducto.nombreCorto}</p>
-            <p className="mt-1 text-xs text-slate-600">{selectedProducto.nombre}</p>
+    <form onSubmit={handleSubmit} className="space-y-3.5">
+      <input type="hidden" name="empleado_id" value={item.empleadoId} />
+      <input type="hidden" name="pdv_id" value={item.pdvId} />
+      <input type="hidden" name="fecha_operacion" value={item.fechaOperacion} />
+      <input
+        type="hidden"
+        name="tipo_registro"
+        value={isSalida ? 'SALIDA' : tipoRegistro}
+      />
+
+      {/* 1. Tarjeta ejecutiva compacta de resumen */}
+      <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/70 p-3.5 shadow-xs">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs">👤</span>
+              <h3 className="text-sm sm:text-base font-bold text-slate-950 truncate leading-snug">
+                {item.empleado}
+              </h3>
+            </div>
+            <p className="mt-1 text-xs text-slate-600 font-medium truncate">
+              🏪 <span className="font-semibold text-slate-800">{item.pdv}</span>
+            </p>
           </div>
-        )}
-        <div className="grid gap-4">
-          <SheetField label="Unidades">
-            <input
-              value={unidades}
-              onChange={(event) => setUnidades(event.target.value)}
-              inputMode="numeric"
-              className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
-            />
-          </SheetField>
+          <div className="text-right shrink-0">
+            <span className="inline-block rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700">
+              📅 {item.fechaOperacion}
+            </span>
+            <p className="mt-1 text-[11px] text-slate-500 font-medium">
+              🕒 {item.horario ?? 'Sin horario'}
+            </p>
+          </div>
         </div>
-        {savedMessage && (
-          <p className="rounded-[18px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-            {savedMessage}
-          </p>
+
+        {/* Estado previo si ya tiene entrada */}
+        {yaTieneEntrada && (
+          <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
+            <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
+              <span>✅</span>
+              <span>
+                Entrada registrada:{' '}
+                {item.checkInUtc
+                  ? formatTime12h(getLocalTimeHHMM(item.checkInUtc))
+                  : 'Registrada'}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setModo((prev) => (prev === 'SALIDA' ? 'ENTRADA' : 'SALIDA'))}
+              className="text-[11px] font-semibold text-sky-700 hover:text-sky-900 underline"
+            >
+              {isSalida ? 'Editar entrada' : 'Volver a salida'}
+            </button>
+          </div>
         )}
       </div>
 
-      {!canSubmit && (
-        <p className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          {data.reportWindow.canReportToday
-            ? 'Falta seleccionar un producto valido o contexto del PDV para registrar ventas.'
-            : data.reportWindow.helper}
-        </p>
+      {/* ========================================================
+          MODO SALIDA: Solo pide la hora de salida con reloj simple
+         ======================================================== */}
+      {isSalida ? (
+        <div className="space-y-3">
+          <SimpleTimePicker
+            name="check_out_time"
+            value={checkOutTime}
+            onChange={setCheckOutTime}
+            label="Hora de Salida"
+            suggestedTime={scheduleTimes.exit}
+          />
+
+          <div className="rounded-2xl border border-slate-200/90 bg-white p-3.5 shadow-xs">
+            <label className="block text-xs font-bold text-slate-700">
+              Comentarios o notas de salida
+            </label>
+            <textarea
+              name="comentarios"
+              rows={2}
+              placeholder="Notas u observaciones de la salida (opcional)..."
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/50 p-2.5 text-sm text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white focus:ring-2 focus:ring-sky-200 placeholder:text-slate-400"
+            />
+          </div>
+        </div>
+      ) : (
+        /* ========================================================
+           MODO ENTRADA: Tipo de Registro + Reloj de Entrada Simple
+           ======================================================== */
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+              Tipo de Registro
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {[
+                {
+                  key: 'PUNTUAL' as const,
+                  label: 'Puntual',
+                  badge: '✓',
+                  desc: 'A tiempo',
+                  activeBg:
+                    'border-emerald-500 bg-emerald-50 text-emerald-950 shadow-xs ring-1 ring-emerald-400',
+                },
+                {
+                  key: 'RETARDO' as const,
+                  label: 'Retardo',
+                  badge: '⏱️',
+                  desc: 'Llegada tarde',
+                  activeBg:
+                    'border-amber-500 bg-amber-50 text-amber-950 shadow-xs ring-1 ring-amber-400',
+                },
+                {
+                  key: 'INCAPACIDAD' as const,
+                  label: 'Incapacidad',
+                  badge: '🏥',
+                  desc: 'Salud / IMSS',
+                  activeBg:
+                    'border-purple-500 bg-purple-50 text-purple-950 shadow-xs ring-1 ring-purple-400',
+                },
+                {
+                  key: 'VACACIONES' as const,
+                  label: 'Vacaciones',
+                  badge: '🌴',
+                  desc: 'Día de descanso',
+                  activeBg:
+                    'border-teal-500 bg-teal-50 text-teal-950 shadow-xs ring-1 ring-teal-400',
+                },
+                {
+                  key: 'FALTA_JUSTIFICADA' as const,
+                  label: 'Falta Justificada',
+                  badge: '📄',
+                  desc: 'Con justificante',
+                  activeBg:
+                    'border-sky-500 bg-sky-50 text-sky-950 shadow-xs ring-1 ring-sky-400',
+                },
+                {
+                  key: 'FALTA' as const,
+                  label: 'Falta Injustificada',
+                  badge: '✕',
+                  desc: 'Sin justificar',
+                  activeBg:
+                    'border-rose-500 bg-rose-50 text-rose-950 shadow-xs ring-1 ring-rose-400',
+                },
+              ].map((opt) => {
+                const active = tipoRegistro === opt.key;
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setTipoRegistro(opt.key)}
+                    className={`flex flex-col items-start justify-center rounded-xl border p-2.5 text-left transition-all min-h-[58px] ${
+                      active
+                        ? opt.activeBg
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50/50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5 text-xs font-bold leading-tight">
+                      <span>{opt.badge}</span>
+                      <span>{opt.label}</span>
+                    </span>
+                    <span className="mt-0.5 text-[10px] text-slate-500 leading-tight">
+                      {opt.desc}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Reloj de Entrada Simple (Solo para Puntual o Retardo) */}
+          {(tipoRegistro === 'PUNTUAL' || tipoRegistro === 'RETARDO') && (
+            <SimpleTimePicker
+              name="check_in_time"
+              value={checkInTime}
+              onChange={setCheckInTime}
+              label="Hora de Entrada"
+              suggestedTime={scheduleTimes.entry}
+            />
+          )}
+
+          {/* Info y nota para Incapacidad */}
+          {tipoRegistro === 'INCAPACIDAD' && (
+            <div className="rounded-2xl border border-purple-200 bg-purple-50/70 p-3.5 text-purple-950 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🏥</span>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-purple-900">
+                  Registro de Incapacidad Médica
+                </h4>
+              </div>
+              <p className="text-xs text-purple-800 leading-relaxed">
+                Esta acción registrará la incapacidad médica oficial en el sistema, justificando la jornada ante Recursos Humanos y Nómina.
+              </p>
+            </div>
+          )}
+
+          {/* Info y nota para Vacaciones */}
+          {tipoRegistro === 'VACACIONES' && (
+            <div className="rounded-2xl border border-teal-200 bg-teal-50/70 p-3.5 text-teal-950 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🌴</span>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-teal-900">
+                  Registro de Vacaciones
+                </h4>
+              </div>
+              <p className="text-xs text-teal-800 leading-relaxed">
+                Esta acción registrará el día de vacaciones oficial para la colaboradora, exentando su jornada en tienda ante Recursos Humanos y Nómina.
+              </p>
+            </div>
+          )}
+
+          {/* Comentarios o Justificación */}
+          <div className="rounded-2xl border border-slate-200/90 bg-white p-3.5 shadow-xs">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-slate-700">
+                {tipoRegistro === 'INCAPACIDAD'
+                  ? 'Folio o Diagnóstico Médico'
+                  : tipoRegistro === 'VACACIONES'
+                    ? 'Notas u Observaciones (Opcional)'
+                    : tipoRegistro === 'FALTA_JUSTIFICADA'
+                      ? 'Motivo de Justificación'
+                      : 'Comentarios o Justificación'}
+                {(tipoRegistro === 'FALTA_JUSTIFICADA' || tipoRegistro === 'INCAPACIDAD') && (
+                  <span className="text-amber-600 ml-1">*</span>
+                )}
+              </label>
+              {(tipoRegistro === 'FALTA_JUSTIFICADA' || tipoRegistro === 'INCAPACIDAD') && (
+                <span className="text-[11px] font-semibold text-amber-700">Obligatorio</span>
+              )}
+            </div>
+            <textarea
+              name="comentarios"
+              rows={2}
+              required={tipoRegistro === 'FALTA_JUSTIFICADA' || tipoRegistro === 'INCAPACIDAD'}
+              placeholder={
+                tipoRegistro === 'INCAPACIDAD'
+                  ? 'Escribe el número de folio IMSS o diagnóstico médico...'
+                  : tipoRegistro === 'VACACIONES'
+                    ? 'Escribe cualquier nota u observación sobre las vacaciones (opcional)...'
+                    : tipoRegistro === 'FALTA_JUSTIFICADA'
+                      ? 'Escribe el motivo detallado de la justificación...'
+                      : tipoRegistro === 'FALTA'
+                        ? 'Escribe cualquier nota sobre esta falta injustificada...'
+                        : 'Notas o comentarios sobre esta entrada (opcional)...'
+              }
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/50 p-2.5 text-sm text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white focus:ring-2 focus:ring-sky-200 placeholder:text-slate-400"
+            />
+          </div>
+        </div>
       )}
 
-      <div className="sticky bottom-0 bg-white pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2">
+      {state.message && !state.ok && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-medium text-rose-700">
+          {state.message}
+        </div>
+      )}
+
+      {/* Botones de acción Mobile-First */}
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <Button
+          type="button"
+          variant="outline"
+          className="rounded-xl px-4 py-2.5 text-xs font-semibold min-h-[44px]"
+          onClick={onClose}
+        >
+          Cancelar
+        </Button>
         <Button
           type="submit"
-          size="lg"
-          isLoading={isSaving}
-          disabled={!canSubmit}
-          className="w-full"
+          className={`rounded-xl px-5 py-2.5 text-xs font-bold text-white shadow-sm min-h-[44px] ${
+            isSalida
+              ? 'bg-emerald-600 hover:bg-emerald-700'
+              : tipoRegistro === 'INCAPACIDAD'
+                ? 'bg-purple-600 hover:bg-purple-700'
+                : tipoRegistro === 'VACACIONES'
+                  ? 'bg-teal-600 hover:bg-teal-700'
+                  : 'bg-sky-600 hover:bg-sky-700'
+          }`}
+          disabled={isPending}
         >
-          Guardar y seguir
+          {isPending
+            ? 'Registrando...'
+            : isSalida
+              ? 'Registrar Salida'
+              : tipoRegistro === 'INCAPACIDAD'
+                ? 'Registrar Incapacidad'
+                : tipoRegistro === 'VACACIONES'
+                  ? 'Registrar Vacaciones'
+                  : tipoRegistro === 'FALTA_JUSTIFICADA' || tipoRegistro === 'FALTA'
+                    ? 'Registrar Falta'
+                    : 'Registrar Entrada'}
         </Button>
       </div>
     </form>
   );
 }
 
-function DermoLoveSheet({
-  data,
+function SupervisorTeamRequestSheet({
+  actor,
   onClose,
   onSuccess,
+  onError,
 }: {
-  data: DashboardDermoconsejoData;
+  actor: ActorActual;
   onClose: () => void;
   onSuccess: (message: string) => void;
+  onError: (message: string) => void;
 }) {
-  const offline = useOfflineSync();
-  const [state, formAction] = useActionState(
-    registrarAfiliacionLoveIsdin,
-    ESTADO_LOVE_ISDIN_INICIAL
-  );
+  const [state, formAction] = useActionState(registrarSolicitudOperativa, ESTADO_SOLICITUD_INICIAL);
   const [isPending, startTransition] = useTransition();
-  const [isUploadingR2, setIsUploadingR2] = useState(false);
-  const canSubmit = Boolean(
-    data.context.cuentaClienteId &&
-      data.context.pdvId &&
-      data.context.attendanceId &&
-      data.reportWindow.canReportToday &&
-      data.loveQr?.estado === 'ACTIVO'
-  );
-  const [selectedPhotoName, setSelectedPhotoName] = useState<string | null>(null);
-  const [cameraPhotoFile, setCameraPhotoFile] = useState<File | null>(null);
-  const [isCameraDialogOpen, setIsCameraDialogOpen] = useState(false);
-  const [localMessage, setLocalMessage] = useState<string | null>(null);
+  const [tipo, setTipo] = useState<'VACACIONES' | 'INCAPACIDAD'>('VACACIONES');
+  const [incapacidadClase, setIncapacidadClase] = useState<'INICIAL' | 'SUBSECUENTE'>('INICIAL');
+  const [team, setTeam] = useState<
+    Array<{ id: string; nombre: string; cuentaClienteId: string | null }>
+  >([]);
+  const [selectedEmpleadoId, setSelectedEmpleadoId] = useState('');
+  const [selectedCuentaClienteId, setSelectedCuentaClienteId] = useState('');
+  const [loadingTeam, setLoadingTeam] = useState(true);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await obtenerEquipoSupervisor();
+        if (res.ok && res.data) {
+          setTeam(res.data);
+          if (res.data.length > 0) {
+            setSelectedEmpleadoId(res.data[0].id);
+            setSelectedCuentaClienteId(res.data[0].cuentaClienteId ?? actor.cuentaClienteId ?? '');
+          }
+        }
+      } catch (err) {
+        console.error('Error cargando equipo del supervisor', err);
+      } finally {
+        setLoadingTeam(false);
+      }
+    })();
+  }, [actor.cuentaClienteId]);
 
   useEffect(() => {
     if (!state.ok || !state.message) {
+      if (state.message) {
+        onError(state.message);
+      }
       return;
     }
 
-    setCameraPhotoFile(null);
-    setSelectedPhotoName(null);
-    setLocalMessage(null);
     onSuccess(state.message);
     onClose();
-  }, [onClose, onSuccess, state.message, state.ok]);
+  }, [onClose, onSuccess, onError, state.message, state.ok]);
+
+  const handleEmpleadoChange = (empleadoId: string) => {
+    setSelectedEmpleadoId(empleadoId);
+    const emp = team.find((item) => item.id === empleadoId);
+    if (emp) {
+      setSelectedCuentaClienteId(emp.cuentaClienteId ?? actor.cuentaClienteId ?? '');
+    }
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    const capturedAt = new Date().toISOString();
-
-    formData.delete('evidencia');
-    formData.set('fecha_utc', capturedAt);
-
-    if (cameraPhotoFile && offline.isOnline) {
-      setIsUploadingR2(true);
-      try {
-        await injectDirectR2Upload(formData, cameraPhotoFile, {
-          modulo: 'love_isdin',
-        });
-      } catch (err) {
-        console.error('Error en subida R2 LOVE ISDIN:', err)
-        setLocalMessage('Error al subir evidencia. Reintentar o continuar sin foto.')
-      } finally {
-        setIsUploadingR2(false)
-      }
-    } else if (cameraPhotoFile) {
-      formData.append('evidencia', cameraPhotoFile)
-    }
-
-    if (!offline.isOnline) {
-      if (!canSubmit || !data.context.cuentaClienteId || !data.context.pdvId || !data.context.attendanceId) {
-        setLocalMessage(data.reportWindow.helper);
-        return;
-      }
-
-      const afiliadoNombre = String(formData.get('afiliado_nombre') ?? '').trim();
-      const afiliadoContacto = String(formData.get('afiliado_contacto') ?? '').trim();
-
-      if (!afiliadoNombre) {
-        setLocalMessage('Captura el nombre del cliente antes de guardar LOVE ISDIN.');
-        return;
-      }
-
-      startTransition(() => {
-        void (async () => {
-          try {
-            await queueOfflineLoveIsdin({
-              id: crypto.randomUUID(),
-              cuenta_cliente_id: data.context.cuentaClienteId ?? undefined,
-              asistencia_id: data.context.attendanceId ?? undefined,
-              empleado_id: data.context.empleadoId,
-              pdv_id: data.context.pdvId ?? undefined,
-              afiliado_nombre: afiliadoNombre,
-              afiliado_contacto: afiliadoContacto || undefined,
-              ticket_folio: undefined,
-              fecha_utc: capturedAt,
-              origen: 'OFFLINE_SYNC',
-              metadata: {
-                capturado_desde: 'panel_love_isdin_offline',
-                fecha_operativa: data.context.fechaOperacion,
-                metodo_ingreso: 'OFFLINE_SYNC',
-                ventana_timezone: data.reportWindow.timezone,
-                ventana_estado: data.reportWindow.stateName ?? undefined,
-                evidencia_omitida_offline: Boolean(cameraPhotoFile),
-              },
-            });
-            setCameraPhotoFile(null);
-            setSelectedPhotoName(null);
-            setLocalMessage(null);
-            onSuccess(
-              cameraPhotoFile
-                ? 'LOVE ISDIN guardado en local. La foto opcional no se envio por estar offline.'
-                : 'LOVE ISDIN guardado en local. Se sincronizara al volver la red.'
-            );
-            onClose();
-          } catch (error) {
-            setLocalMessage(
-              error instanceof Error ? error.message : 'No fue posible guardar LOVE ISDIN en local.'
-            );
-          }
-        })();
-      });
-      return;
-    }
-
     startTransition(() => {
       void formAction(formData);
     });
   };
 
+  const isVacaciones = tipo === 'VACACIONES';
+  const isIncapacidad = tipo === 'INCAPACIDAD';
+
   return (
-    <>
-    <form id="dermo-love-sheet-form" onSubmit={handleSubmit} className="space-y-4">
-      <input type="hidden" name="cuenta_cliente_id" value={data.context.cuentaClienteId ?? ''} />
-      <input type="hidden" name="empleado_id" value={data.context.empleadoId} />
-      <input type="hidden" name="pdv_id" value={data.context.pdvId ?? ''} />
-      <input type="hidden" name="asistencia_id" value={data.context.attendanceId ?? ''} />
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <input type="hidden" name="cuenta_cliente_id" value={selectedCuentaClienteId} />
+      <input type="hidden" name="supervisor_empleado_id" value={actor.empleadoId} />
+      <input type="hidden" name="tipo" value={tipo} />
+      {isIncapacidad && <input type="hidden" name="incapacidad_clase" value={incapacidadClase} />}
 
-      <div className="space-y-4">
-        <div className="rounded-[24px] border border-rose-200 bg-rose-50/80 p-5 text-center shadow-[0_16px_40px_rgba(244,114,182,0.14)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-rose-500">
-            LOVE ISDIN
-          </p>
-          <div className="mt-4 flex justify-center">
-            {data.loveQr?.imageUrl ? (
-              <img
-                src={data.loveQr.imageUrl}
-                alt="QR personal LOVE ISDIN"
-                className="h-44 w-44 rounded-[24px] border border-rose-200 bg-white p-3"
-              />
-            ) : data.loveQr ? (
-              <div className="flex h-44 w-44 flex-col items-center justify-center rounded-[24px] border border-rose-200 bg-white px-4 text-center text-sm text-rose-700">
-                <span className="font-semibold">QR oficial activo</span>
-                <span className="mt-2 break-all">{data.loveQr.codigo}</span>
-              </div>
-            ) : (
-              <div className="flex h-44 w-44 items-center justify-center rounded-[24px] border border-rose-200 bg-white text-sm text-rose-400">
-                QR oficial no asignado
-              </div>
-            )}
-          </div>
-          <p className="mt-3 text-sm font-medium text-rose-700">QR oficial unico del dermoconsejero</p>
-        </div>
-
-        <SheetField label="Nombre del cliente">
-          <input
-            name="afiliado_nombre"
-            placeholder="Nombre completo"
-            className="mt-2 w-full rounded-[16px] border border-rose-200 bg-rose-50/40 px-4 py-3 text-base text-slate-900 focus:border-rose-400 focus:outline-none focus:ring-4 focus:ring-rose-100"
-          />
-        </SheetField>
-
-        <SheetField label="Correo electronico">
-          <input
-            name="afiliado_contacto"
-            type="email"
-            placeholder="cliente@correo.com"
-            className="mt-2 w-full rounded-[16px] border border-rose-200 bg-rose-50/40 px-4 py-3 text-base text-slate-900 focus:border-rose-400 focus:outline-none focus:ring-4 focus:ring-rose-100"
-          />
-        </SheetField>
-
-        <div className="rounded-[20px] border border-rose-200 bg-white px-4 py-4">
-          <label className="text-sm font-semibold text-slate-900" htmlFor="dermo-love-camera-input">
-            Fotografia opcional
+      <div className="grid gap-4 rounded-[22px] border border-slate-200 bg-slate-50 px-5 py-5 text-sm text-slate-700">
+        <div>
+          <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Seleccionar Dermoconsejera
           </label>
-          <p className="mt-1 text-sm text-slate-500">
-            El sistema pondra la fecha y hora reales del registro.
-          </p>
-          <button
-            type="button"
-            onClick={() => setIsCameraDialogOpen(true)}
-            className="mt-4 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-[16px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-          >
-            Abrir camara
-          </button>
-          {selectedPhotoName && (
-            <p className="mt-3 text-sm text-rose-700">Foto lista: {selectedPhotoName}</p>
+          {loadingTeam ? (
+            <div className="mt-2 text-xs text-slate-500">Cargando equipo...</div>
+          ) : (
+            <select
+              name="empleado_id"
+              value={selectedEmpleadoId}
+              onChange={(e) => handleEmpleadoChange(e.target.value)}
+              className="mt-2 w-full rounded-[14px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--module-primary)] focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+            >
+              {team.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.nombre}
+                </option>
+              ))}
+            </select>
           )}
         </div>
 
-        <div className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-          Registro rapido: el QR oficial se resuelve automaticamente desde la asignacion de la dermoconsejera.
-          La afiliacion queda marcada por el PDV real del dia operativo y respeta la ventana digital local.
+        <div className="space-y-2">
+          <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Tipo de Solicitud
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              {
+                key: 'VACACIONES' as const,
+                label: 'Vacaciones',
+                helper: 'Ausencia por vacaciones programadas',
+              },
+              {
+                key: 'INCAPACIDAD' as const,
+                label: 'Incapacidad',
+                helper: 'Justificación médica oficial',
+              },
+            ].map((opt) => {
+              const active = tipo === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setTipo(opt.key)}
+                  className={`rounded-[18px] border px-4 py-3 text-left transition ${
+                    active
+                      ? 'border-sky-300 bg-sky-50 shadow-sm text-sky-950 font-semibold'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <p className="text-sm font-semibold">{opt.label}</p>
+                  <p className="mt-0.5 text-[10px] leading-4 text-slate-500 font-normal">
+                    {opt.helper}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
 
-      {!canSubmit && (
-        <p className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          {!data.context.attendanceId || !data.reportWindow.canReportToday
-            ? data.reportWindow.helper
-            : !data.loveQr
-              ? 'No tienes un QR oficial activo asignado. Pide apoyo a LOVE ISDIN para reasignarlo.'
-              : 'Falta contexto operativo del PDV para registrar LOVE ISDIN desde el dashboard.'}
-        </p>
-      )}
+        {isIncapacidad && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              {
+                value: 'INICIAL' as const,
+                title: 'Incapacidad Inicial',
+                helper: 'Primer folio del proceso',
+              },
+              {
+                value: 'SUBSECUENTE' as const,
+                title: 'Subsecuente',
+                helper: 'Continuidad de incapacidad previa',
+              },
+            ].map((opt) => {
+              const active = incapacidadClase === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setIncapacidadClase(opt.value)}
+                  className={`rounded-[18px] border px-4 py-3 text-left transition ${
+                    active
+                      ? 'border-rose-300 bg-rose-50 shadow-sm text-rose-950 font-semibold'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <p className="text-sm font-semibold">{opt.title}</p>
+                  <p className="mt-0.5 text-[10px] leading-4 text-slate-500 font-normal">
+                    {opt.helper}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
-      {state.message && !state.ok && (
-        <p className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-          {state.message}
-        </p>
-      )}
-      {localMessage && (
-        <p className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          {localMessage}
-        </p>
-      )}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Fecha Inicio
+            </label>
+            <input
+              name="fecha_inicio"
+              type="date"
+              defaultValue={getLocalDateValue()}
+              className="mt-2 w-full rounded-[14px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--module-primary)] focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Fecha Fin
+            </label>
+            <input
+              name="fecha_fin"
+              type="date"
+              defaultValue={getLocalDateValue()}
+              className="mt-2 w-full rounded-[14px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--module-primary)] focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+            />
+          </div>
+        </div>
 
-      <div className="sticky bottom-0 bg-white pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2">
-        <SheetSubmitButton
-          form="dermo-love-sheet-form"
-          label={isUploadingR2 ? 'Subiendo evidencia...' : 'Guardar registro'}
-          pendingLabel="Guardando..."
-          disabled={!canSubmit || isPending || isUploadingR2}
-          className="w-full bg-rose-500 text-white shadow-[0_14px_28px_rgba(244,114,182,0.28)] hover:bg-rose-600"
-        />
-        {isUploadingR2 && (
-          <p className="mt-2 text-center text-xs text-rose-600">Subiendo fotografia a la nube...</p>
+        <div>
+          <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+            {isIncapacidad ? 'Comentarios Médicos' : 'Motivo de las Vacaciones'}
+          </label>
+          <textarea
+            name={isIncapacidad ? 'comentarios' : 'motivo'}
+            rows={3}
+            required
+            placeholder={
+              isIncapacidad
+                ? 'Escribe detalles relevantes sobre la incapacidad de la colaboradora.'
+                : 'Escribe el motivo breve de las vacaciones del colaborador.'
+            }
+            className="mt-2 w-full rounded-[16px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--module-primary)] focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+          />
+        </div>
+
+        {isIncapacidad && (
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Justificante Médico (Opcional)
+            </label>
+            <input
+              name="justificante"
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg"
+              className="mt-2 w-full rounded-[14px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[var(--module-primary)] focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+            />
+          </div>
         )}
       </div>
+
+      {state.message && !state.ok && (
+        <div className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {state.message}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-3 pt-2">
+        <Button type="button" variant="outline" className="rounded-[14px]" onClick={onClose}>
+          Cancelar
+        </Button>
+        <Button type="submit" className="rounded-[14px]" disabled={isPending}>
+          {isPending ? 'Enviando...' : 'Crear Solicitud'}
+        </Button>
+      </div>
     </form>
-      <NativeCameraSelfieDialog
-        open={isCameraDialogOpen}
-        title="Fotografia LOVE ISDIN"
-        description="Toma la fotografia opcional desde la camara del dispositivo."
-        facingMode="environment"
-        captureLabel="Capturar fotografia"
-        onClose={() => setIsCameraDialogOpen(false)}
-        onCapture={async (file) => {
-          setCameraPhotoFile(file);
-          setSelectedPhotoName(file.name);
-        }}
-      />
-    </>
   );
 }
 
@@ -4822,12 +5704,7 @@ function DermoSolicitudSheet({
   onSuccess,
 }: {
   data: Pick<DashboardDermoconsejoData, 'context' | 'requestStatus' | 'vacationPolicy'>;
-  tipo:
-    | 'incapacidad'
-    | 'vacaciones'
-    | 'permiso'
-    | 'aviso-inasistencia'
-    | 'justificacion-faltas';
+  tipo: 'incapacidad' | 'vacaciones' | 'permiso' | 'aviso-inasistencia' | 'justificacion-faltas';
   requesterRole?: 'DERMOCONSEJERO' | 'SUPERVISOR';
   onClose: () => void;
   onSuccess: (message: string) => void;
@@ -4892,7 +5769,8 @@ function DermoSolicitudSheet({
 
     const justificante =
       cameraEvidenceFile ??
-      ((formData.get('justificante') instanceof File && (formData.get('justificante') as File).size > 0)
+      (formData.get('justificante') instanceof File &&
+      (formData.get('justificante') as File).size > 0
         ? (formData.get('justificante') as File)
         : null);
 
@@ -4914,349 +5792,357 @@ function DermoSolicitudSheet({
 
   return (
     <>
-    <form id={`dermo-solicitud-${tipo}-form`} onSubmit={handleSubmit} className="space-y-4">
-      <input type="hidden" name="cuenta_cliente_id" value={data.context.cuentaClienteId ?? ''} />
-      <input type="hidden" name="empleado_id" value={data.context.empleadoId} />
-      <input
-        type="hidden"
-        name="supervisor_empleado_id"
-        value={data.context.supervisorEmpleadoId ?? ''}
-      />
-      <input type="hidden" name="tipo" value={resolvedTipo} />
-      {isIncapacidad && <input type="hidden" name="incapacidad_clase" value={incapacidadClase} />}
+      <form id={`dermo-solicitud-${tipo}-form`} onSubmit={handleSubmit} className="space-y-4">
+        <input type="hidden" name="cuenta_cliente_id" value={data.context.cuentaClienteId ?? ''} />
+        <input type="hidden" name="empleado_id" value={data.context.empleadoId} />
+        <input
+          type="hidden"
+          name="supervisor_empleado_id"
+          value={data.context.supervisorEmpleadoId ?? ''}
+        />
+        <input type="hidden" name="tipo" value={resolvedTipo} />
+        {isIncapacidad && <input type="hidden" name="incapacidad_clase" value={incapacidadClase} />}
 
-      <div className="grid gap-4">
-        {isVacaciones && data.vacationPolicy && (
-          <div className="space-y-3 rounded-[20px] border border-emerald-200 bg-[linear-gradient(180deg,rgba(236,253,245,0.98),rgba(255,255,255,0.98))] p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-emerald-950">Saldo anual</p>
-                <p className="mt-1 text-sm text-emerald-800">
-                  {data.vacationPolicy.annualUsedDays} dias usados / {data.vacationPolicy.annualAvailableDays} disponibles
-                </p>
-              </div>
-              <span className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
-                Dias totales del año: {data.vacationPolicy.annualDays}
-              </span>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <VacationBucketCard
-                title="Primer semestre"
-                tone="emerald"
-                bucket={data.vacationPolicy.firstSemester}
-              />
-              <VacationBucketCard
-                title="Segundo semestre"
-                tone="slate"
-                bucket={data.vacationPolicy.secondSemester}
-              />
-            </div>
-
-            {!data.vacationPolicy.eligible ? (
-              <div className="rounded-[16px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                Tus vacaciones se habilitan al cumplir el año. Proxima fecha: {formatVacationDateLabel(data.vacationPolicy.nextUnlockDate)}.
-              </div>
-            ) : data.vacationPolicy.currentSemester === 'PRIMER_SEMESTRE' ? (
-              <div className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                El segundo semestre sigue bloqueado hasta {formatVacationDateLabel(data.vacationPolicy.nextUnlockDate)}. Los dias no usados del primer semestre caducan y no se acumulan.
-              </div>
-            ) : (
-              <div className="rounded-[16px] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-                Ya estas en el segundo semestre del ciclo anual. Solo se pueden usar los 6 dias de esta bolsa; los del primer semestre no se transfieren.
-              </div>
-            )}
-
-            {requesterRole === 'SUPERVISOR' && (
-              <VacationTeamLoadList weeks={data.vacationPolicy.teamWeeklyLoad} />
-            )}
-          </div>
-        )}
-
-        <div className="flex items-center justify-between gap-3 rounded-[18px] border border-border bg-surface-subtle px-4 py-3">
-          <div>
-            <p className="text-sm font-semibold text-slate-950">Estatus de solicitudes</p>
-            <p className="text-sm text-slate-500">
-              Revisa tus{' '}
-              {tipo === 'incapacidad'
-                ? 'incapacidades'
-                : tipo === 'vacaciones'
-                  ? 'vacaciones'
-                  : tipo === 'aviso-inasistencia'
-                    ? 'avisos de inasistencia'
-                    : tipo === 'justificacion-faltas'
-                      ? 'justificaciones de faltas'
-                      : 'cumpleanos'}{' '}
-              enviados.
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            onClick={() => setShowRequestStatus((current) => !current)}
-          >
-            {showRequestStatus ? 'Ocultar' : 'Ver estatus'}
-          </Button>
-        </div>
-
-        {showRequestStatus && (
-          <div className="space-y-3 rounded-[18px] border border-border bg-white p-4">
-            {requestStatusItems.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                Todavia no has enviado solicitudes de este tipo.
-              </p>
-            ) : (
-              requestStatusItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-[16px] border border-border bg-surface-subtle px-4 py-3"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-950">
-                      {formatDateLabel(item.fechaInicio)} al {formatDateLabel(item.fechaFin)}
-                    </p>
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${getSolicitudStatusTone(item.estatus)}`}
-                    >
-                      {formatSolicitudStatusLabel(item.estatus)}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm text-slate-600">
-                    {item.motivo ?? item.comentarios ?? 'Sin detalle adicional.'}
+        <div className="grid gap-4">
+          {isVacaciones && data.vacationPolicy && (
+            <div className="space-y-3 rounded-[20px] border border-emerald-200 bg-[linear-gradient(180deg,rgba(236,253,245,0.98),rgba(255,255,255,0.98))] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-emerald-950">Saldo anual</p>
+                  <p className="mt-1 text-sm text-emerald-800">
+                    {data.vacationPolicy.annualUsedDays} dias usados /{' '}
+                    {data.vacationPolicy.annualAvailableDays} disponibles
                   </p>
                 </div>
-              ))
-            )}
-          </div>
-        )}
+                <span className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+                  Dias totales del año: {data.vacationPolicy.annualDays}
+                </span>
+              </div>
 
-        {isIncapacidad && (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {[
-              {
-                value: 'INICIAL' as const,
-                title: 'Incapacidad inicial',
-                helper: 'Primer folio o primer certificado del bloque.',
-              },
-              {
-                value: 'SUBSECUENTE' as const,
-                title: 'Incapacidad subsecuente',
-                helper: 'Continuacion del mismo proceso medico.',
-              },
-            ].map((item) => {
-              const active = incapacidadClase === item.value;
-              return (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => setIncapacidadClase(item.value)}
-                  className={`rounded-[18px] border px-4 py-4 text-left transition ${
-                    active
-                      ? 'border-rose-300 bg-rose-50 shadow-[0_10px_24px_rgba(244,114,182,0.14)]'
-                      : 'border-border bg-surface-subtle'
-                  }`}
-                >
-                  <p className="text-sm font-semibold text-slate-950">{item.title}</p>
-                  <p className="mt-1 text-sm leading-5 text-slate-500">{item.helper}</p>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <SheetField label="Fecha inicio">
-            <input
-              name="fecha_inicio"
-              type="date"
-              defaultValue={isVacaciones ? vacationMinDate : getLocalDateValue()}
-              min={isVacaciones ? vacationMinDate : undefined}
-              className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
-            />
-          </SheetField>
-          <SheetField label="Fecha fin">
-            <input
-              name="fecha_fin"
-              type="date"
-              defaultValue={isVacaciones ? vacationMinDate : getLocalDateValue()}
-              min={isVacaciones ? vacationMinDate : undefined}
-              readOnly={isAvisoInasistencia || isJustificacionFalta}
-              className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
-            />
-          </SheetField>
-        </div>
-
-        <SheetField
-          label={
-            isIncapacidad
-              ? 'Solicitud'
-              : isAvisoInasistencia
-                ? 'Motivo del aviso'
-                : isJustificacionFalta
-                  ? 'Motivo de la justificacion'
-                  : 'Motivo'
-          }
-        >
-          <textarea
-            name={isIncapacidad ? 'comentarios' : 'motivo'}
-            rows={3}
-            required={isIncapacidad || isAvisoInasistencia || isJustificacionFalta}
-            placeholder={
-              isIncapacidad
-                ? 'Escribe tu solicitud breve para supervision y reclutamiento.'
-                : isAvisoInasistencia
-                  ? 'Explica por que no podras asistir a la sucursal este dia.'
-                  : isJustificacionFalta
-                    ? 'Explica la falta que deseas justificar.'
-                    : 'Describe brevemente la solicitud'
-            }
-            className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
-          />
-        </SheetField>
-
-        {isIncapacidad ? (
-          <>
-            <SheetField label="Motivo">
-              <input
-                name="motivo"
-                required
-                placeholder="Ej. enfermedad general, accidente, control medico"
-                className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-rose-400 focus:outline-none focus:ring-4 focus:ring-rose-100"
-              />
-            </SheetField>
-
-            <SheetField label="Evidencia">
-              <div className="mt-2 rounded-[16px] border border-rose-200 bg-rose-50 p-3">
-                <input
-                  ref={galleryInputRef}
-                  id="dermo-incapacidad-gallery-input"
-                  name="justificante"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,application/pdf"
-                  className="sr-only"
-                  onChange={(event) => {
-                    setSelectedGalleryFile(event.currentTarget.files?.[0]?.name ?? null);
-                    setCameraEvidenceFile(null);
-                    setSelectedCameraFile(null);
-                  }}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <VacationBucketCard
+                  title="Primer semestre"
+                  tone="emerald"
+                  bucket={data.vacationPolicy.firstSemester}
                 />
-
-                {!evidencePromptOpen ? (
-                  <button
-                    type="button"
-                    onClick={() => setEvidencePromptOpen(true)}
-                    className="inline-flex min-h-11 w-full items-center justify-center rounded-[14px] border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-                  >
-                    Agregar evidencia
-                  </button>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-sm font-medium text-rose-900">
-                      Quieres agregar un documento de tu galeria o quieres abrir tu camara?
-                    </p>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label
-                        htmlFor="dermo-incapacidad-gallery-input"
-                        className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-[14px] border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-                      >
-                        Galeria
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setIsCameraDialogOpen(true)}
-                        className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-[14px] border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-                      >
-                        Camara
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <p className="mt-3 text-sm text-slate-600">
-                  {selectedCameraFile ??
-                    selectedGalleryFile ??
-                    'Adjunta el documento medico para que supervision, reclutamiento y nomina lo revisen.'}
-                </p>
+                <VacationBucketCard
+                  title="Segundo semestre"
+                  tone="slate"
+                  bucket={data.vacationPolicy.secondSemester}
+                />
               </div>
-            </SheetField>
 
-            <div className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-              {requesterRole === 'SUPERVISOR'
-                ? 'Se enviara a reclutamiento para revision documental y despues a nomina para formalizacion.'
-                : 'Primero la valida supervision, despues la revisa reclutamiento y finalmente la formaliza nomina.'}
+              {!data.vacationPolicy.eligible ? (
+                <div className="rounded-[16px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  Tus vacaciones se habilitan al cumplir el año. Proxima fecha:{' '}
+                  {formatVacationDateLabel(data.vacationPolicy.nextUnlockDate)}.
+                </div>
+              ) : data.vacationPolicy.currentSemester === 'PRIMER_SEMESTRE' ? (
+                <div className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  El segundo semestre sigue bloqueado hasta{' '}
+                  {formatVacationDateLabel(data.vacationPolicy.nextUnlockDate)}. Los dias no usados
+                  del primer semestre caducan y no se acumulan.
+                </div>
+              ) : (
+                <div className="rounded-[16px] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                  Ya estas en el segundo semestre del ciclo anual. Solo se pueden usar los 6 dias de
+                  esta bolsa; los del primer semestre no se transfieren.
+                </div>
+              )}
+
+              {requesterRole === 'SUPERVISOR' && (
+                <VacationTeamLoadList weeks={data.vacationPolicy.teamWeeklyLoad} />
+              )}
             </div>
-          </>
-        ) : isAvisoInasistencia ? (
-          <div className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            La falta por enfermedad solo sera justificable despues si hoy registras este aviso de inasistencia para la misma fecha.
+          )}
+
+          <div className="flex items-center justify-between gap-3 rounded-[18px] border border-border bg-surface-subtle px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">Estatus de solicitudes</p>
+              <p className="text-sm text-slate-500">
+                Revisa tus{' '}
+                {tipo === 'incapacidad'
+                  ? 'incapacidades'
+                  : tipo === 'vacaciones'
+                    ? 'vacaciones'
+                    : tipo === 'aviso-inasistencia'
+                      ? 'avisos de inasistencia'
+                      : tipo === 'justificacion-faltas'
+                        ? 'justificaciones de faltas'
+                        : 'cumpleanos'}{' '}
+                enviados.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => setShowRequestStatus((current) => !current)}
+            >
+              {showRequestStatus ? 'Ocultar' : 'Ver estatus'}
+            </Button>
           </div>
-        ) : isJustificacionFalta ? (
-          <>
-            <SheetField label="Receta del IMSS">
-              <input
-                name="justificante"
-                type="file"
-                required
-                accept="image/jpeg,image/png,image/webp,application/pdf"
-                className="mt-2 block w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-700 file:mr-3 file:rounded-full file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium"
-              />
-            </SheetField>
 
-            <div className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-              Solo se puede justificar una falta que ya haya sido avisada previamente y que tenga receta del IMSS adjunta.
+          {showRequestStatus && (
+            <div className="space-y-3 rounded-[18px] border border-border bg-white p-4">
+              {requestStatusItems.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  Todavia no has enviado solicitudes de este tipo.
+                </p>
+              ) : (
+                requestStatusItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-[16px] border border-border bg-surface-subtle px-4 py-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-950">
+                        {formatDateLabel(item.fechaInicio)} al {formatDateLabel(item.fechaFin)}
+                      </p>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${getSolicitudStatusTone(item.estatus)}`}
+                      >
+                        {formatSolicitudStatusLabel(item.estatus)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">
+                      {item.motivo ?? item.comentarios ?? 'Sin detalle adicional.'}
+                    </p>
+                  </div>
+                ))
+              )}
             </div>
-          </>
-        ) : (
-          <>
-            {isVacaciones && (
-              <div className="rounded-[18px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                La solicitud requiere 30 dias naturales de anticipacion y la aprueba Coordinacion. Supervision solo recibe aviso para ajustar cobertura.
-              </div>
-            )}
-            <SheetField label="Comentarios">
-              <textarea
-                name="comentarios"
-                rows={3}
-                placeholder="Detalle adicional para supervisor o nomina"
+          )}
+
+          {isIncapacidad && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                {
+                  value: 'INICIAL' as const,
+                  title: 'Incapacidad inicial',
+                  helper: 'Primer folio o primer certificado del bloque.',
+                },
+                {
+                  value: 'SUBSECUENTE' as const,
+                  title: 'Incapacidad subsecuente',
+                  helper: 'Continuacion del mismo proceso medico.',
+                },
+              ].map((item) => {
+                const active = incapacidadClase === item.value;
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => setIncapacidadClase(item.value)}
+                    className={`rounded-[18px] border px-4 py-4 text-left transition ${
+                      active
+                        ? 'border-rose-300 bg-rose-50 shadow-[0_10px_24px_rgba(244,114,182,0.14)]'
+                        : 'border-border bg-surface-subtle'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-slate-950">{item.title}</p>
+                    <p className="mt-1 text-sm leading-5 text-slate-500">{item.helper}</p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <SheetField label="Fecha inicio">
+              <input
+                name="fecha_inicio"
+                type="date"
+                defaultValue={isVacaciones ? vacationMinDate : getLocalDateValue()}
+                min={isVacaciones ? vacationMinDate : undefined}
                 className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
               />
             </SheetField>
-
-            <SheetField label="Justificante">
+            <SheetField label="Fecha fin">
               <input
-                name="justificante"
-                type="file"
-                accept="image/jpeg,image/png,image/webp,application/pdf"
-                className="mt-2 block w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-700 file:mr-3 file:rounded-full file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium"
+                name="fecha_fin"
+                type="date"
+                defaultValue={isVacaciones ? vacationMinDate : getLocalDateValue()}
+                min={isVacaciones ? vacationMinDate : undefined}
+                readOnly={isAvisoInasistencia || isJustificacionFalta}
+                className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
               />
             </SheetField>
-          </>
+          </div>
+
+          <SheetField
+            label={
+              isIncapacidad
+                ? 'Solicitud'
+                : isAvisoInasistencia
+                  ? 'Motivo del aviso'
+                  : isJustificacionFalta
+                    ? 'Motivo de la justificacion'
+                    : 'Motivo'
+            }
+          >
+            <textarea
+              name={isIncapacidad ? 'comentarios' : 'motivo'}
+              rows={3}
+              required={isIncapacidad || isAvisoInasistencia || isJustificacionFalta}
+              placeholder={
+                isIncapacidad
+                  ? 'Escribe tu solicitud breve para supervision y reclutamiento.'
+                  : isAvisoInasistencia
+                    ? 'Explica por que no podras asistir a la sucursal este dia.'
+                    : isJustificacionFalta
+                      ? 'Explica la falta que deseas justificar.'
+                      : 'Describe brevemente la solicitud'
+              }
+              className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+            />
+          </SheetField>
+
+          {isIncapacidad ? (
+            <>
+              <SheetField label="Motivo">
+                <input
+                  name="motivo"
+                  required
+                  placeholder="Ej. enfermedad general, accidente, control medico"
+                  className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-rose-400 focus:outline-none focus:ring-4 focus:ring-rose-100"
+                />
+              </SheetField>
+
+              <SheetField label="Evidencia">
+                <div className="mt-2 rounded-[16px] border border-rose-200 bg-rose-50 p-3">
+                  <input
+                    ref={galleryInputRef}
+                    id="dermo-incapacidad-gallery-input"
+                    name="justificante"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    className="sr-only"
+                    onChange={(event) => {
+                      setSelectedGalleryFile(event.currentTarget.files?.[0]?.name ?? null);
+                      setCameraEvidenceFile(null);
+                      setSelectedCameraFile(null);
+                    }}
+                  />
+
+                  {!evidencePromptOpen ? (
+                    <button
+                      type="button"
+                      onClick={() => setEvidencePromptOpen(true)}
+                      className="inline-flex min-h-11 w-full items-center justify-center rounded-[14px] border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+                    >
+                      Agregar evidencia
+                    </button>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium text-rose-900">
+                        Quieres agregar un documento de tu galeria o quieres abrir tu camara?
+                      </p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label
+                          htmlFor="dermo-incapacidad-gallery-input"
+                          className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-[14px] border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+                        >
+                          Galeria
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setIsCameraDialogOpen(true)}
+                          className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-[14px] border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+                        >
+                          Camara
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <p className="mt-3 text-sm text-slate-600">
+                    {selectedCameraFile ??
+                      selectedGalleryFile ??
+                      'Adjunta el documento medico para que supervision, reclutamiento y nomina lo revisen.'}
+                  </p>
+                </div>
+              </SheetField>
+
+              <div className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                {requesterRole === 'SUPERVISOR'
+                  ? 'Se enviara a reclutamiento para revision documental y despues a nomina para formalizacion.'
+                  : 'Primero la valida supervision, despues la revisa reclutamiento y finalmente la formaliza nomina.'}
+              </div>
+            </>
+          ) : isAvisoInasistencia ? (
+            <div className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              La falta por enfermedad solo sera justificable despues si hoy registras este aviso de
+              inasistencia para la misma fecha.
+            </div>
+          ) : isJustificacionFalta ? (
+            <>
+              <SheetField label="Receta del IMSS">
+                <input
+                  name="justificante"
+                  type="file"
+                  required
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  className="mt-2 block w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-700 file:mr-3 file:rounded-full file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium"
+                />
+              </SheetField>
+
+              <div className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                Solo se puede justificar una falta que ya haya sido avisada previamente y que tenga
+                receta del IMSS adjunta.
+              </div>
+            </>
+          ) : (
+            <>
+              {isVacaciones && (
+                <div className="rounded-[18px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  La solicitud requiere 30 dias naturales de anticipacion y la aprueba Coordinacion.
+                  Supervision solo recibe aviso para ajustar cobertura.
+                </div>
+              )}
+              <SheetField label="Comentarios">
+                <textarea
+                  name="comentarios"
+                  rows={3}
+                  placeholder="Detalle adicional para supervisor o nomina"
+                  className="mt-2 w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-base text-slate-900 focus:border-[var(--module-primary)] focus:outline-none focus:ring-4 focus:ring-[var(--module-focus-ring)]"
+                />
+              </SheetField>
+
+              <SheetField label="Justificante">
+                <input
+                  name="justificante"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  className="mt-2 block w-full rounded-[14px] border border-border bg-surface-subtle px-4 py-3 text-sm text-slate-700 file:mr-3 file:rounded-full file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium"
+                />
+              </SheetField>
+            </>
+          )}
+        </div>
+
+        {!canSubmit && (
+          <p className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Falta una cuenta cliente operativa para registrar la solicitud.
+          </p>
         )}
-      </div>
 
-      {!canSubmit && (
-        <p className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Falta una cuenta cliente operativa para registrar la solicitud.
-        </p>
-      )}
+        {state.message && !state.ok && (
+          <p className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+            {state.message}
+          </p>
+        )}
 
-      {state.message && !state.ok && (
-        <p className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-          {state.message}
-        </p>
-      )}
-
-      <div className="sticky bottom-0 bg-white pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2">
-        <SheetSubmitButton
-          form={`dermo-solicitud-${tipo}-form`}
-          label="Enviar solicitud"
-          pendingLabel="Enviando..."
-          disabled={!canSubmit || isPending}
-        />
-      </div>
-    </form>
+        <div className="sticky bottom-0 bg-white pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2">
+          <SheetSubmitButton
+            form={`dermo-solicitud-${tipo}-form`}
+            label="Enviar solicitud"
+            pendingLabel="Enviando..."
+            disabled={!canSubmit || isPending}
+          />
+        </div>
+      </form>
       <NativeCameraSelfieDialog
         open={isCameraDialogOpen}
         title="Fotografia de incapacidad"
@@ -5373,7 +6259,10 @@ function VacationBucketCard({
     );
   }
 
-  const usedPct = bucket.totalDays > 0 ? Math.min(100, Math.round((bucket.usedDays / bucket.totalDays) * 100)) : 0;
+  const usedPct =
+    bucket.totalDays > 0
+      ? Math.min(100, Math.round((bucket.usedDays / bucket.totalDays) * 100))
+      : 0;
 
   return (
     <div className={`rounded-[18px] border px-4 py-4 ${toneClass}`}>
@@ -5393,13 +6282,18 @@ function VacationBucketCard({
         />
       </div>
       <p className="mt-3 text-xs opacity-80">
-        {formatVacationDateLabel(bucket.availableFrom)} al {formatVacationDateLabel(bucket.availableUntil)}
+        {formatVacationDateLabel(bucket.availableFrom)} al{' '}
+        {formatVacationDateLabel(bucket.availableUntil)}
       </p>
     </div>
   );
 }
 
-function VacationTeamLoadList({ weeks }: { weeks: DashboardVacationPolicySummary['teamWeeklyLoad'] }) {
+function VacationTeamLoadList({
+  weeks,
+}: {
+  weeks: DashboardVacationPolicySummary['teamWeeklyLoad'];
+}) {
   if (weeks.length === 0) {
     return null;
   }
@@ -5414,12 +6308,17 @@ function VacationTeamLoadList({ weeks }: { weeks: DashboardVacationPolicySummary
       </div>
       <div className="space-y-2">
         {weeks.map((week) => {
-          const fillPct = week.limit > 0 ? Math.min(100, Math.round((week.absentCount / week.limit) * 100)) : 0;
+          const fillPct =
+            week.limit > 0 ? Math.min(100, Math.round((week.absentCount / week.limit) * 100)) : 0;
           return (
-            <div key={week.weekStart} className="rounded-[14px] border border-white/70 bg-white/70 px-3 py-3">
+            <div
+              key={week.weekStart}
+              className="rounded-[14px] border border-white/70 bg-white/70 px-3 py-3"
+            >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-semibold text-slate-900">
-                  {formatVacationDateLabel(week.weekStart)} al {formatVacationDateLabel(week.weekEnd)}
+                  {formatVacationDateLabel(week.weekStart)} al{' '}
+                  {formatVacationDateLabel(week.weekEnd)}
                 </p>
                 <span
                   className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
@@ -5483,13 +6382,21 @@ function DermoIncidenciasSheet({
   const [lastSubmittedType, setLastSubmittedType] = useState<
     'RETARDO' | 'NO_LLEGARE' | 'DESABASTO' | 'AVISO_INASISTENCIA' | 'REGISTRO_EXTEMPORANEO' | null
   >(null);
-  const canSubmitStandard = Boolean(data.context.cuentaClienteId && data.context.supervisorEmpleadoId);
+  const canSubmitStandard = Boolean(
+    data.context.cuentaClienteId && data.context.supervisorEmpleadoId
+  );
   const canSubmitExtemporaneo = Boolean(data.context.cuentaClienteId);
   const isAvisoInasistencia = tipo === 'AVISO_INASISTENCIA';
   const isExtemporaneo = tipo === 'REGISTRO_EXTEMPORANEO';
-  const requiereVenta = tipoRegistroExtemporaneo === 'VENTA' || tipoRegistroExtemporaneo === 'AMBAS';
-  const requiereLove = tipoRegistroExtemporaneo === 'LOVE_ISDIN' || tipoRegistroExtemporaneo === 'AMBAS';
-  const activeState = isExtemporaneo ? extemporaneoState : isAvisoInasistencia ? solicitudState : incidenciaState;
+  const requiereVenta =
+    tipoRegistroExtemporaneo === 'VENTA' || tipoRegistroExtemporaneo === 'AMBAS';
+  const requiereLove =
+    tipoRegistroExtemporaneo === 'LOVE_ISDIN' || tipoRegistroExtemporaneo === 'AMBAS';
+  const activeState = isExtemporaneo
+    ? extemporaneoState
+    : isAvisoInasistencia
+      ? solicitudState
+      : incidenciaState;
 
   useEffect(() => {
     if (
@@ -5508,11 +6415,7 @@ function DermoIncidenciasSheet({
   }, [incidenciaState.message, incidenciaState.ok, lastSubmittedType, onClose, onSuccess]);
 
   useEffect(() => {
-    if (
-      lastSubmittedType === 'AVISO_INASISTENCIA' &&
-      solicitudState.ok &&
-      solicitudState.message
-    ) {
+    if (lastSubmittedType === 'AVISO_INASISTENCIA' && solicitudState.ok && solicitudState.message) {
       setDetalle('');
       setFechaAviso(getLocalDateValue());
       setTipo('RETARDO');
@@ -5575,7 +6478,6 @@ function DermoIncidenciasSheet({
       title: 'Avisar inasistencia',
       helper: 'Registra el aviso previo que despues habilita la justificacion de falta.',
     },
-
   ];
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -5597,16 +6499,24 @@ function DermoIncidenciasSheet({
       }
     }
 
-    const submitAction = (
-      isExtemporaneo ? extemporaneoAction : isAvisoInasistencia ? solicitudAction : incidenciaAction
-    ) as unknown as (payload: FormData) => void;
+    const submitAction = (isExtemporaneo
+      ? extemporaneoAction
+      : isAvisoInasistencia
+        ? solicitudAction
+        : incidenciaAction) as unknown as (payload: FormData) => void;
     submitAction(formData);
   };
 
   return (
     <form
       id="dermo-incidencias-sheet-form"
-      action={isExtemporaneo ? extemporaneoAction : isAvisoInasistencia ? solicitudAction : incidenciaAction}
+      action={
+        isExtemporaneo
+          ? extemporaneoAction
+          : isAvisoInasistencia
+            ? solicitudAction
+            : incidenciaAction
+      }
       onSubmit={handleSubmit}
       className="space-y-4"
     >
@@ -5778,7 +6688,8 @@ function DermoIncidenciasSheet({
           </SheetField>
 
           <div className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Tu supervisor revisara esta solicitud antes de consolidarla. Solo se aceptan dias con asignacion valida y check-in real.
+            Tu supervisor revisara esta solicitud antes de consolidarla. Solo se aceptan dias con
+            asignacion valida y check-in real.
           </div>
         </>
       ) : isAvisoInasistencia ? (
@@ -5978,7 +6889,8 @@ function DermoComunicacionSheet({
       </SheetField>
 
       <div className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        Este mensaje se enviara directo a Coordinacion y se copiara a Administracion para trazabilidad.
+        Este mensaje se enviara directo a Coordinacion y se copiara a Administracion para
+        trazabilidad.
       </div>
 
       {!canSubmit && (
@@ -6003,35 +6915,6 @@ function DermoComunicacionSheet({
         />
       </div>
     </form>
-  );
-}
-
-function DermoPlaceholderSheet({
-  title,
-  copy,
-  ctaHref,
-  ctaLabel,
-}: {
-  title: string;
-  copy: string;
-  ctaHref?: string;
-  ctaLabel?: string;
-}) {
-  return (
-    <div className="space-y-4">
-      <div className="rounded-[22px] border border-[var(--module-border)] bg-[var(--module-soft-bg)] p-4">
-        <p className="text-base font-semibold text-slate-950">{title}</p>
-        <p className="mt-2 text-sm leading-6 text-slate-600">{copy}</p>
-      </div>
-      {ctaHref && ctaLabel && (
-        <Link
-          href={ctaHref}
-          className="inline-flex min-h-11 items-center justify-center rounded-[14px] border border-[var(--module-border)] bg-white px-4 py-3 text-sm font-semibold text-[var(--module-text)] shadow-sm"
-        >
-          {ctaLabel}
-        </Link>
-      )}
-    </div>
   );
 }
 
@@ -6065,10 +6948,10 @@ function DermoPerfilSheet({
   ];
   const currentValue =
     correctionField === 'CORREO_ELECTRONICO'
-      ? data.profile.correoElectronico ?? 'Sin correo visible'
+      ? (data.profile.correoElectronico ?? 'Sin correo visible')
       : correctionField === 'TELEFONO'
-        ? data.profile.telefono ?? 'Sin telefono visible'
-        : data.store.direccion ?? 'Sin domicilio visible';
+        ? (data.profile.telefono ?? 'Sin telefono visible')
+        : (data.store.direccion ?? 'Sin domicilio visible');
   const evidenceRequired = correctionField !== 'CORREO_ELECTRONICO';
 
   useEffect(() => {
@@ -6121,7 +7004,10 @@ function DermoPerfilSheet({
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {profileRows.map((item) => (
-          <div key={item.label} className="rounded-[18px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+          <div
+            key={item.label}
+            className="rounded-[18px] border border-slate-200 bg-white px-4 py-4 shadow-sm"
+          >
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
               {item.label}
             </p>
@@ -6182,7 +7068,11 @@ function DermoPerfilSheet({
             onSubmit={handleCorrectionSubmit}
             className="mt-4 space-y-4"
           >
-            <input type="hidden" name="cuenta_cliente_id" value={data.context.cuentaClienteId ?? ''} />
+            <input
+              type="hidden"
+              name="cuenta_cliente_id"
+              value={data.context.cuentaClienteId ?? ''}
+            />
             <input type="hidden" name="empleado_id" value={data.context.empleadoId} />
             <input type="hidden" name="campo" value={correctionField} />
             <input type="hidden" name="valor_actual" value={currentValue} />
@@ -6283,7 +7173,8 @@ function DermoPerfilSheet({
                 />
               ) : (
                 <div className="mt-2 rounded-[16px] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-                  Al enviar la solicitud te mandaremos la verificacion al nuevo correo para autenticarlo antes de la correccion administrativa.
+                  Al enviar la solicitud te mandaremos la verificacion al nuevo correo para
+                  autenticarlo antes de la correccion administrativa.
                 </div>
               )}
             </SheetField>
@@ -6303,7 +7194,9 @@ function DermoPerfilSheet({
                 disabled={!data.context.cuentaClienteId || isUploadingR2}
               />
               {isUploadingR2 ? (
-                <p className="mt-2 text-center text-xs text-sky-700">Subiendo evidencia a la nube...</p>
+                <p className="mt-2 text-center text-xs text-sky-700">
+                  Subiendo evidencia a la nube...
+                </p>
               ) : null}
             </div>
           </form>
@@ -6327,7 +7220,8 @@ function NotificationCenterSheet({
       <div className="rounded-[22px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
         <p className="text-sm font-semibold text-slate-950">Centro de notificaciones</p>
         <p className="mt-1 text-sm text-slate-600">
-          Avisos breves y mensajes internos recientes. Puedes revisar y marcar su lectura desde aqui.
+          Avisos breves y mensajes internos recientes. Puedes revisar y marcar su lectura desde
+          aqui.
         </p>
       </div>
 
@@ -6338,12 +7232,17 @@ function NotificationCenterSheet({
       ) : (
         <div className="space-y-3">
           {notifications.items.map((item) => (
-            <div key={item.id} className="rounded-[20px] border border-slate-200 bg-white px-4 py-4 shadow-sm">
+            <div
+              key={item.id}
+              className="rounded-[20px] border border-slate-200 bg-white px-4 py-4 shadow-sm"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-950">{item.titulo}</p>
                   <p className="mt-1 text-xs text-slate-500">{formatDateTime(item.createdAt)}</p>
-                  {item.remitente && <p className="mt-1 text-xs text-slate-500">De: {item.remitente}</p>}
+                  {item.remitente && (
+                    <p className="mt-1 text-xs text-slate-500">De: {item.remitente}</p>
+                  )}
                 </div>
                 <span
                   className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold ${
@@ -6602,13 +7501,19 @@ function DermoCampanaSheet({
   }
 
   return (
-    <form id="dermo-campana-sheet-form" action={formAction} onSubmit={handleSubmit} className="space-y-4">
+    <form
+      id="dermo-campana-sheet-form"
+      action={formAction}
+      onSubmit={handleSubmit}
+      className="space-y-4"
+    >
       <input type="hidden" name="campana_pdv_id" value={data.activeCampaign.campanaPdvId} />
 
       <div className="rounded-[22px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-lime-50 to-amber-50 px-4 py-4 text-emerald-950">
         <p className="text-sm font-semibold text-slate-950">{data.activeCampaign.nombre}</p>
         <p className="mt-1 text-sm text-emerald-900">
-          Carga la evidencia del dia para tu punto de venta actual y sigue el manual de mercadeo de la campaña.
+          Carga la evidencia del dia para tu punto de venta actual y sigue el manual de mercadeo de
+          la campaña.
         </p>
         <p className="mt-2 text-xs font-medium text-amber-800">
           Vigencia: {formatDateLabel(data.activeCampaign.fechaInicio)} a{' '}
@@ -6619,7 +7524,9 @@ function DermoCampanaSheet({
         )}
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div className="rounded-[16px] border border-emerald-100 bg-white/85 px-3 py-3 text-xs text-emerald-950 shadow-sm">
-            <p className="font-semibold uppercase tracking-[0.14em] text-emerald-700">Productos foco</p>
+            <p className="font-semibold uppercase tracking-[0.14em] text-emerald-700">
+              Productos foco
+            </p>
             <div className="mt-2 space-y-1">
               {data.activeCampaign.productosFoco.length > 0 ? (
                 data.activeCampaign.productosFoco.map((item) => <div key={item}>{item}</div>)
@@ -6800,7 +7707,8 @@ function SupervisorApprovalSheet({
         )}
         {item.tipo === 'JUSTIFICACION_FALTA' && (
           <div className="mt-3 rounded-[16px] border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
-            Esta falta solo puede justificarse si existio aviso previo de inasistencia y la receta del IMSS es valida.
+            Esta falta solo puede justificarse si existio aviso previo de inasistencia y la receta
+            del IMSS es valida.
           </div>
         )}
         {item.tipo === 'JUSTIFICACION_FALTA' && item.resolverAntesDe && (
@@ -6899,7 +7807,13 @@ function SheetSubmitButton({
   const { pending } = useFormStatus();
 
   return (
-    <Button type="submit" form={form} size="lg" disabled={disabled || pending} className={className}>
+    <Button
+      type="submit"
+      form={form}
+      size="lg"
+      disabled={disabled || pending}
+      className={className}
+    >
       {pending ? pendingLabel : label}
     </Button>
   );
@@ -7075,7 +7989,7 @@ function CompactMetric({
   value: string;
   tone?: 'slate' | 'amber';
 }) {
-  const valueToneClass = tone === 'amber' ? 'text-amber-800' : 'text-slate-950'
+  const valueToneClass = tone === 'amber' ? 'text-amber-800' : 'text-slate-950';
 
   return (
     <SharedMetricCard
@@ -7164,7 +8078,9 @@ function LiveAlertRow({ item }: { item: DashboardLiveAlertItem }) {
       <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-base font-semibold text-slate-950">
-            {item.tipo === 'IMSS_PENDIENTE' || item.tipo === 'DC_SIN_PDV' ? item.empleado : item.pdv}
+            {item.tipo === 'IMSS_PENDIENTE' || item.tipo === 'DC_SIN_PDV'
+              ? item.empleado
+              : item.pdv}
           </p>
           <p className="text-sm text-slate-600">
             {item.tipo === 'IMSS_PENDIENTE'

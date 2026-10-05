@@ -1,9 +1,9 @@
-import { getIsoDateInMexicoCity } from '@/lib/geo/mexicoStateTimezone'
+import { getIsoDateInMexicoCity } from '@/lib/geo/mexicoStateTimezone';
 
 export interface WeekDayOption {
-  value: number
-  label: string
-  shortLabel: string
+  value: number;
+  label: string;
+  shortLabel: string;
 }
 
 export const WEEK_DAY_OPTIONS: WeekDayOption[] = [
@@ -14,69 +14,70 @@ export const WEEK_DAY_OPTIONS: WeekDayOption[] = [
   { value: 5, label: 'Viernes', shortLabel: 'VIE' },
   { value: 6, label: 'Sabado', shortLabel: 'SAB' },
   { value: 7, label: 'Domingo', shortLabel: 'DOM' },
-]
+];
 
 function toUtcDate(value?: string | Date) {
   if (value instanceof Date) {
-    return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()))
+    return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
   }
 
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return new Date(`${value}T00:00:00.000Z`)
+    return new Date(`${value}T00:00:00.000Z`);
   }
 
-  const today = getIsoDateInMexicoCity()
-  return new Date(`${today}T00:00:00.000Z`)
+  const today = getIsoDateInMexicoCity();
+  return new Date(`${today}T00:00:00.000Z`);
 }
 
 function toIsoDate(value: Date) {
-  return value.toISOString().slice(0, 10)
+  return value.toISOString().slice(0, 10);
 }
 
 export function getWeekStartIso(value?: string | Date) {
-  const date = toUtcDate(value)
-  const day = date.getUTCDay() || 7
-  date.setUTCDate(date.getUTCDate() - day + 1)
-  return toIsoDate(date)
+  const date = toUtcDate(value);
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() - day + 1);
+  return toIsoDate(date);
 }
 
 export function getWeekEndIso(weekStart: string) {
-  const date = toUtcDate(weekStart)
-  date.setUTCDate(date.getUTCDate() + 6)
-  return toIsoDate(date)
+  const date = toUtcDate(weekStart);
+  date.setUTCDate(date.getUTCDate() + 6);
+  return toIsoDate(date);
 }
 
 export function getWeekDateIso(weekStart: string, dayNumber: number) {
-  const normalizedDayNumber = Number.isInteger(dayNumber) ? dayNumber : 1
-  const safeDayNumber = Math.min(Math.max(normalizedDayNumber, 1), 7)
-  const date = toUtcDate(weekStart)
-  date.setUTCDate(date.getUTCDate() + (safeDayNumber - 1))
-  return toIsoDate(date)
+  const normalizedDayNumber = Number.isInteger(dayNumber) ? dayNumber : 1;
+  const safeDayNumber = Math.min(Math.max(normalizedDayNumber, 1), 7);
+  const date = toUtcDate(weekStart);
+  date.setUTCDate(date.getUTCDate() + (safeDayNumber - 1));
+  return toIsoDate(date);
 }
 
 export function getNextWeekStartIso(value?: string | Date) {
-  const currentWeekStart = toUtcDate(getWeekStartIso(value))
-  currentWeekStart.setUTCDate(currentWeekStart.getUTCDate() + 7)
-  return toIsoDate(currentWeekStart)
+  const currentWeekStart = toUtcDate(getWeekStartIso(value));
+  currentWeekStart.setUTCDate(currentWeekStart.getUTCDate() + 7);
+  return toIsoDate(currentWeekStart);
 }
 
 export function getPreviousWeekStartIso(value?: string | Date) {
-  const currentWeekStart = toUtcDate(getWeekStartIso(value))
-  currentWeekStart.setUTCDate(currentWeekStart.getUTCDate() - 7)
-  return toIsoDate(currentWeekStart)
+  const currentWeekStart = toUtcDate(getWeekStartIso(value));
+  currentWeekStart.setUTCDate(currentWeekStart.getUTCDate() - 7);
+  return toIsoDate(currentWeekStart);
 }
 
 export function getWeekDayLabel(dayNumber: number) {
-  return WEEK_DAY_OPTIONS.find((item) => item.value === dayNumber)?.label ?? 'Sin dia'
+  return WEEK_DAY_OPTIONS.find((item) => item.value === dayNumber)?.label ?? 'Sin dia';
 }
 
 export function getWeekDayShortLabel(dayNumber: number) {
-  return WEEK_DAY_OPTIONS.find((item) => item.value === dayNumber)?.shortLabel ?? 'NA'
+  return WEEK_DAY_OPTIONS.find((item) => item.value === dayNumber)?.shortLabel ?? 'NA';
 }
 
 export function normalizeWeekStart(value?: string | Date) {
-  const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined
-  return getWeekStartIso(normalized ?? value)
+  const normalized =
+    typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
+  return getWeekStartIso(normalized ?? value);
 }
 
 export function rangesOverlapIso(
@@ -85,34 +86,59 @@ export function rangesOverlapIso(
   rightStart: string,
   rightEnd: string | null
 ) {
-  const normalizedLeftEnd = leftEnd ?? leftStart
-  const normalizedRightEnd = rightEnd ?? rightStart
+  const normalizedLeftEnd = leftEnd ?? '9999-12-31';
+  const normalizedRightEnd = rightEnd ?? '9999-12-31';
 
-  return leftStart <= normalizedRightEnd && rightStart <= normalizedLeftEnd
+  return leftStart <= normalizedRightEnd && rightStart <= normalizedLeftEnd;
 }
 
 export function isAssignmentActiveForWeek(
   item: {
-    fecha_inicio: string
-    fecha_fin: string | null
-    estado_publicacion?: string | null
+    fecha_inicio: string;
+    fecha_fin: string | null;
+    estado_publicacion?: string | null;
   },
   weekStart: string,
   weekEnd: string
 ) {
-  return Boolean(
-    item.estado_publicacion === undefined ||
+  return (
+    Boolean(
+      item.estado_publicacion === undefined ||
       item.estado_publicacion === null ||
       item.estado_publicacion === 'PUBLICADA'
-  ) && rangesOverlapIso(item.fecha_inicio, item.fecha_fin, weekStart, weekEnd)
+    ) && rangesOverlapIso(item.fecha_inicio, item.fecha_fin, weekStart, weekEnd)
+  );
+}
+
+export function isAssignmentActiveForMonth(
+  item: {
+    fecha_inicio: string;
+    fecha_fin: string | null;
+    estado_publicacion?: string | null;
+  },
+  monthIso: string
+) {
+  const monthKey = monthIso.slice(0, 7);
+  const monthStart = `${monthKey}-01`;
+  const [year, month] = monthKey.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const monthEnd = `${monthKey}-${String(lastDay).padStart(2, '0')}`;
+
+  return (
+    Boolean(
+      item.estado_publicacion === undefined ||
+      item.estado_publicacion === null ||
+      item.estado_publicacion === 'PUBLICADA'
+    ) && rangesOverlapIso(item.fecha_inicio, item.fecha_fin, monthStart, monthEnd)
+  );
 }
 
 export function sortWeeklyVisits<T extends { diaSemana: number; orden: number }>(items: T[]) {
   return [...items].sort((left, right) => {
     if (left.diaSemana !== right.diaSemana) {
-      return left.diaSemana - right.diaSemana
+      return left.diaSemana - right.diaSemana;
     }
 
-    return left.orden - right.orden
-  })
+    return left.orden - right.orden;
+  });
 }

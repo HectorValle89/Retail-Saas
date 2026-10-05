@@ -82,11 +82,13 @@ No restrictions on content. Best practices:
 - May be patched by Claude
 
 **Examples**:
+
 - `rotate_pdf.py` - PDF manipulation
 - `validate_input.py` - Data validation
 - `sync_database.sh` - Database operations
 
 **Requirements**:
+
 - Include `--help` support
 - Add docstrings/comments
 - Handle errors gracefully
@@ -101,12 +103,14 @@ No restrictions on content. Best practices:
 - Always discoverable
 
 **Examples**:
+
 - `api_docs.md` - API specifications
 - `schemas.md` - Data models
 - `policies.md` - Company policies
 - `examples.md` - Usage examples
 
 **Best practices**:
+
 - Include search patterns in SKILL.md
 - Document thoroughly
 - Provide examples
@@ -121,6 +125,7 @@ No restrictions on content. Best practices:
 - Not loaded into context window
 
 **Examples**:
+
 - `template.html` - HTML template
 - `logo.png` - Brand logo
 - `default-font.ttf` - Typography
@@ -153,6 +158,7 @@ Level 3: BUNDLED RESOURCES (On demand)
 ## Naming Conventions
 
 **Skills**: `kebab-case`
+
 ```
 ✓ pdf-rotator
 ✓ brand-guidelines
@@ -162,6 +168,7 @@ Level 3: BUNDLED RESOURCES (On demand)
 ```
 
 **Scripts**: `action_noun.py`
+
 ```
 ✓ rotate_pdf.py
 ✓ validate_schema.py
@@ -171,6 +178,7 @@ Level 3: BUNDLED RESOURCES (On demand)
 ```
 
 **References**: `descriptive_name.md`
+
 ```
 ✓ api_docs.md
 ✓ database_schema.md
@@ -180,6 +188,7 @@ Level 3: BUNDLED RESOURCES (On demand)
 ```
 
 **Files**: `kebab-case.extension`
+
 ```
 ✓ config-template.json
 ✓ brand-colors.yaml
@@ -266,6 +275,7 @@ Skills are typically distributed as `.zip` files:
 ### Auto-Discovery
 
 Claude automatically:
+
 - Detects installed skills
 - Reads metadata (name, description)
 - Activates when relevant
@@ -279,5 +289,5 @@ Claude automatically:
 
 ---
 
-*SaaS Factory Skills Implementation v1.0*
-*Based on Anthropic Agent Skills Spec v1.0 (2025-10-16)*
+_SaaS Factory Skills Implementation v1.0_
+_Based on Anthropic Agent Skills Spec v1.0 (2025-10-16)_

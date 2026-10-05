@@ -1,24 +1,24 @@
-import { expect, test } from '@playwright/test'
-import { obtenerPanelLoveIsdin } from '../src/features/love-isdin/services/loveIsdinService'
+import { expect, test } from '@playwright/test';
+import { obtenerPanelLoveIsdin } from '../src/features/love-isdin/services/loveIsdinService';
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+};
 
-type FakeResults = Record<string, QueryResult>
+type FakeResults = Record<string, QueryResult>;
 
 function createFakeLoveIsdinClient(results: FakeResults) {
   return {
     from(table: string) {
-      const entry = results[table] ?? { data: null, error: null }
+      const entry = results[table] ?? { data: null, error: null };
 
       const chain = {
         select(
           _columns?: string,
           options?: {
-            count?: 'exact' | 'planned' | 'estimated'
-            head?: boolean
+            count?: 'exact' | 'planned' | 'estimated';
+            head?: boolean;
           }
         ) {
           if (options?.head) {
@@ -26,50 +26,50 @@ function createFakeLoveIsdinClient(results: FakeResults) {
               data: null,
               error: entry.error,
               count: Array.isArray(entry.data) ? entry.data.length : 0,
-            })
+            });
           }
 
-          return chain
+          return chain;
         },
         eq() {
-          return chain
+          return chain;
         },
         gte() {
-          return chain
+          return chain;
         },
         lte() {
-          return chain
+          return chain;
         },
         is() {
-          return chain
+          return chain;
         },
         in() {
-          return chain
+          return chain;
         },
         order() {
-          return chain
+          return chain;
         },
         range() {
-          return Promise.resolve(entry)
+          return Promise.resolve(entry);
         },
         limit() {
-          return chain
+          return chain;
         },
         maybeSingle() {
-          return Promise.resolve(entry)
+          return Promise.resolve(entry);
         },
         then(resolve: (value: QueryResult) => void) {
-          return Promise.resolve(entry).then(resolve)
+          return Promise.resolve(entry).then(resolve);
         },
-      }
+      };
 
-      return chain
+      return chain;
     },
-  }
+  };
 }
 
 test('consolida afiliaciones LOVE ISDIN, QR oficial y agregados por PDV/DC', async () => {
-  const todayIso = new Date().toISOString().slice(0, 10)
+  const todayIso = new Date().toISOString().slice(0, 10);
   const fakeClient = createFakeLoveIsdinClient({
     love_isdin: {
       data: [
@@ -260,8 +260,20 @@ test('consolida afiliaciones LOVE ISDIN, QR oficial y agregados por PDV/DC', asy
     },
     pdv: {
       data: [
-        { id: 'pdv-1', clave_btl: 'CLAVE-001', nombre: 'Farmacia Centro', zona: 'Centro', cadena_id: 'cadena-1' },
-        { id: 'pdv-2', clave_btl: 'CLAVE-002', nombre: 'Farmacia Norte', zona: 'Norte', cadena_id: 'cadena-2' },
+        {
+          id: 'pdv-1',
+          clave_btl: 'CLAVE-001',
+          nombre: 'Farmacia Centro',
+          zona: 'Centro',
+          cadena_id: 'cadena-1',
+        },
+        {
+          id: 'pdv-2',
+          clave_btl: 'CLAVE-002',
+          nombre: 'Farmacia Norte',
+          zona: 'Norte',
+          cadena_id: 'cadena-2',
+        },
       ],
       error: null,
     },
@@ -281,7 +293,12 @@ test('consolida afiliaciones LOVE ISDIN, QR oficial y agregados por PDV/DC', asy
     },
     love_isdin_qr_codigo: {
       data: [
-        { id: 'qr-1', codigo: 'QR-LOVE-001', imagen_url: 'https://example.com/qr-1.png', estado: 'ACTIVO' },
+        {
+          id: 'qr-1',
+          codigo: 'QR-LOVE-001',
+          imagen_url: 'https://example.com/qr-1.png',
+          estado: 'ACTIVO',
+        },
         { id: 'qr-2', codigo: 'QR-LOVE-002', imagen_url: null, estado: 'DISPONIBLE' },
       ],
       error: null,
@@ -319,47 +336,49 @@ test('consolida afiliaciones LOVE ISDIN, QR oficial y agregados por PDV/DC', asy
       ],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelLoveIsdin(fakeClient as never, { serviceClient: fakeClient as never })
+  const data = await obtenerPanelLoveIsdin(fakeClient as never, {
+    serviceClient: fakeClient as never,
+  });
 
-  expect(data.afiliaciones).toHaveLength(3)
+  expect(data.afiliaciones).toHaveLength(3);
   expect(data.resumen).toEqual({
     total: 3,
     validas: 1,
     pendientes: 1,
     rechazadas: 1,
     afiliacionesHoy: 2,
-  })
+  });
   expect(data.afiliaciones[0]).toMatchObject({
     empleado: 'Ana',
     tieneEvidencia: true,
     afiliacionesHoyEmpleado: 2,
-  })
+  });
   expect(data.afiliacionesKpi).toEqual({
     hoy: 2,
     semana: 2,
     mes: 3,
     validasMes: 1,
     pendientesMes: 1,
-  })
+  });
   expect(data.porPdv[0]).toMatchObject({
     label: 'CLAVE-001 - Farmacia Centro',
     total: 2,
-  })
+  });
   expect(data.timelineSemanal[0]).toMatchObject({
     total: 1,
-  })
+  });
   expect(data.qrResumen).toMatchObject({
     activos: 1,
     disponibles: 1,
     dcActivasConQr: 1,
-  })
-  expect(data.jornadasContexto).toHaveLength(1)
-  expect(data.cuentas).toHaveLength(2)
-  expect(data.empleados).toHaveLength(3)
-  expect(data.pdvs).toHaveLength(2)
-})
+  });
+  expect(data.jornadasContexto).toHaveLength(1);
+  expect(data.cuentas).toHaveLength(2);
+  expect(data.empleados).toHaveLength(3);
+  expect(data.pdvs).toHaveLength(2);
+});
 
 test('degrada con mensaje de infraestructura cuando falla consulta', async () => {
   const fakeClient = createFakeLoveIsdinClient({
@@ -368,10 +387,12 @@ test('degrada con mensaje de infraestructura cuando falla consulta', async () =>
     empleado: { data: [], error: null },
     pdv: { data: [], error: null },
     cuenta_cliente: { data: [], error: null },
-  })
+  });
 
-  const data = await obtenerPanelLoveIsdin(fakeClient as never, { serviceClient: fakeClient as never })
+  const data = await obtenerPanelLoveIsdin(fakeClient as never, {
+    serviceClient: fakeClient as never,
+  });
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.mensajeInfraestructura).toContain('tabla `love_isdin`')
-})
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.mensajeInfraestructura).toContain('tabla `love_isdin`');
+});

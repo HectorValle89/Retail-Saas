@@ -1,14 +1,14 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
-import { ACTIVE_ACCOUNT_COOKIE } from '@/lib/tenant/accountScope'
-import { requireRuntimeEnv } from '@/lib/runtime/env'
-import { resolveLogoutRedirectUrl } from './redirect'
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { NextResponse, type NextRequest } from 'next/server';
+import { ACTIVE_ACCOUNT_COOKIE } from '@/lib/tenant/accountScope';
+import { requireRuntimeEnv } from '@/lib/runtime/env';
+import { resolveLogoutRedirectUrl } from './redirect';
 
 type CookieToSet = {
-  name: string
-  value: string
-  options: CookieOptions
-}
+  name: string;
+  value: string;
+  options: CookieOptions;
+};
 
 function expireSessionCookies(request: NextRequest, response: NextResponse) {
   request.cookies
@@ -19,13 +19,13 @@ function expireSessionCookies(request: NextRequest, response: NextResponse) {
         expires: new Date(0),
         maxAge: 0,
         path: '/',
-      })
-    })
+      });
+    });
 }
 
 export async function GET(request: NextRequest) {
-  const loginUrl = resolveLogoutRedirectUrl(request)
-  const response = NextResponse.redirect(loginUrl)
+  const loginUrl = resolveLogoutRedirectUrl(request);
+  const response = NextResponse.redirect(loginUrl);
 
   const supabase = createServerClient(
     requireRuntimeEnv('NEXT_PUBLIC_SUPABASE_URL'),
@@ -33,23 +33,23 @@ export async function GET(request: NextRequest) {
     {
       cookies: {
         getAll() {
-          return request.cookies.getAll()
+          return request.cookies.getAll();
         },
         setAll(cookiesToSet: CookieToSet[]) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options)
-          )
+          );
         },
       },
     }
-  )
+  );
 
   try {
-    await supabase.auth.signOut()
+    await supabase.auth.signOut();
   } finally {
-    expireSessionCookies(request, response)
+    expireSessionCookies(request, response);
   }
 
-  return response
+  return response;
 }

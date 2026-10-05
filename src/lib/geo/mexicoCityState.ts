@@ -41,7 +41,7 @@ const MEXICO_CITY_STATE_ALIASES = new Map<string, string>([
   ['TOLUCA', 'ESTADO DE MEXICO'],
   ['TOLUCA DE LERDO', 'ESTADO DE MEXICO'],
   ['AZCAPOTZALCO', 'CIUDAD DE MEXICO'],
-])
+]);
 
 export function normalizeMexicoCatalogText(value: string | null | undefined) {
   const normalized = String(value ?? '')
@@ -50,16 +50,16 @@ export function normalizeMexicoCatalogText(value: string | null | undefined) {
     .replace(/[.,]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .toUpperCase()
+    .toUpperCase();
 
-  return normalized || null
+  return normalized || null;
 }
 
 export function resolveMexicoStateFromCity(cityName: string | null | undefined) {
-  const normalized = normalizeMexicoCatalogText(cityName)
+  const normalized = normalizeMexicoCatalogText(cityName);
   if (!normalized) {
-    return null
+    return null;
   }
 
-  return MEXICO_CITY_STATE_ALIASES.get(normalized) ?? null
+  return MEXICO_CITY_STATE_ALIASES.get(normalized) ?? null;
 }

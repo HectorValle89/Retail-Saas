@@ -1,15 +1,15 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ArchivoHash } from '@/types/database'
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ArchivoHash } from '@/types/database';
 import {
   buildOperationalDocumentUploadLimitMessage,
   exceedsOperationalDocumentUploadLimit,
   optimizeExpedienteDocument,
   type DocumentOptimizationResult,
-} from './documentOptimization'
-import { computeSHA256 } from './sha256'
+} from './documentOptimization';
+import { computeSHA256 } from './sha256';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TypedSupabaseClient = SupabaseClient<any>
+type TypedSupabaseClient = SupabaseClient<any>;
 
 type ArchivoHashStorageRow = Pick<
   ArchivoHash,
@@ -20,30 +20,30 @@ type ArchivoHashStorageRow = Pick<
   | 'miniatura_sha256'
   | 'miniatura_bucket'
   | 'miniatura_ruta_archivo'
->
+>;
 
 export interface StoredEvidenceAsset {
-  url: string
-  hash: string
+  url: string;
+  hash: string;
 }
 
 export interface StoredEvidenceResult {
-  archivo: StoredEvidenceAsset
-  miniatura: StoredEvidenceAsset | null
-  optimization: DocumentOptimizationResult
-  deduplicated: boolean
+  archivo: StoredEvidenceAsset;
+  miniatura: StoredEvidenceAsset | null;
+  optimization: DocumentOptimizationResult;
+  deduplicated: boolean;
 }
 
 interface StoreOptimizedEvidenceInput {
-  service: TypedSupabaseClient
-  bucket: string
-  actorUsuarioId: string
-  storagePrefix: string
-  file: File
+  service: TypedSupabaseClient;
+  bucket: string;
+  actorUsuarioId: string | null;
+  storagePrefix: string;
+  file: File;
 }
 
 function buildStorageUrl(bucket: string, route: string) {
-  return `${bucket}/${route}`
+  return `${bucket}/${route}`;
 }
 
 export async function storeOptimizedEvidence({
@@ -54,16 +54,16 @@ export async function storeOptimizedEvidence({
   file,
 }: StoreOptimizedEvidenceInput): Promise<StoredEvidenceResult> {
   if (exceedsOperationalDocumentUploadLimit(file)) {
-    throw new Error(buildOperationalDocumentUploadLimitMessage('PDF', file))
+    throw new Error(buildOperationalDocumentUploadLimitMessage('PDF', file));
   }
 
   const optimization = await optimizeExpedienteDocument({
     buffer: Buffer.from(await file.arrayBuffer()),
     mimeType: file.type || 'application/octet-stream',
     fileName: file.name,
-  })
+  });
 
-  const sha256 = await computeSHA256(optimization.buffer)
+  const sha256 = await computeSHA256(optimization.buffer);
 
   const { data: existingRaw } = await service
     .from('archivo_hash')
@@ -71,43 +71,45 @@ export async function storeOptimizedEvidence({
       'id, sha256, bucket, ruta_archivo, miniatura_sha256, miniatura_bucket, miniatura_ruta_archivo'
     )
     .eq('sha256', sha256)
-    .maybeSingle()
+    .maybeSingle();
 
-  let archivoHash = existingRaw as ArchivoHashStorageRow | null
+  let archivoHash = existingRaw as ArchivoHashStorageRow | null;
 
   if (!archivoHash) {
-    const fileRoute = `${storagePrefix}/${sha256}.${optimization.extension}`
+    const fileRoute = `${storagePrefix}/${sha256}.${optimization.extension}`;
 
-    const { error: uploadError } = await service.storage.from(bucket).upload(fileRoute, optimization.buffer, {
-      contentType: optimization.mimeType,
-      upsert: false,
-    })
+    const { error: uploadError } = await service.storage
+      .from(bucket)
+      .upload(fileRoute, optimization.buffer, {
+        contentType: optimization.mimeType,
+        upsert: true,
+      });
 
     if (uploadError) {
-      throw new Error(uploadError.message)
+      throw new Error(uploadError.message);
     }
 
     let thumbnailPayload: {
-      sha256: string
-      bucket: string
-      route: string
-      mimeType: string
-      bytes: number
-    } | null = null
+      sha256: string;
+      bucket: string;
+      route: string;
+      mimeType: string;
+      bytes: number;
+    } | null = null;
 
     if (optimization.thumbnail) {
-      const thumbnailSha = await computeSHA256(optimization.thumbnail.buffer)
-      const thumbnailRoute = `${storagePrefix}/${sha256}-thumb.${optimization.thumbnail.extension}`
+      const thumbnailSha = await computeSHA256(optimization.thumbnail.buffer);
+      const thumbnailRoute = `${storagePrefix}/${sha256}-thumb.${optimization.thumbnail.extension}`;
 
       const { error: thumbnailUploadError } = await service.storage
         .from(bucket)
         .upload(thumbnailRoute, optimization.thumbnail.buffer, {
           contentType: optimization.thumbnail.mimeType,
-          upsert: false,
-        })
+          upsert: true,
+        });
 
       if (thumbnailUploadError) {
-        throw new Error(thumbnailUploadError.message)
+        throw new Error(thumbnailUploadError.message);
       }
 
       thumbnailPayload = {
@@ -116,7 +118,7 @@ export async function storeOptimizedEvidence({
         route: thumbnailRoute,
         mimeType: optimization.thumbnail.mimeType,
         bytes: optimization.thumbnail.bytes,
-      }
+      };
     }
 
     const { data: insertedHashRaw, error: insertHashError } = await service
@@ -137,27 +139,26 @@ export async function storeOptimizedEvidence({
       .select(
         'id, sha256, bucket, ruta_archivo, miniatura_sha256, miniatura_bucket, miniatura_ruta_archivo'
       )
-      .maybeSingle()
+      .maybeSingle();
 
     if (insertHashError || !insertedHashRaw) {
-      throw new Error(insertHashError?.message ?? 'No fue posible registrar el hash del archivo.')
+      throw new Error(insertHashError?.message ?? 'No fue posible registrar el hash del archivo.');
     }
 
-    archivoHash = insertedHashRaw as ArchivoHashStorageRow
+    archivoHash = insertedHashRaw as ArchivoHashStorageRow;
   } else if (optimization.thumbnail && !archivoHash.miniatura_ruta_archivo) {
-    const thumbnailSha = await computeSHA256(optimization.thumbnail.buffer)
-    const thumbnailRoute = `${storagePrefix}/${sha256}-thumb.${optimization.thumbnail.extension}`
+    const thumbnailSha = await computeSHA256(optimization.thumbnail.buffer);
+    const thumbnailRoute = `${storagePrefix}/${sha256}-thumb.${optimization.thumbnail.extension}`;
 
-    const { error: thumbnailUploadError } = await service
-      .storage
+    const { error: thumbnailUploadError } = await service.storage
       .from(bucket)
       .upload(thumbnailRoute, optimization.thumbnail.buffer, {
         contentType: optimization.thumbnail.mimeType,
         upsert: false,
-      })
+      });
 
     if (thumbnailUploadError && !/already exists/i.test(thumbnailUploadError.message)) {
-      throw new Error(thumbnailUploadError.message)
+      throw new Error(thumbnailUploadError.message);
     }
 
     const { error: updateHashError } = await service
@@ -169,10 +170,10 @@ export async function storeOptimizedEvidence({
         miniatura_mime_type: optimization.thumbnail.mimeType,
         miniatura_tamano_bytes: optimization.thumbnail.bytes,
       })
-      .eq('id', archivoHash.id)
+      .eq('id', archivoHash.id);
 
     if (updateHashError) {
-      throw new Error(updateHashError.message)
+      throw new Error(updateHashError.message);
     }
 
     archivoHash = {
@@ -180,7 +181,7 @@ export async function storeOptimizedEvidence({
       miniatura_sha256: thumbnailSha,
       miniatura_bucket: bucket,
       miniatura_ruta_archivo: thumbnailRoute,
-    }
+    };
   }
 
   return {
@@ -189,7 +190,9 @@ export async function storeOptimizedEvidence({
       hash: archivoHash.sha256,
     },
     miniatura:
-      archivoHash.miniatura_bucket && archivoHash.miniatura_ruta_archivo && archivoHash.miniatura_sha256
+      archivoHash.miniatura_bucket &&
+      archivoHash.miniatura_ruta_archivo &&
+      archivoHash.miniatura_sha256
         ? {
             url: buildStorageUrl(archivoHash.miniatura_bucket, archivoHash.miniatura_ruta_archivo),
             hash: archivoHash.miniatura_sha256,
@@ -197,5 +200,5 @@ export async function storeOptimizedEvidence({
         : null,
     optimization,
     deduplicated: Boolean(existingRaw),
-  }
+  };
 }

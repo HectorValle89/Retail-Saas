@@ -1,46 +1,49 @@
-import { NextResponse } from 'next/server'
-import { obtenerActorActual } from '@/lib/auth/session'
-import { createServiceClient } from '@/lib/supabase/server'
+import { NextResponse } from 'next/server';
+import { obtenerActorActual } from '@/lib/auth/session';
+import { createServiceClient } from '@/lib/supabase/server';
 import {
   registerLoveAffiliationWithService,
   registrarLoveAuditEvent,
-} from '@/features/love-isdin/lib/loveRegistration'
+} from '@/features/love-isdin/lib/loveRegistration';
 
 function normalizePayload(value: FormDataEntryValue | null) {
-  const raw = String(value ?? '').trim()
+  const raw = String(value ?? '').trim();
 
   if (!raw) {
-    throw new Error('El payload de LOVE ISDIN es obligatorio.')
+    throw new Error('El payload de LOVE ISDIN es obligatorio.');
   }
 
   try {
-    const parsed = JSON.parse(raw)
+    const parsed = JSON.parse(raw);
 
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error('Payload invalido.')
+      throw new Error('Payload invalido.');
     }
 
-    return parsed as Record<string, unknown>
+    return parsed as Record<string, unknown>;
   } catch {
-    throw new Error('No fue posible leer el payload offline de LOVE ISDIN.')
+    throw new Error('No fue posible leer el payload offline de LOVE ISDIN.');
   }
 }
 
 function asString(value: unknown) {
-  const normalized = typeof value === 'string' ? value.trim() : ''
-  return normalized || null
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized || null;
 }
 
 export async function POST(request: Request) {
-  const actor = await obtenerActorActual()
+  const actor = await obtenerActorActual();
 
   if (!actor || actor.estadoCuenta !== 'ACTIVA') {
-    return NextResponse.json({ error: 'La sesion activa no es valida para sincronizar LOVE ISDIN.' }, { status: 401 })
+    return NextResponse.json(
+      { error: 'La sesion activa no es valida para sincronizar LOVE ISDIN.' },
+      { status: 401 }
+    );
   }
 
-  const formData = await request.formData()
-  const payload = normalizePayload(formData.get('payload'))
-  const service = createServiceClient()
+  const formData = await request.formData();
+  const payload = normalizePayload(formData.get('payload'));
+  const service = createServiceClient();
 
   try {
     const result = await registerLoveAffiliationWithService(service, {
@@ -55,12 +58,14 @@ export async function POST(request: Request) {
       fechaUtc: asString(payload.fecha_utc) ?? new Date().toISOString(),
       origen: 'OFFLINE_SYNC',
       metadata: {
-        ...(payload.metadata && typeof payload.metadata === 'object' && !Array.isArray(payload.metadata)
+        ...(payload.metadata &&
+        typeof payload.metadata === 'object' &&
+        !Array.isArray(payload.metadata)
           ? (payload.metadata as Record<string, unknown>)
           : {}),
         sincronizado_desde: 'api_love_isdin_sync',
       },
-    })
+    });
 
     if (result.inserted) {
       await registrarLoveAuditEvent(service, {
@@ -76,21 +81,20 @@ export async function POST(request: Request) {
           qr_codigo_id: result.context.qr.codigoId,
           qr_asignacion_id: result.context.qr.asignacionId,
         },
-      })
+      });
     }
 
     return NextResponse.json({
       ok: true,
       id: result.id,
       inserted: result.inserted,
-    })
+    });
   } catch (error) {
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : 'No fue posible sincronizar LOVE ISDIN.',
       },
       { status: 400 }
-    )
+    );
   }
 }
-

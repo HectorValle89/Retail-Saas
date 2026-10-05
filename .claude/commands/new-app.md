@@ -12,6 +12,7 @@ Haz estas preguntas **una por una**, esperando la respuesta antes de continuar. 
 ---
 
 ### PREGUNTA 1: El Dolor 📉
+
 ```
 ¿Qué proceso de negocio está roto, es lento o costoso hoy?
 
@@ -21,6 +22,7 @@ Ejemplo: "Las inmobiliarias pierden 4 horas al día copiando datos de Excel a co
 ```
 
 **Si la respuesta es vaga**, pregunta:
+
 - ¿Quién sufre este problema específicamente? (rol)
 - ¿Con qué frecuencia ocurre? (diario, semanal, mensual)
 - ¿Qué hacen actualmente para "parchar" el problema?
@@ -28,6 +30,7 @@ Ejemplo: "Las inmobiliarias pierden 4 horas al día copiando datos de Excel a co
 ---
 
 ### PREGUNTA 2: El Costo 💸
+
 ```
 ¿Cuánto cuesta este problema actualmente?
 
@@ -42,6 +45,7 @@ Ejemplos:
 ---
 
 ### PREGUNTA 3: La Solución 🛠️
+
 ```
 En UNA SOLA FRASE, ¿qué hace tu herramienta?
 
@@ -53,6 +57,7 @@ Ejemplo: "Un generador automático de contratos legales para inmobiliarias basad
 ---
 
 ### PREGUNTA 4: El Flujo (Happy Path) 🔄
+
 ```
 Describe paso a paso qué hace el usuario:
 
@@ -71,6 +76,7 @@ Ejemplo:
 ---
 
 ### PREGUNTA 5: El Usuario 👔
+
 ```
 ¿Quién va a usar esto ESPECÍFICAMENTE?
 
@@ -85,6 +91,7 @@ Ejemplos:
 ---
 
 ### PREGUNTA 6: Los Datos 💾
+
 ```
 ¿Qué información ENTRA al sistema?
 (Archivos, textos, formularios, APIs...)
@@ -96,6 +103,7 @@ Ejemplos:
 ---
 
 ### PREGUNTA 7: El Éxito (KPI) 🎯
+
 ```
 ¿Qué resultado MEDIBLE define el éxito de la primera versión?
 
@@ -117,45 +125,56 @@ Una vez completada la entrevista, **genera el archivo `BUSINESS_LOGIC.md`** en l
 > Generado por SaaS Factory | Fecha: [FECHA]
 
 ## 1. Problema de Negocio
+
 **Dolor:** [Respuesta pregunta 1]
 **Costo actual:** [Respuesta pregunta 2]
 
 ## 2. Solución
+
 **Propuesta de valor:** [Respuesta pregunta 3]
 
 **Flujo principal (Happy Path):**
+
 1. [Paso 1]
 2. [Paso 2]
 3. [Paso 3]
 4. [Paso 4]
 
 ## 3. Usuario Objetivo
+
 **Rol:** [Respuesta pregunta 5]
 **Contexto:** [Inferido de las respuestas]
 
 ## 4. Arquitectura de Datos
+
 **Input:**
+
 - [Lista de inputs]
 
 **Output:**
+
 - [Lista de outputs]
 
 **Storage (Supabase tables sugeridas):**
+
 - `[tabla1]`: [descripción]
 - `[tabla2]`: [descripción]
 
 ## 5. KPI de Éxito
+
 **Métrica principal:** [Respuesta pregunta 7]
 
 ## 6. Especificación Técnica (Para el Agente)
 
 ### Features a Implementar (Feature-First)
 ```
+
 src/features/
-├── auth/           # Autenticación Email/Password (Supabase)
-├── [feature-1]/    # [Descripción]
-├── [feature-2]/    # [Descripción]
-└── [feature-3]/    # [Descripción]
+├── auth/ # Autenticación Email/Password (Supabase)
+├── [feature-1]/ # [Descripción]
+├── [feature-2]/ # [Descripción]
+└── [feature-3]/ # [Descripción]
+
 ```
 
 ### Stack Confirmado
@@ -187,4 +206,4 @@ src/features/
 
 ---
 
-*"Primero entiende el negocio. Después escribe código."*
+_"Primero entiende el negocio. Después escribe código."_

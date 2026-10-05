@@ -42,8 +42,10 @@ async function run() {
       .order('orden', { ascending: true });
 
     console.log(`Visitas encontradas: ${visitas?.length || 0}`);
-    visitas?.forEach(v => {
-      console.log(`  [Día ${v.dia_semana}] PDV: ${v.pdv?.nombre} | Lat: ${v.latitud} | Lng: ${v.longitud}`);
+    visitas?.forEach((v) => {
+      console.log(
+        `  [Día ${v.dia_semana}] PDV: ${v.pdv?.nombre} | Lat: ${v.latitud} | Lng: ${v.longitud}`
+      );
     });
   }
 }

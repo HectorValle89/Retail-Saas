@@ -1,42 +1,48 @@
-import type { MaterialDistributionPreview, MaterialRulePreview } from './materialDistributionImport'
+import type {
+  MaterialDistributionPreview,
+  MaterialRulePreview,
+} from './materialDistributionImport';
 
-const GEMINI_MODEL = process.env.GEMINI_MATERIALS_MODEL?.trim() || process.env.GEMINI_OCR_MODEL?.trim() || 'gemini-2.5-flash-lite'
+const GEMINI_MODEL =
+  process.env.GEMINI_MATERIALS_MODEL?.trim() ||
+  process.env.GEMINI_OCR_MODEL?.trim() ||
+  'gemini-2.5-flash-lite';
 
-export type MaterialGeminiStatus = 'ok' | 'warning' | 'error' | 'no_configurado'
+export type MaterialGeminiStatus = 'ok' | 'warning' | 'error' | 'no_configurado';
 
 export interface MaterialGeminiRuleSuggestion {
-  materialKey: string
-  materialType: string | null
-  excluirDeRegistrarEntrega: boolean | null
-  requiereTicketMes: boolean | null
-  requiereEvidenciaEntregaMes: boolean | null
-  requiereEvidenciaMercadeo: boolean | null
-  esRegaloDc: boolean | null
-  mecanicaCanje: string | null
-  indicacionesProducto: string | null
-  instruccionesMercadeo: string | null
-  observaciones: string | null
+  materialKey: string;
+  materialType: string | null;
+  excluirDeRegistrarEntrega: boolean | null;
+  requiereTicketMes: boolean | null;
+  requiereEvidenciaEntregaMes: boolean | null;
+  requiereEvidenciaMercadeo: boolean | null;
+  esRegaloDc: boolean | null;
+  mecanicaCanje: string | null;
+  indicacionesProducto: string | null;
+  instruccionesMercadeo: string | null;
+  observaciones: string | null;
 }
 
 export interface MaterialDistributionGeminiAnalysis {
-  status: MaterialGeminiStatus
-  provider: 'gemini' | null
-  model: string | null
-  summary: string | null
-  warnings: string[]
-  observations: string[]
-  ruleSuggestions: MaterialGeminiRuleSuggestion[]
-  rawText: string | null
-  errorMessage: string | null
+  status: MaterialGeminiStatus;
+  provider: 'gemini' | null;
+  model: string | null;
+  summary: string | null;
+  warnings: string[];
+  observations: string[];
+  ruleSuggestions: MaterialGeminiRuleSuggestion[];
+  rawText: string | null;
+  errorMessage: string | null;
 }
 
 interface GeminiApiResponse {
   candidates?: Array<{
     content?: {
-      parts?: Array<{ text?: string }>
-    }
-  }>
-  error?: { message?: string }
+      parts?: Array<{ text?: string }>;
+    };
+  }>;
+  error?: { message?: string };
 }
 
 function buildPrompt(preview: MaterialDistributionPreview) {
@@ -49,10 +55,10 @@ function buildPrompt(preview: MaterialDistributionPreview) {
     assignedQuantityTotal: rule.assignedQuantityTotal,
     pdvCount: rule.pdvCount,
     flags: rule.flags,
-  }))
+  }));
 
-  const sheetSummaries = preview.sheetSummaries
-  const warningSummaries = preview.warnings.slice(0, 80)
+  const sheetSummaries = preview.sheetSummaries;
+  const warningSummaries = preview.warnings.slice(0, 80);
 
   return [
     'Quiero que analices una estructura resumida de un archivo Excel que representa la dispersión mensual de materiales por punto de venta (PDV).',
@@ -89,81 +95,88 @@ function buildPrompt(preview: MaterialDistributionPreview) {
     '',
     'Advertencias existentes:',
     JSON.stringify(warningSummaries, null, 2),
-  ].join('\n')
+  ].join('\n');
 }
 
 function extractJsonCandidate(rawText: string) {
-  const trimmed = rawText.trim()
+  const trimmed = rawText.trim();
   if (!trimmed) {
-    throw new Error('Gemini no devolvió contenido.')
+    throw new Error('Gemini no devolvió contenido.');
   }
 
-  const fenced = trimmed.match(/```json\s*([\s\S]*?)```/i)
+  const fenced = trimmed.match(/```json\s*([\s\S]*?)```/i);
   if (fenced?.[1]) {
-    return fenced[1].trim()
+    return fenced[1].trim();
   }
 
-  const jsonStart = trimmed.indexOf('{')
-  const jsonEnd = trimmed.lastIndexOf('}')
+  const jsonStart = trimmed.indexOf('{');
+  const jsonEnd = trimmed.lastIndexOf('}');
   if (jsonStart >= 0 && jsonEnd > jsonStart) {
-    return trimmed.slice(jsonStart, jsonEnd + 1)
+    return trimmed.slice(jsonStart, jsonEnd + 1);
   }
 
-  return trimmed
+  return trimmed;
 }
 
 function normalizeText(value: unknown) {
-  const normalized = String(value ?? '').trim()
-  return normalized || null
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
 }
 
 function normalizeStringArray(value: unknown) {
   if (!Array.isArray(value)) {
-    return []
+    return [];
   }
-  return value.map((item) => normalizeText(item)).filter((item): item is string => Boolean(item))
+  return value.map((item) => normalizeText(item)).filter((item): item is string => Boolean(item));
 }
 
 function normalizeRuleSuggestions(value: unknown, baseRules: MaterialRulePreview[]) {
   if (!Array.isArray(value)) {
-    return [] as MaterialGeminiRuleSuggestion[]
+    return [] as MaterialGeminiRuleSuggestion[];
   }
 
-  const knownKeys = new Set(baseRules.map((rule) => rule.key))
+  const knownKeys = new Set(baseRules.map((rule) => rule.key));
   return value
     .map((item) => {
       if (!item || typeof item !== 'object') {
-        return null
+        return null;
       }
-      const record = item as Record<string, unknown>
-      const materialKey = normalizeText(record.materialKey)
+      const record = item as Record<string, unknown>;
+      const materialKey = normalizeText(record.materialKey);
       if (!materialKey || !knownKeys.has(materialKey)) {
-        return null
+        return null;
       }
       return {
         materialKey,
         materialType: normalizeText(record.materialType),
         excluirDeRegistrarEntrega:
-          typeof record.excluirDeRegistrarEntrega === 'boolean' ? record.excluirDeRegistrarEntrega : null,
-        requiereTicketMes: typeof record.requiereTicketMes === 'boolean' ? record.requiereTicketMes : null,
+          typeof record.excluirDeRegistrarEntrega === 'boolean'
+            ? record.excluirDeRegistrarEntrega
+            : null,
+        requiereTicketMes:
+          typeof record.requiereTicketMes === 'boolean' ? record.requiereTicketMes : null,
         requiereEvidenciaEntregaMes:
-          typeof record.requiereEvidenciaEntregaMes === 'boolean' ? record.requiereEvidenciaEntregaMes : null,
+          typeof record.requiereEvidenciaEntregaMes === 'boolean'
+            ? record.requiereEvidenciaEntregaMes
+            : null,
         requiereEvidenciaMercadeo:
-          typeof record.requiereEvidenciaMercadeo === 'boolean' ? record.requiereEvidenciaMercadeo : null,
+          typeof record.requiereEvidenciaMercadeo === 'boolean'
+            ? record.requiereEvidenciaMercadeo
+            : null,
         esRegaloDc: typeof record.esRegaloDc === 'boolean' ? record.esRegaloDc : null,
         mecanicaCanje: normalizeText(record.mecanicaCanje),
         indicacionesProducto: normalizeText(record.indicacionesProducto),
         instruccionesMercadeo: normalizeText(record.instruccionesMercadeo),
         observaciones: normalizeText(record.observaciones),
-      } satisfies MaterialGeminiRuleSuggestion
+      } satisfies MaterialGeminiRuleSuggestion;
     })
-    .filter((item): item is MaterialGeminiRuleSuggestion => Boolean(item))
+    .filter((item): item is MaterialGeminiRuleSuggestion => Boolean(item));
 }
 
 export async function analyzeMaterialDistributionWithGemini(
   preview: MaterialDistributionPreview
 ): Promise<MaterialDistributionGeminiAnalysis> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim()
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     return {
       status: 'no_configurado',
@@ -175,7 +188,7 @@ export async function analyzeMaterialDistributionWithGemini(
       ruleSuggestions: [],
       rawText: null,
       errorMessage: null,
-    }
+    };
   }
 
   try {
@@ -195,16 +208,17 @@ export async function analyzeMaterialDistributionWithGemini(
           },
         }),
       }
-    )
+    );
 
-    const payload = (await response.json()) as GeminiApiResponse
+    const payload = (await response.json()) as GeminiApiResponse;
     if (!response.ok || payload.error?.message) {
-      throw new Error(payload.error?.message ?? `Gemini devolvió ${response.status}.`)
+      throw new Error(payload.error?.message ?? `Gemini devolvió ${response.status}.`);
     }
 
-    const rawText = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? ''
-    const jsonCandidate = extractJsonCandidate(rawText)
-    const parsed = JSON.parse(jsonCandidate) as Record<string, unknown>
+    const rawText =
+      payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('') ?? '';
+    const jsonCandidate = extractJsonCandidate(rawText);
+    const parsed = JSON.parse(jsonCandidate) as Record<string, unknown>;
 
     return {
       status: 'ok',
@@ -216,7 +230,7 @@ export async function analyzeMaterialDistributionWithGemini(
       ruleSuggestions: normalizeRuleSuggestions(parsed.ruleSuggestions, preview.materialRules),
       rawText,
       errorMessage: null,
-    }
+    };
   } catch (error) {
     return {
       status: 'warning',
@@ -227,7 +241,8 @@ export async function analyzeMaterialDistributionWithGemini(
       observations: [],
       ruleSuggestions: [],
       rawText: null,
-      errorMessage: error instanceof Error ? error.message : 'No fue posible analizar el archivo con Gemini.',
-    }
+      errorMessage:
+        error instanceof Error ? error.message : 'No fue posible analizar el archivo con Gemini.',
+    };
   }
 }

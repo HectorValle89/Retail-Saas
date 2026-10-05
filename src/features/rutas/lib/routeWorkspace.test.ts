@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest';
 import {
   getCurrentOrFutureRoutes,
   getCoordinatorInitialWeekStart,
@@ -7,10 +7,11 @@ import {
   getPlanningRouteForWeek,
   isApprovedOperationalRoute,
   isEditablePlanningRoute,
-} from './routeWorkspace'
+} from './routeWorkspace';
 
 const baseRoute = {
   id: 'route-1',
+  monthlySubmissionId: null,
   cuentaClienteId: 'cliente-1',
   supervisorEmpleadoId: 'supervisor-1',
   supervisor: 'Supervisor',
@@ -46,13 +47,13 @@ const baseRoute = {
   visitas: [],
   agendaEventosCount: 0,
   pendientesReposicionCount: 0,
-}
+};
 
 describe('routeWorkspace', () => {
   it('marca como aprobada una ruta publicada con approval aprobado', () => {
-    expect(isApprovedOperationalRoute(baseRoute)).toBe(true)
-    expect(isEditablePlanningRoute(baseRoute)).toBe(false)
-  })
+    expect(isApprovedOperationalRoute(baseRoute)).toBe(true);
+    expect(isEditablePlanningRoute(baseRoute)).toBe(false);
+  });
 
   it('excluye la ruta aprobada del lienzo editable de planeacion', () => {
     const routes = [
@@ -64,11 +65,11 @@ describe('routeWorkspace', () => {
         estatus: 'BORRADOR' as const,
         totalVisitas: 2,
       },
-    ]
+    ];
 
-    expect(getApprovedRouteForWeek(routes, '2026-04-20')?.id).toBe('route-1')
-    expect(getEditableRouteForWeek(routes, '2026-04-20')?.id).toBe('route-2')
-  })
+    expect(getApprovedRouteForWeek(routes, '2026-04-20')?.id).toBe('route-1');
+    expect(getEditableRouteForWeek(routes, '2026-04-20')?.id).toBe('route-2');
+  });
 
   it('no propone una ruta aprobada como editable cuando esa semana ya quedo publicada', () => {
     const routes = [
@@ -80,11 +81,11 @@ describe('routeWorkspace', () => {
         approvalState: 'APROBADA' as const,
         estatus: 'CERRADA' as const,
       },
-    ]
+    ];
 
-    expect(getEditableRouteForWeek(routes, '2026-04-20')).toBeNull()
-    expect(getEditableRouteForWeek(routes, '2026-04-27')).toBeNull()
-  })
+    expect(getEditableRouteForWeek(routes, '2026-04-20')).toBeNull();
+    expect(getEditableRouteForWeek(routes, '2026-04-27')).toBeNull();
+  });
 
   it('prefiere la ruta semanal mas completa cuando conviven una aprobada y un borrador parcial', () => {
     const routes = [
@@ -104,10 +105,10 @@ describe('routeWorkspace', () => {
         totalVisitas: 1,
         updatedAt: '2026-04-28T12:00:00Z',
       },
-    ]
+    ];
 
-    expect(getPlanningRouteForWeek(routes, '2026-04-20')?.id).toBe('route-full-week')
-  })
+    expect(getPlanningRouteForWeek(routes, '2026-04-20')?.id).toBe('route-full-week');
+  });
 
   it('recorta rutas a la semana actual o futuras', () => {
     const routes = [
@@ -124,13 +125,13 @@ describe('routeWorkspace', () => {
         semanaInicio: '2026-04-27',
         semanaFin: '2026-05-03',
       },
-    ]
+    ];
 
     expect(getCurrentOrFutureRoutes(routes, '2026-04-20').map((route) => route.id)).toEqual([
       'route-1',
       'route-future',
-    ])
-  })
+    ]);
+  });
 
   it('usa siempre la semana actual (fallback) como inicial para coordinacion', () => {
     const routes = [
@@ -161,8 +162,8 @@ describe('routeWorkspace', () => {
         estatus: 'BORRADOR' as const,
         totalVisitas: 12,
       },
-    ]
+    ];
 
-    expect(getCoordinatorInitialWeekStart(routes, '2026-04-20')).toBe('2026-04-20')
-  })
-})
+    expect(getCoordinatorInitialWeekStart(routes, '2026-04-20')).toBe('2026-04-20');
+  });
+});

@@ -1,33 +1,33 @@
-import { expect, test } from '@playwright/test'
-import type { ActorActual } from '../src/lib/auth/session'
-import { obtenerPanelAsistencias } from '../src/features/asistencias/services/asistenciaService'
-import { obtenerPanelVentas } from '../src/features/ventas/services/ventaService'
-import { obtenerPanelReportes } from '../src/features/reportes/services/reporteService'
-import { obtenerPanelNomina } from '../src/features/nomina/services/nominaService'
-import { obtenerPanelAsignaciones } from '../src/features/asignaciones/services/asignacionService'
-import { obtenerPanelSolicitudes } from '../src/features/solicitudes/services/solicitudService'
+import { expect, test } from '@playwright/test';
+import type { ActorActual } from '../src/lib/auth/session';
+import { obtenerPanelAsistencias } from '../src/features/asistencias/services/asistenciaService';
+import { obtenerPanelVentas } from '../src/features/ventas/services/ventaService';
+import { obtenerPanelReportes } from '../src/features/reportes/services/reporteService';
+import { obtenerPanelNomina } from '../src/features/nomina/services/nominaService';
+import { obtenerPanelAsignaciones } from '../src/features/asignaciones/services/asignacionService';
+import { obtenerPanelSolicitudes } from '../src/features/solicitudes/services/solicitudService';
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+};
 
 function createFakeClient(results: Record<string, QueryResult>) {
   return {
     from(table: string) {
-      const entry = results[table] ?? { data: [], error: null }
+      const entry = results[table] ?? { data: [], error: null };
 
-      let headRequested = false
-      let countRequested = false
+      let headRequested = false;
+      let countRequested = false;
 
       const buildPayload = () => {
-        const count = Array.isArray(entry.data) ? entry.data.length : 0
+        const count = Array.isArray(entry.data) ? entry.data.length : 0;
         if (headRequested) {
           return {
             data: null,
             error: entry.error,
             count,
-          }
+          };
         }
 
         return countRequested
@@ -35,65 +35,71 @@ function createFakeClient(results: Record<string, QueryResult>) {
               ...entry,
               count,
             }
-          : entry
-      }
+          : entry;
+      };
 
       const chain = {
         select(
           _columns?: string,
           options?: {
-            count?: 'exact' | 'planned' | 'estimated'
-            head?: boolean
+            count?: 'exact' | 'planned' | 'estimated';
+            head?: boolean;
           }
         ) {
-          headRequested = options?.head === true
-          countRequested = Boolean(options?.count)
-          return chain
+          headRequested = options?.head === true;
+          countRequested = Boolean(options?.count);
+          return chain;
         },
         eq() {
-          return chain
+          return chain;
         },
         neq() {
-          return chain
+          return chain;
         },
         in() {
-          return chain
+          return chain;
         },
         not() {
-          return chain
+          return chain;
         },
         gte() {
-          return chain
+          return chain;
         },
         lte() {
-          return chain
+          return chain;
         },
         lt() {
-          return chain
+          return chain;
         },
         or() {
-          return chain
+          return chain;
         },
         order() {
-          return chain
+          return chain;
         },
         range() {
-          return Promise.resolve(buildPayload())
+          return Promise.resolve(buildPayload());
         },
         limit() {
-          return Promise.resolve(buildPayload())
+          return Promise.resolve(buildPayload());
         },
         maybeSingle() {
-          return Promise.resolve(buildPayload())
+          return Promise.resolve(buildPayload());
         },
-        then(resolve: (value: QueryResult & { count?: number | null } | { data: null; error: { message: string } | null; count: number }) => void) {
-          return Promise.resolve(buildPayload()).then(resolve)
+        then(
+          resolve: (
+            value:
+              | (QueryResult & { count?: number | null })
+              | { data: null; error: { message: string } | null; count: number }
+          ) => void
+        ) {
+          return Promise.resolve(buildPayload()).then(resolve);
         },
-      }
+      };
 
-      return chain
+      return chain;
     },
-  }
+  };
 }
 
 const adminActor: ActorActual = {
@@ -107,7 +113,7 @@ const adminActor: ActorActual = {
   estadoCuenta: 'ACTIVA',
   nombreCompleto: 'Admin Principal',
   puesto: 'ADMINISTRADOR',
-}
+};
 
 test('cubre el flujo check-in -> jornada -> ventas -> check-out en paneles operativos y cierre de nomina', async () => {
   const client = createFakeClient({
@@ -256,7 +262,7 @@ test('cubre el flujo check-in -> jornada -> ventas -> check-out en paneles opera
       ],
       error: null,
     },
-  })
+  });
 
   const [asistencias, ventas, reportes, nomina] = await Promise.all([
     obtenerPanelAsistencias(client as never),
@@ -267,20 +273,20 @@ test('cubre el flujo check-in -> jornada -> ventas -> check-out en paneles opera
       pageSize: 25,
     }),
     obtenerPanelNomina(client as never),
-  ])
+  ]);
 
   expect(asistencias.resumen).toMatchObject({
     total: 1,
     abiertas: 0,
     cerradas: 1,
     pendientesValidacion: 0,
-  })
+  });
   expect(asistencias.asistencias[0]).toMatchObject({
     empleado: 'Ana Uno',
     pdvClaveBtl: 'LIV-001',
     estatus: 'CERRADA',
     estadoGps: 'EN_RANGO',
-  })
+  });
 
   expect(ventas.resumen).toMatchObject({
     total: 1,
@@ -288,24 +294,24 @@ test('cubre el flujo check-in -> jornada -> ventas -> check-out en paneles opera
     pendientesConfirmacion: 0,
     unidades: 4,
     monto: 1800,
-  })
+  });
   expect(ventas.ventas[0]).toMatchObject({
     producto: 'Fusion Water',
     jornadaEstatus: 'CERRADA',
     jornadaAbierta: false,
-  })
+  });
 
   expect(reportes.asistencias[0]).toMatchObject({
     empleado: 'Ana Uno',
     pdv: 'LIV-001',
     jornadasCerradas: 1,
-  })
+  });
   expect(reportes.ventas[0]).toMatchObject({
     dc: 'Ana Uno',
     producto: 'Fusion Water',
     ventasConfirmadas: 1,
     montoConfirmado: 1800,
-  })
+  });
 
   expect(nomina.preNomina[0]).toMatchObject({
     empleado: 'Ana Uno',
@@ -315,14 +321,14 @@ test('cubre el flujo check-in -> jornada -> ventas -> check-out en paneles opera
     bonoEstimado: 200,
     percepciones: 1380,
     netoEstimado: 1210.95,
-  })
+  });
   expect(nomina.resumen).toMatchObject({
     colaboradores: 1,
     percepciones: 1380,
     netoEstimado: 1210.95,
     cuotasCumplidas: 1,
-  })
-})
+  });
+});
 
 test('cubre el flujo de Assignment Validation Service con errores y alertas en asignaciones publicadas', async () => {
   const client = createFakeClient({
@@ -448,19 +454,19 @@ test('cubre el flujo de Assignment Validation Service con errores y alertas en a
       data: [],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelAsignaciones(client as never, adminActor, {
     assignmentState: 'PUBLICADA',
-  })
+  });
 
-  expect(data.infraestructuraLista).toBe(true)
-  expect(data.activeView).toBe('asignaciones')
-  expect(data.assignmentsView?.estado).toBe('PUBLICADA')
+  expect(data.infraestructuraLista).toBe(true);
+  expect(data.activeView).toBe('asignaciones');
+  expect(data.assignmentsView?.estado).toBe('PUBLICADA');
   expect(data.assignmentsView?.items[0]).toMatchObject({
     cuentaClienteId: null,
     bloqueada: true,
-  })
+  });
   expect(data.assignmentsView?.items[0]?.issues.map((item) => item.label)).toEqual(
     expect.arrayContaining([
       'Sin cuenta cliente',
@@ -469,8 +475,8 @@ test('cubre el flujo de Assignment Validation Service con errores y alertas en a
       'Geocerca fuera de rango',
       'PDV sin horarios San Pablo',
     ])
-  )
-})
+  );
+});
 
 test('cubre el flujo de incapacidad con supervision, reclutamiento y formalizacion de nomina', async () => {
   const client = createFakeClient({
@@ -514,11 +520,11 @@ test('cubre el flujo de incapacidad con supervision, reclutamiento y formalizaci
       ],
       error: null,
     },
-  })
+  });
 
   const solicitudes = await obtenerPanelSolicitudes(client as never, {
     serviceClient: client as never,
-  })
+  });
 
   expect(solicitudes.resumen).toMatchObject({
     total: 1,
@@ -526,11 +532,11 @@ test('cubre el flujo de incapacidad con supervision, reclutamiento y formalizaci
     validadasSupervisor: 0,
     registradasRh: 1,
     rechazadas: 0,
-  })
+  });
   expect(solicitudes.solicitudes[0]).toMatchObject({
     tipo: 'INCAPACIDAD',
     estatus: 'REGISTRADA_RH',
     approvalPath: ['SUPERVISOR', 'RECLUTAMIENTO', 'NOMINA'],
     justificaAsistencia: true,
-  })
-})
+  });
+});

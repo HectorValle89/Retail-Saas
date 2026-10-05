@@ -2,6 +2,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse, type NextRequest } from 'next/server';
 import { isPrimerAccesoPendiente } from '@/lib/auth/firstAccess';
+import { isScheduledOffboardingEffective } from '@/lib/auth/scheduledOffboarding';
 import { getAuthSessionContextStatusFromClaims } from '@/lib/auth/sessionContext';
 import { requireRuntimeEnv } from '@/lib/runtime/env';
 import { getSingleTenantAccountId, isSingleTenantBackendEnabled } from '@/lib/tenant/singleTenant';
@@ -32,11 +33,13 @@ type UsuarioSesionRow = {
     | {
         nombre_completo: string | null;
         puesto: string | null;
+        fecha_baja?: string | null;
         metadata?: Record<string, unknown> | null;
       }
     | Array<{
         nombre_completo: string | null;
         puesto: string | null;
+        fecha_baja?: string | null;
         metadata?: Record<string, unknown> | null;
       }>
     | null;
@@ -53,6 +56,7 @@ const publicRoutes = [
   '/activacion',
   '/enlace-caducado',
   '/api/auth/confirm',
+  '/api/asignaciones/scheduled-publication',
 ];
 
 function esRutaProtegida(pathname: string) {
@@ -191,6 +195,14 @@ function obtenerNombreEmpleado(value: UsuarioSesionRow['empleado']) {
   return value.nombre_completo ?? null;
 }
 
+function obtenerEmpleadoSesion(value: UsuarioSesionRow['empleado']) {
+  if (!value) {
+    return null;
+  }
+
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
 function serializeActorContextHeader(input: {
   authUserId: string;
   usuarioId: string;
@@ -321,15 +333,18 @@ export async function updateSession(request: NextRequest) {
   const { data: usuario } = await supabase
     .from('usuario')
     .select(
-      'id, empleado_id, username, correo_electronico, correo_verificado, estado_cuenta, cuenta_cliente_id, empleado:empleado_id(nombre_completo, puesto, metadata)'
+      'id, empleado_id, username, correo_electronico, correo_verificado, estado_cuenta, cuenta_cliente_id, empleado:empleado_id(nombre_completo, puesto, fecha_baja, metadata)'
     )
     .eq('auth_user_id', sessionState.authUserId ?? authUserId)
     .maybeSingle();
 
   const usuarioActual = (usuario ?? null) as UsuarioSesionRow | null;
   const puesto = obtenerPuestoEmpleado(usuarioActual?.empleado ?? null);
+  const empleadoSesion = obtenerEmpleadoSesion(usuarioActual?.empleado ?? null);
   const metadataEmpleado = obtenerMetadataEmpleado(usuarioActual?.empleado ?? null);
-  const estadoCuenta = usuarioActual?.estado_cuenta ?? null;
+  const estadoCuenta = isScheduledOffboardingEffective(empleadoSesion)
+    ? 'BAJA'
+    : (usuarioActual?.estado_cuenta ?? null);
   const primerAccesoPendiente =
     estadoCuenta === 'PENDIENTE_PRIMER_LOGIN' || isPrimerAccesoPendiente(metadataEmpleado);
   const nombreCompleto = obtenerNombreEmpleado(usuarioActual?.empleado ?? null);
@@ -361,7 +376,7 @@ export async function updateSession(request: NextRequest) {
         username: usuarioActual.username,
         correoElectronico: usuarioActual.correo_electronico,
         correoVerificado: Boolean(usuarioActual.correo_verificado),
-        estadoCuenta: usuarioActual.estado_cuenta,
+        estadoCuenta,
         nombreCompleto,
         puesto,
         primerAccesoPendiente,

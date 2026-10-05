@@ -119,6 +119,7 @@ npm run dev
 ## 🛠️ Comandos npm
 
 ### Development
+
 ```bash
 npm run dev          # Servidor desarrollo (auto-port 3000-3006)
 npm run build        # Build para produccion
@@ -126,6 +127,7 @@ npm run start        # Servidor produccion
 ```
 
 ### Quality Assurance
+
 ```bash
 npm run test         # Tests con Jest
 npm run test:watch   # Tests en modo watch
@@ -140,24 +142,24 @@ npm run typecheck    # TypeScript check
 
 ### Comandos Disponibles
 
-| Comando | Descripcion |
-|---------|-------------|
-| `/new-app` | Arquitecto de Negocio - genera BUSINESS_LOGIC.md |
-| `/landing` | Money Maker - landing pages de alta conversion |
-| `/add-login` | Agrega autenticacion con Supabase |
-| `/primer` | Contextualiza a Claude sobre el proyecto |
+| Comando      | Descripcion                                      |
+| ------------ | ------------------------------------------------ |
+| `/new-app`   | Arquitecto de Negocio - genera BUSINESS_LOGIC.md |
+| `/landing`   | Money Maker - landing pages de alta conversion   |
+| `/add-login` | Agrega autenticacion con Supabase                |
+| `/primer`    | Contextualiza a Claude sobre el proyecto         |
 
 ### Agentes Especializados
 
-| Agente | Especialidad |
-|--------|--------------|
-| **Codebase Analyst** | Analiza arquitectura y patrones |
-| **Frontend Specialist** | React, Next.js, Tailwind |
-| **Backend Specialist** | APIs, Supabase, DB |
-| **Supabase Admin** | Auth, migrations, RLS |
-| **Vercel Deployer** | Deploy, env vars, domains |
-| **Validacion Calidad** | Tests, linting, tipos |
-| **Gestor Documentacion** | Mantiene docs actualizados |
+| Agente                   | Especialidad                    |
+| ------------------------ | ------------------------------- |
+| **Codebase Analyst**     | Analiza arquitectura y patrones |
+| **Frontend Specialist**  | React, Next.js, Tailwind        |
+| **Backend Specialist**   | APIs, Supabase, DB              |
+| **Supabase Admin**       | Auth, migrations, RLS           |
+| **Vercel Deployer**      | Deploy, env vars, domains       |
+| **Validacion Calidad**   | Tests, linting, tipos           |
+| **Gestor Documentacion** | Mantiene docs actualizados      |
 
 ### MCPs Configurados
 
@@ -183,14 +185,14 @@ npm run typecheck    # TypeScript check
 
 ### Anatomia
 
-| Seccion | Proposito |
-|---------|-----------|
-| **Objetivo** | Que se construye (estado final) |
-| **Por Que** | Valor de negocio |
-| **Que** | Comportamiento + criterios de exito |
-| **Contexto** | Docs, referencias, gotchas |
-| **Blueprint** | Fases de implementacion |
-| **Validacion** | Tests, linting, verificacion |
+| Seccion        | Proposito                           |
+| -------------- | ----------------------------------- |
+| **Objetivo**   | Que se construye (estado final)     |
+| **Por Que**    | Valor de negocio                    |
+| **Que**        | Comportamiento + criterios de exito |
+| **Contexto**   | Docs, referencias, gotchas          |
+| **Blueprint**  | Fases de implementacion             |
+| **Validacion** | Tests, linting, verificacion        |
 
 ---
 
@@ -200,23 +202,25 @@ Templates copy-paste para construir agentes IA con **Vercel AI SDK v5 + OpenRout
 
 ### Bloques Disponibles
 
-| # | Bloque | Tiempo | Descripcion |
-|---|--------|--------|-------------|
-| 00 | Setup Base | 10 min | Configuracion inicial |
-| 01 | Chat Streaming | 15 min | Chat con useChat |
-| 01-ALT | Action Stream | 30 min | Agente transparente |
-| 02 | Web Search | 5 min | Busqueda con :online |
-| 03 | Historial | 20 min | Persistencia en Supabase |
-| 04 | Vision | 25 min | Analisis de imagenes |
-| 05 | Tools | 20 min | Funciones/herramientas |
+| #      | Bloque         | Tiempo | Descripcion              |
+| ------ | -------------- | ------ | ------------------------ |
+| 00     | Setup Base     | 10 min | Configuracion inicial    |
+| 01     | Chat Streaming | 15 min | Chat con useChat         |
+| 01-ALT | Action Stream  | 30 min | Agente transparente      |
+| 02     | Web Search     | 5 min  | Busqueda con :online     |
+| 03     | Historial      | 20 min | Persistencia en Supabase |
+| 04     | Vision         | 25 min | Analisis de imagenes     |
+| 05     | Tools          | 20 min | Funciones/herramientas   |
 
 ### Dos Caminos
 
 **A) Chat Tradicional**: `00 → 01 → 02 → 03 → 04 → 05`
+
 - Respuestas de texto con streaming
 - Ideal para: chatbots, asistentes, Q&A
 
 **B) Agente Transparente**: `00 → 01-ALT → 02 → 03 → 04`
+
 - Acciones visibles en tiempo real
 - Ideal para: calculadoras ROI, auditorias, diagnosticos
 
@@ -226,13 +230,13 @@ Templates copy-paste para construir agentes IA con **Vercel AI SDK v5 + OpenRout
 
 Sistemas de diseno visuales listos para usar en `.claude/design-systems/`.
 
-| Sistema | Estilo |
-|---------|--------|
-| **Liquid Glass** | iOS-like, transparencias |
-| **Gradient Mesh** | Degradados fluidos |
-| **Neumorphism** | Soft UI, sombras suaves |
-| **Bento Grid** | Grids asimetricos |
-| **Neobrutalism** | Bold, bordes duros |
+| Sistema           | Estilo                   |
+| ----------------- | ------------------------ |
+| **Liquid Glass**  | iOS-like, transparencias |
+| **Gradient Mesh** | Degradados fluidos       |
+| **Neumorphism**   | Soft UI, sombras suaves  |
+| **Bento Grid**    | Grids asimetricos        |
+| **Neobrutalism**  | Bold, bordes duros       |
 
 ---
 
@@ -274,12 +278,12 @@ python .claude/skills/skill-creator/scripts/package_skill.py ./my-skill
 
 ```typescript
 // src/shared/lib/supabase.ts
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js';
 
 export const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+);
 ```
 
 ### 3. Migraciones
@@ -297,14 +301,14 @@ export const supabase = createClient(
 
 ```typescript
 // src/features/auth/hooks/useAuth.test.ts
-import { renderHook } from '@testing-library/react'
-import { useAuth } from './useAuth'
+import { renderHook } from '@testing-library/react';
+import { useAuth } from './useAuth';
 
 test('should authenticate user', async () => {
-  const { result } = renderHook(() => useAuth())
-  await result.current.login('test@example.com', 'password')
-  expect(result.current.user).toBeDefined()
-})
+  const { result } = renderHook(() => useAuth());
+  await result.current.login('test@example.com', 'password');
+  expect(result.current.user).toBeDefined();
+});
 ```
 
 ### Run Tests
@@ -392,6 +396,7 @@ vercel
 ### Variables de Entorno
 
 En tu dashboard de Vercel:
+
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
@@ -421,5 +426,5 @@ En tu dashboard de Vercel:
 
 ---
 
-*Este README es la fuente de verdad del template SaaS Factory.*
-*Guardado en `.claude/` para preservarlo durante el desarrollo de proyectos.*
+_Este README es la fuente de verdad del template SaaS Factory._
+_Guardado en `.claude/` para preservarlo durante el desarrollo de proyectos._

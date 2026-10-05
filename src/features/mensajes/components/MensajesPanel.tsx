@@ -1,36 +1,32 @@
-'use client'
+'use client';
 
-import Link from 'next/link'
-import { useActionState, useCallback, useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
-import type { ActorActual } from '@/lib/auth/session'
-import { useFormStatus } from 'react-dom'
-import { Card } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { EvidencePreview } from '@/components/ui/evidence-preview'
-import { Input } from '@/components/ui/input'
-import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
-import { Select } from '@/components/ui/select'
-import { useScopedWidgetData } from '@/lib/ui-change/client'
-import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
-import { ESTADO_MENSAJE_INICIAL } from '../state'
-import {
-  marcarMensajeLeido,
-  publicarMensajeInterno,
-  responderEncuesta,
-} from '../actions'
-import { injectDirectR2Manifest } from '@/lib/storage/directR2Client'
+import Link from 'next/link';
+import { useActionState, useCallback, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import type { ActorActual } from '@/lib/auth/session';
+import { useFormStatus } from 'react-dom';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { EvidencePreview } from '@/components/ui/evidence-preview';
+import { Input } from '@/components/ui/input';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
+import { Select } from '@/components/ui/select';
+import { useScopedWidgetData } from '@/lib/ui-change/client';
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
+import { ESTADO_MENSAJE_INICIAL } from '../state';
+import { marcarMensajeLeido, publicarMensajeInterno, responderEncuesta } from '../actions';
+import { injectDirectR2Manifest } from '@/lib/storage/directR2Client';
 import type {
   MensajeItem,
   MensajesPanelData,
   SurveyAnalyticsItem,
-} from '../services/mensajeService'
+} from '../services/mensajeService';
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat('es-MX', {
     dateStyle: 'medium',
     timeStyle: 'short',
-  }).format(new Date(value))
+  }).format(new Date(value));
 }
 
 function buildMensajesHref(
@@ -43,42 +39,42 @@ function buildMensajesHref(
     page: String(page),
     pageSize: String(pageSize),
     tab,
-  })
+  });
 
   if (direction !== 'todos') {
-    params.set('direction', direction)
+    params.set('direction', direction);
   }
 
-  return `/mensajes?${params.toString()}`
+  return `/mensajes?${params.toString()}`;
 }
 
 export function MensajesPanel({
   actor,
   data: initialData,
 }: {
-  actor: ActorActual
-  data: MensajesPanelData
+  actor: ActorActual;
+  data: MensajesPanelData;
 }) {
-  const searchParams = useSearchParams()
-  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const searchParams = useSearchParams();
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
   const fetcher = useCallback(
     async (signal: AbortSignal) => {
-      const query = searchParams.toString()
+      const query = searchParams.toString();
       const response = await fetch(query ? `/api/mensajes/panel?${query}` : '/api/mensajes/panel', {
         cache: 'no-store',
         credentials: 'same-origin',
         signal,
-      })
-      const payload = (await response.json()) as { data?: MensajesPanelData; message?: string }
+      });
+      const payload = (await response.json()) as { data?: MensajesPanelData; message?: string };
 
       if (!response.ok || !payload.data) {
-        throw new Error(payload.message ?? 'No fue posible refrescar el panel de mensajes.')
+        throw new Error(payload.message ?? 'No fue posible refrescar el panel de mensajes.');
       }
 
-      return payload.data
+      return payload.data;
     },
     [searchParams]
-  )
+  );
   const { data } = useScopedWidgetData({
     initialData,
     module: 'mensajes',
@@ -87,13 +83,13 @@ export function MensajesPanel({
     roleTargets: [actor.puesto],
     fetcher: (signal) => fetcher(signal),
     debounceMs: 650,
-  })
+  });
   const topTabs = data.puedeVerAnalitica
     ? [
         { value: 'bandeja', label: 'Bandeja' },
         { value: 'analitica', label: 'Analitica de encuestas' },
       ]
-    : [{ value: 'bandeja', label: 'Bandeja' }]
+    : [{ value: 'bandeja', label: 'Bandeja' }];
 
   const directionTabs = data.esSoloReceptor
     ? [
@@ -104,7 +100,7 @@ export function MensajesPanel({
         { value: 'todos', label: `Todos (${data.resumen.totalMensajes})` },
         { value: 'enviados', label: `Enviados (${data.resumen.enviados})` },
         { value: 'recibidos', label: `Recibidos (${data.resumen.recibidos})` },
-      ]
+      ];
 
   return (
     <div className="space-y-6">
@@ -115,22 +111,32 @@ export function MensajesPanel({
         </Card>
       )}
 
-      <section className={`grid gap-4 ${data.esSoloReceptor ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
+      <section
+        className={`grid gap-4 ${data.esSoloReceptor ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}
+      >
         <MetricCard label="Mensajes visibles" value={String(data.resumen.totalMensajes)} />
         <MetricCard label="No leidos" value={String(data.resumen.noLeidos)} />
         {!data.esSoloReceptor ? (
-          <MetricCard label="Encuestas pendientes" value={String(data.resumen.encuestasPendientes)} />
+          <MetricCard
+            label="Encuestas pendientes"
+            value={String(data.resumen.encuestasPendientes)}
+          />
         ) : null}
       </section>
 
       <Card className="space-y-4 p-4">
         <div className="flex flex-wrap gap-2">
           {topTabs.map((item) => {
-            const active = data.tab === item.value
+            const active = data.tab === item.value;
             return (
               <Link
                 key={item.value}
-                href={buildMensajesHref(1, data.pageSize, data.direction, item.value as MensajesPanelData['tab'])}
+                href={buildMensajesHref(
+                  1,
+                  data.pageSize,
+                  data.direction,
+                  item.value as MensajesPanelData['tab']
+                )}
                 className={`rounded-full border px-3 py-2 text-sm font-medium transition ${
                   active
                     ? 'border-cyan-700 bg-cyan-700 text-white'
@@ -139,7 +145,7 @@ export function MensajesPanel({
               >
                 {item.label}
               </Link>
-            )
+            );
           })}
         </div>
 
@@ -147,11 +153,16 @@ export function MensajesPanel({
           <>
             <div className="flex flex-wrap gap-2">
               {directionTabs.map((item) => {
-                const active = data.direction === item.value
+                const active = data.direction === item.value;
                 return (
                   <Link
                     key={item.value}
-                    href={buildMensajesHref(1, data.pageSize, item.value as MensajesPanelData['direction'], data.tab)}
+                    href={buildMensajesHref(
+                      1,
+                      data.pageSize,
+                      item.value as MensajesPanelData['direction'],
+                      data.tab
+                    )}
                     className={`rounded-full border px-3 py-2 text-sm font-medium transition ${
                       active
                         ? 'border-cyan-700 bg-cyan-700 text-white'
@@ -160,7 +171,7 @@ export function MensajesPanel({
                   >
                     {item.label}
                   </Link>
-                )
+                );
               })}
             </div>
             <p className="text-sm text-slate-500">
@@ -173,20 +184,17 @@ export function MensajesPanel({
 
         {data.puedeVerAnalitica && data.tab === 'analitica' && (
           <p className="text-sm text-slate-500">
-            Todas las encuestas enviadas quedan disponibles aqui para revisar alcance, tasa de respuesta y resultados.
+            Todas las encuestas enviadas quedan disponibles aqui para revisar alcance, tasa de
+            respuesta y resultados.
           </p>
         )}
       </Card>
 
       {data.puedeGestionar && <ComposerCard data={data} />}
 
-      {data.tab === 'bandeja' ? (
-        <InboxSection data={data} />
-      ) : (
-        <AnalyticsSection data={data} />
-      )}
+      {data.tab === 'bandeja' ? <InboxSection data={data} /> : <AnalyticsSection data={data} />}
     </div>
-  )
+  );
 }
 
 function InboxSection({ data }: { data: MensajesPanelData }) {
@@ -232,7 +240,7 @@ function InboxSection({ data }: { data: MensajesPanelData }) {
         )}
       </div>
     </Card>
-  )
+  );
 }
 
 function AnalyticsSection({ data }: { data: MensajesPanelData }) {
@@ -254,51 +262,55 @@ function AnalyticsSection({ data }: { data: MensajesPanelData }) {
             No hay encuestas enviadas para analizar.
           </p>
         ) : (
-          data.surveyAnalytics.map((survey) => <SurveyAnalyticsCard key={survey.id} survey={survey} />)
+          data.surveyAnalytics.map((survey) => (
+            <SurveyAnalyticsCard key={survey.id} survey={survey} />
+          ))
         )}
       </div>
     </Card>
-  )
+  );
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return <SharedMetricCard label={label} value={value} />
+  return <SharedMetricCard label={label} value={value} />;
 }
 
 function ComposerCard({ data }: { data: MensajesPanelData }) {
-  const [state, formAction] = useActionState(publicarMensajeInterno, ESTADO_MENSAJE_INICIAL)
-  const [isUploadingR2, setIsUploadingR2] = useState(false)
+  const [state, formAction] = useActionState(publicarMensajeInterno, ESTADO_MENSAJE_INICIAL);
+  const [isUploadingR2, setIsUploadingR2] = useState(false);
 
   const handleSubmit = async (formData: FormData) => {
     const attachmentFiles = formData
       .getAll('adjunto')
-      .filter((item): item is File => item instanceof File && item.size > 0)
+      .filter((item): item is File => item instanceof File && item.size > 0);
 
     if (attachmentFiles.length > 0) {
-      setIsUploadingR2(true)
+      setIsUploadingR2(true);
       try {
         await injectDirectR2Manifest(formData, attachmentFiles, {
           modulo: 'mensajes',
           manifestFieldName: 'adjunto_r2_manifest',
           removeFieldName: 'adjunto',
-        })
+        });
       } catch (error) {
-        console.error('No fue posible subir adjuntos de mensajes a R2.', error)
+        console.error('No fue posible subir adjuntos de mensajes a R2.', error);
       } finally {
-        setIsUploadingR2(false)
+        setIsUploadingR2(false);
       }
     }
 
-    const submit = formAction as unknown as (payload: FormData) => void
-    submit(formData)
-  }
+    const submit = formAction as unknown as (payload: FormData) => void;
+    submit(formData);
+  };
 
   return (
     <Card className="space-y-5 p-6">
       <div>
         <h2 className="text-lg font-semibold text-slate-950">Publicar mensaje o encuesta</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Administracion y Coordinacion pueden enviar comunicacion general por rol, zona, supervisor o todos los DCs. Las encuestas aceptan multiple opcion o respuesta libre y pueden cargarse desde Excel.
+          Administracion y Coordinacion pueden enviar comunicacion general por rol, zona, supervisor
+          o todos los DCs. Las encuestas aceptan multiple opcion o respuesta libre y pueden cargarse
+          desde Excel.
         </p>
       </div>
 
@@ -363,10 +375,30 @@ function ComposerCard({ data }: { data: MensajesPanelData }) {
           />
         </div>
 
-        <FieldTextarea label="Mensaje" name="cuerpo" rows={3} required placeholder="Contexto operativo, instruccion o seguimiento." />
-        <Input label="Pregunta manual" name="pregunta_titulo" hint="Si no subes Excel, esta sera la pregunta principal de la encuesta." />
-        <FieldTextarea label="Descripcion de pregunta" name="pregunta_descripcion" rows={2} placeholder="Ayuda opcional para contextualizar la pregunta." />
-        <FieldTextarea label="Opciones de respuesta" name="opciones_respuesta" rows={3} placeholder="Solo para opcion multiple. Una opcion por linea." />
+        <FieldTextarea
+          label="Mensaje"
+          name="cuerpo"
+          rows={3}
+          required
+          placeholder="Contexto operativo, instruccion o seguimiento."
+        />
+        <Input
+          label="Pregunta manual"
+          name="pregunta_titulo"
+          hint="Si no subes Excel, esta sera la pregunta principal de la encuesta."
+        />
+        <FieldTextarea
+          label="Descripcion de pregunta"
+          name="pregunta_descripcion"
+          rows={2}
+          placeholder="Ayuda opcional para contextualizar la pregunta."
+        />
+        <FieldTextarea
+          label="Opciones de respuesta"
+          name="opciones_respuesta"
+          rows={3}
+          placeholder="Solo para opcion multiple. Una opcion por linea."
+        />
         <Input
           label="Encuesta por Excel"
           name="encuesta_excel"
@@ -375,7 +407,10 @@ function ComposerCard({ data }: { data: MensajesPanelData }) {
           hint="Sube una plantilla XLSX para generar varias preguntas. Si la subes, reemplaza la pregunta manual."
         />
         <div className="text-sm">
-          <Link href="/api/mensajes/encuestas-template" className="font-medium text-cyan-700 underline-offset-2 hover:underline">
+          <Link
+            href="/api/mensajes/encuestas-template"
+            className="font-medium text-cyan-700 underline-offset-2 hover:underline"
+          >
             Descargar plantilla de encuesta
           </Link>
         </div>
@@ -395,15 +430,16 @@ function ComposerCard({ data }: { data: MensajesPanelData }) {
         />
       </form>
     </Card>
-  )
+  );
 }
 
 function MensajeCard({ mensaje, canManage }: { mensaje: MensajeItem; canManage: boolean }) {
-  const [readState, readAction] = useActionState(marcarMensajeLeido, ESTADO_MENSAJE_INICIAL)
-  const [surveyState, surveyAction] = useActionState(responderEncuesta, ESTADO_MENSAJE_INICIAL)
-  const recipientState = mensaje.recipientState
-  const needsReadAction = recipientState?.estado === 'PENDIENTE'
-  const canAnswer = mensaje.tipo === 'ENCUESTA' && recipientState && recipientState.estado !== 'RESPONDIDO'
+  const [readState, readAction] = useActionState(marcarMensajeLeido, ESTADO_MENSAJE_INICIAL);
+  const [surveyState, surveyAction] = useActionState(responderEncuesta, ESTADO_MENSAJE_INICIAL);
+  const recipientState = mensaje.recipientState;
+  const needsReadAction = recipientState?.estado === 'PENDIENTE';
+  const canAnswer =
+    mensaje.tipo === 'ENCUESTA' && recipientState && recipientState.estado !== 'RESPONDIDO';
 
   return (
     <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -433,21 +469,27 @@ function MensajeCard({ mensaje, canManage }: { mensaje: MensajeItem; canManage: 
             )}
           </div>
           <h3 className="mt-2 text-lg font-semibold text-slate-950">{mensaje.titulo}</h3>
-          <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">{mensaje.cuerpo}</p>
+          <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">
+            {mensaje.cuerpo}
+          </p>
         </div>
         <div className="min-w-44 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
           <p>{formatDateTime(mensaje.createdAt)}</p>
           <p className="mt-2">Creado por: {mensaje.creadoPor ?? 'Sistema'}</p>
           <p className="mt-1">Receptores: {mensaje.totalReceptores}</p>
           {canManage && <p className="mt-1">No leidos: {mensaje.noLeidas}</p>}
-          {canManage && mensaje.tipo === 'ENCUESTA' && <p className="mt-1">Respondidas: {mensaje.respondidas}</p>}
+          {canManage && mensaje.tipo === 'ENCUESTA' && (
+            <p className="mt-1">Respondidas: {mensaje.respondidas}</p>
+          )}
         </div>
       </div>
 
       {recipientState && (
         <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
           <p className="font-medium">Estado personal: {recipientState.estado}</p>
-          {recipientState.respuesta && <p className="mt-1 text-slate-500">Respuesta: {recipientState.respuesta}</p>}
+          {recipientState.respuesta && (
+            <p className="mt-1 text-slate-500">Respuesta: {recipientState.respuesta}</p>
+          )}
         </div>
       )}
 
@@ -456,13 +498,21 @@ function MensajeCard({ mensaje, canManage }: { mensaje: MensajeItem; canManage: 
           <p className="text-sm font-semibold text-slate-950">Preguntas</p>
           <div className="mt-3 space-y-3">
             {mensaje.surveyQuestions.map((item, index) => (
-              <div key={item.id} className="rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-700">
-                <p className="font-medium">{index + 1}. {item.titulo}</p>
+              <div
+                key={item.id}
+                className="rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-700"
+              >
+                <p className="font-medium">
+                  {index + 1}. {item.titulo}
+                </p>
                 {item.descripcion && <p className="mt-1 text-slate-500">{item.descripcion}</p>}
                 {item.tipoPregunta === 'OPCION_MULTIPLE' && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {item.opciones.map((option) => (
-                      <span key={option.id} className="rounded-full bg-white px-3 py-1 text-xs text-slate-700">
+                      <span
+                        key={option.id}
+                        className="rounded-full bg-white px-3 py-1 text-xs text-slate-700"
+                      >
                         {option.label}
                       </span>
                     ))}
@@ -532,7 +582,10 @@ function MensajeCard({ mensaje, canManage }: { mensaje: MensajeItem; canManage: 
               defaultValue=""
               options={[
                 { value: '', label: 'Selecciona una opcion' },
-                ...mensaje.opcionesRespuesta.map((item) => ({ value: item.label, label: item.label })),
+                ...mensaje.opcionesRespuesta.map((item) => ({
+                  value: item.label,
+                  label: item.label,
+                })),
               ]}
             />
           )}
@@ -541,7 +594,7 @@ function MensajeCard({ mensaje, canManage }: { mensaje: MensajeItem; canManage: 
         </form>
       )}
     </article>
-  )
+  );
 }
 
 function SurveyAnalyticsCard({ survey }: { survey: SurveyAnalyticsItem }) {
@@ -560,7 +613,9 @@ function SurveyAnalyticsCard({ survey }: { survey: SurveyAnalyticsItem }) {
         <div className="min-w-52 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
           <p>Creada: {formatDateTime(survey.createdAt)}</p>
           <p className="mt-1">Creado por: {survey.creadoPor ?? 'Sistema'}</p>
-          <p className="mt-3 font-medium">Alcance: {survey.respondidas}/{survey.totalReceptores}</p>
+          <p className="mt-3 font-medium">
+            Alcance: {survey.respondidas}/{survey.totalReceptores}
+          </p>
           <p className="mt-1 text-slate-500">Pendientes: {survey.pendientes}</p>
           <p className="mt-1 text-slate-500">Tasa: {survey.responseRate}%</p>
         </div>
@@ -578,7 +633,9 @@ function SurveyAnalyticsCard({ survey }: { survey: SurveyAnalyticsItem }) {
                   <div key={option.id}>
                     <div className="flex items-center justify-between text-sm text-slate-700">
                       <span>{option.label}</span>
-                      <span>{option.count} · {option.percentage}%</span>
+                      <span>
+                        {option.count} · {option.percentage}%
+                      </span>
                     </div>
                     <div className="mt-1 h-2 rounded-full bg-slate-100">
                       <div
@@ -595,10 +652,14 @@ function SurveyAnalyticsCard({ survey }: { survey: SurveyAnalyticsItem }) {
                   <p className="text-sm text-slate-500">Sin respuestas de texto todavia.</p>
                 ) : (
                   question.respuestasTexto.map((item, index) => (
-                    <div key={`${question.id}-${index}`} className="rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                    <div
+                      key={`${question.id}-${index}`}
+                      className="rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-700"
+                    >
                       <p>{item.value}</p>
                       <p className="mt-1 text-xs text-slate-500">
-                        {item.empleadoNombre ? `${item.empleadoNombre} · ` : ''}{formatDateTime(item.respondedAt)}
+                        {item.empleadoNombre ? `${item.empleadoNombre} · ` : ''}
+                        {formatDateTime(item.respondedAt)}
                       </p>
                     </div>
                   ))
@@ -609,7 +670,7 @@ function SurveyAnalyticsCard({ survey }: { survey: SurveyAnalyticsItem }) {
         ))}
       </div>
     </article>
-  )
+  );
 }
 
 function FieldTextarea({
@@ -619,13 +680,13 @@ function FieldTextarea({
   placeholder = '',
   required = false,
 }: {
-  label: string
-  name: string
-  rows: number
-  placeholder?: string
-  required?: boolean
+  label: string;
+  name: string;
+  rows: number;
+  placeholder?: string;
+  required?: boolean;
 }) {
-  const fieldId = `${name}-${label.toLowerCase().replace(/\s+/g, '-')}`
+  const fieldId = `${name}-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
   return (
     <div className="w-full">
@@ -641,23 +702,25 @@ function FieldTextarea({
         className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-foreground transition-all duration-200 placeholder:text-foreground-muted hover:border-border-dark focus:outline-none focus:ring-2 focus:ring-accent-500"
       />
     </div>
-  )
+  );
 }
 
 function StateMessage({ state }: { state: { ok: boolean; message: string | null } }) {
   if (!state.message) {
-    return null
+    return null;
   }
 
-  return <p className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>
+  return (
+    <p className={`text-sm ${state.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{state.message}</p>
+  );
 }
 
 function SubmitButton({ idleLabel, pendingLabel }: { idleLabel: string; pendingLabel: string }) {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   return (
     <Button type="submit" size="sm" isLoading={pending}>
       {pending ? pendingLabel : idleLabel}
     </Button>
-  )
+  );
 }

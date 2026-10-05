@@ -1,6 +1,6 @@
 # 🏗️ Bucle Agéntico: Modo BLUEPRINT
 
-> *"No planifiques lo que no entiendes. Mapea contexto, luego planifica."*
+> _"No planifiques lo que no entiendes. Mapea contexto, luego planifica."_
 
 El modo BLUEPRINT es para sistemas complejos que requieren construcción por fases con mapeo de contexto just-in-time.
 
@@ -191,6 +191,7 @@ GENERAR subtareas de Fase 2
 ## 📝 Ejemplo Completo BLUEPRINT
 
 ### Tarea
+
 ```
 Usuario: "Necesito un sistema de autenticación con roles y permisos"
 ```
@@ -447,32 +448,35 @@ Antes de transicionar a siguiente fase:
 
 ## 🔥 Auto-Blindaje: El Sistema que se Fortalece Solo
 
-> *"Inspirado en el acero del Cybertruck: cada error es un impacto que refuerza nuestra estructura. Blindamos el proceso para que la falla nunca se repita."*
+> _"Inspirado en el acero del Cybertruck: cada error es un impacto que refuerza nuestra estructura. Blindamos el proceso para que la falla nunca se repita."_
 
 ### Por Qué Auto-Blindaje
 
 Sin Auto-Blindaje:
+
 ```
 Error ocurre → Se arregla → Se olvida → Error ocurre de nuevo
 ```
 
 Con Auto-Blindaje:
+
 ```
 Error ocurre → Se arregla → Se documenta → NUNCA ocurre de nuevo
 ```
 
 ### Dónde Documentar Aprendizajes
 
-| Tipo de Error | Dónde Documentar |
-|---------------|------------------|
-| Específico de esta feature | PRP actual (sección Aprendizajes) |
-| Aplica a múltiples features | `.claude/prompts/` relevante |
-| Aplica a TODO el proyecto | `CLAUDE.md` (sección No Hacer) |
+| Tipo de Error               | Dónde Documentar                  |
+| --------------------------- | --------------------------------- |
+| Específico de esta feature  | PRP actual (sección Aprendizajes) |
+| Aplica a múltiples features | `.claude/prompts/` relevante      |
+| Aplica a TODO el proyecto   | `CLAUDE.md` (sección No Hacer)    |
 
 ### Formato de Aprendizaje
 
 ```markdown
 ### [YYYY-MM-DD]: [Título corto]
+
 - **Error**: [Qué falló exactamente]
 - **Fix**: [Cómo se arregló]
 - **Aplicar en**: [Dónde más aplica este conocimiento]
@@ -482,16 +486,19 @@ Error ocurre → Se arregla → Se documenta → NUNCA ocurre de nuevo
 
 ```markdown
 ### 2024-12-05: Lighthouse penaliza imágenes grandes
+
 - **Error**: Score de performance bajo (< 80)
 - **Fix**: Usar WebP, max 80KB, lazy loading
 - **Aplicar en**: Todas las features con imágenes
 
 ### 2024-12-06: Supabase RLS olvidado
+
 - **Error**: Datos visibles sin autenticación
 - **Fix**: SIEMPRE habilitar RLS después de CREATE TABLE
 - **Aplicar en**: Todas las migraciones de BD
 
 ### 2024-12-07: Zustand hydration mismatch
+
 - **Error**: Error de hidratación en SSR
 - **Fix**: Usar persist middleware con skipHydration
 - **Aplicar en**: Todos los stores que persisten en localStorage
@@ -499,5 +506,5 @@ Error ocurre → Se arregla → Se documenta → NUNCA ocurre de nuevo
 
 ---
 
-*"La precisión viene de mapear la realidad, no de imaginar el futuro."*
-*"El sistema que se blinda solo es invencible."*
+_"La precisión viene de mapear la realidad, no de imaginar el futuro."_
+_"El sistema que se blinda solo es invencible."_

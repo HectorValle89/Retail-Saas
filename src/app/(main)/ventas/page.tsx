@@ -2,6 +2,9 @@ import { requerirActorActivo } from '@/lib/auth/session';
 import { VentasPanel } from '@/features/ventas/components/VentasPanel';
 import { obtenerPanelVentas } from '@/features/ventas/services/ventaService';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export const metadata = {
   title: 'Ventas | Field Force Platform',
 };
@@ -28,18 +31,25 @@ export default async function VentasPage({ searchParams }: VentasPageProps) {
   const params = (await searchParams) ?? {};
   const page = parsePositiveInt(pickString(params.page), 1);
   const pageSize = parsePositiveInt(pickString(params.pageSize), 50);
-  const month = pickString(params.month) || undefined;
+  const currentMexicoMonth = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+  }).format(new Date());
+  const month = pickString(params.month) || currentMexicoMonth;
+  const refresh = pickString(params.refresh);
 
   const data = await obtenerPanelVentas(actor, {
     page,
     pageSize,
     month,
+    bypassCache: refresh === 'true',
   });
 
   const esVisualizadorReporte = ['ADMINISTRADOR', 'COORDINADOR', 'SUPERVISOR'].includes(actor.puesto);
 
   return (
-    <div className="page-shell max-w-7xl">
+    <div className="page-shell !pt-3 sm:!pt-6 !px-2.5 sm:!px-6 max-w-7xl">
       {!esVisualizadorReporte && (
         <header className="page-hero mb-6">
           <p className="page-hero-eyebrow">Ejecucion diaria</p>
@@ -51,7 +61,7 @@ export default async function VentasPage({ searchParams }: VentasPageProps) {
         </header>
       )}
 
-      <VentasPanel actor={actor} data={data} />
+      <VentasPanel actor={actor} data={data} showBackButton={esVisualizadorReporte} />
     </div>
   );
 }

@@ -1,25 +1,25 @@
-'use client'
+'use client';
 
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import type { OfflineSyncState } from '@/hooks/useOfflineSync'
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import type { OfflineSyncState } from '@/hooks/useOfflineSync';
 
 interface OfflineStatusCardProps {
-  title?: string
-  description?: string
-  offline: OfflineSyncState
-  compact?: boolean
+  title?: string;
+  description?: string;
+  offline: OfflineSyncState;
+  compact?: boolean;
 }
 
 function formatTimestamp(value: string | null) {
   if (!value) {
-    return 'Sin sincronizacion reciente'
+    return 'Sin sincronizacion reciente';
   }
 
   return new Date(value).toLocaleString('es-MX', {
     dateStyle: 'short',
     timeStyle: 'short',
-  })
+  });
 }
 
 export function OfflineStatusCard({
@@ -32,13 +32,13 @@ export function OfflineStatusCard({
     ? 'bg-slate-100 text-slate-700'
     : offline.isOnline
       ? 'bg-emerald-100 text-emerald-700'
-      : 'bg-amber-100 text-amber-800'
+      : 'bg-amber-100 text-amber-800';
 
   const statusLabel = !offline.hasHydrated
     ? 'SINCRONIZANDO'
     : offline.isOnline
       ? 'ONLINE'
-      : 'OFFLINE'
+      : 'OFFLINE';
 
   return (
     <Card className="border-slate-200 bg-white">
@@ -53,12 +53,11 @@ export function OfflineStatusCard({
           <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
           {!offline.isSupported && (
             <p className="mt-2 text-sm text-amber-700">
-              IndexedDB no esta disponible en este navegador. La captura local no quedara persistida.
+              IndexedDB no esta disponible en este navegador. La captura local no quedara
+              persistida.
             </p>
           )}
-          {offline.lastError && (
-            <p className="mt-2 text-sm text-rose-700">{offline.lastError}</p>
-          )}
+          {offline.lastError && <p className="mt-2 text-sm text-rose-700">{offline.lastError}</p>}
         </div>
 
         <div className="flex flex-wrap gap-3">
@@ -92,13 +91,14 @@ export function OfflineStatusCard({
         <Metric label="Fallidos" value={String(offline.summary.failed)} />
         <Metric label="Asistencias local" value={String(offline.summary.asistenciaDrafts)} />
         <Metric label="Ventas local" value={String(offline.summary.ventaDrafts)} />
+        <Metric label="Material local" value={String(offline.summary.materialEntregaDrafts)} />
       </div>
 
       <p className="mt-4 text-xs uppercase tracking-[0.2em] text-slate-400">
         Ultima sincronizacion: {formatTimestamp(offline.lastSyncedAt)}
       </p>
     </Card>
-  )
+  );
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -107,5 +107,5 @@ function Metric({ label, value }: { label: string; value: string }) {
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</p>
       <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
     </div>
-  )
+  );
 }

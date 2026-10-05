@@ -3,8 +3,8 @@ import 'leaflet/dist/leaflet.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 import { Inter, Poppins } from 'next/font/google';
 import type { Metadata, Viewport } from 'next';
-import { AppRuntime } from '@/components/app/AppRuntime'
-import { siteConfig } from '@/config/siteConfig'
+import { AppRuntime } from '@/components/app/AppRuntime';
+import { siteConfig } from '@/config/siteConfig';
 
 const inter = Inter({
   subsets: ['latin'],

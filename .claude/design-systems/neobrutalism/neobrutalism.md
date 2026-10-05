@@ -1,6 +1,6 @@
 # Neobrutalism - Sistema de Diseño
 
-> *"Diseño crudo, honesto y sin disculpas. Bordes duros, sombras sólidas, colores que gritan."*
+> _"Diseño crudo, honesto y sin disculpas. Bordes duros, sombras sólidas, colores que gritan."_
 
 ## Referencia Visual
 
@@ -12,6 +12,7 @@
 ## Qué es Neobrutalism
 
 **Neobrutalism** (Neo-Brutalism o Neubrutalism) es un estilo de diseño que combina:
+
 - La **crudeza del Brutalism** arquitectónico
 - La **funcionalidad del Minimalismo**
 - Elementos **retro/nostálgicos** (Windows 98, early web)
@@ -24,15 +25,15 @@ Es una reacción contra el diseño "perfecto" y pulido. Abraza lo crudo, lo dire
 
 ### Características Clave
 
-| Característica | Descripción |
-|----------------|-------------|
-| Bordes gruesos | `border-2` o más, siempre negro |
-| Sombras duras | Sin blur, offset sólido en X e Y |
-| Colores vibrantes | Primarios saturados, alto contraste |
-| Sin gradientes | Colores planos, sin transiciones |
-| Tipografía bold | Sans-serif pesada, impactante |
-| Formas geométricas | Rectángulos, ángulos duros |
-| Estética retro | Reminiscente de interfaces antiguas |
+| Característica     | Descripción                         |
+| ------------------ | ----------------------------------- |
+| Bordes gruesos     | `border-2` o más, siempre negro     |
+| Sombras duras      | Sin blur, offset sólido en X e Y    |
+| Colores vibrantes  | Primarios saturados, alto contraste |
+| Sin gradientes     | Colores planos, sin transiciones    |
+| Tipografía bold    | Sans-serif pesada, impactante       |
+| Formas geométricas | Rectángulos, ángulos duros          |
+| Estética retro     | Reminiscente de interfaces antiguas |
 
 ---
 
@@ -54,12 +55,15 @@ box-shadow: 8px 8px 0px 0px #000000;
 ```html
 <!-- Tailwind con arbitrary values -->
 <div class="shadow-[4px_4px_0px_0px_#000000]">
-<div class="shadow-[6px_6px_0px_0px_#000000]">
-<div class="shadow-[8px_8px_0px_0px_#000000]">
-
-<!-- Simplificado -->
-<div class="shadow-[4px_4px_0_#000]">
-<div class="shadow-[6px_6px_0_#000]">
+  <div class="shadow-[6px_6px_0px_0px_#000000]">
+    <div class="shadow-[8px_8px_0px_0px_#000000]">
+      <!-- Simplificado -->
+      <div class="shadow-[4px_4px_0_#000]">
+        <div class="shadow-[6px_6px_0_#000]"></div>
+      </div>
+    </div>
+  </div>
+</div>
 ```
 
 ### 2. Thick Borders (Bordes Gruesos)
@@ -68,16 +72,20 @@ Bordes visibles, generalmente negros:
 
 ```html
 <!-- Tailwind -->
-<div class="border-2 border-black">    <!-- 2px -->
-<div class="border-[3px] border-black"> <!-- 3px -->
-<div class="border-4 border-black">    <!-- 4px - común -->
+<div class="border-2 border-black">
+  <!-- 2px -->
+  <div class="border-[3px] border-black">
+    <!-- 3px -->
+    <div class="border-4 border-black"><!-- 4px - común --></div>
+  </div>
+</div>
 ```
 
 **Variante: Bordes asimétricos** (efecto 3D):
 
 ```html
 <!-- Borde más grueso abajo y derecha -->
-<div class="border-2 border-b-4 border-r-4 border-black">
+<div class="border-2 border-b-4 border-r-4 border-black"></div>
 ```
 
 ### 3. Bold Colors (Colores Vibrantes)
@@ -86,17 +94,35 @@ Paleta de alto contraste, colores primarios saturados:
 
 ```html
 <!-- Fondos típicos -->
-<div class="bg-yellow-300">   <!-- Amarillo vibrante -->
-<div class="bg-pink-400">     <!-- Rosa intenso -->
-<div class="bg-cyan-300">     <!-- Cyan eléctrico -->
-<div class="bg-lime-400">     <!-- Verde lima -->
-<div class="bg-orange-400">   <!-- Naranja -->
-<div class="bg-violet-400">   <!-- Violeta -->
+<div class="bg-yellow-300">
+  <!-- Amarillo vibrante -->
+  <div class="bg-pink-400">
+    <!-- Rosa intenso -->
+    <div class="bg-cyan-300">
+      <!-- Cyan eléctrico -->
+      <div class="bg-lime-400">
+        <!-- Verde lima -->
+        <div class="bg-orange-400">
+          <!-- Naranja -->
+          <div class="bg-violet-400">
+            <!-- Violeta -->
 
-<!-- Fondo base común -->
-<body class="bg-[#e0e5ec]">   <!-- Gris azulado claro -->
-<body class="bg-amber-50">    <!-- Crema cálido -->
-<body class="bg-white">       <!-- Blanco puro -->
+            <!-- Fondo base común -->
+            <body class="bg-[#e0e5ec]">
+              <!-- Gris azulado claro -->
+              <body class="bg-amber-50">
+                <!-- Crema cálido -->
+                <body class="bg-white">
+                  <!-- Blanco puro -->
+                </body>
+              </body>
+            </body>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 ```
 
 ### 4. No Gradients (Sin Gradientes)
@@ -138,16 +164,16 @@ export default {
     extend: {
       boxShadow: {
         'brutal-sm': '2px 2px 0px 0px #000000',
-        'brutal': '4px 4px 0px 0px #000000',
+        brutal: '4px 4px 0px 0px #000000',
         'brutal-md': '6px 6px 0px 0px #000000',
         'brutal-lg': '8px 8px 0px 0px #000000',
         'brutal-xl': '12px 12px 0px 0px #000000',
       },
       fontFamily: {
-        'brutal': ['Space Grotesk', 'sans-serif'],
+        brutal: ['Space Grotesk', 'sans-serif'],
       },
       colors: {
-        'brutal': {
+        brutal: {
           yellow: '#FFE500',
           pink: '#FF6B9C',
           cyan: '#00D4FF',
@@ -156,11 +182,11 @@ export default {
           violet: '#8B5CF6',
           black: '#000000',
           white: '#FFFFFF',
-        }
-      }
+        },
+      },
     },
   },
-}
+};
 ```
 
 ---
@@ -170,7 +196,8 @@ export default {
 ### Botón Neobrutalism Básico
 
 ```html
-<button class="
+<button
+  class="
   bg-yellow-300
   border-2 border-black
   shadow-[4px_4px_0px_0px_#000000]
@@ -181,7 +208,8 @@ export default {
   active:translate-x-[4px] active:translate-y-[4px]
   active:shadow-none
   transition-all duration-100
-">
+"
+>
   Click Me
 </button>
 ```
@@ -189,7 +217,8 @@ export default {
 ### Botón con Bordes Asimétricos
 
 ```html
-<button class="
+<button
+  class="
   bg-white
   border-2 border-b-4 border-r-4 border-black
   rounded-lg
@@ -198,7 +227,8 @@ export default {
   hover:border-b-2 hover:border-r-2
   hover:translate-x-[2px] hover:translate-y-[2px]
   transition-all duration-150
-">
+"
+>
   Asymmetric Button
 </button>
 ```
@@ -206,7 +236,8 @@ export default {
 ### Botón Colorido
 
 ```html
-<button class="
+<button
+  class="
   bg-pink-400
   text-black
   border-4 border-black
@@ -216,7 +247,8 @@ export default {
   hover:translate-x-[3px] hover:translate-y-[3px]
   hover:shadow-[3px_3px_0px_0px_#000000]
   transition-all duration-100
-">
+"
+>
   BRUTAL BUTTON
 </button>
 ```
@@ -224,16 +256,19 @@ export default {
 ### Card Neobrutalism
 
 ```html
-<div class="
+<div
+  class="
   bg-white
   border-4 border-black
   shadow-[8px_8px_0px_0px_#000000]
   p-6
-">
+"
+>
   <h3 class="font-black text-2xl mb-2">Card Title</h3>
   <p class="text-gray-700">Card content goes here. Keep it bold and direct.</p>
 
-  <button class="
+  <button
+    class="
     mt-4
     bg-cyan-300
     border-2 border-black
@@ -243,7 +278,8 @@ export default {
     hover:translate-x-[2px] hover:translate-y-[2px]
     hover:shadow-[2px_2px_0px_0px_#000000]
     transition-all duration-100
-  ">
+  "
+  >
     Action
   </button>
 </div>
@@ -252,12 +288,14 @@ export default {
 ### Card con Header Colorido
 
 ```html
-<div class="
+<div
+  class="
   bg-white
   border-4 border-black
   shadow-[8px_8px_0px_0px_#000000]
   overflow-hidden
-">
+"
+>
   <!-- Header colorido -->
   <div class="bg-lime-400 border-b-4 border-black px-6 py-4">
     <h3 class="font-black text-xl">FEATURED</h3>
@@ -266,12 +304,14 @@ export default {
   <!-- Content -->
   <div class="p-6">
     <p class="text-gray-800 mb-4">Content with a colored header section.</p>
-    <span class="
+    <span
+      class="
       inline-block
       bg-black text-white
       px-3 py-1
       font-bold text-sm
-    ">
+    "
+    >
       TAG
     </span>
   </div>
@@ -327,16 +367,20 @@ export default {
 
 ```html
 <label class="flex items-center gap-3 cursor-pointer">
-  <div class="
+  <div
+    class="
     w-6 h-6
     bg-white
     border-4 border-black
     shadow-[2px_2px_0px_0px_#000000]
     flex items-center justify-center
-  ">
+  "
+  >
     <!-- Checkmark (show when checked) -->
     <svg class="w-4 h-4 text-black" fill="currentColor" viewBox="0 0 20 20">
-      <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
+      <path
+        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+      />
     </svg>
   </div>
   <span class="font-bold">Accept terms</span>
@@ -347,25 +391,29 @@ export default {
 
 ```html
 <!-- Solid -->
-<span class="
+<span
+  class="
   inline-block
   bg-yellow-300
   border-2 border-black
   shadow-[2px_2px_0px_0px_#000000]
   px-3 py-1
   font-bold text-sm uppercase
-">
+"
+>
   New
 </span>
 
 <!-- Outline -->
-<span class="
+<span
+  class="
   inline-block
   bg-white
   border-2 border-black
   px-3 py-1
   font-bold text-sm uppercase
-">
+"
+>
   Featured
 </span>
 ```
@@ -373,13 +421,15 @@ export default {
 ### Alert/Banner
 
 ```html
-<div class="
+<div
+  class="
   bg-pink-400
   border-4 border-black
   shadow-[6px_6px_0px_0px_#000000]
   p-6
   flex items-start gap-4
-">
+"
+>
   <span class="text-3xl">⚠️</span>
   <div>
     <h4 class="font-black text-lg mb-1">Warning!</h4>
@@ -391,18 +441,22 @@ export default {
 ### Navbar Neobrutalism
 
 ```html
-<nav class="
+<nav
+  class="
   bg-white
   border-b-4 border-black
   px-8 py-4
-">
+"
+>
   <div class="max-w-6xl mx-auto flex items-center justify-between">
     <!-- Logo -->
-    <span class="
+    <span
+      class="
       bg-black text-white
       px-4 py-2
       font-black text-xl
-    ">
+    "
+    >
       LOGO
     </span>
 
@@ -412,7 +466,8 @@ export default {
       <a href="#" class="font-bold hover:underline decoration-4 underline-offset-4">About</a>
       <a href="#" class="font-bold hover:underline decoration-4 underline-offset-4">Work</a>
 
-      <button class="
+      <button
+        class="
         bg-yellow-300
         border-2 border-black
         shadow-[4px_4px_0px_0px_#000000]
@@ -421,7 +476,8 @@ export default {
         hover:translate-x-[2px] hover:translate-y-[2px]
         hover:shadow-[2px_2px_0px_0px_#000000]
         transition-all duration-100
-      ">
+      "
+      >
         Contact
       </button>
     </div>
@@ -432,13 +488,16 @@ export default {
 ### Hero Section
 
 ```html
-<section class="
+<section
+  class="
   bg-[#f0f0f0]
   border-b-4 border-black
   py-20 px-8
-">
+"
+>
   <div class="max-w-4xl mx-auto">
-    <span class="
+    <span
+      class="
       inline-block
       bg-pink-400
       border-2 border-black
@@ -446,22 +505,24 @@ export default {
       px-4 py-1
       font-bold text-sm uppercase
       mb-6
-    ">
+    "
+    >
       New Release
     </span>
 
     <h1 class="font-black text-6xl mb-6 leading-tight">
-      BOLD HEADLINES<br/>
+      BOLD HEADLINES<br />
       DEMAND ATTENTION
     </h1>
 
     <p class="text-xl mb-8 max-w-2xl">
-      Neobrutalism embraces the raw, the direct, the unapologetically bold.
-      No gradients. No soft shadows. Just honest design.
+      Neobrutalism embraces the raw, the direct, the unapologetically bold. No gradients. No soft
+      shadows. Just honest design.
     </p>
 
     <div class="flex gap-4">
-      <button class="
+      <button
+        class="
         bg-black text-white
         border-4 border-black
         shadow-[6px_6px_0px_0px_#FFE500]
@@ -470,11 +531,13 @@ export default {
         hover:translate-x-[3px] hover:translate-y-[3px]
         hover:shadow-[3px_3px_0px_0px_#FFE500]
         transition-all duration-100
-      ">
+      "
+      >
         Get Started
       </button>
 
-      <button class="
+      <button
+        class="
         bg-white
         border-4 border-black
         shadow-[6px_6px_0px_0px_#000000]
@@ -483,7 +546,8 @@ export default {
         hover:translate-x-[3px] hover:translate-y-[3px]
         hover:shadow-[3px_3px_0px_0px_#000000]
         transition-all duration-100
-      ">
+      "
+      >
         Learn More
       </button>
     </div>
@@ -494,13 +558,15 @@ export default {
 ### Pricing Card
 
 ```html
-<div class="
+<div
+  class="
   bg-white
   border-4 border-black
   shadow-[8px_8px_0px_0px_#000000]
   overflow-hidden
   w-80
-">
+"
+>
   <!-- Header -->
   <div class="bg-cyan-300 border-b-4 border-black px-6 py-4 text-center">
     <h3 class="font-black text-xl uppercase">Pro Plan</h3>
@@ -530,7 +596,8 @@ export default {
 
   <!-- CTA -->
   <div class="px-6 pb-6">
-    <button class="
+    <button
+      class="
       w-full
       bg-black text-white
       border-4 border-black
@@ -538,7 +605,8 @@ export default {
       font-black uppercase
       hover:bg-yellow-300 hover:text-black
       transition-colors duration-100
-    ">
+    "
+    >
       Subscribe
     </button>
   </div>
@@ -550,33 +618,35 @@ export default {
 ```html
 <!-- Backdrop -->
 <div class="fixed inset-0 bg-black/50 flex items-center justify-center p-4">
-
   <!-- Modal -->
-  <div class="
+  <div
+    class="
     bg-white
     border-4 border-black
     shadow-[12px_12px_0px_0px_#000000]
     w-full max-w-md
-  ">
+  "
+  >
     <!-- Header -->
-    <div class="
+    <div
+      class="
       bg-yellow-300
       border-b-4 border-black
       px-6 py-4
       flex items-center justify-between
-    ">
+    "
+    >
       <h2 class="font-black text-xl">MODAL TITLE</h2>
       <button class="font-black text-2xl hover:rotate-90 transition-transform">×</button>
     </div>
 
     <!-- Content -->
     <div class="px-6 py-6">
-      <p class="text-gray-700 mb-6">
-        Modal content goes here. Keep it direct and to the point.
-      </p>
+      <p class="text-gray-700 mb-6">Modal content goes here. Keep it direct and to the point.</p>
 
       <div class="flex gap-4">
-        <button class="
+        <button
+          class="
           flex-1
           bg-white
           border-2 border-black
@@ -586,10 +656,12 @@ export default {
           hover:translate-x-[1px] hover:translate-y-[1px]
           hover:shadow-[2px_2px_0px_0px_#000000]
           transition-all duration-100
-        ">
+        "
+        >
           Cancel
         </button>
-        <button class="
+        <button
+          class="
           flex-1
           bg-black text-white
           border-2 border-black
@@ -599,7 +671,8 @@ export default {
           hover:translate-x-[1px] hover:translate-y-[1px]
           hover:shadow-[2px_2px_0px_0px_#FFE500]
           transition-all duration-100
-        ">
+        "
+        >
           Confirm
         </button>
       </div>
@@ -615,41 +688,56 @@ export default {
 ### Clásica (Alto Contraste)
 
 ```html
-bg-yellow-300   <!-- #FDE047 - Primario -->
-bg-pink-400     <!-- #F472B6 - Acento -->
-bg-cyan-300     <!-- #67E8F9 - Secundario -->
-bg-white        <!-- #FFFFFF - Fondo cards -->
-bg-black        <!-- #000000 - Bordes/texto -->
+bg-yellow-300
+<!-- #FDE047 - Primario -->
+bg-pink-400
+<!-- #F472B6 - Acento -->
+bg-cyan-300
+<!-- #67E8F9 - Secundario -->
+bg-white
+<!-- #FFFFFF - Fondo cards -->
+bg-black
+<!-- #000000 - Bordes/texto -->
 ```
 
 ### Vibrante
 
 ```html
-bg-lime-400     <!-- #A3E635 -->
-bg-orange-400   <!-- #FB923C -->
-bg-violet-400   <!-- #A78BFA -->
-bg-rose-400     <!-- #FB7185 -->
+bg-lime-400
+<!-- #A3E635 -->
+bg-orange-400
+<!-- #FB923C -->
+bg-violet-400
+<!-- #A78BFA -->
+bg-rose-400
+<!-- #FB7185 -->
 ```
 
 ### Retro/Pastel Bold
 
 ```html
-bg-amber-200    <!-- #FDE68A -->
-bg-teal-300     <!-- #5EEAD4 -->
-bg-fuchsia-300  <!-- #F0ABFC -->
-bg-emerald-300  <!-- #6EE7B7 -->
+bg-amber-200
+<!-- #FDE68A -->
+bg-teal-300
+<!-- #5EEAD4 -->
+bg-fuchsia-300
+<!-- #F0ABFC -->
+bg-emerald-300
+<!-- #6EE7B7 -->
 ```
 
 ### Dark Mode Brutal
 
 ```html
 <body class="bg-gray-900">
-  <div class="
+  <div
+    class="
     bg-gray-800
     border-4 border-white
     shadow-[6px_6px_0px_0px_#FFE500]
     text-white
-  ">
+  "
+  >
     Dark neobrutalism
   </div>
 </body>
@@ -666,31 +754,33 @@ bg-emerald-300  <!-- #6EE7B7 -->
 shadow-[4px_4px_0px_0px_#000000]
 
 <!-- Hover: mover hacia la sombra -->
-hover:translate-x-[2px] hover:translate-y-[2px]
-hover:shadow-[2px_2px_0px_0px_#000000]
+hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_0px_#000000]
 
 <!-- Active: completamente presionado -->
-active:translate-x-[4px] active:translate-y-[4px]
-active:shadow-none
+active:translate-x-[4px] active:translate-y-[4px] active:shadow-none
 ```
 
 ### Transiciones Rápidas
 
 ```html
-transition-all duration-100  <!-- Rápido, snappy -->
-transition-all duration-150  <!-- Moderado -->
+transition-all duration-100
+<!-- Rápido, snappy -->
+transition-all duration-150
+<!-- Moderado -->
 ```
 
 ### Sin Transición (Más Brutal)
 
 ```html
 <!-- Para un efecto más "crudo", sin transición -->
-<button class="
+<button
+  class="
   shadow-[4px_4px_0px_0px_#000000]
   hover:translate-x-[4px] hover:translate-y-[4px]
   hover:shadow-none
   <!-- Sin transition-all -->
-">
+"
+></button>
 ```
 
 ---
@@ -711,22 +801,24 @@ transition-all duration-150  <!-- Moderado -->
 ### Focus States
 
 ```html
-<button class="
+<button
+  class="
   ...
   focus:outline-none
   focus:ring-4 focus:ring-black focus:ring-offset-2
-">
+"
+></button>
 ```
 
 ### Cuándo Usar y Cuándo Evitar
 
-| ✅ Usar Para | ❌ Evitar Para |
-|-------------|---------------|
-| Portfolios creativos | Apps corporativas formales |
-| Landing pages bold | Interfaces médicas/financieras |
+| ✅ Usar Para             | ❌ Evitar Para                 |
+| ------------------------ | ------------------------------ |
+| Portfolios creativos     | Apps corporativas formales     |
+| Landing pages bold       | Interfaces médicas/financieras |
 | Productos para creadores | Donde accesibilidad es crítica |
-| Startups disruptivas | Usuarios mayores como target |
-| Proyectos personales | Dashboards con muchos datos |
+| Startups disruptivas     | Usuarios mayores como target   |
+| Proyectos personales     | Dashboards con muchos datos    |
 
 ---
 
@@ -755,13 +847,13 @@ transition-all duration-150  <!-- Moderado -->
 
 ## Diferencia: Brutalism vs Neobrutalism
 
-| Brutalism Clásico | Neobrutalism |
-|-------------------|--------------|
-| Monocromático | Colores vibrantes |
-| Solo tipografía | Sombras y bordes decorativos |
-| Anti-diseño extremo | Diseño bold pero usable |
-| Ilegible a propósito | Legible con impacto |
-| Caótico | Estructurado con personalidad |
+| Brutalism Clásico    | Neobrutalism                  |
+| -------------------- | ----------------------------- |
+| Monocromático        | Colores vibrantes             |
+| Solo tipografía      | Sombras y bordes decorativos  |
+| Anti-diseño extremo  | Diseño bold pero usable       |
+| Ilegible a propósito | Legible con impacto           |
+| Caótico              | Estructurado con personalidad |
 
 ---
 
@@ -775,4 +867,4 @@ transition-all duration-150  <!-- Moderado -->
 
 ---
 
-*Este documento es parte del Design System de SaaS Factory V2.*
+_Este documento es parte del Design System de SaaS Factory V2._

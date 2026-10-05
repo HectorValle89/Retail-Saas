@@ -1,6 +1,6 @@
 # Liquid Glass - Sistema de Diseño
 
-> *"El efecto de cristal líquido que Apple popularizó en iOS 7 y que ahora domina el diseño moderno."*
+> _"El efecto de cristal líquido que Apple popularizó en iOS 7 y que ahora domina el diseño moderno."_
 
 ## Referencia Visual
 
@@ -25,6 +25,7 @@ Glassmorphism es un estilo de diseño UI que simula **paneles de vidrio esmerila
 ### Liquid Glass: La Evolución
 
 El **Liquid Glass** añade fluidez al glassmorphism tradicional:
+
 - Distorsiones tipo "agua ondulante"
 - Animaciones dinámicas
 - Cambios de color graduales
@@ -44,16 +45,30 @@ backdrop-filter: blur(16px);
 
 ```html
 <!-- Tailwind -->
-<div class="backdrop-blur-sm">   <!-- 4px -->
-<div class="backdrop-blur">      <!-- 8px -->
-<div class="backdrop-blur-md">   <!-- 12px -->
-<div class="backdrop-blur-lg">   <!-- 16px -->
-<div class="backdrop-blur-xl">   <!-- 24px -->
-<div class="backdrop-blur-2xl">  <!-- 40px -->
-<div class="backdrop-blur-3xl">  <!-- 64px -->
+<div class="backdrop-blur-sm">
+  <!-- 4px -->
+  <div class="backdrop-blur">
+    <!-- 8px -->
+    <div class="backdrop-blur-md">
+      <!-- 12px -->
+      <div class="backdrop-blur-lg">
+        <!-- 16px -->
+        <div class="backdrop-blur-xl">
+          <!-- 24px -->
+          <div class="backdrop-blur-2xl">
+            <!-- 40px -->
+            <div class="backdrop-blur-3xl">
+              <!-- 64px -->
 
-<!-- Valor personalizado -->
-<div class="backdrop-blur-[20px]">
+              <!-- Valor personalizado -->
+              <div class="backdrop-blur-[20px]"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 ```
 
 ### 2. Fondo Semi-Transparente
@@ -67,20 +82,33 @@ background: rgba(255, 255, 255, 0.2);
 
 ```html
 <!-- Tailwind con opacidad -->
-<div class="bg-white/5">   <!-- 5% opacidad -->
-<div class="bg-white/10">  <!-- 10% opacidad - común -->
-<div class="bg-white/15">  <!-- 15% opacidad -->
-<div class="bg-white/20">  <!-- 20% opacidad - común -->
-<div class="bg-white/25">  <!-- 25% opacidad -->
+<div class="bg-white/5">
+  <!-- 5% opacidad -->
+  <div class="bg-white/10">
+    <!-- 10% opacidad - común -->
+    <div class="bg-white/15">
+      <!-- 15% opacidad -->
+      <div class="bg-white/20">
+        <!-- 20% opacidad - común -->
+        <div class="bg-white/25">
+          <!-- 25% opacidad -->
 
-<!-- Fondos oscuros -->
-<div class="bg-black/10">
-<div class="bg-black/20">
-<div class="bg-gray-900/30">
-
-<!-- Con colores -->
-<div class="bg-blue-500/10">
-<div class="bg-purple-500/15">
+          <!-- Fondos oscuros -->
+          <div class="bg-black/10">
+            <div class="bg-black/20">
+              <div class="bg-gray-900/30">
+                <!-- Con colores -->
+                <div class="bg-blue-500/10">
+                  <div class="bg-purple-500/15"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 ```
 
 ### 3. Bordes de Vidrio
@@ -94,14 +122,17 @@ border: 1px solid rgba(255, 255, 255, 0.3);
 ```html
 <!-- Tailwind -->
 <div class="border border-white/10">
-<div class="border border-white/20">  <!-- Común -->
-<div class="border border-white/30">
-
-<!-- Solo borde superior (efecto luz) -->
-<div class="border-t border-white/30">
-
-<!-- Borde interior con ring -->
-<div class="ring-1 ring-white/10 ring-inset">
+  <div class="border border-white/20">
+    <!-- Común -->
+    <div class="border border-white/30">
+      <!-- Solo borde superior (efecto luz) -->
+      <div class="border-t border-white/30">
+        <!-- Borde interior con ring -->
+        <div class="ring-1 ring-white/10 ring-inset"></div>
+      </div>
+    </div>
+  </div>
+</div>
 ```
 
 ### 4. Sombras
@@ -115,22 +146,33 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 ```html
 <!-- Tailwind -->
 <div class="shadow-lg">
-<div class="shadow-xl">
-<div class="shadow-2xl">
-
-<!-- Sombra con color -->
-<div class="shadow-lg shadow-black/10">
-<div class="shadow-xl shadow-purple-500/20">
+  <div class="shadow-xl">
+    <div class="shadow-2xl">
+      <!-- Sombra con color -->
+      <div class="shadow-lg shadow-black/10">
+        <div class="shadow-xl shadow-purple-500/20"></div>
+      </div>
+    </div>
+  </div>
+</div>
 ```
 
 ### 5. Bordes Redondeados
 
 ```html
-<div class="rounded-lg">     <!-- 8px -->
-<div class="rounded-xl">     <!-- 12px -->
-<div class="rounded-2xl">    <!-- 16px -->
-<div class="rounded-3xl">    <!-- 24px -->
-<div class="rounded-[20px]"> <!-- Personalizado -->
+<div class="rounded-lg">
+  <!-- 8px -->
+  <div class="rounded-xl">
+    <!-- 12px -->
+    <div class="rounded-2xl">
+      <!-- 16px -->
+      <div class="rounded-3xl">
+        <!-- 24px -->
+        <div class="rounded-[20px]"><!-- Personalizado --></div>
+      </div>
+    </div>
+  </div>
+</div>
 ```
 
 ---
@@ -140,14 +182,16 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 ### Card Glassmorphism Básica
 
 ```html
-<div class="
+<div
+  class="
   bg-white/10
   backdrop-blur-lg
   border border-white/20
   rounded-2xl
   shadow-xl
   p-6
-">
+"
+>
   <h3 class="text-white font-semibold">Título</h3>
   <p class="text-white/70">Contenido de la card</p>
 </div>
@@ -156,7 +200,8 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 ### Card Glassmorphism Premium
 
 ```html
-<div class="
+<div
+  class="
   relative
   bg-gradient-to-br from-white/20 to-white/5
   backdrop-blur-xl
@@ -165,9 +210,12 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   shadow-2xl
   p-8
   overflow-hidden
-">
+"
+>
   <!-- Highlight superior -->
-  <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/50 to-transparent"></div>
+  <div
+    class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/50 to-transparent"
+  ></div>
 
   <!-- Contenido -->
   <h3 class="text-white font-bold text-xl">Premium Card</h3>
@@ -178,7 +226,8 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 ### Botón Glassmorphism
 
 ```html
-<button class="
+<button
+  class="
   bg-white/10
   hover:bg-white/20
   backdrop-blur-md
@@ -190,7 +239,8 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   transition-all duration-300
   hover:shadow-xl
   hover:scale-105
-">
+"
+>
   Click me
 </button>
 ```
@@ -198,7 +248,8 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 ### Botón Glassmorphism con Glow
 
 ```html
-<button class="
+<button
+  class="
   relative
   bg-gradient-to-r from-purple-500/20 to-pink-500/20
   hover:from-purple-500/30 hover:to-pink-500/30
@@ -211,9 +262,12 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   hover:shadow-2xl hover:shadow-purple-500/30
   transition-all duration-300
   group
-">
+"
+>
   <!-- Glow effect -->
-  <span class="absolute inset-0 rounded-2xl bg-gradient-to-r from-purple-500 to-pink-500 opacity-0 group-hover:opacity-20 transition-opacity blur-xl"></span>
+  <span
+    class="absolute inset-0 rounded-2xl bg-gradient-to-r from-purple-500 to-pink-500 opacity-0 group-hover:opacity-20 transition-opacity blur-xl"
+  ></span>
   <span class="relative">Get Started</span>
 </button>
 ```
@@ -247,9 +301,9 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 ```html
 <!-- Backdrop -->
 <div class="fixed inset-0 bg-black/50 backdrop-blur-sm">
-
   <!-- Modal -->
-  <div class="
+  <div
+    class="
     fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
     w-full max-w-md
     bg-white/10
@@ -258,15 +312,20 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
     rounded-3xl
     shadow-2xl
     p-8
-  ">
+  "
+  >
     <h2 class="text-white text-2xl font-bold">Modal Title</h2>
     <p class="text-white/60 mt-4">Modal content goes here...</p>
 
     <div class="flex gap-4 mt-8">
-      <button class="flex-1 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 rounded-xl py-3 text-white transition-all">
+      <button
+        class="flex-1 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 rounded-xl py-3 text-white transition-all"
+      >
         Cancel
       </button>
-      <button class="flex-1 bg-white hover:bg-white/90 rounded-xl py-3 text-black font-semibold transition-all">
+      <button
+        class="flex-1 bg-white hover:bg-white/90 rounded-xl py-3 text-black font-semibold transition-all"
+      >
         Confirm
       </button>
     </div>
@@ -277,13 +336,15 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 ### Navbar Glassmorphism
 
 ```html
-<nav class="
+<nav
+  class="
   fixed top-0 inset-x-0
   bg-black/20
   backdrop-blur-xl
   border-b border-white/10
   z-50
-">
+"
+>
   <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
     <span class="text-white font-bold text-xl">Logo</span>
 
@@ -292,7 +353,9 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
       <a href="#" class="text-white/70 hover:text-white transition-colors">Features</a>
       <a href="#" class="text-white/70 hover:text-white transition-colors">Pricing</a>
 
-      <button class="bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 rounded-xl px-5 py-2 text-white transition-all">
+      <button
+        class="bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 rounded-xl px-5 py-2 text-white transition-all"
+      >
         Sign In
       </button>
     </div>
@@ -303,13 +366,15 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 ### Sidebar Glassmorphism
 
 ```html
-<aside class="
+<aside
+  class="
   fixed left-0 top-0 bottom-0
   w-64
   bg-black/30
   backdrop-blur-2xl
   border-r border-white/10
-">
+"
+>
   <div class="p-6">
     <h2 class="text-white font-bold text-lg">Dashboard</h2>
   </div>
@@ -318,10 +383,16 @@ box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
     <a href="#" class="flex items-center gap-3 px-4 py-3 text-white bg-white/10 rounded-xl">
       <span>Overview</span>
     </a>
-    <a href="#" class="flex items-center gap-3 px-4 py-3 text-white/60 hover:text-white hover:bg-white/5 rounded-xl transition-all">
+    <a
+      href="#"
+      class="flex items-center gap-3 px-4 py-3 text-white/60 hover:text-white hover:bg-white/5 rounded-xl transition-all"
+    >
       <span>Analytics</span>
     </a>
-    <a href="#" class="flex items-center gap-3 px-4 py-3 text-white/60 hover:text-white hover:bg-white/5 rounded-xl transition-all">
+    <a
+      href="#"
+      class="flex items-center gap-3 px-4 py-3 text-white/60 hover:text-white hover:bg-white/5 rounded-xl transition-all"
+    >
       <span>Settings</span>
     </a>
   </nav>
@@ -356,12 +427,14 @@ export default {
       },
     },
   },
-}
+};
 ```
 
 ```html
 <!-- Uso -->
-<div class="animate-float-bg bg-[length:200%_200%] bg-gradient-to-br from-purple-500/30 via-pink-500/20 to-blue-500/30 backdrop-blur-xl">
+<div
+  class="animate-float-bg bg-[length:200%_200%] bg-gradient-to-br from-purple-500/30 via-pink-500/20 to-blue-500/30 backdrop-blur-xl"
+>
   Contenido con fondo animado
 </div>
 ```
@@ -372,12 +445,7 @@ export default {
 <svg class="absolute w-0 h-0">
   <defs>
     <filter id="liquid-glass">
-      <feTurbulence
-        type="fractalNoise"
-        baseFrequency="0.02"
-        numOctaves="3"
-        result="noise"
-      />
+      <feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="3" result="noise" />
       <feDisplacementMap
         in="SourceGraphic"
         in2="noise"
@@ -399,8 +467,13 @@ export default {
 ```html
 <div class="relative overflow-hidden rounded-3xl">
   <!-- Aurora background -->
-  <div class="absolute inset-0 bg-gradient-to-r from-purple-500/30 via-pink-500/20 to-cyan-500/30 animate-pulse-slow blur-3xl"></div>
-  <div class="absolute inset-0 bg-gradient-to-l from-blue-500/20 via-teal-500/20 to-purple-500/20 animate-pulse-slow blur-3xl" style="animation-delay: 2s;"></div>
+  <div
+    class="absolute inset-0 bg-gradient-to-r from-purple-500/30 via-pink-500/20 to-cyan-500/30 animate-pulse-slow blur-3xl"
+  ></div>
+  <div
+    class="absolute inset-0 bg-gradient-to-l from-blue-500/20 via-teal-500/20 to-purple-500/20 animate-pulse-slow blur-3xl"
+    style="animation-delay: 2s;"
+  ></div>
 
   <!-- Glass panel -->
   <div class="relative bg-black/20 backdrop-blur-xl border border-white/10 p-8">
@@ -412,7 +485,8 @@ export default {
 ### Efecto Holográfico
 
 ```html
-<div class="
+<div
+  class="
   relative
   bg-gradient-to-br from-purple-500/10 via-transparent to-cyan-500/10
   backdrop-blur-xl
@@ -425,7 +499,8 @@ export default {
   before:translate-x-[-100%]
   hover:before:translate-x-[100%]
   before:transition-transform before:duration-1000
-">
+"
+>
   <h3 class="text-white relative z-10">Holographic Card</h3>
 </div>
 ```
@@ -442,9 +517,15 @@ El glassmorphism **REQUIERE** un fondo con contenido visible para que el blur te
 <!-- Fondo con gradientes -->
 <div class="min-h-screen bg-gradient-to-br from-purple-900 via-slate-900 to-black">
   <!-- Elementos decorativos -->
-  <div class="fixed top-20 left-20 w-72 h-72 bg-purple-500 rounded-full blur-[128px] opacity-30"></div>
-  <div class="fixed top-40 right-40 w-96 h-96 bg-pink-500 rounded-full blur-[128px] opacity-20"></div>
-  <div class="fixed bottom-20 left-1/2 w-80 h-80 bg-blue-500 rounded-full blur-[128px] opacity-25"></div>
+  <div
+    class="fixed top-20 left-20 w-72 h-72 bg-purple-500 rounded-full blur-[128px] opacity-30"
+  ></div>
+  <div
+    class="fixed top-40 right-40 w-96 h-96 bg-pink-500 rounded-full blur-[128px] opacity-20"
+  ></div>
+  <div
+    class="fixed bottom-20 left-1/2 w-80 h-80 bg-blue-500 rounded-full blur-[128px] opacity-25"
+  ></div>
 
   <!-- Tu contenido glassmorphism aquí -->
 </div>
@@ -463,11 +544,13 @@ El glassmorphism **REQUIERE** un fondo con contenido visible para que el blur te
 ### Mesh Gradient
 
 ```html
-<div class="
+<div
+  class="
   min-h-screen
   bg-slate-950
   [background-image:radial-gradient(at_40%_20%,rgba(120,119,198,0.3)_0px,transparent_50%),radial-gradient(at_80%_0%,rgba(251,113,133,0.3)_0px,transparent_50%),radial-gradient(at_0%_50%,rgba(59,130,246,0.3)_0px,transparent_50%),radial-gradient(at_80%_50%,rgba(168,85,247,0.3)_0px,transparent_50%),radial-gradient(at_0%_100%,rgba(20,184,166,0.3)_0px,transparent_50%)]
-">
+"
+>
   <!-- Tu contenido glassmorphism aquí -->
 </div>
 ```
@@ -499,14 +582,16 @@ El glassmorphism **REQUIERE** un fondo con contenido visible para que el blur te
 ### Fallback para Navegadores Sin Soporte
 
 ```html
-<div class="
+<div
+  class="
   bg-slate-800/90
   supports-[backdrop-filter]:bg-white/10
   supports-[backdrop-filter]:backdrop-blur-lg
   border border-white/20
   rounded-2xl
   p-6
-">
+"
+>
   Contenido con fallback
 </div>
 ```
@@ -570,10 +655,11 @@ bg-cyan-500/10, border-cyan-400/30, shadow-cyan-500/20
 export const glass = {
   base: 'bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl',
   card: 'bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl shadow-xl',
-  button: 'bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 rounded-xl transition-all',
+  button:
+    'bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 rounded-xl transition-all',
   input: 'bg-white/5 backdrop-blur-md border border-white/10 focus:border-white/30 rounded-xl',
   modal: 'bg-white/10 backdrop-blur-2xl border border-white/20 rounded-3xl shadow-2xl',
-}
+};
 ```
 
 ---
@@ -587,9 +673,7 @@ export const glass = {
 
 ```html
 <!-- Responsive blur -->
-<div class="backdrop-blur-md lg:backdrop-blur-xl">
-  Menos blur en móvil, más en desktop
-</div>
+<div class="backdrop-blur-md lg:backdrop-blur-xl">Menos blur en móvil, más en desktop</div>
 ```
 
 ---
@@ -603,4 +687,4 @@ export const glass = {
 
 ---
 
-*Este documento es parte del Design System de SaaS Factory V2.*
+_Este documento es parte del Design System de SaaS Factory V2._

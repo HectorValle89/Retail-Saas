@@ -1,10 +1,10 @@
-import { expect, test } from 'vitest'
+import { expect, test } from 'vitest';
 import {
   isRecruitingAltaPipelineEmployee,
   isRecruitingBajaPipelineEmployee,
   resolveRecruitingAltaPipelineStage,
   resolveRecruitingBajaPipelineStage,
-} from './recruitingPipeline'
+} from './recruitingPipeline';
 
 const altaBase = {
   recruitmentSource: 'modulo_empleados_reclutamiento',
@@ -18,7 +18,7 @@ const altaBase = {
     expedienteCompletoRecibido: true,
     contratoStatus: 'FIRMADO',
   },
-} as const
+} as const;
 
 test('saca del embudo de reclutamiento solo las altas cerradas definitivamente', () => {
   expect(
@@ -27,7 +27,7 @@ test('saca del embudo de reclutamiento solo las altas cerradas definitivamente',
       workflowStage: 'ALTA_IMSS_CERRADA',
       imssEstado: 'ALTA_IMSS',
     })
-  ).toBe(false)
+  ).toBe(false);
 
   expect(
     isRecruitingAltaPipelineEmployee({
@@ -35,7 +35,7 @@ test('saca del embudo de reclutamiento solo las altas cerradas definitivamente',
       workflowStage: 'PENDIENTE_ACCESO_ADMIN',
       imssEstado: 'ALTA_IMSS',
     })
-  ).toBe(true)
+  ).toBe(true);
 
   expect(
     isRecruitingAltaPipelineEmployee({
@@ -43,8 +43,8 @@ test('saca del embudo de reclutamiento solo las altas cerradas definitivamente',
       workflowStage: 'PENDIENTE_VALIDACION_FINAL',
       imssEstado: 'ALTA_IMSS',
     })
-  ).toBe(true)
-})
+  ).toBe(true);
+});
 
 test('no mete expedientes historicos sin origen de reclutamiento al pipeline', () => {
   expect(
@@ -53,8 +53,8 @@ test('no mete expedientes historicos sin origen de reclutamiento al pipeline', (
       recruitmentSource: null,
       workflowStage: 'PENDIENTE_COORDINACION',
     })
-  ).toBe(null)
-})
+  ).toBe(null);
+});
 
 test('no clasifica como pipeline reclutamiento solo por tener OCR de CV', () => {
   expect(
@@ -64,18 +64,18 @@ test('no clasifica como pipeline reclutamiento solo por tener OCR de CV', () => 
       candidateProfileSource: 'CV_GEMINI',
       workflowStage: 'PENDIENTE_COORDINACION',
     })
-  ).toBe(null)
-})
+  ).toBe(null);
+});
 
 test('mantiene en el embudo las etapas nuevas, expediente, gestion y onboarding', () => {
-  expect(resolveRecruitingAltaPipelineStage(altaBase)).toBe('EN_GESTION')
+  expect(resolveRecruitingAltaPipelineStage(altaBase)).toBe('EN_GESTION');
   expect(
     resolveRecruitingAltaPipelineStage({
       ...altaBase,
       workflowStage: 'RECLUTAMIENTO_CORRECCION_ALTA',
       imssEstado: 'PENDIENTE_DOCUMENTOS',
     })
-  ).toBe('CANCELADOS')
+  ).toBe('CANCELADOS');
   expect(
     resolveRecruitingAltaPipelineStage({
       ...altaBase,
@@ -87,7 +87,7 @@ test('mantiene en el embudo las etapas nuevas, expediente, gestion y onboarding'
         contratoStatus: 'PENDIENTE',
       },
     })
-  ).toBe('EXPEDIENTE')
+  ).toBe('EXPEDIENTE');
   expect(
     resolveRecruitingAltaPipelineStage({
       ...altaBase,
@@ -100,8 +100,8 @@ test('mantiene en el embudo las etapas nuevas, expediente, gestion y onboarding'
         contratoStatus: 'PENDIENTE',
       },
     })
-  ).toBe('ONBOARDING')
-})
+  ).toBe('ONBOARDING');
+});
 
 test('clasifica el pipeline de bajas solo con estados pendientes o devueltos', () => {
   expect(
@@ -110,30 +110,26 @@ test('clasifica el pipeline de bajas solo con estados pendientes o devueltos', (
       recruitmentSource: 'modulo_empleados_reclutamiento',
       candidateProfileSource: 'CV_GEMINI',
     })
-  ).toBe(true)
+  ).toBe(true);
   expect(
     resolveRecruitingBajaPipelineStage({
       workflowStage: 'PENDIENTE_BAJA_IMSS',
       recruitmentSource: 'modulo_empleados_reclutamiento',
       candidateProfileSource: 'CV_GEMINI',
     })
-  ).toBe(
-    'BAJAS_SOLICITADAS'
-  )
+  ).toBe('BAJAS_SOLICITADAS');
   expect(
     resolveRecruitingBajaPipelineStage({
       workflowStage: 'RECLUTAMIENTO_CORRECCION_BAJA',
       recruitmentSource: 'modulo_empleados_reclutamiento',
       candidateProfileSource: 'CV_GEMINI',
     })
-  ).toBe(
-    'BAJAS_DEVUELTAS'
-  )
+  ).toBe('BAJAS_DEVUELTAS');
   expect(
     resolveRecruitingBajaPipelineStage({
       workflowStage: 'BAJA_IMSS_CERRADA',
       recruitmentSource: 'modulo_empleados_reclutamiento',
       candidateProfileSource: 'CV_GEMINI',
     })
-  ).toBe(null)
-})
+  ).toBe(null);
+});

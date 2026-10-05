@@ -1,6 +1,6 @@
-'use client'
+'use client';
 
-import type { CSSProperties } from 'react'
+import type { CSSProperties } from 'react';
 
 export type PremiumIconName =
   | 'absence'
@@ -50,22 +50,22 @@ export type PremiumIconName =
   | 'vacaciones'
   | 'ventas'
   | 'love'
-  | 'warning'
+  | 'warning';
 
-export type PremiumIconVariant = 'outline' | 'fill'
+export type PremiumIconVariant = 'outline' | 'fill';
 
 type PremiumLineIconProps = {
-  name: PremiumIconName
-  className?: string
-  stroke?: string
-  strokeWidth?: number
-  variant?: PremiumIconVariant
-}
+  name: PremiumIconName;
+  className?: string;
+  stroke?: string;
+  strokeWidth?: number;
+  variant?: PremiumIconVariant;
+};
 
 type IconDefinition = {
-  outline: string
-  fill?: string
-}
+  outline: string;
+  fill?: string;
+};
 
 const ICON_MAP: Record<PremiumIconName, IconDefinition> = {
   absence: { outline: 'person-x', fill: 'person-x-fill' },
@@ -116,7 +116,7 @@ const ICON_MAP: Record<PremiumIconName, IconDefinition> = {
   vacaciones: { outline: 'sun', fill: 'sun-fill' },
   ventas: { outline: 'cart-check', fill: 'cart-check-fill' },
   warning: { outline: 'clipboard-pulse', fill: 'clipboard-pulse' },
-}
+};
 
 export function PremiumLineIcon({
   name,
@@ -125,16 +125,19 @@ export function PremiumLineIcon({
   strokeWidth,
   variant = 'outline',
 }: PremiumLineIconProps) {
-  const icon = ICON_MAP[name] ?? ICON_MAP.module
-  const iconName = variant === 'fill' && icon.fill ? icon.fill : icon.outline
+  const icon = ICON_MAP[name] ?? ICON_MAP.module;
+  const iconName = variant === 'fill' && icon.fill ? icon.fill : icon.outline;
   const style = {
     color: stroke,
     fontSize: strokeWidth && strokeWidth >= 2 ? '1.05em' : '1em',
-  } satisfies CSSProperties
+  } satisfies CSSProperties;
 
   return (
-    <span aria-hidden="true" className={`inline-flex shrink-0 items-center justify-center leading-none ${className}`}>
+    <span
+      aria-hidden="true"
+      className={`inline-flex shrink-0 items-center justify-center leading-none ${className}`}
+    >
       <i className={`bi bi-${iconName} leading-none`} style={style} />
     </span>
-  )
+  );
 }

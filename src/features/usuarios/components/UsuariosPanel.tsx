@@ -1,4 +1,4 @@
-'use client'
+'use client';
 
 import {
   useActionState,
@@ -9,29 +9,29 @@ import {
   useRef,
   useState,
   type ReactNode,
-} from 'react'
-import type { ActorActual } from '@/lib/auth/session'
-import { useFormStatus } from 'react-dom'
-import { ModalPanel } from '@/components/ui/modal-panel'
-import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card'
-import { Select } from '@/components/ui/select'
-import { useScopedWidgetData } from '@/lib/ui-change/client'
-import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
+} from 'react';
+import type { ActorActual } from '@/lib/auth/session';
+import { useFormStatus } from 'react-dom';
+import { ModalPanel } from '@/components/ui/modal-panel';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { MetricCard as SharedMetricCard } from '@/components/ui/metric-card';
+import { Select } from '@/components/ui/select';
+import { useScopedWidgetData } from '@/lib/ui-change/client';
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
 import {
   getSingleTenantAccountLabel,
   isSingleTenantUiEnabled,
   resolveSingleTenantAccountOption,
-} from '@/lib/tenant/singleTenant'
+} from '@/lib/tenant/singleTenant';
 import {
   actualizarEstadoCuentaUsuario,
   actualizarPuestoUsuario,
   actualizarUsernameUsuario,
   crearUsuarioAdministrativo,
   enviarResetPasswordUsuario,
-} from '../actions'
-import { ESTADO_USUARIO_ADMIN_INICIAL } from '../state'
+} from '../actions';
+import { ESTADO_USUARIO_ADMIN_INICIAL } from '../state';
 import type {
   CuentaClienteDisponibleItem,
   EmpleadoDisponibleItem,
@@ -39,15 +39,15 @@ import type {
   UsuarioListadoItem,
   UsuarioSessionItem,
   UsuariosPanelData,
-} from '../services/usuarioService'
+} from '../services/usuarioService';
 
 interface UsuarioSessionsDetailResponse {
-  sessions: UsuarioSessionItem[]
+  sessions: UsuarioSessionItem[];
 }
 
 function formatDateTime(value: string | null) {
   if (!value) {
-    return 'Sin registro'
+    return 'Sin registro';
   }
 
   return new Intl.DateTimeFormat('es-MX', {
@@ -56,35 +56,35 @@ function formatDateTime(value: string | null) {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(value))
+  }).format(new Date(value));
 }
 
 function formatPuesto(value: string) {
-  return value.replace(/_/g, ' ')
+  return value.replace(/_/g, ' ');
 }
 
 function formatEstadoCuenta(value: string) {
   switch (value) {
     case 'PROVISIONAL':
-      return 'Provisional'
+      return 'Provisional';
     case 'PENDIENTE_VERIFICACION_EMAIL':
-      return 'Pendiente verificacion email'
+      return 'Pendiente verificacion email';
     case 'PENDIENTE_PRIMER_LOGIN':
-      return 'Pendiente primer login'
+      return 'Pendiente primer login';
     case 'ACTIVA':
-      return 'Activa'
+      return 'Activa';
     case 'SUSPENDIDA':
-      return 'Suspendida'
+      return 'Suspendida';
     case 'BAJA':
-      return 'Baja'
+      return 'Baja';
     default:
-      return value.replace(/_/g, ' ')
+      return value.replace(/_/g, ' ');
   }
 }
 
 function getEstadoCuentaTone(value: string) {
   if (value === 'ACTIVA') {
-    return 'bg-emerald-100 text-emerald-700'
+    return 'bg-emerald-100 text-emerald-700';
   }
 
   if (
@@ -92,41 +92,41 @@ function getEstadoCuentaTone(value: string) {
     value === 'PENDIENTE_VERIFICACION_EMAIL' ||
     value === 'PENDIENTE_PRIMER_LOGIN'
   ) {
-    return 'bg-amber-100 text-amber-700'
+    return 'bg-amber-100 text-amber-700';
   }
 
   if (value === 'SUSPENDIDA') {
-    return 'bg-rose-100 text-rose-700'
+    return 'bg-rose-100 text-rose-700';
   }
 
-  return 'bg-slate-100 text-slate-700'
+  return 'bg-slate-100 text-slate-700';
 }
 
 function getEstadoSesionTone(value: EstadoSesionUsuario) {
   switch (value) {
     case 'ACTIVA':
-      return 'bg-emerald-100 text-emerald-700'
+      return 'bg-emerald-100 text-emerald-700';
     case 'REQUIERE_REFRESH':
-      return 'bg-amber-100 text-amber-700'
+      return 'bg-amber-100 text-amber-700';
     case 'ESPERA_PRIMER_LOGIN':
-      return 'bg-sky-100 text-sky-700'
+      return 'bg-sky-100 text-sky-700';
     default:
-      return 'bg-slate-100 text-slate-700'
+      return 'bg-slate-100 text-slate-700';
   }
 }
 
 function getEstadoSesionLabel(value: EstadoSesionUsuario) {
   switch (value) {
     case 'ACTIVA':
-      return 'Sesion activa'
+      return 'Sesion activa';
     case 'REQUIERE_REFRESH':
-      return 'Requiere refresh'
+      return 'Requiere refresh';
     case 'SIN_SESION_ACTIVA':
-      return 'Sin sesion activa'
+      return 'Sin sesion activa';
     case 'ESPERA_PRIMER_LOGIN':
-      return 'Pendiente primer login'
+      return 'Pendiente primer login';
     default:
-      return 'Sin acceso'
+      return 'Sin acceso';
   }
 }
 
@@ -134,24 +134,24 @@ export function UsuariosPanel({
   actor,
   data: initialData,
 }: {
-  actor: ActorActual
-  data: UsuariosPanelData
+  actor: ActorActual;
+  data: UsuariosPanelData;
 }) {
-  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
   const fetcher = useCallback(async (signal: AbortSignal) => {
     const response = await fetch('/api/admin/users/panel', {
       cache: 'no-store',
       credentials: 'same-origin',
       signal,
-    })
-    const payload = (await response.json()) as { data?: UsuariosPanelData; message?: string }
+    });
+    const payload = (await response.json()) as { data?: UsuariosPanelData; message?: string };
 
     if (!response.ok || !payload.data) {
-      throw new Error(payload.message ?? 'No fue posible refrescar el panel de usuarios.')
+      throw new Error(payload.message ?? 'No fue posible refrescar el panel de usuarios.');
     }
 
-    return payload.data
-  }, [])
+    return payload.data;
+  }, []);
 
   const { data } = useScopedWidgetData({
     initialData,
@@ -166,18 +166,18 @@ export function UsuariosPanel({
       !initialData.sesionesOperativasDisponibles ||
       Boolean(initialData.mensajeBackendAdmin) ||
       Boolean(initialData.mensajeSesiones),
-  })
+  });
 
-  const fixedAccount = resolveSingleTenantAccountOption(data.cuentasClienteDisponibles)
-  const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount)
-  const [search, setSearch] = useState('')
-  const [estadoFilter, setEstadoFilter] = useState('ALL')
-  const [puestoFilter, setPuestoFilter] = useState('ALL')
+  const fixedAccount = resolveSingleTenantAccountOption(data.cuentasClienteDisponibles);
+  const useSingleTenantUi = isSingleTenantUiEnabled() && Boolean(fixedAccount);
+  const [search, setSearch] = useState('');
+  const [estadoFilter, setEstadoFilter] = useState('ALL');
+  const [puestoFilter, setPuestoFilter] = useState('ALL');
   const [cuentaFilter, setCuentaFilter] = useState(
-    useSingleTenantUi ? fixedAccount?.id ?? 'ALL' : 'ALL'
-  )
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
-  const deferredSearch = useDeferredValue(search.trim().toLowerCase())
+    useSingleTenantUi ? (fixedAccount?.id ?? 'ALL') : 'ALL'
+  );
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
   const usuariosFiltrados = data.usuarios.filter((usuario) => {
     const matchSearch = !deferredSearch
@@ -191,22 +191,22 @@ export function UsuariosPanel({
           usuario.cuentaClienteIdentificador,
         ]
           .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(deferredSearch))
+          .some((value) => String(value).toLowerCase().includes(deferredSearch));
 
-    const matchEstado = estadoFilter === 'ALL' || usuario.estadoCuenta === estadoFilter
-    const matchPuesto = puestoFilter === 'ALL' || usuario.puesto === puestoFilter
+    const matchEstado = estadoFilter === 'ALL' || usuario.estadoCuenta === estadoFilter;
+    const matchPuesto = puestoFilter === 'ALL' || usuario.puesto === puestoFilter;
     const matchCuenta =
       cuentaFilter === 'ALL' ||
       (cuentaFilter === 'INTERNO'
         ? !usuario.cuentaClienteId
-        : usuario.cuentaClienteId === cuentaFilter)
+        : usuario.cuentaClienteId === cuentaFilter);
 
-    return matchSearch && matchEstado && matchPuesto && matchCuenta
-  })
+    return matchSearch && matchEstado && matchPuesto && matchCuenta;
+  });
 
   const mostrarAlertaProvisionamiento =
-    !data.provisionamiento.backendAdminConfigurado || data.provisionamiento.usuariosSinAuth > 0
-  const selectedUser = data.usuarios.find((usuario) => usuario.id === selectedUserId) ?? null
+    !data.provisionamiento.backendAdminConfigurado || data.provisionamiento.usuariosSinAuth > 0;
+  const selectedUser = data.usuarios.find((usuario) => usuario.id === selectedUserId) ?? null;
 
   return (
     <div className="space-y-6">
@@ -275,9 +275,9 @@ export function UsuariosPanel({
           <div>
             <h2 className="text-lg font-semibold text-slate-950">Alta administrativa</h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-500">
-              Crea el usuario provisional para cualquier puesto que vaya a entrar por primer
-              acceso. El panel devuelve el username y la password temporal para arrancar el flujo
-              guiado de activacion.
+              Crea el usuario provisional para cualquier puesto que vaya a entrar por primer acceso.
+              El panel devuelve el username y la password temporal para arrancar el flujo guiado de
+              activacion.
             </p>
           </div>
           <p className="text-sm text-slate-500">
@@ -291,7 +291,7 @@ export function UsuariosPanel({
             cuentasCliente={data.cuentasClienteDisponibles}
             empleados={data.empleadosDisponibles}
             disabled={!data.provisionamiento.backendAdminConfigurado}
-            fixedAccountId={useSingleTenantUi ? fixedAccount?.id ?? '' : ''}
+            fixedAccountId={useSingleTenantUi ? (fixedAccount?.id ?? '') : ''}
             useSingleTenantUi={useSingleTenantUi}
           />
         </div>
@@ -307,8 +307,9 @@ export function UsuariosPanel({
             </p>
           </div>
           <p className="text-sm text-slate-500">
-            Mostrando <span className="font-semibold text-slate-900">{usuariosFiltrados.length}</span>{' '}
-            de <span className="font-semibold text-slate-900">{data.usuarios.length}</span> usuarios.
+            Mostrando{' '}
+            <span className="font-semibold text-slate-900">{usuariosFiltrados.length}</span> de{' '}
+            <span className="font-semibold text-slate-900">{data.usuarios.length}</span> usuarios.
           </p>
         </div>
 
@@ -319,7 +320,7 @@ export function UsuariosPanel({
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-            <Select
+          <Select
             label="Estado"
             value={estadoFilter}
             onChange={(event) => setEstadoFilter(event.target.value)}
@@ -394,7 +395,7 @@ export function UsuariosPanel({
         />
       ) : null}
     </div>
-  )
+  );
 }
 
 function UsuarioRow({
@@ -402,9 +403,9 @@ function UsuarioRow({
   canManage,
   onOpenDetail,
 }: {
-  usuario: UsuarioListadoItem
-  canManage: boolean
-  onOpenDetail: () => void
+  usuario: UsuarioListadoItem;
+  canManage: boolean;
+  onOpenDetail: () => void;
 }) {
   return (
     <Card className="border-slate-200 bg-white p-4 sm:p-5">
@@ -438,9 +439,7 @@ function UsuarioRow({
             <StatusPill
               label={usuario.correoVerificado ? 'EMAIL OK' : 'SIN VERIFICAR'}
               className={
-                usuario.correoVerificado
-                  ? 'bg-sky-100 text-sky-700'
-                  : 'bg-amber-100 text-amber-700'
+                usuario.correoVerificado ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700'
               }
             />
             {usuario.sesionesActivas > 0 ? (
@@ -468,7 +467,7 @@ function UsuarioRow({
         </div>
       </div>
     </Card>
-  )
+  );
 }
 
 function UsuarioDetailModal({
@@ -477,74 +476,78 @@ function UsuarioDetailModal({
   canManage,
   onClose,
 }: {
-  usuario: UsuarioListadoItem
-  puestos: string[]
-  canManage: boolean
-  onClose: () => void
+  usuario: UsuarioListadoItem;
+  puestos: string[];
+  canManage: boolean;
+  onClose: () => void;
 }) {
-  const [tab, setTab] = useState<'resumen' | 'acciones' | 'seguridad' | 'actividad' | 'sesiones'>('resumen')
-  const [sesiones, setSesiones] = useState<UsuarioSessionItem[] | null>(null)
-  const [sesionesError, setSesionesError] = useState<string | null>(null)
-  const [sesionesLoading, setSesionesLoading] = useState(false)
-  const sesionesAbortControllerRef = useRef<AbortController | null>(null)
+  const [tab, setTab] = useState<'resumen' | 'acciones' | 'seguridad' | 'actividad' | 'sesiones'>(
+    'resumen'
+  );
+  const [sesiones, setSesiones] = useState<UsuarioSessionItem[] | null>(null);
+  const [sesionesError, setSesionesError] = useState<string | null>(null);
+  const [sesionesLoading, setSesionesLoading] = useState(false);
+  const sesionesAbortControllerRef = useRef<AbortController | null>(null);
 
   const cargarSesiones = useCallback(async () => {
     if (!usuario.authUserId) {
-      return
+      return;
     }
 
-    sesionesAbortControllerRef.current?.abort()
-    const controller = new AbortController()
-    sesionesAbortControllerRef.current = controller
+    sesionesAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    sesionesAbortControllerRef.current = controller;
 
-    setSesionesLoading(true)
-    setSesionesError(null)
+    setSesionesLoading(true);
+    setSesionesError(null);
 
     try {
       const response = await fetch(`/api/admin/users/${usuario.id}/sessions`, {
         cache: 'no-store',
         credentials: 'same-origin',
         signal: controller.signal,
-      })
+      });
       const payload = (await response.json()) as UsuarioSessionsDetailResponse & {
-        message?: string
-      }
+        message?: string;
+      };
 
       if (!response.ok) {
-        throw new Error(payload.message ?? 'No fue posible cargar las sesiones del usuario.')
+        throw new Error(payload.message ?? 'No fue posible cargar las sesiones del usuario.');
       }
 
-      setSesiones(payload.sessions ?? [])
+      setSesiones(payload.sessions ?? []);
     } catch (error) {
       if (controller.signal.aborted) {
-        return
+        return;
       }
 
-      setSesiones([])
-      setSesionesError(error instanceof Error ? error.message : 'No fue posible cargar las sesiones.')
+      setSesiones([]);
+      setSesionesError(
+        error instanceof Error ? error.message : 'No fue posible cargar las sesiones.'
+      );
     } finally {
       if (!controller.signal.aborted) {
-        setSesionesLoading(false)
+        setSesionesLoading(false);
       }
     }
-  }, [usuario.authUserId, usuario.id])
+  }, [usuario.authUserId, usuario.id]);
 
   const handleTabChange = useCallback(
     (nextTab: 'resumen' | 'acciones' | 'seguridad' | 'actividad' | 'sesiones') => {
-      setTab(nextTab)
+      setTab(nextTab);
 
       if (nextTab === 'sesiones' && sesiones === null && !sesionesLoading) {
-        void cargarSesiones()
+        void cargarSesiones();
       }
     },
     [cargarSesiones, sesiones, sesionesLoading]
-  )
+  );
 
   useEffect(() => {
     return () => {
-      sesionesAbortControllerRef.current?.abort()
-    }
-  }, [])
+      sesionesAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   return (
     <ModalPanel
@@ -659,10 +662,16 @@ function UsuarioDetailModal({
           <DetailTabButton active={tab === 'acciones'} onClick={() => handleTabChange('acciones')}>
             Acciones
           </DetailTabButton>
-          <DetailTabButton active={tab === 'seguridad'} onClick={() => handleTabChange('seguridad')}>
+          <DetailTabButton
+            active={tab === 'seguridad'}
+            onClick={() => handleTabChange('seguridad')}
+          >
             Seguridad
           </DetailTabButton>
-          <DetailTabButton active={tab === 'actividad'} onClick={() => handleTabChange('actividad')}>
+          <DetailTabButton
+            active={tab === 'actividad'}
+            onClick={() => handleTabChange('actividad')}
+          >
             Actividad
           </DetailTabButton>
           <DetailTabButton active={tab === 'sesiones'} onClick={() => handleTabChange('sesiones')}>
@@ -830,19 +839,16 @@ function UsuarioDetailModal({
               description="Resumen ejecutivo para entender el estado del usuario sin entrar a acciones."
             >
               <div className="space-y-3 text-sm text-slate-600">
-                <SummaryLine label="Estado de cuenta" value={formatEstadoCuenta(usuario.estadoCuenta)} />
+                <SummaryLine
+                  label="Estado de cuenta"
+                  value={formatEstadoCuenta(usuario.estadoCuenta)}
+                />
                 <SummaryLine
                   label="Estado de sesion"
                   value={getEstadoSesionLabel(usuario.estadoSesion)}
                 />
-                <SummaryLine
-                  label="Cuenta cliente"
-                  value={usuario.cuentaCliente ?? 'Interno'}
-                />
-                <SummaryLine
-                  label="Correo negocio"
-                  value={usuario.correo ?? 'Sin correo'}
-                />
+                <SummaryLine label="Cuenta cliente" value={usuario.cuentaCliente ?? 'Interno'} />
+                <SummaryLine label="Correo negocio" value={usuario.correo ?? 'Sin correo'} />
               </div>
             </DetailCard>
           </div>
@@ -868,16 +874,16 @@ function UsuarioDetailModal({
         ) : null}
       </div>
     </ModalPanel>
-  )
+  );
 }
 function DetailTabButton({
   active,
   onClick,
   children,
 }: {
-  active: boolean
-  onClick: () => void
-  children: ReactNode
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
 }) {
   return (
     <button
@@ -891,7 +897,7 @@ function DetailTabButton({
     >
       {children}
     </button>
-  )
+  );
 }
 function CrearUsuarioForm({
   empleados,
@@ -900,16 +906,16 @@ function CrearUsuarioForm({
   fixedAccountId,
   useSingleTenantUi,
 }: {
-  empleados: EmpleadoDisponibleItem[]
-  cuentasCliente: CuentaClienteDisponibleItem[]
-  disabled: boolean
-  fixedAccountId: string
-  useSingleTenantUi: boolean
+  empleados: EmpleadoDisponibleItem[];
+  cuentasCliente: CuentaClienteDisponibleItem[];
+  disabled: boolean;
+  fixedAccountId: string;
+  useSingleTenantUi: boolean;
 }) {
   const [state, formAction] = useActionState(
     crearUsuarioAdministrativo,
     ESTADO_USUARIO_ADMIN_INICIAL
-  )
+  );
 
   return (
     <form action={formAction} className="space-y-4">
@@ -986,7 +992,7 @@ function CrearUsuarioForm({
         </div>
       )}
     </form>
-  )
+  );
 }
 
 function CambioPuestoForm({
@@ -996,16 +1002,13 @@ function CambioPuestoForm({
   empleado,
   disabled,
 }: {
-  usuarioId: string
-  currentPuesto: string
-  puestos: string[]
-  empleado: string
-  disabled: boolean
+  usuarioId: string;
+  currentPuesto: string;
+  puestos: string[];
+  empleado: string;
+  disabled: boolean;
 }) {
-  const [state, formAction] = useActionState(
-    actualizarPuestoUsuario,
-    ESTADO_USUARIO_ADMIN_INICIAL
-  )
+  const [state, formAction] = useActionState(actualizarPuestoUsuario, ESTADO_USUARIO_ADMIN_INICIAL);
 
   return (
     <form
@@ -1013,16 +1016,16 @@ function CambioPuestoForm({
       className="space-y-2"
       onSubmit={(event) => {
         if (disabled) {
-          event.preventDefault()
-          return
+          event.preventDefault();
+          return;
         }
 
-        const form = event.currentTarget
-        const select = form.elements.namedItem('puesto_destino') as HTMLSelectElement | null
-        const destino = select?.value ?? currentPuesto
+        const form = event.currentTarget;
+        const select = form.elements.namedItem('puesto_destino') as HTMLSelectElement | null;
+        const destino = select?.value ?? currentPuesto;
 
         if (!window.confirm(`Cambiar el puesto de ${empleado} a ${formatPuesto(destino)}?`)) {
-          event.preventDefault()
+          event.preventDefault();
         }
       }}
     >
@@ -1048,7 +1051,7 @@ function CambioPuestoForm({
         </p>
       )}
     </form>
-  )
+  );
 }
 
 function CambioUsernameForm({
@@ -1058,24 +1061,24 @@ function CambioUsernameForm({
   empleado,
   disabled,
 }: {
-  usuarioId: string
-  currentUsername: string | null
-  currentState: string
-  empleado: string
-  disabled: boolean
+  usuarioId: string;
+  currentUsername: string | null;
+  currentState: string;
+  empleado: string;
+  disabled: boolean;
 }) {
   const [state, formAction] = useActionState(
     actualizarUsernameUsuario,
     ESTADO_USUARIO_ADMIN_INICIAL
-  )
+  );
 
   const usernameEditable =
     currentState === 'PROVISIONAL' ||
     currentState === 'PENDIENTE_VERIFICACION_EMAIL' ||
-    currentState === 'PENDIENTE_PRIMER_LOGIN'
+    currentState === 'PENDIENTE_PRIMER_LOGIN';
   const disabledReason = !usernameEditable
     ? 'Solo las cuentas provisionales, pendientes de verificacion o pendientes de primer login pueden cambiar username aqui.'
-    : null
+    : null;
 
   return (
     <form
@@ -1083,16 +1086,16 @@ function CambioUsernameForm({
       className="space-y-2"
       onSubmit={(event) => {
         if (disabled || !usernameEditable) {
-          event.preventDefault()
-          return
+          event.preventDefault();
+          return;
         }
 
-        const form = event.currentTarget
-        const input = form.elements.namedItem('username_destino') as HTMLInputElement | null
-        const destino = input?.value?.trim() ?? currentUsername ?? ''
+        const form = event.currentTarget;
+        const input = form.elements.namedItem('username_destino') as HTMLInputElement | null;
+        const destino = input?.value?.trim() ?? currentUsername ?? '';
 
         if (!window.confirm(`Cambiar el username provisional de ${empleado} a ${destino}?`)) {
-          event.preventDefault()
+          event.preventDefault();
         }
       }}
     >
@@ -1114,8 +1117,7 @@ function CambioUsernameForm({
       />
       {(disabledReason || state.temporaryEmail) && (
         <p className="text-xs text-slate-400">
-          {disabledReason ??
-            `Correo auth provisional actualizado a ${state.temporaryEmail}.`}
+          {disabledReason ?? `Correo auth provisional actualizado a ${state.temporaryEmail}.`}
         </p>
       )}
       {state.message && (
@@ -1124,7 +1126,7 @@ function CambioUsernameForm({
         </p>
       )}
     </form>
-  )
+  );
 }
 
 function EstadoCuentaForm({
@@ -1133,17 +1135,17 @@ function EstadoCuentaForm({
   empleado,
   disabled,
 }: {
-  usuarioId: string
-  currentState: string
-  empleado: string
-  disabled: boolean
+  usuarioId: string;
+  currentState: string;
+  empleado: string;
+  disabled: boolean;
 }) {
   const [state, formAction] = useActionState(
     actualizarEstadoCuentaUsuario,
     ESTADO_USUARIO_ADMIN_INICIAL
-  )
+  );
 
-  const accionCuenta = currentState === 'SUSPENDIDA' ? 'REACTIVAR' : 'SUSPENDER'
+  const accionCuenta = currentState === 'SUSPENDIDA' ? 'REACTIVAR' : 'SUSPENDER';
 
   return (
     <form
@@ -1151,14 +1153,14 @@ function EstadoCuentaForm({
       className="space-y-2"
       onSubmit={(event) => {
         if (disabled) {
-          event.preventDefault()
-          return
+          event.preventDefault();
+          return;
         }
 
-        const verbo = accionCuenta === 'SUSPENDER' ? 'suspender' : 'reactivar'
+        const verbo = accionCuenta === 'SUSPENDER' ? 'suspender' : 'reactivar';
 
         if (!window.confirm(`Confirmar ${verbo} la cuenta de ${empleado}?`)) {
-          event.preventDefault()
+          event.preventDefault();
         }
       }}
     >
@@ -1179,7 +1181,7 @@ function EstadoCuentaForm({
         </p>
       )}
     </form>
-  )
+  );
 }
 
 function PrimerLoginPendienteForm({
@@ -1188,15 +1190,15 @@ function PrimerLoginPendienteForm({
   empleado,
   disabled,
 }: {
-  usuarioId: string
-  currentState: string
-  empleado: string
-  disabled: boolean
+  usuarioId: string;
+  currentState: string;
+  empleado: string;
+  disabled: boolean;
 }) {
   const [state, formAction] = useActionState(
     actualizarEstadoCuentaUsuario,
     ESTADO_USUARIO_ADMIN_INICIAL
-  )
+  );
 
   return (
     <form
@@ -1204,8 +1206,8 @@ function PrimerLoginPendienteForm({
       className="space-y-2"
       onSubmit={(event) => {
         if (disabled || currentState === 'BAJA' || currentState === 'SUSPENDIDA') {
-          event.preventDefault()
-          return
+          event.preventDefault();
+          return;
         }
 
         if (
@@ -1213,7 +1215,7 @@ function PrimerLoginPendienteForm({
             `Reiniciar el acceso provisional de ${empleado} desde cero, borrar el correo guardado y generar credenciales nuevas?`
           )
         ) {
-          event.preventDefault()
+          event.preventDefault();
         }
       }}
     >
@@ -1255,7 +1257,7 @@ function PrimerLoginPendienteForm({
         </p>
       )}
     </form>
-  )
+  );
 }
 
 function ResetPasswordForm({
@@ -1264,15 +1266,15 @@ function ResetPasswordForm({
   disabled,
   disabledReason,
 }: {
-  usuarioId: string
-  empleado: string
-  disabled: boolean
-  disabledReason: string | null
+  usuarioId: string;
+  empleado: string;
+  disabled: boolean;
+  disabledReason: string | null;
 }) {
   const [state, formAction] = useActionState(
     enviarResetPasswordUsuario,
     ESTADO_USUARIO_ADMIN_INICIAL
-  )
+  );
 
   return (
     <form
@@ -1280,12 +1282,12 @@ function ResetPasswordForm({
       className="space-y-2"
       onSubmit={(event) => {
         if (disabled) {
-          event.preventDefault()
-          return
+          event.preventDefault();
+          return;
         }
 
         if (!window.confirm(`Enviar email de reset de password a ${empleado}?`)) {
-          event.preventDefault()
+          event.preventDefault();
         }
       }}
     >
@@ -1303,7 +1305,7 @@ function ResetPasswordForm({
         </p>
       )}
     </form>
-  )
+  );
 }
 
 function SessionDetails({ sessions }: { sessions: UsuarioSessionItem[] }) {
@@ -1339,7 +1341,7 @@ function SessionDetails({ sessions }: { sessions: UsuarioSessionItem[] }) {
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 function CredentialBlock({ label, value }: { label: string; value: string }) {
@@ -1350,7 +1352,7 @@ function CredentialBlock({ label, value }: { label: string; value: string }) {
       </p>
       <p className="mt-2 break-words text-sm font-medium leading-5 text-slate-900">{value}</p>
     </div>
-  )
+  );
 }
 
 function SubmitButton({
@@ -1359,12 +1361,12 @@ function SubmitButton({
   disabled,
   variant,
 }: {
-  idleLabel: string
-  pendingLabel: string
-  disabled?: boolean
-  variant: 'primary' | 'secondary' | 'outline' | 'danger'
+  idleLabel: string;
+  pendingLabel: string;
+  disabled?: boolean;
+  variant: 'primary' | 'secondary' | 'outline' | 'danger';
 }) {
-  const { pending } = useFormStatus()
+  const { pending } = useFormStatus();
 
   const className =
     variant === 'primary'
@@ -1373,7 +1375,7 @@ function SubmitButton({
         ? 'bg-sky-600 text-white hover:bg-sky-500'
         : variant === 'danger'
           ? 'bg-rose-600 text-white hover:bg-rose-500'
-          : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+          : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100';
 
   return (
     <button
@@ -1383,11 +1385,11 @@ function SubmitButton({
     >
       {pending ? pendingLabel : idleLabel}
     </button>
-  )
+  );
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
-  return <SharedMetricCard label={label} value={value} />
+  return <SharedMetricCard label={label} value={value} />;
 }
 
 function DetailCard({
@@ -1395,9 +1397,9 @@ function DetailCard({
   description,
   children,
 }: {
-  title: string
-  description: string
-  children: ReactNode
+  title: string;
+  description: string;
+  children: ReactNode;
 }) {
   return (
     <section className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
@@ -1407,7 +1409,7 @@ function DetailCard({
       </div>
       {children}
     </section>
-  )
+  );
 }
 
 function InfoRow({ label, value }: { label: string; value: ReactNode }) {
@@ -1418,7 +1420,7 @@ function InfoRow({ label, value }: { label: string; value: ReactNode }) {
       </p>
       <p className="mt-2 break-words text-sm font-medium text-slate-900">{value}</p>
     </div>
-  )
+  );
 }
 
 function DetailSubsection({
@@ -1426,9 +1428,9 @@ function DetailSubsection({
   description,
   children,
 }: {
-  title: string
-  description: string
-  children: ReactNode
+  title: string;
+  description: string;
+  children: ReactNode;
 }) {
   return (
     <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
@@ -1436,7 +1438,7 @@ function DetailSubsection({
       <p className="mt-1 text-sm text-slate-500">{description}</p>
       <div className="mt-4">{children}</div>
     </div>
-  )
+  );
 }
 
 function SummaryLine({ label, value }: { label: string; value: ReactNode }) {
@@ -1445,18 +1447,12 @@ function SummaryLine({ label, value }: { label: string; value: ReactNode }) {
       <span className="text-sm text-slate-500">{label}</span>
       <span className="text-sm font-semibold text-slate-900">{value}</span>
     </div>
-  )
+  );
 }
-function StatusPill({
-  label,
-  className,
-}: {
-  label: ReactNode
-  className: string
-}) {
+function StatusPill({ label, className }: { label: ReactNode; className: string }) {
   return (
     <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${className}`}>
       {label}
     </span>
-  )
+  );
 }

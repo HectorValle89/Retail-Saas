@@ -1,13 +1,13 @@
-'use client'
+'use client';
 
-import { useUiChangeSubscription } from '@/lib/ui-change/client'
-import type { UiChangeRoleTarget } from '@/lib/ui-change/types'
+import { useUiChangeSubscription } from '@/lib/ui-change/client';
+import type { UiChangeRoleTarget } from '@/lib/ui-change/types';
 
 interface DashboardRealtimeBridgeProps {
-  cuentaClienteId: string | null
-  allowGlobalScope: boolean
-  empleadoId: string
-  puesto: string
+  cuentaClienteId: string | null;
+  allowGlobalScope: boolean;
+  empleadoId: string;
+  puesto: string;
 }
 
 export function DashboardRealtimeBridge({
@@ -25,7 +25,7 @@ export function DashboardRealtimeBridge({
         : [cuentaClienteId ? `cuenta:${cuentaClienteId}` : 'global', `empleado:${empleadoId}`],
     roleTargets: [puesto as UiChangeRoleTarget],
     enabled: true,
-  })
+  });
 
-  return null
+  return null;
 }

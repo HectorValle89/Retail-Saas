@@ -1,46 +1,46 @@
-import { expect, test } from '@playwright/test'
-import type { ActorActual } from '../src/lib/auth/session'
-import { obtenerPanelMensajes } from '../src/features/mensajes/services/mensajeService'
+import { expect, test } from '@playwright/test';
+import type { ActorActual } from '../src/lib/auth/session';
+import { obtenerPanelMensajes } from '../src/features/mensajes/services/mensajeService';
 
 type QueryResult = {
-  data: unknown[] | Record<string, unknown> | null
-  error: { message: string } | null
-}
+  data: unknown[] | Record<string, unknown> | null;
+  error: { message: string } | null;
+};
 
-type FakeResults = Record<string, QueryResult>
+type FakeResults = Record<string, QueryResult>;
 
 function createFakeMensajesClient(results: FakeResults) {
   return {
     from(table: string) {
-      const entry = results[table] ?? { data: null, error: null }
+      const entry = results[table] ?? { data: null, error: null };
 
       const chain = {
         select() {
-          return chain
+          return chain;
         },
         eq() {
-          return chain
+          return chain;
         },
         in() {
-          return chain
+          return chain;
         },
         order() {
-          return chain
+          return chain;
         },
         range() {
-          return chain
+          return chain;
         },
         maybeSingle() {
-          return Promise.resolve(entry)
+          return Promise.resolve(entry);
         },
         then(resolve: (value: QueryResult) => void) {
-          return Promise.resolve(entry).then(resolve)
+          return Promise.resolve(entry).then(resolve);
         },
-      }
+      };
 
-      return chain
+      return chain;
     },
-  }
+  };
 }
 
 const actor: ActorActual = {
@@ -54,7 +54,7 @@ const actor: ActorActual = {
   estadoCuenta: 'ACTIVA',
   nombreCompleto: 'Usuario Principal',
   puesto: 'DERMOCONSEJERO',
-}
+};
 
 test('consolida mensajes, adjuntos y estados enviados/recibidos', async () => {
   const fakeClient = createFakeMensajesClient({
@@ -85,7 +85,10 @@ test('consolida mensajes, adjuntos y estados enviados/recibidos', async () => {
           grupo_destino: 'ZONA',
           zona: 'Centro',
           supervisor_empleado_id: null,
-          opciones_respuesta: [{ id: 'opt-1', label: 'Alta' }, { id: 'opt-2', label: 'Media' }],
+          opciones_respuesta: [
+            { id: 'opt-1', label: 'Alta' },
+            { id: 'opt-2', label: 'Media' },
+          ],
           metadata: {},
           created_at: '2026-03-16T17:00:00.000Z',
           updated_at: '2026-03-16T17:00:00.000Z',
@@ -152,29 +155,41 @@ test('consolida mensajes, adjuntos y estados enviados/recibidos', async () => {
     },
     empleado: {
       data: [
-        { id: 'emp-1', nombre_completo: 'Ana', puesto: 'DERMOCONSEJERO', zona: 'Centro', supervisor_empleado_id: 'sup-1' },
-        { id: 'sup-1', nombre_completo: 'Laura', puesto: 'SUPERVISOR', zona: 'Centro', supervisor_empleado_id: null },
+        {
+          id: 'emp-1',
+          nombre_completo: 'Ana',
+          puesto: 'DERMOCONSEJERO',
+          zona: 'Centro',
+          supervisor_empleado_id: 'sup-1',
+        },
+        {
+          id: 'sup-1',
+          nombre_completo: 'Laura',
+          puesto: 'SUPERVISOR',
+          zona: 'Centro',
+          supervisor_empleado_id: null,
+        },
       ],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelMensajes(actor, { serviceClient: fakeClient as never })
+  const data = await obtenerPanelMensajes(actor, { serviceClient: fakeClient as never });
 
-  expect(data.mensajes).toHaveLength(2)
-  expect(data.resumen.totalMensajes).toBe(2)
-  expect(data.resumen.noLeidos).toBe(1)
-  expect(data.resumen.encuestasPendientes).toBe(1)
-  expect(data.resumen.enviados).toBe(1)
-  expect(data.resumen.recibidos).toBe(2)
-  expect(data.unreadCount).toBe(1)
-  expect(data.mensajes[0]?.adjuntos).toHaveLength(1)
-  expect(data.mensajes[0]?.adjuntos[0]?.archivoHash).toBe('hash-1')
-  expect(data.mensajes[0]?.creadoPor).toBe('Laura')
-  expect(data.mensajes[1]?.enviadoPorMi).toBe(true)
-  expect(data.mensajes[1]?.recibidoPorMi).toBe(true)
-  expect(data.mensajes[1]?.opcionesRespuesta).toHaveLength(2)
-})
+  expect(data.mensajes).toHaveLength(2);
+  expect(data.resumen.totalMensajes).toBe(2);
+  expect(data.resumen.noLeidos).toBe(1);
+  expect(data.resumen.encuestasPendientes).toBe(1);
+  expect(data.resumen.enviados).toBe(1);
+  expect(data.resumen.recibidos).toBe(2);
+  expect(data.unreadCount).toBe(1);
+  expect(data.mensajes[0]?.adjuntos).toHaveLength(1);
+  expect(data.mensajes[0]?.adjuntos[0]?.archivoHash).toBe('hash-1');
+  expect(data.mensajes[0]?.creadoPor).toBe('Laura');
+  expect(data.mensajes[1]?.enviadoPorMi).toBe(true);
+  expect(data.mensajes[1]?.recibidoPorMi).toBe(true);
+  expect(data.mensajes[1]?.opcionesRespuesta).toHaveLength(2);
+});
 
 test('filtra historial de mensajes recibidos del actor autenticado', async () => {
   const fakeClient = createFakeMensajesClient({
@@ -216,21 +231,29 @@ test('filtra historial de mensajes recibidos del actor autenticado', async () =>
     },
     mensaje_adjunto: { data: [], error: null },
     empleado: {
-      data: [{ id: 'sup-1', nombre_completo: 'Laura', puesto: 'SUPERVISOR', zona: 'Centro', supervisor_empleado_id: null }],
+      data: [
+        {
+          id: 'sup-1',
+          nombre_completo: 'Laura',
+          puesto: 'SUPERVISOR',
+          zona: 'Centro',
+          supervisor_empleado_id: null,
+        },
+      ],
       error: null,
     },
-  })
+  });
 
   const data = await obtenerPanelMensajes(actor, {
     serviceClient: fakeClient as never,
     direction: 'recibidos',
-  })
+  });
 
-  expect(data.direction).toBe('recibidos')
-  expect(data.mensajes).toHaveLength(1)
-  expect(data.mensajes[0]?.enviadoPorMi).toBe(false)
-  expect(data.mensajes[0]?.recibidoPorMi).toBe(true)
-})
+  expect(data.direction).toBe('recibidos');
+  expect(data.mensajes).toHaveLength(1);
+  expect(data.mensajes[0]?.enviadoPorMi).toBe(false);
+  expect(data.mensajes[0]?.recibidoPorMi).toBe(true);
+});
 
 test('resuelve audience label para mensajes dirigidos por rol operativo', async () => {
   const fakeClient = createFakeMensajesClient({
@@ -274,34 +297,46 @@ test('resuelve audience label para mensajes dirigidos por rol operativo', async 
     mensaje_adjunto: { data: [], error: null },
     empleado: {
       data: [
-        { id: 'emp-1', nombre_completo: 'Ana', puesto: 'RECLUTAMIENTO', zona: 'Centro', supervisor_empleado_id: null },
-        { id: 'sup-1', nombre_completo: 'Laura', puesto: 'SUPERVISOR', zona: 'Centro', supervisor_empleado_id: null },
+        {
+          id: 'emp-1',
+          nombre_completo: 'Ana',
+          puesto: 'RECLUTAMIENTO',
+          zona: 'Centro',
+          supervisor_empleado_id: null,
+        },
+        {
+          id: 'sup-1',
+          nombre_completo: 'Laura',
+          puesto: 'SUPERVISOR',
+          zona: 'Centro',
+          supervisor_empleado_id: null,
+        },
       ],
       error: null,
     },
-  })
+  });
 
   const recruitmentActor: ActorActual = {
     ...actor,
     puesto: 'RECLUTAMIENTO',
-  }
+  };
 
-  const data = await obtenerPanelMensajes(recruitmentActor, { serviceClient: fakeClient as never })
+  const data = await obtenerPanelMensajes(recruitmentActor, { serviceClient: fakeClient as never });
 
-  expect(data.mensajes).toHaveLength(1)
-  expect(data.mensajes[0]?.audienceLabel).toBe('Rol RECLUTAMIENTO')
-  expect(data.mensajes[0]?.creadoPor).toBe('Laura')
-})
+  expect(data.mensajes).toHaveLength(1);
+  expect(data.mensajes[0]?.audienceLabel).toBe('Rol RECLUTAMIENTO');
+  expect(data.mensajes[0]?.creadoPor).toBe('Laura');
+});
 
 test('degrada con mensaje de infraestructura cuando falla consulta', async () => {
   const fakeClient = createFakeMensajesClient({
     mensaje_interno: { data: null, error: { message: 'tabla no existe' } },
     mensaje_receptor: { data: [], error: null },
     empleado: { data: [], error: null },
-  })
+  });
 
-  const data = await obtenerPanelMensajes(actor, { serviceClient: fakeClient as never })
+  const data = await obtenerPanelMensajes(actor, { serviceClient: fakeClient as never });
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.mensajeInfraestructura).toContain('tabla no existe')
-})
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.mensajeInfraestructura).toContain('tabla no existe');
+});

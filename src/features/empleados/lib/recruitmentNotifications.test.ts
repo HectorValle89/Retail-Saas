@@ -1,5 +1,5 @@
-import { expect, test } from 'vitest'
-import { buildNuevoCandidatoCoordinacionNotification } from './recruitmentNotifications'
+import { expect, test } from 'vitest';
+import { buildNuevoCandidatoCoordinacionNotification } from './recruitmentNotifications';
 
 test('construye la notificacion de nuevo candidato para coordinacion', () => {
   expect(
@@ -11,8 +11,7 @@ test('construye la notificacion de nuevo candidato para coordinacion', () => {
     puestosDestino: ['COORDINADOR'],
     workflow: 'empleados_nuevo_candidato_coordinacion',
     title: 'Nuevo candidato pendiente de aprobacion',
-    body:
-      'Nelly Diana Espinoza Palomares ya quedo en la etapa Nuevos despues de subir su CV. Revisa la ficha para validar el PDV sugerido y continuar con la entrevista.',
+    body: 'Nelly Diana Espinoza Palomares ya quedo en la etapa Nuevos despues de subir su CV. Revisa la ficha para validar el PDV sugerido y continuar con la entrevista.',
     path: 'https://beteele-one.com/empleados',
     tag: 'empleado-nuevo-coordinacion-emp-123',
     auditAction: 'notificar_coordinacion_nuevo_candidato',
@@ -25,5 +24,5 @@ test('construye la notificacion de nuevo candidato para coordinacion', () => {
       empleadoId: 'emp-123',
       etapa: 'NUEVOS',
     },
-  })
-})
+  });
+});

@@ -1,135 +1,138 @@
-import type { Solicitud } from '@/types/database'
+import type { Solicitud } from '@/types/database';
 
-export const VACATION_ANNUAL_DAYS = 12
-export const VACATION_SEMESTER_DAYS = 6
-export const VACATION_MIN_NOTICE_DAYS = 30
-export const VACATION_TEAM_WEEKLY_LIMIT = 2
+export const VACATION_ANNUAL_DAYS = 12;
+export const VACATION_SEMESTER_DAYS = 6;
+export const VACATION_MIN_NOTICE_DAYS = 30;
+export const VACATION_TEAM_WEEKLY_LIMIT = 2;
 
 export interface VacationRangeLike {
-  empleadoId?: string | null
-  fechaInicio: string
-  fechaFin: string
-  estatus?: Solicitud['estatus'] | string | null
+  empleadoId?: string | null;
+  fechaInicio: string;
+  fechaFin: string;
+  estatus?: Solicitud['estatus'] | string | null;
 }
 
 export interface VacationBucketSnapshot {
-  key: string
-  label: 'PRIMER_SEMESTRE' | 'SEGUNDO_SEMESTRE'
-  availableFrom: string
-  availableUntil: string
-  totalDays: number
-  usedDays: number
-  availableDays: number
-  unlocked: boolean
+  key: string;
+  label: 'PRIMER_SEMESTRE' | 'SEGUNDO_SEMESTRE';
+  availableFrom: string;
+  availableUntil: string;
+  totalDays: number;
+  usedDays: number;
+  availableDays: number;
+  unlocked: boolean;
 }
 
 export interface VacationPolicySnapshot {
-  ingresoOficial: string | null
-  eligible: boolean
-  annualDays: number
-  annualUsedDays: number
-  annualAvailableDays: number
-  currentSemester: 'PRIMER_SEMESTRE' | 'SEGUNDO_SEMESTRE' | null
-  currentSemesterLabel: string | null
-  nextUnlockDate: string | null
-  anniversaryStart: string | null
-  anniversaryEnd: string | null
-  firstSemester: VacationBucketSnapshot | null
-  secondSemester: VacationBucketSnapshot | null
+  ingresoOficial: string | null;
+  eligible: boolean;
+  annualDays: number;
+  annualUsedDays: number;
+  annualAvailableDays: number;
+  currentSemester: 'PRIMER_SEMESTRE' | 'SEGUNDO_SEMESTRE' | null;
+  currentSemesterLabel: string | null;
+  nextUnlockDate: string | null;
+  anniversaryStart: string | null;
+  anniversaryEnd: string | null;
+  firstSemester: VacationBucketSnapshot | null;
+  secondSemester: VacationBucketSnapshot | null;
 }
 
 export interface VacationRequestValidationResult {
-  snapshot: VacationPolicySnapshot
-  requestedDays: number
-  requestedByBucket: Record<string, number>
-  affectedWeeks: string[]
+  snapshot: VacationPolicySnapshot;
+  requestedDays: number;
+  requestedByBucket: Record<string, number>;
+  affectedWeeks: string[];
 }
 
 type VacationBucketAssignment = {
-  key: string
-  label: 'PRIMER_SEMESTRE' | 'SEGUNDO_SEMESTRE'
-  cycleStart: string
-  cycleEnd: string
-  availableFrom: string
-  availableUntil: string
-}
+  key: string;
+  label: 'PRIMER_SEMESTRE' | 'SEGUNDO_SEMESTRE';
+  cycleStart: string;
+  cycleEnd: string;
+  availableFrom: string;
+  availableUntil: string;
+};
 
 function parseIsoDate(value: string) {
-  const [yearRaw, monthRaw, dayRaw] = value.split('-')
-  const year = Number(yearRaw)
-  const monthIndex = Number(monthRaw) - 1
-  const day = Number(dayRaw)
-  return new Date(Date.UTC(year, monthIndex, day))
+  const [yearRaw, monthRaw, dayRaw] = value.split('-');
+  const year = Number(yearRaw);
+  const monthIndex = Number(monthRaw) - 1;
+  const day = Number(dayRaw);
+  return new Date(Date.UTC(year, monthIndex, day));
 }
 
 function formatIsoDate(value: Date) {
-  return value.toISOString().slice(0, 10)
+  return value.toISOString().slice(0, 10);
 }
 
 function addUtcDays(value: Date, days: number) {
-  const next = new Date(value)
-  next.setUTCDate(next.getUTCDate() + days)
-  return next
+  const next = new Date(value);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
 }
 
 function addUtcMonths(value: Date, months: number) {
-  const next = new Date(value)
-  next.setUTCMonth(next.getUTCMonth() + months)
-  return next
+  const next = new Date(value);
+  next.setUTCMonth(next.getUTCMonth() + months);
+  return next;
 }
 
 function addUtcYears(value: Date, years: number) {
-  const next = new Date(value)
-  next.setUTCFullYear(next.getUTCFullYear() + years)
-  return next
+  const next = new Date(value);
+  next.setUTCFullYear(next.getUTCFullYear() + years);
+  return next;
 }
 
 function diffCalendarDays(start: string, end: string) {
-  const startDate = parseIsoDate(start)
-  const endDate = parseIsoDate(end)
-  return Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000)
+  const startDate = parseIsoDate(start);
+  const endDate = parseIsoDate(end);
+  return Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000);
 }
 
 export function listIsoDatesInRange(fechaInicio: string, fechaFin: string) {
-  const startDate = parseIsoDate(fechaInicio)
-  const endDate = parseIsoDate(fechaFin)
-  const dates: string[] = []
+  const startDate = parseIsoDate(fechaInicio);
+  const endDate = parseIsoDate(fechaFin);
+  const dates: string[] = [];
 
   for (let cursor = startDate; cursor <= endDate; cursor = addUtcDays(cursor, 1)) {
-    dates.push(formatIsoDate(cursor))
+    dates.push(formatIsoDate(cursor));
   }
 
-  return dates
+  return dates;
 }
 
 function buildCycleBoundaries(ingresoOficial: string, referenceDate: string) {
-  const ingreso = parseIsoDate(ingresoOficial)
-  const target = parseIsoDate(referenceDate)
+  const ingreso = parseIsoDate(ingresoOficial);
+  const target = parseIsoDate(referenceDate);
 
   if (target < addUtcYears(ingreso, 1)) {
-    return null
+    return null;
   }
 
-  let cycleStart = addUtcYears(ingreso, 1)
-  let cycleEnd = addUtcYears(cycleStart, 1)
+  let cycleStart = addUtcYears(ingreso, 1);
+  let cycleEnd = addUtcYears(cycleStart, 1);
 
   while (target >= cycleEnd) {
-    cycleStart = cycleEnd
-    cycleEnd = addUtcYears(cycleEnd, 1)
+    cycleStart = cycleEnd;
+    cycleEnd = addUtcYears(cycleEnd, 1);
   }
 
   return {
     cycleStart: formatIsoDate(cycleStart),
     cycleEnd: formatIsoDate(addUtcDays(cycleEnd, -1)),
     secondSemesterStart: formatIsoDate(addUtcMonths(cycleStart, 6)),
-  }
+  };
 }
 
-function resolveVacationBucketForDate(ingresoOficial: string, targetDate: string): VacationBucketAssignment | null {
-  const boundaries = buildCycleBoundaries(ingresoOficial, targetDate)
+function resolveVacationBucketForDate(
+  ingresoOficial: string,
+  targetDate: string
+): VacationBucketAssignment | null {
+  const boundaries = buildCycleBoundaries(ingresoOficial, targetDate);
 
   if (!boundaries) {
-    return null
+    return null;
   }
 
   if (targetDate < boundaries.secondSemesterStart) {
@@ -140,7 +143,7 @@ function resolveVacationBucketForDate(ingresoOficial: string, targetDate: string
       cycleEnd: boundaries.cycleEnd,
       availableFrom: boundaries.cycleStart,
       availableUntil: formatIsoDate(addUtcDays(parseIsoDate(boundaries.secondSemesterStart), -1)),
-    }
+    };
   }
 
   return {
@@ -150,27 +153,27 @@ function resolveVacationBucketForDate(ingresoOficial: string, targetDate: string
     cycleEnd: boundaries.cycleEnd,
     availableFrom: boundaries.secondSemesterStart,
     availableUntil: boundaries.cycleEnd,
-  }
+  };
 }
 
 function createUsageMap(ingresoOficial: string, approvedRanges: VacationRangeLike[]) {
-  const usageMap = new Map<string, Set<string>>()
+  const usageMap = new Map<string, Set<string>>();
 
   approvedRanges.forEach((range) => {
     listIsoDatesInRange(range.fechaInicio, range.fechaFin).forEach((date) => {
-      const bucket = resolveVacationBucketForDate(ingresoOficial, date)
+      const bucket = resolveVacationBucketForDate(ingresoOficial, date);
 
       if (!bucket) {
-        return
+        return;
       }
 
-      const current = usageMap.get(bucket.key) ?? new Set<string>()
-      current.add(date)
-      usageMap.set(bucket.key, current)
-    })
-  })
+      const current = usageMap.get(bucket.key) ?? new Set<string>();
+      current.add(date);
+      usageMap.set(bucket.key, current);
+    });
+  });
 
-  return usageMap
+  return usageMap;
 }
 
 function buildBucketSnapshot(
@@ -178,9 +181,9 @@ function buildBucketSnapshot(
   usageMap: Map<string, Set<string>>,
   todayIso: string
 ): VacationBucketSnapshot {
-  const usedDays = usageMap.get(bucket.key)?.size ?? 0
-  const availableDays = Math.max(0, VACATION_SEMESTER_DAYS - usedDays)
-  const unlocked = todayIso >= bucket.availableFrom
+  const usedDays = usageMap.get(bucket.key)?.size ?? 0;
+  const availableDays = Math.max(0, VACATION_SEMESTER_DAYS - usedDays);
+  const unlocked = todayIso >= bucket.availableFrom;
 
   return {
     key: bucket.key,
@@ -191,13 +194,13 @@ function buildBucketSnapshot(
     usedDays,
     availableDays,
     unlocked,
-  }
+  };
 }
 
 export function buildVacationPolicySnapshot(input: {
-  ingresoOficial: string | null
-  todayIso: string
-  approvedRanges: VacationRangeLike[]
+  ingresoOficial: string | null;
+  todayIso: string;
+  approvedRanges: VacationRangeLike[];
 }): VacationPolicySnapshot {
   if (!input.ingresoOficial) {
     return {
@@ -213,13 +216,13 @@ export function buildVacationPolicySnapshot(input: {
       anniversaryEnd: null,
       firstSemester: null,
       secondSemester: null,
-    }
+    };
   }
 
-  const todayBucket = resolveVacationBucketForDate(input.ingresoOficial, input.todayIso)
+  const todayBucket = resolveVacationBucketForDate(input.ingresoOficial, input.todayIso);
 
   if (!todayBucket) {
-    const firstAnniversary = formatIsoDate(addUtcYears(parseIsoDate(input.ingresoOficial), 1))
+    const firstAnniversary = formatIsoDate(addUtcYears(parseIsoDate(input.ingresoOficial), 1));
     return {
       ingresoOficial: input.ingresoOficial,
       eligible: false,
@@ -233,19 +236,26 @@ export function buildVacationPolicySnapshot(input: {
       anniversaryEnd: null,
       firstSemester: null,
       secondSemester: null,
-    }
+    };
   }
 
-  const usageMap = createUsageMap(input.ingresoOficial, input.approvedRanges)
+  const usageMap = createUsageMap(input.ingresoOficial, input.approvedRanges);
   const firstSemesterBucket: VacationBucketAssignment = {
     key: `${todayBucket.cycleStart}:PRIMER_SEMESTRE`,
     label: 'PRIMER_SEMESTRE',
     cycleStart: todayBucket.cycleStart,
     cycleEnd: todayBucket.cycleEnd,
     availableFrom: todayBucket.cycleStart,
-    availableUntil: formatIsoDate(addUtcDays(parseIsoDate(addUtcMonths(parseIsoDate(todayBucket.cycleStart), 6).toISOString().slice(0, 10)), -1)),
-  }
-  const secondSemesterStart = formatIsoDate(addUtcMonths(parseIsoDate(todayBucket.cycleStart), 6))
+    availableUntil: formatIsoDate(
+      addUtcDays(
+        parseIsoDate(
+          addUtcMonths(parseIsoDate(todayBucket.cycleStart), 6).toISOString().slice(0, 10)
+        ),
+        -1
+      )
+    ),
+  };
+  const secondSemesterStart = formatIsoDate(addUtcMonths(parseIsoDate(todayBucket.cycleStart), 6));
   const secondSemesterBucket: VacationBucketAssignment = {
     key: `${todayBucket.cycleStart}:SEGUNDO_SEMESTRE`,
     label: 'SEGUNDO_SEMESTRE',
@@ -253,12 +263,12 @@ export function buildVacationPolicySnapshot(input: {
     cycleEnd: todayBucket.cycleEnd,
     availableFrom: secondSemesterStart,
     availableUntil: todayBucket.cycleEnd,
-  }
+  };
 
-  const firstSemester = buildBucketSnapshot(firstSemesterBucket, usageMap, input.todayIso)
-  const secondSemester = buildBucketSnapshot(secondSemesterBucket, usageMap, input.todayIso)
-  const annualUsedDays = firstSemester.usedDays + secondSemester.usedDays
-  const annualAvailableDays = firstSemester.availableDays + secondSemester.availableDays
+  const firstSemester = buildBucketSnapshot(firstSemesterBucket, usageMap, input.todayIso);
+  const secondSemester = buildBucketSnapshot(secondSemesterBucket, usageMap, input.todayIso);
+  const annualUsedDays = firstSemester.usedDays + secondSemester.usedDays;
+  const annualAvailableDays = firstSemester.availableDays + secondSemester.availableDays;
 
   return {
     ingresoOficial: input.ingresoOficial,
@@ -274,7 +284,7 @@ export function buildVacationPolicySnapshot(input: {
     anniversaryEnd: todayBucket.cycleEnd,
     firstSemester,
     secondSemester,
-  }
+  };
 }
 
 function ensureAllRequestedDatesUnlocked(
@@ -282,60 +292,62 @@ function ensureAllRequestedDatesUnlocked(
   todayIso: string,
   requestedDates: string[]
 ) {
-  const todayBucket = resolveVacationBucketForDate(ingresoOficial, todayIso)
+  const todayBucket = resolveVacationBucketForDate(ingresoOficial, todayIso);
 
   if (!todayBucket) {
-    throw new Error('Todavia no cumples el año requerido para solicitar vacaciones.')
+    throw new Error('Todavia no cumples el año requerido para solicitar vacaciones.');
   }
 
   requestedDates.forEach((date) => {
-    const requestedBucket = resolveVacationBucketForDate(ingresoOficial, date)
+    const requestedBucket = resolveVacationBucketForDate(ingresoOficial, date);
 
     if (!requestedBucket) {
-      throw new Error('Todavia no cumples el año requerido para solicitar vacaciones.')
+      throw new Error('Todavia no cumples el año requerido para solicitar vacaciones.');
     }
 
     if (requestedBucket.cycleStart !== todayBucket.cycleStart) {
-      throw new Error('Solo puedes solicitar vacaciones dentro del ciclo anual actualmente habilitado.')
+      throw new Error(
+        'Solo puedes solicitar vacaciones dentro del ciclo anual actualmente habilitado.'
+      );
     }
 
     if (todayBucket.label === 'PRIMER_SEMESTRE' && requestedBucket.label === 'SEGUNDO_SEMESTRE') {
       throw new Error(
         `Los días del segundo semestre se habilitan hasta ${requestedBucket.availableFrom}.`
-      )
+      );
     }
-  })
+  });
 }
 
 function buildRequestedDaysByBucket(ingresoOficial: string, requestedDates: string[]) {
   return requestedDates.reduce<Record<string, number>>((acc, date) => {
-    const bucket = resolveVacationBucketForDate(ingresoOficial, date)
+    const bucket = resolveVacationBucketForDate(ingresoOficial, date);
 
     if (!bucket) {
-      return acc
+      return acc;
     }
 
-    acc[bucket.key] = (acc[bucket.key] ?? 0) + 1
-    return acc
-  }, {})
+    acc[bucket.key] = (acc[bucket.key] ?? 0) + 1;
+    return acc;
+  }, {});
 }
 
 export function getWeekStartIso(date: string) {
-  const value = parseIsoDate(date)
-  const day = value.getUTCDay()
-  const delta = day === 0 ? -6 : 1 - day
-  return formatIsoDate(addUtcDays(value, delta))
+  const value = parseIsoDate(date);
+  const day = value.getUTCDay();
+  const delta = day === 0 ? -6 : 1 - day;
+  return formatIsoDate(addUtcDays(value, delta));
 }
 
 export function listWeekStartsInRange(fechaInicio: string, fechaFin: string) {
-  const weeks = new Set<string>()
-  listIsoDatesInRange(fechaInicio, fechaFin).forEach((date) => weeks.add(getWeekStartIso(date)))
-  return Array.from(weeks).sort()
+  const weeks = new Set<string>();
+  listIsoDatesInRange(fechaInicio, fechaFin).forEach((date) => weeks.add(getWeekStartIso(date)));
+  return Array.from(weeks).sort();
 }
 
 function overlapsWeek(range: VacationRangeLike, weekStart: string) {
-  const weekEnd = formatIsoDate(addUtcDays(parseIsoDate(weekStart), 6))
-  return range.fechaInicio <= weekEnd && range.fechaFin >= weekStart
+  const weekEnd = formatIsoDate(addUtcDays(parseIsoDate(weekStart), 6));
+  return range.fechaInicio <= weekEnd && range.fechaFin >= weekStart;
 }
 
 export function buildVacationTeamWeeklyLoad(
@@ -344,15 +356,15 @@ export function buildVacationTeamWeeklyLoad(
   weeks: number
 ) {
   return Array.from({ length: weeks }, (_, index) => {
-    const weekStart = formatIsoDate(addUtcDays(parseIsoDate(getWeekStartIso(fromDate)), index * 7))
-    const weekEnd = formatIsoDate(addUtcDays(parseIsoDate(weekStart), 6))
-    const employeeIds = new Set<string>()
+    const weekStart = formatIsoDate(addUtcDays(parseIsoDate(getWeekStartIso(fromDate)), index * 7));
+    const weekEnd = formatIsoDate(addUtcDays(parseIsoDate(weekStart), 6));
+    const employeeIds = new Set<string>();
 
     teamRanges.forEach((range) => {
       if (range.empleadoId && overlapsWeek(range, weekStart)) {
-        employeeIds.add(range.empleadoId)
+        employeeIds.add(range.empleadoId);
       }
-    })
+    });
 
     return {
       weekStart,
@@ -360,75 +372,77 @@ export function buildVacationTeamWeeklyLoad(
       absentCount: employeeIds.size,
       limit: VACATION_TEAM_WEEKLY_LIMIT,
       blocked: employeeIds.size >= VACATION_TEAM_WEEKLY_LIMIT,
-    }
-  })
+    };
+  });
 }
 
 export function validateVacationRequestPolicy(input: {
-  ingresoOficial: string | null
-  todayIso: string
-  fechaInicio: string
-  fechaFin: string
-  approvedEmployeeRanges: VacationRangeLike[]
-  approvedTeamRanges: VacationRangeLike[]
-  currentEmployeeId: string
-}) : VacationRequestValidationResult {
+  ingresoOficial: string | null;
+  todayIso: string;
+  fechaInicio: string;
+  fechaFin: string;
+  approvedEmployeeRanges: VacationRangeLike[];
+  approvedTeamRanges: VacationRangeLike[];
+  currentEmployeeId: string;
+}): VacationRequestValidationResult {
   if (!input.ingresoOficial) {
-    throw new Error('No existe una fecha oficial de ingreso para calcular vacaciones.')
+    throw new Error('No existe una fecha oficial de ingreso para calcular vacaciones.');
   }
 
   if (input.fechaFin < input.fechaInicio) {
-    throw new Error('La fecha final no puede ser menor a la fecha inicial.')
+    throw new Error('La fecha final no puede ser menor a la fecha inicial.');
   }
 
   if (diffCalendarDays(input.todayIso, input.fechaInicio) < VACATION_MIN_NOTICE_DAYS) {
-    throw new Error('Antelación insuficiente. Debes solicitar vacaciones con al menos 30 días naturales.')
+    throw new Error(
+      'Antelación insuficiente. Debes solicitar vacaciones con al menos 30 días naturales.'
+    );
   }
 
-  const requestedDates = listIsoDatesInRange(input.fechaInicio, input.fechaFin)
-  ensureAllRequestedDatesUnlocked(input.ingresoOficial, input.todayIso, requestedDates)
+  const requestedDates = listIsoDatesInRange(input.fechaInicio, input.fechaFin);
+  ensureAllRequestedDatesUnlocked(input.ingresoOficial, input.todayIso, requestedDates);
 
   const snapshot = buildVacationPolicySnapshot({
     ingresoOficial: input.ingresoOficial,
     todayIso: input.todayIso,
     approvedRanges: input.approvedEmployeeRanges,
-  })
-  const requestedByBucket = buildRequestedDaysByBucket(input.ingresoOficial, requestedDates)
+  });
+  const requestedByBucket = buildRequestedDaysByBucket(input.ingresoOficial, requestedDates);
   const currentBuckets = [snapshot.firstSemester, snapshot.secondSemester].filter(
     (item): item is VacationBucketSnapshot => Boolean(item)
-  )
+  );
 
   currentBuckets.forEach((bucket) => {
-    const requestedDays = requestedByBucket[bucket.key] ?? 0
+    const requestedDays = requestedByBucket[bucket.key] ?? 0;
 
     if (requestedDays > 0 && requestedDays > bucket.availableDays) {
-      throw new Error(`Solo puedes solicitar hasta ${bucket.availableDays} días en este periodo.`)
+      throw new Error(`Solo puedes solicitar hasta ${bucket.availableDays} días en este periodo.`);
     }
-  })
+  });
 
   listWeekStartsInRange(input.fechaInicio, input.fechaFin).forEach((weekStart) => {
-    const absentEmployees = new Set<string>()
+    const absentEmployees = new Set<string>();
     input.approvedTeamRanges.forEach((range) => {
       if (range.empleadoId === input.currentEmployeeId) {
-        return
+        return;
       }
 
       if (range.empleadoId && overlapsWeek(range, weekStart)) {
-        absentEmployees.add(range.empleadoId)
+        absentEmployees.add(range.empleadoId);
       }
-    })
+    });
 
     if (absentEmployees.size >= VACATION_TEAM_WEEKLY_LIMIT) {
       throw new Error(
         'Cupo de ausencias completo para esta semana en tu equipo. Intenta con otra fecha.'
-      )
+      );
     }
-  })
+  });
 
   return {
     snapshot,
     requestedDays: requestedDates.length,
     requestedByBucket,
     affectedWeeks: listWeekStartsInRange(input.fechaInicio, input.fechaFin),
-  }
+  };
 }

@@ -1,62 +1,62 @@
-'use client'
+'use client';
 
-import { startTransition, useEffect, useRef, useState } from 'react'
-import type { RealtimeChannel } from '@supabase/supabase-js'
-import { createClient } from '@/lib/supabase/client'
+import { startTransition, useEffect, useRef, useState } from 'react';
+import type { RealtimeChannel } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/client';
 import type {
   UiChangeRoleTarget,
   UiChangeSurface,
   UiChangeVersionRow,
-} from '@/lib/ui-change/types'
+} from '@/lib/ui-change/types';
 
 type UseUiChangeSubscriptionOptions = {
-  module: string
-  surfaces: UiChangeSurface[]
-  scopeKeys: string[]
-  roleTargets?: UiChangeRoleTarget[]
-  enabled?: boolean
-}
+  module: string;
+  surfaces: UiChangeSurface[];
+  scopeKeys: string[];
+  roleTargets?: UiChangeRoleTarget[];
+  enabled?: boolean;
+};
 
 type UseVersionedRefetchOptions<T> = {
-  initialData: T
-  observedChange: UiChangeVersionRow | null
-  fetcher: (signal: AbortSignal, change: UiChangeVersionRow) => Promise<T>
-  debounceMs?: number
-  refreshOnMount?: boolean
-}
+  initialData: T;
+  observedChange: UiChangeVersionRow | null;
+  fetcher: (signal: AbortSignal, change: UiChangeVersionRow) => Promise<T>;
+  debounceMs?: number;
+  refreshOnMount?: boolean;
+};
 
 type UseScopedWidgetDataOptions<T> = UseUiChangeSubscriptionOptions & {
-  initialData: T
-  fetcher: (signal: AbortSignal, change: UiChangeVersionRow) => Promise<T>
-  debounceMs?: number
-  refreshOnMount?: boolean
-}
+  initialData: T;
+  fetcher: (signal: AbortSignal, change: UiChangeVersionRow) => Promise<T>;
+  debounceMs?: number;
+  refreshOnMount?: boolean;
+};
 
 type ListenerEntry = {
-  id: number
-  module: string
-  surfaces: Set<UiChangeSurface>
-  scopeKeys: Set<string>
-  roleTargets?: Set<UiChangeRoleTarget>
-  onChange: (change: UiChangeVersionRow) => void
-  pendingChange: UiChangeVersionRow | null
-}
+  id: number;
+  module: string;
+  surfaces: Set<UiChangeSurface>;
+  scopeKeys: Set<string>;
+  roleTargets?: Set<UiChangeRoleTarget>;
+  onChange: (change: UiChangeVersionRow) => void;
+  pendingChange: UiChangeVersionRow | null;
+};
 
-const listeners = new Map<number, ListenerEntry>()
-let listenerIdSequence = 0
-let sharedChannel: RealtimeChannel | null = null
-let sharedListenersAttached = false
+const listeners = new Map<number, ListenerEntry>();
+let listenerIdSequence = 0;
+let sharedChannel: RealtimeChannel | null = null;
+let sharedListenersAttached = false;
 
 function canRefreshNow() {
   if (typeof document === 'undefined') {
-    return true
+    return true;
   }
 
-  return document.visibilityState === 'visible' && document.hasFocus()
+  return document.visibilityState === 'visible' && document.hasFocus();
 }
 
 function normalizeKeyList(values: readonly string[]) {
-  return Array.from(new Set(values)).sort().join('|')
+  return Array.from(new Set(values)).sort().join('|');
 }
 
 function matchesUiChange(
@@ -66,49 +66,49 @@ function matchesUiChange(
     scopeKeys,
     roleTargets,
   }: {
-    surfaces: ReadonlySet<UiChangeSurface>
-    scopeKeys: ReadonlySet<string>
-    roleTargets?: ReadonlySet<UiChangeRoleTarget>
+    surfaces: ReadonlySet<UiChangeSurface>;
+    scopeKeys: ReadonlySet<string>;
+    roleTargets?: ReadonlySet<UiChangeRoleTarget>;
   }
 ) {
-  const surfaceMatches = row.surface === 'all' || surfaces.has(row.surface)
-  const scopeMatches = row.scope_key === 'global' || scopeKeys.has(row.scope_key)
+  const surfaceMatches = row.surface === 'all' || surfaces.has(row.surface);
+  const scopeMatches = row.scope_key === 'global' || scopeKeys.has(row.scope_key);
   const roleMatches =
     !roleTargets ||
     roleTargets.size === 0 ||
     row.role_target === 'ALL' ||
-    roleTargets.has(row.role_target)
+    roleTargets.has(row.role_target);
 
-  return surfaceMatches && scopeMatches && roleMatches
+  return surfaceMatches && scopeMatches && roleMatches;
 }
 
 function buildUiChangeToken(row: UiChangeVersionRow) {
-  return `${row.module}:${row.surface}:${row.scope_key}:${row.role_target}:${row.version}`
+  return `${row.module}:${row.surface}:${row.scope_key}:${row.role_target}:${row.version}`;
 }
 
 function flushPendingChanges() {
   if (!canRefreshNow()) {
-    return
+    return;
   }
 
   listeners.forEach((entry) => {
     if (!entry.pendingChange) {
-      return
+      return;
     }
 
-    const nextChange = entry.pendingChange
-    entry.pendingChange = null
-    entry.onChange(nextChange)
-  })
+    const nextChange = entry.pendingChange;
+    entry.pendingChange = null;
+    entry.onChange(nextChange);
+  });
 }
 
 function ensureSharedChannel() {
   if (typeof window === 'undefined' || sharedChannel) {
-    return sharedChannel
+    return sharedChannel;
   }
 
-  const supabase = createClient()
-  sharedChannel = supabase.channel('ui-change:shared')
+  const supabase = createClient();
+  sharedChannel = supabase.channel('ui-change:shared');
 
   sharedChannel.on(
     'postgres_changes',
@@ -118,7 +118,7 @@ function ensureSharedChannel() {
       table: 'ui_change_version',
     },
     (payload) => {
-      const nextChange = payload.new as UiChangeVersionRow
+      const nextChange = payload.new as UiChangeVersionRow;
 
       listeners.forEach((entry) => {
         if (
@@ -129,51 +129,51 @@ function ensureSharedChannel() {
             roleTargets: entry.roleTargets,
           })
         ) {
-          return
+          return;
         }
 
         if (!canRefreshNow()) {
-          entry.pendingChange = nextChange
-          return
+          entry.pendingChange = nextChange;
+          return;
         }
 
-        entry.onChange(nextChange)
-      })
+        entry.onChange(nextChange);
+      });
     }
-  )
+  );
 
-  sharedChannel.subscribe()
-  return sharedChannel
+  sharedChannel.subscribe();
+  return sharedChannel;
 }
 
 function attachSharedListeners() {
   if (sharedListenersAttached || typeof window === 'undefined') {
-    return
+    return;
   }
 
-  window.addEventListener('focus', flushPendingChanges)
-  document.addEventListener('visibilitychange', flushPendingChanges)
-  sharedListenersAttached = true
+  window.addEventListener('focus', flushPendingChanges);
+  document.addEventListener('visibilitychange', flushPendingChanges);
+  sharedListenersAttached = true;
 }
 
 function detachSharedListeners() {
   if (!sharedListenersAttached || typeof window === 'undefined') {
-    return
+    return;
   }
 
-  window.removeEventListener('focus', flushPendingChanges)
-  document.removeEventListener('visibilitychange', flushPendingChanges)
-  sharedListenersAttached = false
+  window.removeEventListener('focus', flushPendingChanges);
+  document.removeEventListener('visibilitychange', flushPendingChanges);
+  sharedListenersAttached = false;
 }
 
 function releaseSharedChannel() {
   if (!sharedChannel) {
-    return
+    return;
   }
 
-  const supabase = createClient()
-  void supabase.removeChannel(sharedChannel)
-  sharedChannel = null
+  const supabase = createClient();
+  void supabase.removeChannel(sharedChannel);
+  sharedChannel = null;
 }
 
 function registerUiChangeListener(
@@ -183,7 +183,7 @@ function registerUiChangeListener(
   roleTargets: UiChangeRoleTarget[] | undefined,
   onChange: (change: UiChangeVersionRow) => void
 ) {
-  const id = ++listenerIdSequence
+  const id = ++listenerIdSequence;
   const entry: ListenerEntry = {
     id,
     module,
@@ -192,20 +192,20 @@ function registerUiChangeListener(
     roleTargets: roleTargets && roleTargets.length > 0 ? new Set(roleTargets) : undefined,
     onChange,
     pendingChange: null,
-  }
+  };
 
-  listeners.set(id, entry)
-  attachSharedListeners()
-  ensureSharedChannel()
+  listeners.set(id, entry);
+  attachSharedListeners();
+  ensureSharedChannel();
 
   return () => {
-    listeners.delete(id)
+    listeners.delete(id);
 
     if (listeners.size === 0) {
-      detachSharedListeners()
-      releaseSharedChannel()
+      detachSharedListeners();
+      releaseSharedChannel();
     }
-  }
+  };
 }
 
 export function useUiChangeSubscription({
@@ -215,33 +215,33 @@ export function useUiChangeSubscription({
   roleTargets,
   enabled = true,
 }: UseUiChangeSubscriptionOptions) {
-  const [latestChange, setLatestChange] = useState<UiChangeVersionRow | null>(null)
-  const surfacesRef = useRef(surfaces)
-  const scopeKeysRef = useRef(scopeKeys)
-  const roleTargetsRef = useRef(roleTargets)
+  const [latestChange, setLatestChange] = useState<UiChangeVersionRow | null>(null);
+  const surfacesRef = useRef(surfaces);
+  const scopeKeysRef = useRef(scopeKeys);
+  const roleTargetsRef = useRef(roleTargets);
   const subscriptionKey = [
     module,
     normalizeKeyList(surfaces),
     normalizeKeyList(scopeKeys),
     normalizeKeyList(roleTargets ?? []),
     enabled ? '1' : '0',
-  ].join('::')
+  ].join('::');
 
   useEffect(() => {
-    surfacesRef.current = surfaces
-  }, [surfaces])
+    surfacesRef.current = surfaces;
+  }, [surfaces]);
 
   useEffect(() => {
-    scopeKeysRef.current = scopeKeys
-  }, [scopeKeys])
+    scopeKeysRef.current = scopeKeys;
+  }, [scopeKeys]);
 
   useEffect(() => {
-    roleTargetsRef.current = roleTargets
-  }, [roleTargets])
+    roleTargetsRef.current = roleTargets;
+  }, [roleTargets]);
 
   useEffect(() => {
     if (!enabled || scopeKeysRef.current.length === 0) {
-      return
+      return;
     }
 
     return registerUiChangeListener(
@@ -251,13 +251,13 @@ export function useUiChangeSubscription({
       roleTargetsRef.current,
       (change) => {
         startTransition(() => {
-          setLatestChange(change)
-        })
+          setLatestChange(change);
+        });
       }
-    )
-  }, [enabled, module, subscriptionKey])
+    );
+  }, [enabled, module, subscriptionKey]);
 
-  return latestChange
+  return latestChange;
 }
 
 export function useVersionedRefetch<T>({
@@ -267,129 +267,133 @@ export function useVersionedRefetch<T>({
   debounceMs = 500,
   refreshOnMount = false,
 }: UseVersionedRefetchOptions<T>) {
-  const [data, setData] = useState(initialData)
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const lastHandledTokenRef = useRef<string | null>(null)
-  const fetcherRef = useRef(fetcher)
-  const refreshedOnMountRef = useRef(false)
+  const [data, setData] = useState(initialData);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const lastHandledTokenRef = useRef<string | null>(null);
+  const fetcherRef = useRef(fetcher);
+  const refreshedOnMountRef = useRef(false);
 
   useEffect(() => {
-    fetcherRef.current = fetcher
-  }, [fetcher])
+    fetcherRef.current = fetcher;
+  }, [fetcher]);
 
   useEffect(() => {
-    setData(initialData)
-  }, [initialData])
+    setData(initialData);
+  }, [initialData]);
 
   useEffect(() => {
     if (!refreshOnMount || refreshedOnMountRef.current) {
-      return
+      return;
     }
 
-    refreshedOnMountRef.current = true
+    refreshedOnMountRef.current = true;
 
-    const controller = new AbortController()
-    let active = true
+    const controller = new AbortController();
+    let active = true;
 
-    setIsRefreshing(true)
-    setError(null)
+    setIsRefreshing(true);
+    setError(null);
 
     startTransition(() => {
-      void fetcherRef.current(controller.signal, {
-        id: '__initial-refresh__',
-        cuenta_cliente_id: null,
-        module: '__initial__',
-        surface: 'all',
-        scope_key: 'global',
-        role_target: 'ALL',
-        empleado_id: null,
-        supervisor_empleado_id: null,
-        version: 0,
-        last_event_type: 'initial-refresh',
-        updated_at: new Date().toISOString(),
-        metadata: {},
-      } as UiChangeVersionRow)
+      void fetcherRef
+        .current(controller.signal, {
+          id: '__initial-refresh__',
+          cuenta_cliente_id: null,
+          module: '__initial__',
+          surface: 'all',
+          scope_key: 'global',
+          role_target: 'ALL',
+          empleado_id: null,
+          supervisor_empleado_id: null,
+          version: 0,
+          last_event_type: 'initial-refresh',
+          updated_at: new Date().toISOString(),
+          metadata: {},
+        } as UiChangeVersionRow)
         .then((nextData) => {
           if (!active) {
-            return
+            return;
           }
 
-          setData(nextData)
+          setData(nextData);
         })
         .catch((nextError) => {
           if (!active || controller.signal.aborted) {
-            return
+            return;
           }
 
           setError(
             nextError instanceof Error ? nextError.message : 'No fue posible refrescar el widget.'
-          )
+          );
         })
         .finally(() => {
           if (active) {
-            setIsRefreshing(false)
+            setIsRefreshing(false);
           }
-        })
-    })
+        });
+    });
 
     return () => {
-      active = false
-      controller.abort()
-    }
-  }, [refreshOnMount])
+      active = false;
+      controller.abort();
+    };
+  }, [refreshOnMount]);
 
   useEffect(() => {
     if (!observedChange) {
-      return
+      return;
     }
 
-    const token = buildUiChangeToken(observedChange)
+    const token = buildUiChangeToken(observedChange);
     if (lastHandledTokenRef.current === token) {
-      return
+      return;
     }
 
-    lastHandledTokenRef.current = token
+    lastHandledTokenRef.current = token;
 
-    const controller = new AbortController()
-    let active = true
+    const controller = new AbortController();
+    let active = true;
 
     const timeoutId = window.setTimeout(() => {
-      setIsRefreshing(true)
-      setError(null)
+      setIsRefreshing(true);
+      setError(null);
 
       startTransition(() => {
-        void fetcherRef.current(controller.signal, observedChange)
+        void fetcherRef
+          .current(controller.signal, observedChange)
           .then((nextData) => {
             if (!active) {
-              return
+              return;
             }
 
-            setData(nextData)
+            setData(nextData);
           })
           .catch((nextError) => {
             if (!active || controller.signal.aborted) {
-              return
+              return;
             }
 
-            setError(nextError instanceof Error ? nextError.message : 'No fue posible refrescar el widget.')
+            setError(
+              nextError instanceof Error ? nextError.message : 'No fue posible refrescar el widget.'
+            );
           })
           .finally(() => {
             if (active) {
-              setIsRefreshing(false)
+              setIsRefreshing(false);
             }
-          })
-      })
-    }, debounceMs)
+          });
+      });
+    }, debounceMs);
 
     return () => {
-      active = false
-      controller.abort()
-      window.clearTimeout(timeoutId)
-    }
-  }, [debounceMs, observedChange])
+      active = false;
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [debounceMs, observedChange]);
 
-  return { data, isRefreshing, error }
+  return { data, isRefreshing, error };
 }
 
 export function useScopedWidgetData<T>({
@@ -409,7 +413,7 @@ export function useScopedWidgetData<T>({
     scopeKeys,
     roleTargets,
     enabled,
-  })
+  });
 
   const result = useVersionedRefetch({
     initialData,
@@ -417,10 +421,10 @@ export function useScopedWidgetData<T>({
     fetcher,
     debounceMs,
     refreshOnMount,
-  })
+  });
 
   return {
     ...result,
     observedChange,
-  }
+  };
 }

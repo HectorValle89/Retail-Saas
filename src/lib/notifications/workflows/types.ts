@@ -1,5 +1,5 @@
-import 'server-only'
-import { Puesto } from '@/types/database'
+import 'server-only';
+import { Puesto } from '@/types/database';
 
 export type WorkflowNotificationType =
   // Ruta Semanal
@@ -24,22 +24,22 @@ export type WorkflowNotificationType =
   // Nomina
   | 'nomina_publicada'
   | 'recibo_aprobado'
-  | 'recibo_rechazado'
+  | 'recibo_rechazado';
 
 export interface WorkflowNotificationRecipient {
-  email: string
-  name: string
-  empleadoId?: string
-  cuentaClienteId?: string | null
-  puesto?: Puesto
+  email: string;
+  name: string;
+  empleadoId?: string;
+  cuentaClienteId?: string | null;
+  puesto?: Puesto;
 }
 
 export interface WorkflowNotificationEvent<T = Record<string, unknown>> {
-  type: WorkflowNotificationType
-  recipients: WorkflowNotificationRecipient[]
-  data: T
-  subject: string
-  body: string
-  ctaLabel?: string
-  ctaUrl?: string | null
+  type: WorkflowNotificationType;
+  recipients: WorkflowNotificationRecipient[];
+  data: T;
+  subject: string;
+  body: string;
+  ctaLabel?: string;
+  ctaUrl?: string | null;
 }

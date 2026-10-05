@@ -1,9 +1,9 @@
-import { expect, test } from 'vitest'
-import * as XLSX from 'xlsx'
-import { parseAssignmentWeeklyScheduleWorkbook } from './assignmentWeeklyScheduleImport'
+import { expect, test } from 'vitest';
+import * as XLSX from 'xlsx';
+import { parseAssignmentWeeklyScheduleWorkbook } from './assignmentWeeklyScheduleImport';
 
 test('parsea horarios semanales San Pablo y deduplica por PDV y fecha especifica', () => {
-  const workbook = XLSX.utils.book_new()
+  const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet([
     {
       SEMANA_INICIO: '2026-03-30',
@@ -33,13 +33,13 @@ test('parsea horarios semanales San Pablo y deduplica por PDV y fecha especifica
       HORA_ENTRADA: '11:00',
       HORA_SALIDA: '19:00',
     },
-  ])
+  ]);
 
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Horarios')
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
-  const result = parseAssignmentWeeklyScheduleWorkbook(buffer)
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Horarios');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  const result = parseAssignmentWeeklyScheduleWorkbook(buffer);
 
-  expect(result.skippedRows).toBe(2)
+  expect(result.skippedRows).toBe(2);
   expect(result.rows).toEqual([
     {
       rowNumber: 3,
@@ -65,5 +65,5 @@ test('parsea horarios semanales San Pablo y deduplica por PDV y fecha especifica
       horaSalida: '20:00',
       observaciones: null,
     },
-  ])
-})
+  ]);
+});

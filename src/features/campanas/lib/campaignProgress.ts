@@ -1,88 +1,97 @@
-export type CampaignItemStatus = 'PENDIENTE' | 'EN_PROGRESO' | 'CUMPLIDA' | 'INCUMPLIDA'
-export type VisitTaskStatus = 'PENDIENTE' | 'COMPLETADA' | 'JUSTIFICADA'
-export type VisitTaskKind = 'FOTO_ANAQUEL' | 'CONTEO_INVENTARIO' | 'ENCUESTA' | 'REGISTRO_PRECIO' | 'OTRA'
-export type CampaignGoalType = 'VENTA' | 'EXHIBICION'
-export type CampaignEvidenceKind = 'FOTO_PRODUCTO' | 'SELFIE_LABORANDO' | 'EVIDENCIA_ACOMODO' | 'OTRA'
+export type CampaignItemStatus = 'PENDIENTE' | 'EN_PROGRESO' | 'CUMPLIDA' | 'INCUMPLIDA';
+export type VisitTaskStatus = 'PENDIENTE' | 'COMPLETADA' | 'JUSTIFICADA';
+export type VisitTaskKind =
+  | 'FOTO_ANAQUEL'
+  | 'CONTEO_INVENTARIO'
+  | 'ENCUESTA'
+  | 'REGISTRO_PRECIO'
+  | 'OTRA';
+export type CampaignGoalType = 'VENTA' | 'EXHIBICION';
+export type CampaignEvidenceKind =
+  | 'FOTO_PRODUCTO'
+  | 'SELFIE_LABORANDO'
+  | 'EVIDENCIA_ACOMODO'
+  | 'OTRA';
 
 export interface VisitTaskTemplateItem {
-  id: string
-  label: string
-  kind: VisitTaskKind
+  id: string;
+  label: string;
+  kind: VisitTaskKind;
 }
 
 export interface CampaignEvidenceEntry {
-  url: string
-  hash: string
-  thumbnailUrl: string | null
-  thumbnailHash: string | null
-  uploadedAt: string
-  uploadedBy: string
-  asistenciaId: string | null
-  fileName: string
-  mimeType: string
-  officialAssetKind: 'optimized' | 'original'
-  taskKey: string | null
-  capturedAt: string | null
-  latitude: number | null
-  longitude: number | null
-  cameraCaptured: boolean
-  timestampStamped: boolean
-  distanceFromCheckInMeters: number | null
-  suspicious: boolean
-  suspiciousReason: string | null
-  evidenceLabel?: string | null
-  evidenceKind?: CampaignEvidenceKind | null
+  url: string;
+  hash: string;
+  thumbnailUrl: string | null;
+  thumbnailHash: string | null;
+  uploadedAt: string;
+  uploadedBy: string;
+  asistenciaId: string | null;
+  fileName: string;
+  mimeType: string;
+  officialAssetKind: 'optimized' | 'original';
+  taskKey: string | null;
+  capturedAt: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  cameraCaptured: boolean;
+  timestampStamped: boolean;
+  distanceFromCheckInMeters: number | null;
+  suspicious: boolean;
+  suspiciousReason: string | null;
+  evidenceLabel?: string | null;
+  evidenceKind?: CampaignEvidenceKind | null;
 }
 
 export interface CampaignProductGoal {
-  productId: string
-  quota: number
-  goalType: CampaignGoalType
-  notes: string | null
+  productId: string;
+  quota: number;
+  goalType: CampaignGoalType;
+  notes: string | null;
 }
 
 export interface CampaignEvidenceRequirement {
-  id: string
-  label: string
-  kind: CampaignEvidenceKind
+  id: string;
+  label: string;
+  kind: CampaignEvidenceKind;
 }
 
 export interface CampaignManualDocument {
-  url: string
-  hash: string
-  fileName: string
-  mimeType: string
-  uploadedAt: string
-  uploadedBy: string
+  url: string;
+  hash: string;
+  fileName: string;
+  mimeType: string;
+  uploadedAt: string;
+  uploadedBy: string;
 }
 
 export interface VisitTaskSessionTask {
-  key: string
-  label: string
-  kind: VisitTaskKind
-  status: VisitTaskStatus
-  startedAt: string | null
-  finishedAt: string | null
-  justification: string | null
-  suspicious: boolean
-  suspiciousReason: string | null
-  evidenceCount: number
+  key: string;
+  label: string;
+  kind: VisitTaskKind;
+  status: VisitTaskStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
+  justification: string | null;
+  suspicious: boolean;
+  suspiciousReason: string | null;
+  evidenceCount: number;
 }
 
 export interface VisitTaskSession {
-  attendanceId: string
-  generatedAt: string
-  tasks: VisitTaskSessionTask[]
+  attendanceId: string;
+  generatedAt: string;
+  tasks: VisitTaskSessionTask[];
 }
 
 interface CampaignMetadataLike {
-  variabilidad_tareas?: unknown
-  visit_task_sessions?: unknown
-  visit_task_execution_minutes?: unknown
-  task_template?: unknown
-  product_goals?: unknown
-  evidence_template?: unknown
-  manual_mercadeo?: unknown
+  variabilidad_tareas?: unknown;
+  visit_task_sessions?: unknown;
+  visit_task_execution_minutes?: unknown;
+  task_template?: unknown;
+  product_goals?: unknown;
+  evidence_template?: unknown;
+  manual_mercadeo?: unknown;
 }
 
 export const CAMPAIGN_STATE_OPTIONS = [
@@ -90,48 +99,44 @@ export const CAMPAIGN_STATE_OPTIONS = [
   { value: 'ACTIVA', label: 'Activa' },
   { value: 'CERRADA', label: 'Cerrada' },
   { value: 'CANCELADA', label: 'Cancelada' },
-] as const
+] as const;
 
 function normalizeRecord(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null
+    return null;
   }
 
-  return value as Record<string, unknown>
+  return value as Record<string, unknown>;
 }
 
 function normalizeDate(value: string | null | undefined) {
-  const normalized = String(value ?? '').trim()
-  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null
+  const normalized = String(value ?? '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
 }
 
 export function dedupeStringArray(values: readonly string[]) {
   return Array.from(
-    new Set(
-      values
-        .map((value) => String(value ?? '').trim())
-        .filter((value) => value.length > 0)
-    )
-  )
+    new Set(values.map((value) => String(value ?? '').trim()).filter((value) => value.length > 0))
+  );
 }
 
 export function getPendingCampaignTasks(
   requiredTasks: readonly string[],
   completedTasks: readonly string[]
 ) {
-  const normalizedRequiredTasks = dedupeStringArray(requiredTasks)
-  const normalizedCompletedTasks = new Set(dedupeStringArray(completedTasks))
-  return normalizedRequiredTasks.filter((item) => !normalizedCompletedTasks.has(item))
+  const normalizedRequiredTasks = dedupeStringArray(requiredTasks);
+  const normalizedCompletedTasks = new Set(dedupeStringArray(completedTasks));
+  return normalizedRequiredTasks.filter((item) => !normalizedCompletedTasks.has(item));
 }
 
 function hashString(value: string) {
-  let hash = 0
+  let hash = 0;
 
   for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) >>> 0
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
   }
 
-  return hash
+  return hash;
 }
 
 function normalizeVisitTaskKind(value: unknown): VisitTaskKind {
@@ -141,15 +146,15 @@ function normalizeVisitTaskKind(value: unknown): VisitTaskKind {
     value === 'REGISTRO_PRECIO' ||
     value === 'OTRA'
     ? value
-    : 'OTRA'
+    : 'OTRA';
 }
 
 function normalizeVisitTaskStatus(value: unknown): VisitTaskStatus {
-  return value === 'COMPLETADA' || value === 'JUSTIFICADA' ? value : 'PENDIENTE'
+  return value === 'COMPLETADA' || value === 'JUSTIFICADA' ? value : 'PENDIENTE';
 }
 
 function normalizeCampaignGoalType(value: unknown): CampaignGoalType {
-  return value === 'EXHIBICION' ? 'EXHIBICION' : 'VENTA'
+  return value === 'EXHIBICION' ? 'EXHIBICION' : 'VENTA';
 }
 
 function normalizeCampaignEvidenceKind(value: unknown): CampaignEvidenceKind {
@@ -158,57 +163,60 @@ function normalizeCampaignEvidenceKind(value: unknown): CampaignEvidenceKind {
     value === 'FOTO_PRODUCTO' ||
     value === 'OTRA'
     ? value
-    : 'OTRA'
+    : 'OTRA';
 }
 
 export function inferVisitTaskKind(label: string): VisitTaskKind {
-  const normalized = label.trim().toLowerCase()
+  const normalized = label.trim().toLowerCase();
 
   if (/(^|\b)(foto|fotografia|anaquel|imagen)(\b|$)/.test(normalized)) {
-    return 'FOTO_ANAQUEL'
+    return 'FOTO_ANAQUEL';
   }
 
   if (/(^|\b)(conteo|inventario|existencia)(\b|$)/.test(normalized)) {
-    return 'CONTEO_INVENTARIO'
+    return 'CONTEO_INVENTARIO';
   }
 
   if (/(^|\b)(encuesta|pregunta|cuestionario)(\b|$)/.test(normalized)) {
-    return 'ENCUESTA'
+    return 'ENCUESTA';
   }
 
   if (/(^|\b)(precio|pricing|pvp|costo)(\b|$)/.test(normalized)) {
-    return 'REGISTRO_PRECIO'
+    return 'REGISTRO_PRECIO';
   }
 
-  return 'OTRA'
+  return 'OTRA';
 }
 
-export function createVisitTaskTemplateItem(label: string, kind?: VisitTaskKind): VisitTaskTemplateItem {
-  const normalizedLabel = label.trim()
-  const resolvedKind = kind ?? inferVisitTaskKind(normalizedLabel)
+export function createVisitTaskTemplateItem(
+  label: string,
+  kind?: VisitTaskKind
+): VisitTaskTemplateItem {
+  const normalizedLabel = label.trim();
+  const resolvedKind = kind ?? inferVisitTaskKind(normalizedLabel);
 
   return {
     id: `template-${hashString(`${resolvedKind}:${normalizedLabel}`).toString(16)}`,
     label: normalizedLabel,
     kind: resolvedKind,
-  }
+  };
 }
 
 export function visitTaskRequiresPhoto(kind: VisitTaskKind) {
-  return kind === 'FOTO_ANAQUEL'
+  return kind === 'FOTO_ANAQUEL';
 }
 
 export function createCampaignEvidenceRequirement(
   label: string,
   kind: CampaignEvidenceKind = 'OTRA'
 ): CampaignEvidenceRequirement {
-  const normalizedLabel = label.trim()
+  const normalizedLabel = label.trim();
 
   return {
     id: `evidence-${hashString(`${kind}:${normalizedLabel}`).toString(16)}`,
     label: normalizedLabel,
     kind,
-  }
+  };
 }
 
 export function serializeCampaignEvidenceTemplate(items: readonly CampaignEvidenceRequirement[]) {
@@ -216,36 +224,36 @@ export function serializeCampaignEvidenceTemplate(items: readonly CampaignEviden
     id: item.id,
     label: item.label,
     kind: item.kind,
-  }))
+  }));
 }
 
 export function readCampaignEvidenceTemplate(
   metadata: unknown,
   fallbackLabels: readonly string[]
 ): CampaignEvidenceRequirement[] {
-  const record = normalizeRecord(metadata as CampaignMetadataLike)
-  const rawTemplate = Array.isArray(record?.evidence_template) ? record.evidence_template : []
+  const record = normalizeRecord(metadata as CampaignMetadataLike);
+  const rawTemplate = Array.isArray(record?.evidence_template) ? record.evidence_template : [];
   const parsedTemplate = rawTemplate
     .map((item) => {
-      const row = normalizeRecord(item)
+      const row = normalizeRecord(item);
       if (!row) {
-        return null
+        return null;
       }
 
-      const label = String(row.label ?? '').trim()
+      const label = String(row.label ?? '').trim();
       if (!label) {
-        return null
+        return null;
       }
 
-      return createCampaignEvidenceRequirement(label, normalizeCampaignEvidenceKind(row.kind))
+      return createCampaignEvidenceRequirement(label, normalizeCampaignEvidenceKind(row.kind));
     })
-    .filter((item): item is CampaignEvidenceRequirement => item !== null)
+    .filter((item): item is CampaignEvidenceRequirement => item !== null);
 
   if (parsedTemplate.length > 0) {
-    return parsedTemplate
+    return parsedTemplate;
   }
 
-  return dedupeStringArray(fallbackLabels).map((label) => createCampaignEvidenceRequirement(label))
+  return dedupeStringArray(fallbackLabels).map((label) => createCampaignEvidenceRequirement(label));
 }
 
 export function serializeCampaignProductGoals(items: readonly CampaignProductGoal[]) {
@@ -254,25 +262,25 @@ export function serializeCampaignProductGoals(items: readonly CampaignProductGoa
     cuota: item.quota,
     tipo_meta: item.goalType,
     notas: item.notes,
-  }))
+  }));
 }
 
 export function readCampaignProductGoals(metadata: unknown): CampaignProductGoal[] {
-  const record = normalizeRecord(metadata as CampaignMetadataLike)
-  const rows = Array.isArray(record?.product_goals) ? record.product_goals : []
+  const record = normalizeRecord(metadata as CampaignMetadataLike);
+  const rows = Array.isArray(record?.product_goals) ? record.product_goals : [];
 
   return rows
     .map((item) => {
-      const row = normalizeRecord(item)
+      const row = normalizeRecord(item);
       if (!row) {
-        return null
+        return null;
       }
 
-      const productId = String(row.product_id ?? '').trim()
-      const quota = Number(row.cuota ?? row.quota ?? NaN)
+      const productId = String(row.product_id ?? '').trim();
+      const quota = Number(row.cuota ?? row.quota ?? NaN);
 
       if (!productId || !Number.isFinite(quota) || quota < 0) {
-        return null
+        return null;
       }
 
       return {
@@ -285,28 +293,28 @@ export function readCampaignProductGoals(metadata: unknown): CampaignProductGoal
             : typeof row.notes === 'string' && row.notes.trim()
               ? row.notes.trim()
               : null,
-      } satisfies CampaignProductGoal
+      } satisfies CampaignProductGoal;
     })
-    .filter((item): item is CampaignProductGoal => item !== null)
+    .filter((item): item is CampaignProductGoal => item !== null);
 }
 
 export function readCampaignManualDocument(metadata: unknown): CampaignManualDocument | null {
-  const record = normalizeRecord(metadata as CampaignMetadataLike)
-  const rawManual = normalizeRecord(record?.manual_mercadeo)
+  const record = normalizeRecord(metadata as CampaignMetadataLike);
+  const rawManual = normalizeRecord(record?.manual_mercadeo);
 
   if (!rawManual) {
-    return null
+    return null;
   }
 
-  const url = String(rawManual.url ?? '').trim()
-  const hash = String(rawManual.hash ?? '').trim()
-  const fileName = String(rawManual.file_name ?? rawManual.fileName ?? '').trim()
-  const mimeType = String(rawManual.mime_type ?? rawManual.mimeType ?? '').trim()
-  const uploadedAt = String(rawManual.uploaded_at ?? rawManual.uploadedAt ?? '').trim()
-  const uploadedBy = String(rawManual.uploaded_by ?? rawManual.uploadedBy ?? '').trim()
+  const url = String(rawManual.url ?? '').trim();
+  const hash = String(rawManual.hash ?? '').trim();
+  const fileName = String(rawManual.file_name ?? rawManual.fileName ?? '').trim();
+  const mimeType = String(rawManual.mime_type ?? rawManual.mimeType ?? '').trim();
+  const uploadedAt = String(rawManual.uploaded_at ?? rawManual.uploadedAt ?? '').trim();
+  const uploadedBy = String(rawManual.uploaded_by ?? rawManual.uploadedBy ?? '').trim();
 
   if (!url || !hash || !fileName || !mimeType || !uploadedAt || !uploadedBy) {
-    return null
+    return null;
   }
 
   return {
@@ -316,33 +324,33 @@ export function readCampaignManualDocument(metadata: unknown): CampaignManualDoc
     mimeType,
     uploadedAt,
     uploadedBy,
-  }
+  };
 }
 
 export function readVisitTaskTemplate(metadata: unknown, fallbackLabels: readonly string[]) {
-  const record = normalizeRecord(metadata as CampaignMetadataLike)
-  const rawTemplate = Array.isArray(record?.task_template) ? record.task_template : []
+  const record = normalizeRecord(metadata as CampaignMetadataLike);
+  const rawTemplate = Array.isArray(record?.task_template) ? record.task_template : [];
   const parsedTemplate = rawTemplate
     .map((item) => {
-      const row = normalizeRecord(item)
+      const row = normalizeRecord(item);
       if (!row) {
-        return null
+        return null;
       }
 
-      const label = String(row.label ?? '').trim()
+      const label = String(row.label ?? '').trim();
       if (!label) {
-        return null
+        return null;
       }
 
-      return createVisitTaskTemplateItem(label, normalizeVisitTaskKind(row.kind))
+      return createVisitTaskTemplateItem(label, normalizeVisitTaskKind(row.kind));
     })
-    .filter((item): item is VisitTaskTemplateItem => item !== null)
+    .filter((item): item is VisitTaskTemplateItem => item !== null);
 
   if (parsedTemplate.length > 0) {
-    return parsedTemplate
+    return parsedTemplate;
   }
 
-  return dedupeStringArray(fallbackLabels).map((label) => createVisitTaskTemplateItem(label))
+  return dedupeStringArray(fallbackLabels).map((label) => createVisitTaskTemplateItem(label));
 }
 
 export function serializeVisitTaskTemplate(items: readonly VisitTaskTemplateItem[]) {
@@ -350,38 +358,43 @@ export function serializeVisitTaskTemplate(items: readonly VisitTaskTemplateItem
     id: item.id,
     label: item.label,
     kind: item.kind,
-  }))
+  }));
 }
 
 function readVisitTaskSessionTask(value: unknown): VisitTaskSessionTask | null {
-  const record = normalizeRecord(value)
+  const record = normalizeRecord(value);
 
   if (!record) {
-    return null
+    return null;
   }
 
-  const key = String(record.key ?? '').trim()
-  const label = String(record.label ?? '').trim()
+  const key = String(record.key ?? '').trim();
+  const label = String(record.label ?? '').trim();
 
   if (!key || !label) {
-    return null
+    return null;
   }
 
-  const status = normalizeVisitTaskStatus(record.status)
-  const startedAt = typeof record.startedAt === 'string' && record.startedAt.trim() ? record.startedAt : null
-  const finishedAt = typeof record.finishedAt === 'string' && record.finishedAt.trim() ? record.finishedAt : null
+  const status = normalizeVisitTaskStatus(record.status);
+  const startedAt =
+    typeof record.startedAt === 'string' && record.startedAt.trim() ? record.startedAt : null;
+  const finishedAt =
+    typeof record.finishedAt === 'string' && record.finishedAt.trim() ? record.finishedAt : null;
   const justification =
-    typeof record.justification === 'string' && record.justification.trim() ? record.justification.trim() : null
-  const kind = typeof record.kind === 'string' ? inferVisitTaskKind(record.kind) : inferVisitTaskKind(label)
-  const suspicious = record.suspicious === true
+    typeof record.justification === 'string' && record.justification.trim()
+      ? record.justification.trim()
+      : null;
+  const kind =
+    typeof record.kind === 'string' ? inferVisitTaskKind(record.kind) : inferVisitTaskKind(label);
+  const suspicious = record.suspicious === true;
   const suspiciousReason =
     typeof record.suspiciousReason === 'string' && record.suspiciousReason.trim()
       ? record.suspiciousReason.trim()
-      : null
+      : null;
   const evidenceCount =
     Number.isInteger(record.evidenceCount) && Number(record.evidenceCount) >= 0
       ? Number(record.evidenceCount)
-      : 0
+      : 0;
 
   return {
     key,
@@ -394,53 +407,53 @@ function readVisitTaskSessionTask(value: unknown): VisitTaskSessionTask | null {
     suspicious,
     suspiciousReason,
     evidenceCount,
-  }
+  };
 }
 
 export function readCampaignTaskVariability(metadata: unknown, fallbackCount: number) {
-  const record = normalizeRecord(metadata as CampaignMetadataLike)
-  const configured = Number(record?.variabilidad_tareas ?? NaN)
+  const record = normalizeRecord(metadata as CampaignMetadataLike);
+  const configured = Number(record?.variabilidad_tareas ?? NaN);
 
   if (Number.isInteger(configured) && configured > 0) {
-    return configured
+    return configured;
   }
 
-  return Math.max(0, Math.trunc(fallbackCount))
+  return Math.max(0, Math.trunc(fallbackCount));
 }
 
 export function readVisitTaskSessions(metadata: unknown) {
-  const record = normalizeRecord(metadata as CampaignMetadataLike)
-  const rawSessions = normalizeRecord(record?.visit_task_sessions)
+  const record = normalizeRecord(metadata as CampaignMetadataLike);
+  const rawSessions = normalizeRecord(record?.visit_task_sessions);
 
   if (!rawSessions) {
-    return {} as Record<string, VisitTaskSession>
+    return {} as Record<string, VisitTaskSession>;
   }
 
-  const sessions: Record<string, VisitTaskSession> = {}
+  const sessions: Record<string, VisitTaskSession> = {};
 
   for (const [attendanceId, value] of Object.entries(rawSessions)) {
-    const sessionRecord = normalizeRecord(value)
+    const sessionRecord = normalizeRecord(value);
     const generatedAt =
       typeof sessionRecord?.generatedAt === 'string' && sessionRecord.generatedAt.trim()
         ? sessionRecord.generatedAt
-        : null
-    const rawTasks = Array.isArray(sessionRecord?.tasks) ? sessionRecord.tasks : []
+        : null;
+    const rawTasks = Array.isArray(sessionRecord?.tasks) ? sessionRecord.tasks : [];
     const tasks = rawTasks
       .map((task) => readVisitTaskSessionTask(task))
-      .filter((task): task is VisitTaskSessionTask => task !== null)
+      .filter((task): task is VisitTaskSessionTask => task !== null);
 
     if (!attendanceId.trim() || !generatedAt || tasks.length === 0) {
-      continue
+      continue;
     }
 
     sessions[attendanceId] = {
       attendanceId,
       generatedAt,
       tasks,
-    }
+    };
   }
 
-  return sessions
+  return sessions;
 }
 
 export function pickVisitTaskSubset(
@@ -448,24 +461,24 @@ export function pickVisitTaskSubset(
   variabilityCount: number,
   seed: string
 ) {
-  const normalizedTasks = dedupeStringArray(templateTasks)
+  const normalizedTasks = dedupeStringArray(templateTasks);
 
   if (normalizedTasks.length === 0) {
-    return [] as string[]
+    return [] as string[];
   }
 
   const desiredCount = Math.min(
     normalizedTasks.length,
     Math.max(1, Math.trunc(variabilityCount || normalizedTasks.length))
-  )
+  );
 
   return [...normalizedTasks]
     .sort((left, right) => {
-      const leftWeight = hashString(`${seed}:${left}`)
-      const rightWeight = hashString(`${seed}:${right}`)
-      return leftWeight - rightWeight
+      const leftWeight = hashString(`${seed}:${left}`);
+      const rightWeight = hashString(`${seed}:${right}`);
+      return leftWeight - rightWeight;
     })
-    .slice(0, desiredCount)
+    .slice(0, desiredCount);
 }
 
 export function ensureVisitTaskSession(
@@ -476,20 +489,20 @@ export function ensureVisitTaskSession(
     variabilityCount,
     generatedAt,
   }: {
-    attendanceId: string
-    templateTasks: readonly VisitTaskTemplateItem[]
-    variabilityCount: number
-    generatedAt: string
+    attendanceId: string;
+    templateTasks: readonly VisitTaskTemplateItem[];
+    variabilityCount: number;
+    generatedAt: string;
   }
 ) {
-  const existingSessions = readVisitTaskSessions(metadata)
-  const existingSession = existingSessions[attendanceId]
+  const existingSessions = readVisitTaskSessions(metadata);
+  const existingSession = existingSessions[attendanceId];
 
   if (existingSession) {
     return {
       sessions: existingSessions,
       session: existingSession,
-    }
+    };
   }
 
   const generatedTasks = pickVisitTaskSubset(
@@ -497,7 +510,8 @@ export function ensureVisitTaskSession(
     variabilityCount,
     attendanceId
   ).map((label) => {
-    const template = templateTasks.find((item) => item.label === label) ?? createVisitTaskTemplateItem(label)
+    const template =
+      templateTasks.find((item) => item.label === label) ?? createVisitTaskTemplateItem(label);
     return {
       key: `task-${hashString(`${attendanceId}:${label}`).toString(16)}`,
       label,
@@ -509,14 +523,14 @@ export function ensureVisitTaskSession(
       suspicious: false,
       suspiciousReason: null,
       evidenceCount: 0,
-    }
-  })
+    };
+  });
 
   const session: VisitTaskSession = {
     attendanceId,
     generatedAt,
     tasks: generatedTasks,
-  }
+  };
 
   return {
     sessions: {
@@ -524,18 +538,18 @@ export function ensureVisitTaskSession(
       [attendanceId]: session,
     },
     session,
-  }
+  };
 }
 
 export function updateVisitTaskSession(
   session: VisitTaskSession,
   updates: ReadonlyArray<{
-    key: string
-    status: VisitTaskStatus
-    justification?: string | null
-    suspicious?: boolean
-    suspiciousReason?: string | null
-    evidenceCountIncrement?: number
+    key: string;
+    status: VisitTaskStatus;
+    justification?: string | null;
+    suspicious?: boolean;
+    suspiciousReason?: string | null;
+    evidenceCountIncrement?: number;
   }>,
   nowIso: string
 ) {
@@ -545,61 +559,70 @@ export function updateVisitTaskSession(
       {
         status: update.status,
         justification:
-          update.status === 'JUSTIFICADA' && update.justification?.trim() ? update.justification.trim() : null,
+          update.status === 'JUSTIFICADA' && update.justification?.trim()
+            ? update.justification.trim()
+            : null,
         suspicious: update.suspicious === true,
         suspiciousReason:
           typeof update.suspiciousReason === 'string' && update.suspiciousReason.trim()
             ? update.suspiciousReason.trim()
             : null,
         evidenceCountIncrement:
-          Number.isInteger(update.evidenceCountIncrement) && Number(update.evidenceCountIncrement) > 0
+          Number.isInteger(update.evidenceCountIncrement) &&
+          Number(update.evidenceCountIncrement) > 0
             ? Number(update.evidenceCountIncrement)
             : 0,
       },
     ])
-  )
+  );
 
   return {
     ...session,
     tasks: session.tasks.map((task) => {
-      const next = updatesByKey.get(task.key)
+      const next = updatesByKey.get(task.key);
 
       if (!next) {
-        return task
+        return task;
       }
 
-      const becameResolved = task.status === 'PENDIENTE' && next.status !== 'PENDIENTE'
-      const becamePendingAgain = task.status !== 'PENDIENTE' && next.status === 'PENDIENTE'
+      const becameResolved = task.status === 'PENDIENTE' && next.status !== 'PENDIENTE';
+      const becamePendingAgain = task.status !== 'PENDIENTE' && next.status === 'PENDIENTE';
 
       return {
         ...task,
         status: next.status,
         startedAt: task.startedAt ?? (becameResolved ? nowIso : null),
-        finishedAt: next.status === 'PENDIENTE' ? (becamePendingAgain ? null : task.finishedAt) : task.finishedAt ?? nowIso,
-        justification: next.status === 'JUSTIFICADA' ? next.justification ?? task.justification : null,
+        finishedAt:
+          next.status === 'PENDIENTE'
+            ? becamePendingAgain
+              ? null
+              : task.finishedAt
+            : (task.finishedAt ?? nowIso),
+        justification:
+          next.status === 'JUSTIFICADA' ? (next.justification ?? task.justification) : null,
         suspicious: next.suspicious || task.suspicious,
         suspiciousReason: next.suspicious
-          ? next.suspiciousReason ?? task.suspiciousReason
+          ? (next.suspiciousReason ?? task.suspiciousReason)
           : task.suspiciousReason,
         evidenceCount: task.evidenceCount + next.evidenceCountIncrement,
-      }
+      };
     }),
-  }
+  };
 }
 
 export function readVisitTaskExecutionMinutesMap(metadata: unknown) {
-  const record = normalizeRecord(metadata as CampaignMetadataLike)
-  const rawMap = normalizeRecord(record?.visit_task_execution_minutes)
+  const record = normalizeRecord(metadata as CampaignMetadataLike);
+  const rawMap = normalizeRecord(record?.visit_task_execution_minutes);
 
   if (!rawMap) {
-    return {} as Record<string, number>
+    return {} as Record<string, number>;
   }
 
   return Object.fromEntries(
     Object.entries(rawMap).flatMap(([attendanceId, value]) =>
       Number.isInteger(value) && Number(value) >= 0 ? [[attendanceId, Number(value)] as const] : []
     )
-  )
+  );
 }
 
 export function serializeVisitTaskExecutionMinutesMap(entries: Record<string, number>) {
@@ -607,62 +630,62 @@ export function serializeVisitTaskExecutionMinutesMap(entries: Record<string, nu
     Object.entries(entries).flatMap(([attendanceId, minutes]) =>
       Number.isInteger(minutes) && minutes >= 0 ? [[attendanceId, minutes] as const] : []
     )
-  )
+  );
 }
 
 export function getResolvedVisitTaskLabels(session: VisitTaskSession | null | undefined) {
   if (!session) {
-    return [] as string[]
+    return [] as string[];
   }
 
   return dedupeStringArray(
     session.tasks.filter((task) => task.status !== 'PENDIENTE').map((task) => task.label)
-  )
+  );
 }
 
 export function getPendingVisitTaskLabels(session: VisitTaskSession | null | undefined) {
   if (!session) {
-    return [] as string[]
+    return [] as string[];
   }
 
   return dedupeStringArray(
     session.tasks.filter((task) => task.status === 'PENDIENTE').map((task) => task.label)
-  )
+  );
 }
 
 export function getVisitTaskExecutionMinutes(session: VisitTaskSession | null | undefined) {
   if (!session) {
-    return null
+    return null;
   }
 
   const startedAt = session.tasks
     .map((task) => task.startedAt)
     .filter((value): value is string => Boolean(value))
-    .sort()[0]
+    .sort()[0];
   const finishedAt = session.tasks
     .map((task) => task.finishedAt)
     .filter((value): value is string => Boolean(value))
     .sort()
-    .at(-1)
+    .at(-1);
 
   if (!startedAt || !finishedAt) {
-    return null
+    return null;
   }
 
-  const delta = Date.parse(finishedAt) - Date.parse(startedAt)
+  const delta = Date.parse(finishedAt) - Date.parse(startedAt);
   if (!Number.isFinite(delta) || delta < 0) {
-    return null
+    return null;
   }
 
-  return Math.trunc(delta / 60000)
+  return Math.trunc(delta / 60000);
 }
 
 export function hasSuspiciousVisitTasks(session: VisitTaskSession | null | undefined) {
   if (!session) {
-    return false
+    return false;
   }
 
-  return session.tasks.some((task) => task.suspicious)
+  return session.tasks.some((task) => task.suspicious);
 }
 
 export function serializeVisitTaskSessions(sessions: Record<string, VisitTaskSession>) {
@@ -686,7 +709,7 @@ export function serializeVisitTaskSessions(sessions: Record<string, VisitTaskSes
         })),
       },
     ])
-  )
+  );
 }
 
 export function normalizeLineList(value: string | null | undefined) {
@@ -695,7 +718,7 @@ export function normalizeLineList(value: string | null | undefined) {
       .split(/\r?\n|,/)
       .map((item) => item.trim())
       .filter(Boolean)
-  )
+  );
 }
 
 export function rangesOverlapIso(
@@ -704,17 +727,17 @@ export function rangesOverlapIso(
   rightStart: string,
   rightEnd: string | null
 ) {
-  const normalizedLeftStart = normalizeDate(leftStart)
-  const normalizedRightStart = normalizeDate(rightStart)
+  const normalizedLeftStart = normalizeDate(leftStart);
+  const normalizedRightStart = normalizeDate(rightStart);
 
   if (!normalizedLeftStart || !normalizedRightStart) {
-    return false
+    return false;
   }
 
-  const normalizedLeftEnd = normalizeDate(leftEnd) ?? normalizedLeftStart
-  const normalizedRightEnd = normalizeDate(rightEnd) ?? normalizedRightStart
+  const normalizedLeftEnd = normalizeDate(leftEnd) ?? normalizedLeftStart;
+  const normalizedRightEnd = normalizeDate(rightEnd) ?? normalizedRightStart;
 
-  return normalizedLeftStart <= normalizedRightEnd && normalizedRightStart <= normalizedLeftEnd
+  return normalizedLeftStart <= normalizedRightEnd && normalizedRightStart <= normalizedLeftEnd;
 }
 
 export function buildCampaignProgress(
@@ -725,27 +748,27 @@ export function buildCampaignProgress(
   campaignEnd: string,
   nowIso: string = new Date().toISOString().slice(0, 10)
 ) {
-  const normalizedRequiredTasks = dedupeStringArray(requiredTasks)
+  const normalizedRequiredTasks = dedupeStringArray(requiredTasks);
   const normalizedCompletedTasks = dedupeStringArray(completedTasks).filter((item) =>
     normalizedRequiredTasks.includes(item)
-  )
-  const pendingTasks = getPendingCampaignTasks(normalizedRequiredTasks, normalizedCompletedTasks)
-  const safeRequiredEvidenceCount = Math.max(0, Math.trunc(requiredEvidenceCount))
-  const safeEvidenceUploaded = Math.max(0, Math.trunc(evidenceUploaded))
-  const totalUnits = normalizedRequiredTasks.length + safeRequiredEvidenceCount
+  );
+  const pendingTasks = getPendingCampaignTasks(normalizedRequiredTasks, normalizedCompletedTasks);
+  const safeRequiredEvidenceCount = Math.max(0, Math.trunc(requiredEvidenceCount));
+  const safeEvidenceUploaded = Math.max(0, Math.trunc(evidenceUploaded));
+  const totalUnits = normalizedRequiredTasks.length + safeRequiredEvidenceCount;
   const completedUnits =
-    normalizedCompletedTasks.length + Math.min(safeRequiredEvidenceCount, safeEvidenceUploaded)
+    normalizedCompletedTasks.length + Math.min(safeRequiredEvidenceCount, safeEvidenceUploaded);
   const progressPercentage =
-    totalUnits === 0 ? 0 : Math.min(100, Number(((completedUnits / totalUnits) * 100).toFixed(2)))
+    totalUnits === 0 ? 0 : Math.min(100, Number(((completedUnits / totalUnits) * 100).toFixed(2)));
 
-  let status: CampaignItemStatus = 'PENDIENTE'
+  let status: CampaignItemStatus = 'PENDIENTE';
 
   if (totalUnits > 0 && completedUnits >= totalUnits) {
-    status = 'CUMPLIDA'
+    status = 'CUMPLIDA';
   } else if (completedUnits > 0) {
-    status = 'EN_PROGRESO'
+    status = 'EN_PROGRESO';
   } else if (campaignEnd < nowIso) {
-    status = 'INCUMPLIDA'
+    status = 'INCUMPLIDA';
   }
 
   return {
@@ -758,7 +781,7 @@ export function buildCampaignProgress(
     pendingTasks: pendingTasks.length,
     progressPercentage,
     status,
-  }
+  };
 }
 
 export function isCampaignWindowActive(
@@ -766,26 +789,26 @@ export function isCampaignWindowActive(
   endDate: string,
   nowIso: string = new Date().toISOString().slice(0, 10)
 ) {
-  return startDate <= nowIso && endDate >= nowIso
+  return startDate <= nowIso && endDate >= nowIso;
 }
 
 export function readCampaignEvidenceEntries(metadata: unknown) {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
-    return [] as CampaignEvidenceEntry[]
+    return [] as CampaignEvidenceEntry[];
   }
 
-  const entries = (metadata as Record<string, unknown>).evidencias
+  const entries = (metadata as Record<string, unknown>).evidencias;
 
   if (!Array.isArray(entries)) {
-    return [] as CampaignEvidenceEntry[]
+    return [] as CampaignEvidenceEntry[];
   }
 
   return entries.filter((item): item is CampaignEvidenceEntry => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      return false
+      return false;
     }
 
-    const candidate = item as Record<string, unknown>
+    const candidate = item as Record<string, unknown>;
     return (
       typeof candidate.url === 'string' &&
       typeof candidate.hash === 'string' &&
@@ -801,39 +824,40 @@ export function readCampaignEvidenceEntries(metadata: unknown) {
       (candidate.capturedAt === null || typeof candidate.capturedAt === 'string') &&
       (candidate.latitude === null || typeof candidate.latitude === 'number') &&
       (candidate.longitude === null || typeof candidate.longitude === 'number') &&
-        typeof candidate.cameraCaptured === 'boolean' &&
-        typeof candidate.timestampStamped === 'boolean' &&
-        (candidate.distanceFromCheckInMeters === null || typeof candidate.distanceFromCheckInMeters === 'number') &&
-        typeof candidate.suspicious === 'boolean' &&
-        (candidate.suspiciousReason === null || typeof candidate.suspiciousReason === 'string') &&
-        (candidate.evidenceLabel === undefined ||
-          candidate.evidenceLabel === null ||
-          typeof candidate.evidenceLabel === 'string') &&
-        (candidate.evidenceKind === undefined ||
-          candidate.evidenceKind === null ||
-          candidate.evidenceKind === 'FOTO_PRODUCTO' ||
-          candidate.evidenceKind === 'SELFIE_LABORANDO' ||
-          candidate.evidenceKind === 'EVIDENCIA_ACOMODO' ||
-          candidate.evidenceKind === 'OTRA')
-      )
-    })
-  }
+      typeof candidate.cameraCaptured === 'boolean' &&
+      typeof candidate.timestampStamped === 'boolean' &&
+      (candidate.distanceFromCheckInMeters === null ||
+        typeof candidate.distanceFromCheckInMeters === 'number') &&
+      typeof candidate.suspicious === 'boolean' &&
+      (candidate.suspiciousReason === null || typeof candidate.suspiciousReason === 'string') &&
+      (candidate.evidenceLabel === undefined ||
+        candidate.evidenceLabel === null ||
+        typeof candidate.evidenceLabel === 'string') &&
+      (candidate.evidenceKind === undefined ||
+        candidate.evidenceKind === null ||
+        candidate.evidenceKind === 'FOTO_PRODUCTO' ||
+        candidate.evidenceKind === 'SELFIE_LABORANDO' ||
+        candidate.evidenceKind === 'EVIDENCIA_ACOMODO' ||
+        candidate.evidenceKind === 'OTRA')
+    );
+  });
+}
 
 export function mergeCampaignEvidenceEntries(
   existingEntries: readonly CampaignEvidenceEntry[],
   newEntries: readonly CampaignEvidenceEntry[]
 ) {
-  const merged = new Map<string, CampaignEvidenceEntry>()
+  const merged = new Map<string, CampaignEvidenceEntry>();
 
   for (const entry of existingEntries) {
-    merged.set(entry.hash, entry)
+    merged.set(entry.hash, entry);
   }
 
   for (const entry of newEntries) {
-    merged.set(entry.hash, entry)
+    merged.set(entry.hash, entry);
   }
 
   return Array.from(merged.values()).sort((left, right) =>
     left.uploadedAt < right.uploadedAt ? 1 : left.uploadedAt > right.uploadedAt ? -1 : 0
-  )
+  );
 }

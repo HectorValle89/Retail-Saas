@@ -1,27 +1,24 @@
-'use server'
+'use server';
 
-import { requerirActorActivo } from '@/lib/auth/session'
-import { publishUiChanges } from '@/lib/ui-change/server'
-import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
+import { requerirActorActivo } from '@/lib/auth/session';
+import { publishUiChanges } from '@/lib/ui-change/server';
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types';
 import {
   buildOperationalDocumentUploadLimitMessage,
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES,
   exceedsOperationalDocumentUploadLimit,
-} from '@/lib/files/documentOptimization'
-import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
-import { createServiceClient } from '@/lib/supabase/server'
-import { normalizeRequestedAccountId, readRequestAccountScope } from '@/lib/tenant/accountScope'
+} from '@/lib/files/documentOptimization';
+import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage';
+import { createServiceClient } from '@/lib/supabase/server';
+import { normalizeRequestedAccountId, readRequestAccountScope } from '@/lib/tenant/accountScope';
 import {
   hasDirectR2Reference,
   readDirectR2Manifest,
   readDirectR2Reference,
   registerDirectR2Evidence,
   registerDirectR2EvidenceList,
-} from '@/lib/storage/directR2Server'
-import {
-  ESTADO_CAMPANA_ADMIN_INICIAL,
-  type CampanaAdminActionState,
-} from './state'
+} from '@/lib/storage/directR2Server';
+import { ESTADO_CAMPANA_ADMIN_INICIAL, type CampanaAdminActionState } from './state';
 import {
   buildCampaignProgress,
   createCampaignEvidenceRequirement,
@@ -51,78 +48,78 @@ import {
   type CampaignGoalType,
   type VisitTaskKind,
   type VisitTaskStatus,
-} from './lib/campaignProgress'
-import { parseCampaignProductQuotaWorkbook } from './lib/campaignProductQuotaImport'
+} from './lib/campaignProgress';
+import { parseCampaignProductQuotaWorkbook } from './lib/campaignProductQuotaImport';
 import {
   applyCampaignRotationDecisions,
   buildCampaignRotationImpactPreview,
   expandCampaignRotationCascadePreview,
   parseCampaignRotationDecisions,
-} from './lib/campaignRotationImpact'
+} from './lib/campaignRotationImpact';
 
-const CAMPANA_EVIDENCIAS_BUCKET = 'operacion-evidencias'
-const CAMPANA_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+const CAMPANA_EVIDENCIAS_BUCKET = 'operacion-evidencias';
+const CAMPANA_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
 function buildState(partial: Partial<CampanaAdminActionState>): CampanaAdminActionState {
   return {
     ...ESTADO_CAMPANA_ADMIN_INICIAL,
     ...partial,
-  }
+  };
 }
 
 function normalizeOptionalText(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
-  return normalized || null
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
 }
 
 function normalizeRequiredText(value: FormDataEntryValue | null, label: string) {
-  const normalized = String(value ?? '').trim()
+  const normalized = String(value ?? '').trim();
 
   if (!normalized) {
-    throw new Error(`${label} es obligatorio.`)
+    throw new Error(`${label} es obligatorio.`);
   }
 
-  return normalized
+  return normalized;
 }
 
 function normalizeDate(value: FormDataEntryValue | null, label: string) {
-  const normalized = normalizeRequiredText(value, label)
+  const normalized = normalizeRequiredText(value, label);
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-    throw new Error(`${label} debe tener formato YYYY-MM-DD.`)
+    throw new Error(`${label} debe tener formato YYYY-MM-DD.`);
   }
 
-  return normalized
+  return normalized;
 }
 
 function normalizeNonNegativeNumber(value: FormDataEntryValue | null, label: string) {
-  const parsed = Number(String(value ?? '').trim())
+  const parsed = Number(String(value ?? '').trim());
 
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${label} debe ser cero o mayor.`)
+    throw new Error(`${label} debe ser cero o mayor.`);
   }
 
-  return Number(parsed.toFixed(2))
+  return Number(parsed.toFixed(2));
 }
 
 function normalizeNonNegativeInteger(value: FormDataEntryValue | null, label: string) {
-  const parsed = Number(String(value ?? '').trim())
+  const parsed = Number(String(value ?? '').trim());
 
   if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`${label} debe ser entero positivo.`)
+    throw new Error(`${label} debe ser entero positivo.`);
   }
 
-  return parsed
+  return parsed;
 }
 
 function normalizeEstado(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
+  const normalized = String(value ?? '').trim();
 
   if (!['BORRADOR', 'ACTIVA', 'CERRADA', 'CANCELADA'].includes(normalized)) {
-    throw new Error('El estado de campana no es valido.')
+    throw new Error('El estado de campana no es valido.');
   }
 
-  return normalized as 'BORRADOR' | 'ACTIVA' | 'CERRADA' | 'CANCELADA'
+  return normalized as 'BORRADOR' | 'ACTIVA' | 'CERRADA' | 'CANCELADA';
 }
 
 function getSelectedValues(formData: FormData, key: string) {
@@ -131,92 +128,86 @@ function getSelectedValues(formData: FormData, key: string) {
       .getAll(key)
       .map((item) => String(item ?? '').trim())
       .filter(Boolean)
-  )
+  );
 }
 
 function getUploadedFiles(formData: FormData, key: string) {
-  return formData
-    .getAll(key)
-    .filter((item): item is File => item instanceof File && item.size > 0)
+  return formData.getAll(key).filter((item): item is File => item instanceof File && item.size > 0);
 }
 
 function getTaskTemplateItems(formData: FormData) {
-  const labels = formData
-    .getAll('task_template_label')
-    .map((value) => String(value ?? '').trim())
+  const labels = formData.getAll('task_template_label').map((value) => String(value ?? '').trim());
   const kinds = formData
     .getAll('task_template_kind')
-    .map((value) => String(value ?? '').trim() as VisitTaskKind)
+    .map((value) => String(value ?? '').trim() as VisitTaskKind);
 
   const structured = labels
     .map((label, index) => {
       if (!label) {
-        return null
+        return null;
       }
 
-      return createVisitTaskTemplateItem(label, kinds[index] ?? 'OTRA')
+      return createVisitTaskTemplateItem(label, kinds[index] ?? 'OTRA');
     })
-    .filter((item): item is ReturnType<typeof createVisitTaskTemplateItem> => item !== null)
+    .filter((item): item is ReturnType<typeof createVisitTaskTemplateItem> => item !== null);
 
   if (structured.length > 0) {
-    return structured
+    return structured;
   }
 
   return normalizeLineList(String(formData.get('tareas_template') ?? '')).map((label) =>
     createVisitTaskTemplateItem(label)
-  )
+  );
 }
 
 function getEvidenceTemplateItems(formData: FormData) {
   const labels = formData
     .getAll('evidence_template_label')
-    .map((value) => String(value ?? '').trim())
+    .map((value) => String(value ?? '').trim());
   const kinds = formData
     .getAll('evidence_template_kind')
-    .map((value) => String(value ?? '').trim() as CampaignEvidenceKind)
+    .map((value) => String(value ?? '').trim() as CampaignEvidenceKind);
 
   const structured = labels
     .map((label, index) => {
       if (!label) {
-        return null
+        return null;
       }
 
-      return createCampaignEvidenceRequirement(label, kinds[index] ?? 'OTRA')
+      return createCampaignEvidenceRequirement(label, kinds[index] ?? 'OTRA');
     })
-    .filter((item): item is ReturnType<typeof createCampaignEvidenceRequirement> => item !== null)
+    .filter((item): item is ReturnType<typeof createCampaignEvidenceRequirement> => item !== null);
 
   if (structured.length > 0) {
-    return structured
+    return structured;
   }
 
   return normalizeLineList(String(formData.get('evidencias_requeridas') ?? '')).map((label) =>
     createCampaignEvidenceRequirement(label)
-  )
+  );
 }
 
 function getProductGoalItems(formData: FormData) {
   const productIds = formData
     .getAll('product_goal_product_id')
-    .map((value) => String(value ?? '').trim())
+    .map((value) => String(value ?? '').trim());
   const quotas = formData
     .getAll('product_goal_quota')
-    .map((value) => Number(String(value ?? '').trim()))
+    .map((value) => Number(String(value ?? '').trim()));
   const goalTypes = formData
     .getAll('product_goal_type')
-    .map((value) => String(value ?? '').trim() as CampaignGoalType)
-  const notes = formData
-    .getAll('product_goal_notes')
-    .map((value) => String(value ?? '').trim())
+    .map((value) => String(value ?? '').trim() as CampaignGoalType);
+  const notes = formData.getAll('product_goal_notes').map((value) => String(value ?? '').trim());
 
   return productIds
     .map((productId, index) => {
       if (!productId) {
-        return null
+        return null;
       }
 
-      const quota = quotas[index]
+      const quota = quotas[index];
       if (!Number.isFinite(quota) || quota < 0) {
-        throw new Error('Cada meta por producto debe tener una cuota valida igual o mayor a cero.')
+        throw new Error('Cada meta por producto debe tener una cuota valida igual o mayor a cero.');
       }
 
       return {
@@ -224,9 +215,18 @@ function getProductGoalItems(formData: FormData) {
         quota: Number(quota.toFixed(2)),
         goalType: goalTypes[index] === 'EXHIBICION' ? 'EXHIBICION' : 'VENTA',
         notes: notes[index] ? notes[index] : null,
-      }
+      };
     })
-    .filter((item): item is { productId: string; quota: number; goalType: CampaignGoalType; notes: string | null } => item !== null)
+    .filter(
+      (
+        item
+      ): item is {
+        productId: string;
+        quota: number;
+        goalType: CampaignGoalType;
+        notes: string | null;
+      } => item !== null
+    );
 }
 
 function normalizeLookupText(value: string | null | undefined) {
@@ -234,92 +234,95 @@ function normalizeLookupText(value: string | null | undefined) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
-    .toUpperCase()
+    .toUpperCase();
 }
 
 type ResolvedImportedCampaignGoal = {
-  rowNumber: number
-  pdvId: string
-  productId: string
-  quota: number
-  goalType: CampaignGoalType
-  notes: string | null
-}
+  rowNumber: number;
+  pdvId: string;
+  productId: string;
+  quota: number;
+  goalType: CampaignGoalType;
+  notes: string | null;
+};
 
 function summarizeImportedCampaignGoals(
   rows: ResolvedImportedCampaignGoal[]
 ): Array<{ productId: string; quota: number; goalType: CampaignGoalType; notes: string | null }> {
-  const grouped = new Map<string, { productId: string; quota: number; goalType: CampaignGoalType; notes: string | null }>()
+  const grouped = new Map<
+    string,
+    { productId: string; quota: number; goalType: CampaignGoalType; notes: string | null }
+  >();
 
   for (const row of rows) {
-    const key = `${row.productId}:${row.goalType}`
-    const current = grouped.get(key)
+    const key = `${row.productId}:${row.goalType}`;
+    const current = grouped.get(key);
     if (current) {
-      current.quota = Number((current.quota + row.quota).toFixed(2))
-      current.notes = current.notes ?? row.notes
+      current.quota = Number((current.quota + row.quota).toFixed(2));
+      current.notes = current.notes ?? row.notes;
     } else {
       grouped.set(key, {
         productId: row.productId,
         quota: row.quota,
         goalType: row.goalType,
         notes: row.notes,
-      })
+      });
     }
   }
 
-  return Array.from(grouped.values())
+  return Array.from(grouped.values());
 }
 
 function normalizeMetadataRecord(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {} as Record<string, unknown>
+    return {} as Record<string, unknown>;
   }
 
-  return value as Record<string, unknown>
+  return value as Record<string, unknown>;
 }
 
 function getTaskSessionUpdates(formData: FormData): Array<{
-  key: string
-  status: VisitTaskStatus
-  justification: string | null
-  suspicious?: boolean
-  suspiciousReason?: string | null
-  evidenceCountIncrement?: number
+  key: string;
+  status: VisitTaskStatus;
+  justification: string | null;
+  suspicious?: boolean;
+  suspiciousReason?: string | null;
+  evidenceCountIncrement?: number;
 }> {
   const keys = formData
     .getAll('task_key')
     .map((value) => String(value ?? '').trim())
-    .filter(Boolean)
+    .filter(Boolean);
 
   return keys.map((key) => {
-    const rawStatus = String(formData.get(`task_status__${key}`) ?? 'PENDIENTE').trim()
+    const rawStatus = String(formData.get(`task_status__${key}`) ?? 'PENDIENTE').trim();
     const status: VisitTaskStatus =
-      rawStatus === 'COMPLETADA' || rawStatus === 'JUSTIFICADA' ? rawStatus : 'PENDIENTE'
+      rawStatus === 'COMPLETADA' || rawStatus === 'JUSTIFICADA' ? rawStatus : 'PENDIENTE';
 
     return {
       key,
       status,
       justification: String(formData.get(`task_justification__${key}`) ?? '').trim() || null,
-    }
-  })
+    };
+  });
 }
 
 function normalizeJsonRecord(value: FormDataEntryValue | null) {
-  const raw = String(value ?? '').trim()
+  const raw = String(value ?? '').trim();
 
   if (!raw) {
-    return null
+    return null;
   }
 
   try {
-    const parsed = JSON.parse(raw) as unknown
+    const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null
+      return null;
     }
 
-    return parsed as Record<string, unknown>
+    return parsed as Record<string, unknown>;
   } catch {
-    return null
+    return null;
   }
 }
 
@@ -329,30 +332,33 @@ function calculateDistanceMeters(
   destinationLat: number,
   destinationLng: number
 ) {
-  const earthRadius = 6371000
-  const toRadians = (value: number) => (value * Math.PI) / 180
-  const deltaLat = toRadians(destinationLat - originLat)
-  const deltaLng = toRadians(destinationLng - originLng)
-  const originLatRad = toRadians(originLat)
-  const destinationLatRad = toRadians(destinationLat)
+  const earthRadius = 6371000;
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const deltaLat = toRadians(destinationLat - originLat);
+  const deltaLng = toRadians(destinationLng - originLng);
+  const originLatRad = toRadians(originLat);
+  const destinationLatRad = toRadians(destinationLat);
 
   const haversine =
     Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-    Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2) * Math.cos(originLatRad) * Math.cos(destinationLatRad)
+    Math.sin(deltaLng / 2) *
+      Math.sin(deltaLng / 2) *
+      Math.cos(originLatRad) *
+      Math.cos(destinationLatRad);
 
-  return 2 * earthRadius * Math.asin(Math.sqrt(haversine))
+  return 2 * earthRadius * Math.asin(Math.sqrt(haversine));
 }
 
 function getTaskEvidencePayloads(formData: FormData) {
   const taskKeys = formData
     .getAll('task_key')
     .map((value) => String(value ?? '').trim())
-    .filter(Boolean)
+    .filter(Boolean);
 
   return taskKeys.flatMap((taskKey) => {
-    const file = formData.get(`task_evidence__${taskKey}`)
+    const file = formData.get(`task_evidence__${taskKey}`);
     if (!(file instanceof File) || file.size === 0) {
-      return []
+      return [];
     }
 
     return [
@@ -361,28 +367,28 @@ function getTaskEvidencePayloads(formData: FormData) {
         file,
         metadata: normalizeJsonRecord(formData.get(`task_evidence_meta__${taskKey}`)),
       },
-    ]
-  })
+    ];
+  });
 }
 
 async function requerirGestorCampanas() {
-  const actor = await requerirActorActivo()
+  const actor = await requerirActorActivo();
 
   if (actor.puesto !== 'ADMINISTRADOR' && actor.puesto !== 'VENTAS') {
-    throw new Error('Solo ADMINISTRADOR o VENTAS pueden gestionar campanas.')
+    throw new Error('Solo ADMINISTRADOR o VENTAS pueden gestionar campanas.');
   }
 
-  return actor
+  return actor;
 }
 
 async function requerirDermoconsejeroCampana() {
-  const actor = await requerirActorActivo()
+  const actor = await requerirActorActivo();
 
   if (actor.puesto !== 'DERMOCONSEJERO') {
-    throw new Error('Solo DERMOCONSEJERO puede ejecutar tareas de visita en campo.')
+    throw new Error('Solo DERMOCONSEJERO puede ejecutar tareas de visita en campo.');
   }
 
-  return actor
+  return actor;
 }
 
 async function resolveCuentaClienteId(
@@ -390,32 +396,32 @@ async function resolveCuentaClienteId(
   service: ReturnType<typeof createServiceClient>,
   formData: FormData
 ) {
-  const requestedAccountId = normalizeRequestedAccountId(formData.get('cuenta_cliente_id'))
-  const requestScope = await readRequestAccountScope()
+  const requestedAccountId = normalizeRequestedAccountId(formData.get('cuenta_cliente_id'));
+  const requestScope = await readRequestAccountScope();
   const targetAccountId =
     actor.puesto === 'ADMINISTRADOR'
-      ? requestedAccountId ?? requestScope.accountId
-      : actor.cuentaClienteId ?? requestScope.accountId
+      ? (requestedAccountId ?? requestScope.accountId)
+      : (actor.cuentaClienteId ?? requestScope.accountId);
 
   if (!targetAccountId) {
-    throw new Error('Selecciona una cuenta cliente activa para la campana.')
+    throw new Error('Selecciona una cuenta cliente activa para la campana.');
   }
 
   const { data: cuentaCliente, error } = await service
     .from('cuenta_cliente')
     .select('id, nombre, activa')
     .eq('id', targetAccountId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (error || !cuentaCliente || !cuentaCliente.activa) {
-    throw new Error(error?.message ?? 'La cuenta cliente seleccionada no esta activa.')
+    throw new Error(error?.message ?? 'La cuenta cliente seleccionada no esta activa.');
   }
 
   if (actor.cuentaClienteId && actor.cuentaClienteId !== targetAccountId) {
-    throw new Error('La campana solo puede operarse dentro de la cuenta cliente asignada.')
+    throw new Error('La campana solo puede operarse dentro de la cuenta cliente asignada.');
   }
 
-  return cuentaCliente
+  return cuentaCliente;
 }
 
 async function registrarEventoAudit(
@@ -427,11 +433,11 @@ async function registrarEventoAudit(
     registroId,
     payload,
   }: {
-    actorUsuarioId: string
-    cuentaClienteId: string
-    tabla: string
-    registroId: string
-    payload: Record<string, unknown>
+    actorUsuarioId: string;
+    cuentaClienteId: string;
+    tabla: string;
+    registroId: string;
+    payload: Record<string, unknown>;
   }
 ) {
   await service.from('audit_log').insert({
@@ -441,7 +447,7 @@ async function registrarEventoAudit(
     payload,
     usuario_id: actorUsuarioId,
     cuenta_cliente_id: cuentaClienteId,
-  })
+  });
 }
 
 async function ensureCampaignEvidenceBucket(service: ReturnType<typeof createServiceClient>) {
@@ -449,10 +455,10 @@ async function ensureCampaignEvidenceBucket(service: ReturnType<typeof createSer
     public: false,
     fileSizeLimit: `${EXPEDIENTE_RAW_UPLOAD_MAX_BYTES}`,
     allowedMimeTypes: CAMPANA_ALLOWED_MIME_TYPES,
-  })
+  });
 
   if (error && !/already exists|duplicate/i.test(error.message)) {
-    throw error
+    throw error;
   }
 }
 
@@ -464,28 +470,28 @@ async function uploadCampaignEvidence(
     campanaPdvId,
     file,
   }: {
-    actorUsuarioId: string
-    cuentaClienteId: string
-    campanaPdvId: string
-    file: File
+    actorUsuarioId: string;
+    cuentaClienteId: string;
+    campanaPdvId: string;
+    file: File;
   }
 ) {
   if (exceedsOperationalDocumentUploadLimit(file)) {
-    throw new Error(buildOperationalDocumentUploadLimitMessage('evidencia', file))
+    throw new Error(buildOperationalDocumentUploadLimitMessage('evidencia', file));
   }
 
   if (!CAMPANA_ALLOWED_MIME_TYPES.includes(file.type)) {
-    throw new Error('La evidencia debe ser imagen JPEG/PNG/WEBP o PDF.')
+    throw new Error('La evidencia debe ser imagen JPEG/PNG/WEBP o PDF.');
   }
 
-  await ensureCampaignEvidenceBucket(service)
+  await ensureCampaignEvidenceBucket(service);
   return storeOptimizedEvidence({
     service,
     bucket: CAMPANA_EVIDENCIAS_BUCKET,
     actorUsuarioId,
     storagePrefix: `campanas/${cuentaClienteId}/${campanaPdvId}`,
     file,
-  })
+  });
 }
 
 async function uploadCampaignManual(
@@ -496,14 +502,14 @@ async function uploadCampaignManual(
     campanaId,
     file,
   }: {
-    actorUsuarioId: string
-    cuentaClienteId: string
-    campanaId: string
-    file: File
+    actorUsuarioId: string;
+    cuentaClienteId: string;
+    campanaId: string;
+    file: File;
   }
 ) {
   if (file.type !== 'application/pdf') {
-    throw new Error('El manual de mercadeo debe cargarse en PDF.')
+    throw new Error('El manual de mercadeo debe cargarse en PDF.');
   }
 
   const stored = await storeOptimizedEvidence({
@@ -512,7 +518,7 @@ async function uploadCampaignManual(
     actorUsuarioId,
     storagePrefix: `campanas/${cuentaClienteId}/${campanaId}/manual`,
     file,
-  })
+  });
 
   return {
     url: stored.archivo.url,
@@ -521,7 +527,7 @@ async function uploadCampaignManual(
     mimeType: file.type || 'application/pdf',
     uploadedAt: new Date().toISOString(),
     uploadedBy: actorUsuarioId,
-  }
+  };
 }
 
 async function resolveCampaignManual(
@@ -533,11 +539,11 @@ async function resolveCampaignManual(
     file,
     directReference,
   }: {
-    actorUsuarioId: string
-    cuentaClienteId: string
-    campanaId: string
-    file: File | null
-    directReference: ReturnType<typeof readDirectR2Reference>
+    actorUsuarioId: string;
+    cuentaClienteId: string;
+    campanaId: string;
+    file: File | null;
+    directReference: ReturnType<typeof readDirectR2Reference>;
   }
 ) {
   if (hasDirectR2Reference(directReference)) {
@@ -546,7 +552,7 @@ async function resolveCampaignManual(
       modulo: 'campanas_manual',
       referenciaEntidadId: campanaId,
       reference: directReference,
-    })
+    });
 
     return {
       url: registered.url,
@@ -555,11 +561,11 @@ async function resolveCampaignManual(
       mimeType: registered.contentType ?? 'application/pdf',
       uploadedAt: new Date().toISOString(),
       uploadedBy: actorUsuarioId,
-    }
+    };
   }
 
   if (!file) {
-    return null
+    return null;
   }
 
   return uploadCampaignManual(service, {
@@ -567,7 +573,7 @@ async function resolveCampaignManual(
     cuentaClienteId,
     campanaId,
     file,
-  })
+  });
 }
 
 async function notifySuspiciousVisitTask(
@@ -583,15 +589,15 @@ async function notifySuspiciousVisitTask(
     taskLabel,
     suspiciousReason,
   }: {
-    cuentaClienteId: string
-    actorUsuarioId: string
-    actorEmpleadoId: string
-    supervisorEmpleadoId: string
-    campanaId: string
-    campanaPdvId: string
-    pdvId: string
-    taskLabel: string
-    suspiciousReason: string
+    cuentaClienteId: string;
+    actorUsuarioId: string;
+    actorEmpleadoId: string;
+    supervisorEmpleadoId: string;
+    campanaId: string;
+    campanaPdvId: string;
+    pdvId: string;
+    taskLabel: string;
+    suspiciousReason: string;
   }
 ) {
   const { data: createdMessage, error: messageError } = await service
@@ -616,10 +622,12 @@ async function notifySuspiciousVisitTask(
       },
     })
     .select('id')
-    .maybeSingle()
+    .maybeSingle();
 
   if (messageError || !createdMessage?.id) {
-    throw new Error(messageError?.message ?? 'No fue posible notificar la evidencia sospechosa al gestor.')
+    throw new Error(
+      messageError?.message ?? 'No fue posible notificar la evidencia sospechosa al gestor.'
+    );
   }
 
   const { error: recipientError } = await service.from('mensaje_receptor').insert({
@@ -631,10 +639,10 @@ async function notifySuspiciousVisitTask(
       origen: 'campana_tarea_visita',
       campana_pdv_id: campanaPdvId,
     },
-  })
+  });
 
   if (recipientError) {
-    throw new Error(recipientError.message)
+    throw new Error(recipientError.message);
   }
 }
 
@@ -649,12 +657,12 @@ async function publishCampanaUiChanges(
     campanaPdvId,
     eventType,
   }: {
-    cuentaClienteId: string | null | undefined
-    empleadoId?: string | null
-    supervisorEmpleadoId?: string | null
-    campanaId?: string | null
-    campanaPdvId?: string | null
-    eventType: string
+    cuentaClienteId: string | null | undefined;
+    empleadoId?: string | null;
+    supervisorEmpleadoId?: string | null;
+    campanaId?: string | null;
+    campanaPdvId?: string | null;
+    eventType: string;
   }
 ) {
   const scopes = [
@@ -662,7 +670,7 @@ async function publishCampanaUiChanges(
     buildUiChangeScope('cuenta', cuentaClienteId ?? actor.cuentaClienteId),
     buildUiChangeScope('empleado', empleadoId ?? actor.empleadoId),
     buildUiChangeScope('supervisor', supervisorEmpleadoId),
-  ]
+  ];
 
   const targets = [
     ...buildUiChangeTargetsFromBusinessEvent({
@@ -673,7 +681,15 @@ async function publishCampanaUiChanges(
       cuentaClienteId: cuentaClienteId ?? actor.cuentaClienteId ?? null,
       empleadoId: empleadoId ?? actor.empleadoId,
       supervisorEmpleadoId: supervisorEmpleadoId ?? null,
-      roleTargets: ['ADMINISTRADOR', 'VENTAS', 'SUPERVISOR', 'COORDINADOR', 'LOGISTICA', 'DERMOCONSEJERO', 'CLIENTE'],
+      roleTargets: [
+        'ADMINISTRADOR',
+        'VENTAS',
+        'SUPERVISOR',
+        'COORDINADOR',
+        'LOGISTICA',
+        'DERMOCONSEJERO',
+        'CLIENTE',
+      ],
       metadata: {
         campanaId: campanaId ?? null,
         campanaPdvId: campanaPdvId ?? null,
@@ -692,9 +708,9 @@ async function publishCampanaUiChanges(
         campanaPdvId: campanaPdvId ?? null,
       },
     }),
-  ]
+  ];
 
-  await publishUiChanges(targets, { service })
+  await publishUiChanges(targets, { service });
 }
 
 async function notifyCampaignPublication(
@@ -709,22 +725,22 @@ async function notifyCampaignPublication(
     recipientIds,
     pdvCount,
   }: {
-    cuentaClienteId: string
-    actorUsuarioId: string
-    campanaId: string
-    nombre: string
-    fechaInicio: string
-    instrucciones: string | null
-    recipientIds: string[]
-    pdvCount: number
+    cuentaClienteId: string;
+    actorUsuarioId: string;
+    campanaId: string;
+    nombre: string;
+    fechaInicio: string;
+    instrucciones: string | null;
+    recipientIds: string[];
+    pdvCount: number;
   }
 ) {
   if (recipientIds.length === 0) {
-    return 0
+    return 0;
   }
 
-  const todayIso = new Date().toISOString().slice(0, 10)
-  const title = fechaInicio > todayIso ? 'Campana proxima asignada' : 'Campana activa asignada'
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const title = fechaInicio > todayIso ? 'Campana proxima asignada' : 'Campana activa asignada';
   const body =
     nombre +
     ' ya fue publicada para ' +
@@ -732,7 +748,7 @@ async function notifyCampaignPublication(
     ' PDV(s). Inicio: ' +
     fechaInicio +
     '.' +
-    (instrucciones ? ' Instrucciones: ' + instrucciones : '')
+    (instrucciones ? ' Instrucciones: ' + instrucciones : '');
 
   const { data: message, error: messageError } = await service
     .from('mensaje_interno')
@@ -752,10 +768,12 @@ async function notifyCampaignPublication(
       },
     })
     .select('id')
-    .maybeSingle()
+    .maybeSingle();
 
   if (messageError || !message?.id) {
-    throw new Error(messageError?.message ?? 'No fue posible generar la notificacion de la campana.')
+    throw new Error(
+      messageError?.message ?? 'No fue posible generar la notificacion de la campana.'
+    );
   }
 
   const recipientRows = recipientIds.map((empleadoId) => ({
@@ -767,15 +785,15 @@ async function notifyCampaignPublication(
       origen: 'campana_publicada',
       campana_id: campanaId,
     },
-  }))
+  }));
 
-  const { error: recipientError } = await service.from('mensaje_receptor').insert(recipientRows)
+  const { error: recipientError } = await service.from('mensaje_receptor').insert(recipientRows);
 
   if (recipientError) {
-    throw new Error(recipientError.message)
+    throw new Error(recipientError.message);
   }
 
-  return recipientIds.length
+  return recipientIds.length;
 }
 
 export async function publicarCampana(
@@ -783,45 +801,45 @@ export async function publicarCampana(
   formData: FormData
 ): Promise<CampanaAdminActionState> {
   try {
-    const actor = await requerirGestorCampanas()
-    const service = createServiceClient()
-    const campanaId = normalizeRequiredText(formData.get('campana_id'), 'Campana')
-    const confirmarRotacion = String(formData.get('confirmar_rotacion') ?? '').trim() === 'true'
+    const actor = await requerirGestorCampanas();
+    const service = createServiceClient();
+    const campanaId = normalizeRequiredText(formData.get('campana_id'), 'Campana');
+    const confirmarRotacion = String(formData.get('confirmar_rotacion') ?? '').trim() === 'true';
 
     const { data: campaign, error: campaignError } = await service
       .from('campana')
       .select('id, cuenta_cliente_id, nombre, fecha_inicio, fecha_fin, estado, instrucciones')
       .eq('id', campanaId)
-      .maybeSingle()
+      .maybeSingle();
 
     if (campaignError || !campaign) {
-      throw new Error(campaignError?.message ?? 'No fue posible encontrar la campana a publicar.')
+      throw new Error(campaignError?.message ?? 'No fue posible encontrar la campana a publicar.');
     }
 
     if (actor.cuentaClienteId && actor.cuentaClienteId !== campaign.cuenta_cliente_id) {
-      throw new Error('No puedes publicar campanas fuera de tu cuenta cliente asignada.')
+      throw new Error('No puedes publicar campanas fuera de tu cuenta cliente asignada.');
     }
 
     if (campaign.estado === 'CANCELADA') {
-      throw new Error('La campana cancelada no puede publicarse.')
+      throw new Error('La campana cancelada no puede publicarse.');
     }
 
     if (campaign.estado === 'CERRADA') {
-      throw new Error('La campana cerrada no puede volver a publicarse.')
+      throw new Error('La campana cerrada no puede volver a publicarse.');
     }
 
     const { data: campaignPdvs, error: campaignPdvsError } = await service
       .from('campana_pdv')
       .select('id, pdv_id, dc_empleado_id, metadata')
       .eq('campana_id', campanaId)
-      .limit(1000)
+      .limit(1000);
 
     if (campaignPdvsError) {
-      throw new Error(campaignPdvsError.message)
+      throw new Error(campaignPdvsError.message);
     }
 
     if (!campaignPdvs || campaignPdvs.length === 0) {
-      throw new Error('La campana debe tener al menos un PDV objetivo antes de publicarse.')
+      throw new Error('La campana debe tener al menos un PDV objetivo antes de publicarse.');
     }
 
     const persistedRotationPreview =
@@ -829,7 +847,7 @@ export async function publicarCampana(
       prevState.requiresRotationReview &&
       prevState.rotationImpactPreview?.campanaId === campanaId
         ? prevState.rotationImpactPreview
-        : null
+        : null;
 
     const rotationPreview =
       persistedRotationPreview ??
@@ -844,7 +862,7 @@ export async function publicarCampana(
           dc_empleado_id: item.dc_empleado_id,
           metadata: item.metadata as Record<string, unknown> | null,
         })),
-      }))
+      }));
 
     if (rotationPreview && !confirmarRotacion) {
       return buildState({
@@ -855,20 +873,23 @@ export async function publicarCampana(
           'La campana impacta ' +
           String(rotationPreview.totalNodes) +
           ' PDV(s) rotativo(s). Revisa si se asignan coberturas temporales o si se reservan durante la ventana de campana.',
-      })
+      });
     }
 
     if (rotationPreview && confirmarRotacion) {
-      const decisions = parseCampaignRotationDecisions(formData, rotationPreview)
-      const missingAssignments = decisions.filter((item) => item.decision === 'ASIGNAR' && !item.empleadoId)
+      const decisions = parseCampaignRotationDecisions(formData, rotationPreview);
+      const missingAssignments = decisions.filter(
+        (item) => item.decision === 'ASIGNAR' && !item.empleadoId
+      );
 
       if (missingAssignments.length > 0) {
         return buildState({
           ok: false,
           requiresRotationReview: true,
           rotationImpactPreview: rotationPreview,
-          message: 'Selecciona una DC para cada PDV marcado como asignar antes de confirmar la publicacion.',
-        })
+          message:
+            'Selecciona una DC para cada PDV marcado como asignar antes de confirmar la publicacion.',
+        });
       }
 
       const expandedPreview = await expandCampaignRotationCascadePreview(service, {
@@ -877,15 +898,16 @@ export async function publicarCampana(
         fechaFin: campaign.fecha_fin,
         preview: rotationPreview,
         decisions,
-      })
+      });
 
       if (expandedPreview.nodes.length > rotationPreview.nodes.length) {
         return buildState({
           ok: false,
           requiresRotationReview: true,
           rotationImpactPreview: expandedPreview,
-          message: 'La cobertura elegida abre una cascada adicional sobre otros PDVs rotativos. Resuelve los nuevos nodos antes de publicar.',
-        })
+          message:
+            'La cobertura elegida abre una cascada adicional sobre otros PDVs rotativos. Resuelve los nuevos nodos antes de publicar.',
+        });
       }
 
       try {
@@ -897,7 +919,7 @@ export async function publicarCampana(
           fechaInicio: campaign.fecha_inicio,
           fechaFin: campaign.fecha_fin,
           decisions,
-        })
+        });
       } catch (rotationError) {
         return buildState({
           ok: false,
@@ -907,42 +929,51 @@ export async function publicarCampana(
             rotationError instanceof Error
               ? rotationError.message
               : 'No fue posible resolver el impacto rotativo de la campana.',
-        })
+        });
       }
     }
     const { data: refreshedCampaignPdvs, error: refreshedCampaignPdvsError } = await service
       .from('campana_pdv')
       .select('id, pdv_id, dc_empleado_id')
       .eq('campana_id', campanaId)
-      .limit(1000)
+      .limit(1000);
 
     if (refreshedCampaignPdvsError) {
-      throw new Error(refreshedCampaignPdvsError.message)
+      throw new Error(refreshedCampaignPdvsError.message);
     }
 
-    const pdvIds = dedupeStringArray((refreshedCampaignPdvs ?? []).map((item) => item.pdv_id))
+    const pdvIds = dedupeStringArray((refreshedCampaignPdvs ?? []).map((item) => item.pdv_id));
     const { data: assignmentRows, error: assignmentError } = await service
       .from('asignacion')
       .select('pdv_id, empleado_id, fecha_inicio, fecha_fin, estado_publicacion, created_at')
       .in('pdv_id', pdvIds)
-      .limit(2000)
+      .limit(2000);
 
     if (assignmentError) {
-      throw new Error(assignmentError.message)
+      throw new Error(assignmentError.message);
     }
 
-    const assignmentMap = new Map<string, Array<{ empleado_id: string; fecha_inicio: string; fecha_fin: string; estado_publicacion: string; created_at: string }>>()
+    const assignmentMap = new Map<
+      string,
+      Array<{
+        empleado_id: string;
+        fecha_inicio: string;
+        fecha_fin: string;
+        estado_publicacion: string;
+        created_at: string;
+      }>
+    >();
     for (const assignment of assignmentRows ?? []) {
-      const current = assignmentMap.get(assignment.pdv_id) ?? []
-      current.push(assignment)
-      assignmentMap.set(assignment.pdv_id, current)
+      const current = assignmentMap.get(assignment.pdv_id) ?? [];
+      current.push(assignment);
+      assignmentMap.set(assignment.pdv_id, current);
     }
 
     for (const [pdvId, rows] of assignmentMap.entries()) {
       assignmentMap.set(
         pdvId,
         [...rows].sort((left, right) => right.created_at.localeCompare(left.created_at))
-      )
+      );
     }
 
     const recipientIds = Array.from(
@@ -950,20 +981,25 @@ export async function publicarCampana(
         (refreshedCampaignPdvs ?? [])
           .map((row) => {
             if (row.dc_empleado_id) {
-              return row.dc_empleado_id
+              return row.dc_empleado_id;
             }
 
             const overlappingAssignment = (assignmentMap.get(row.pdv_id) ?? []).find(
               (item) =>
                 item.estado_publicacion === 'PUBLICADA' &&
-                rangesOverlapIso(item.fecha_inicio, item.fecha_fin, campaign.fecha_inicio, campaign.fecha_fin)
-            )
+                rangesOverlapIso(
+                  item.fecha_inicio,
+                  item.fecha_fin,
+                  campaign.fecha_inicio,
+                  campaign.fecha_fin
+                )
+            );
 
-            return overlappingAssignment?.empleado_id ?? null
+            return overlappingAssignment?.empleado_id ?? null;
           })
           .filter((item): item is string => Boolean(item))
       )
-    )
+    );
 
     const { error: updateError } = await service
       .from('campana')
@@ -972,10 +1008,10 @@ export async function publicarCampana(
         updated_by_usuario_id: actor.usuarioId,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', campanaId)
+      .eq('id', campanaId);
 
     if (updateError) {
-      throw new Error(updateError.message)
+      throw new Error(updateError.message);
     }
 
     const notifiedCount = await notifyCampaignPublication(service, {
@@ -987,7 +1023,7 @@ export async function publicarCampana(
       instrucciones: campaign.instrucciones,
       recipientIds,
       pdvCount: refreshedCampaignPdvs?.length ?? campaignPdvs.length,
-    })
+    });
 
     await registrarEventoAudit(service, {
       actorUsuarioId: actor.usuarioId,
@@ -1004,13 +1040,13 @@ export async function publicarCampana(
         rotacion_revisada: Boolean(rotationPreview),
         rotacion_nodos: rotationPreview?.totalNodes ?? 0,
       },
-    })
+    });
 
     await publishCampanaUiChanges(actor, service, {
       cuentaClienteId: campaign.cuenta_cliente_id,
       campanaId: campaign.id,
       eventType: 'campana_publicada',
-    })
+    });
 
     return buildState({
       ok: true,
@@ -1020,14 +1056,14 @@ export async function publicarCampana(
         notifiedCount > 0
           ? 'Campana publicada. Se notifico a ' + String(notifiedCount) + ' DC(s).'
           : 'Campana publicada. No se encontraron DCs asignadas para notificar.',
-    })
+    });
   } catch (error) {
     return buildState({
       ok: false,
       requiresRotationReview: false,
       rotationImpactPreview: null,
       message: error instanceof Error ? error.message : 'No fue posible publicar la campana.',
-    })
+    });
   }
 }
 export async function guardarCampana(
@@ -1035,121 +1071,127 @@ export async function guardarCampana(
   formData: FormData
 ): Promise<CampanaAdminActionState> {
   try {
-    const actor = await requerirGestorCampanas()
-    const service = createServiceClient()
-    const cuentaCliente = await resolveCuentaClienteId(actor, service, formData)
-    const campanaId = normalizeOptionalText(formData.get('campana_id'))
-    const nombre = normalizeRequiredText(formData.get('nombre'), 'Nombre')
-    const fechaInicio = normalizeDate(formData.get('fecha_inicio'), 'Fecha inicio')
-    const fechaFin = normalizeDate(formData.get('fecha_fin'), 'Fecha fin')
-    const estado = normalizeEstado(formData.get('estado'))
-    const descripcion = normalizeOptionalText(formData.get('descripcion'))
-    const cadenaId = normalizeOptionalText(formData.get('cadena_id'))
-    const cuotaAdicional = normalizeNonNegativeNumber(formData.get('cuota_adicional'), 'Cuota adicional')
-    const instrucciones = normalizeOptionalText(formData.get('instrucciones'))
-    const evidenceTemplate = getEvidenceTemplateItems(formData)
-    const evidenciasRequeridas = evidenceTemplate.map((item) => item.label)
-    const taskTemplate = getTaskTemplateItems(formData)
-    const tareasTemplate = taskTemplate.map((item) => item.label)
-    const selectedProductoIds = getSelectedValues(formData, 'producto_id')
-    const manualProductGoals = getProductGoalItems(formData)
-    const selectedPdvIds = getSelectedValues(formData, 'pdv_id')
-    const manualMercadeoFile = formData.get('manual_mercadeo')
+    const actor = await requerirGestorCampanas();
+    const service = createServiceClient();
+    const cuentaCliente = await resolveCuentaClienteId(actor, service, formData);
+    const campanaId = normalizeOptionalText(formData.get('campana_id'));
+    const nombre = normalizeRequiredText(formData.get('nombre'), 'Nombre');
+    const fechaInicio = normalizeDate(formData.get('fecha_inicio'), 'Fecha inicio');
+    const fechaFin = normalizeDate(formData.get('fecha_fin'), 'Fecha fin');
+    const estado = normalizeEstado(formData.get('estado'));
+    const descripcion = normalizeOptionalText(formData.get('descripcion'));
+    const cadenaId = normalizeOptionalText(formData.get('cadena_id'));
+    const cuotaAdicional = normalizeNonNegativeNumber(
+      formData.get('cuota_adicional'),
+      'Cuota adicional'
+    );
+    const instrucciones = normalizeOptionalText(formData.get('instrucciones'));
+    const evidenceTemplate = getEvidenceTemplateItems(formData);
+    const evidenciasRequeridas = evidenceTemplate.map((item) => item.label);
+    const taskTemplate = getTaskTemplateItems(formData);
+    const tareasTemplate = taskTemplate.map((item) => item.label);
+    const selectedProductoIds = getSelectedValues(formData, 'producto_id');
+    const manualProductGoals = getProductGoalItems(formData);
+    const selectedPdvIds = getSelectedValues(formData, 'pdv_id');
+    const manualMercadeoFile = formData.get('manual_mercadeo');
     const manualMercadeoUpload =
-      manualMercadeoFile instanceof File && manualMercadeoFile.size > 0 ? manualMercadeoFile : null
-    const manualMercadeoR2 = readDirectR2Reference(formData, 'manual_mercadeo')
-    const metasProductoFile = formData.get('metas_producto_excel')
+      manualMercadeoFile instanceof File && manualMercadeoFile.size > 0 ? manualMercadeoFile : null;
+    const manualMercadeoR2 = readDirectR2Reference(formData, 'manual_mercadeo');
+    const metasProductoFile = formData.get('metas_producto_excel');
     const metasProductoUpload =
-      metasProductoFile instanceof File && metasProductoFile.size > 0 ? metasProductoFile : null
+      metasProductoFile instanceof File && metasProductoFile.size > 0 ? metasProductoFile : null;
 
     if (fechaFin < fechaInicio) {
-      throw new Error('La fecha fin no puede ser menor que la fecha inicio.')
+      throw new Error('La fecha fin no puede ser menor que la fecha inicio.');
     }
 
-    let importedGoalRows: ResolvedImportedCampaignGoal[] = []
-    let importedProductoIds: string[] = []
-    let importedPdvIds: string[] = []
+    let importedGoalRows: ResolvedImportedCampaignGoal[] = [];
+    let importedProductoIds: string[] = [];
+    let importedPdvIds: string[] = [];
 
     if (metasProductoUpload) {
       const parsedImport = parseCampaignProductQuotaWorkbook(
         Buffer.from(await metasProductoUpload.arrayBuffer())
-      )
+      );
 
-      const importedBtls = dedupeStringArray(parsedImport.rows.map((row) => row.claveBtl))
+      const importedBtls = dedupeStringArray(parsedImport.rows.map((row) => row.claveBtl));
       const { data: importedPdvs, error: importedPdvsError } = await service
         .from('pdv')
         .select('id, clave_btl, nombre')
         .in('clave_btl', importedBtls)
-        .limit(Math.max(importedBtls.length, 1))
+        .limit(Math.max(importedBtls.length, 1));
 
       if (importedPdvsError) {
-        throw new Error(importedPdvsError.message)
+        throw new Error(importedPdvsError.message);
       }
 
       const importedPdvMap = new Map(
         (importedPdvs ?? []).map((item) => [normalizeLookupText(item.clave_btl), item])
-      )
+      );
 
       const importedPdvRelations = importedPdvs?.length
         ? await service
             .from('cuenta_cliente_pdv')
             .select('pdv_id, activo, fecha_fin')
             .eq('cuenta_cliente_id', cuentaCliente.id)
-            .in('pdv_id', importedPdvs.map((item) => item.id))
+            .in(
+              'pdv_id',
+              importedPdvs.map((item) => item.id)
+            )
             .limit(Math.max(importedPdvs.length, 1))
-        : { data: [], error: null }
+        : { data: [], error: null };
 
       if (importedPdvRelations.error) {
-        throw new Error(importedPdvRelations.error.message)
+        throw new Error(importedPdvRelations.error.message);
       }
 
       const importedValidPdvIds = new Set(
         (importedPdvRelations.data ?? [])
           .filter((item) => item.activo && (!item.fecha_fin || item.fecha_fin >= fechaInicio))
           .map((item) => item.pdv_id)
-      )
+      );
 
       const { data: activeProducts, error: activeProductsError } = await service
         .from('producto')
         .select('id, sku, nombre, nombre_corto')
         .eq('activo', true)
-        .limit(1000)
+        .limit(1000);
 
       if (activeProductsError) {
-        throw new Error(activeProductsError.message)
+        throw new Error(activeProductsError.message);
       }
 
       const productBySku = new Map(
         (activeProducts ?? [])
           .filter((item) => item.sku)
           .map((item) => [normalizeLookupText(item.sku), item] as const)
-      )
-      const productByName = new Map<string, (typeof activeProducts)[number]>()
+      );
+      const productByName = new Map<string, (typeof activeProducts)[number]>();
       for (const item of activeProducts ?? []) {
         for (const candidate of [item.nombre, item.nombre_corto]) {
-          const key = normalizeLookupText(candidate)
+          const key = normalizeLookupText(candidate);
           if (key && !productByName.has(key)) {
-            productByName.set(key, item)
+            productByName.set(key, item);
           }
         }
       }
 
       importedGoalRows = parsedImport.rows.map((row) => {
-        const resolvedPdv = importedPdvMap.get(normalizeLookupText(row.claveBtl))
+        const resolvedPdv = importedPdvMap.get(normalizeLookupText(row.claveBtl));
         if (!resolvedPdv || !importedValidPdvIds.has(resolvedPdv.id)) {
           throw new Error(
             `La fila ${row.rowNumber} referencia el PDV ${row.claveBtl} fuera del alcance activo de ISDIN.`
-          )
+          );
         }
 
         const resolvedProduct =
           (row.sku ? productBySku.get(normalizeLookupText(row.sku)) : null) ??
-          (row.articulo ? productByName.get(normalizeLookupText(row.articulo)) : null)
+          (row.articulo ? productByName.get(normalizeLookupText(row.articulo)) : null);
 
         if (!resolvedProduct) {
           throw new Error(
             `La fila ${row.rowNumber} no pudo resolver el artículo ${row.sku ?? row.articulo ?? 'SIN-ARTICULO'}.`
-          )
+          );
         }
 
         return {
@@ -1159,33 +1201,33 @@ export async function guardarCampana(
           quota: row.cuota,
           goalType: row.goalType,
           notes: row.notes,
-        } satisfies ResolvedImportedCampaignGoal
-      })
+        } satisfies ResolvedImportedCampaignGoal;
+      });
 
-      const resolvedKeys = new Set<string>()
+      const resolvedKeys = new Set<string>();
       for (const row of importedGoalRows) {
-        const key = `${row.pdvId}::${row.productId}`
+        const key = `${row.pdvId}::${row.productId}`;
         if (resolvedKeys.has(key)) {
           throw new Error(
             `La matriz repite una meta para el mismo PDV y producto en la fila ${row.rowNumber}.`
-          )
+          );
         }
-        resolvedKeys.add(key)
+        resolvedKeys.add(key);
       }
 
-      importedProductoIds = dedupeStringArray(importedGoalRows.map((row) => row.productId))
-      importedPdvIds = dedupeStringArray(importedGoalRows.map((row) => row.pdvId))
+      importedProductoIds = dedupeStringArray(importedGoalRows.map((row) => row.productId));
+      importedPdvIds = dedupeStringArray(importedGoalRows.map((row) => row.pdvId));
     }
 
-    const productoIds = dedupeStringArray([...selectedProductoIds, ...importedProductoIds])
-    const pdvIds = dedupeStringArray([...selectedPdvIds, ...importedPdvIds])
+    const productoIds = dedupeStringArray([...selectedProductoIds, ...importedProductoIds]);
+    const pdvIds = dedupeStringArray([...selectedPdvIds, ...importedPdvIds]);
     const productGoals =
       importedGoalRows.length > 0
         ? summarizeImportedCampaignGoals(importedGoalRows)
-        : manualProductGoals
+        : manualProductGoals;
 
     if (pdvIds.length === 0) {
-      throw new Error('Selecciona al menos un PDV objetivo para la campana.')
+      throw new Error('Selecciona al menos un PDV objetivo para la campana.');
     }
 
     const { data: pdvRelations, error: pdvRelationsError } = await service
@@ -1193,20 +1235,22 @@ export async function guardarCampana(
       .select('pdv_id, cuenta_cliente_id, activo, fecha_fin')
       .eq('cuenta_cliente_id', cuentaCliente.id)
       .in('pdv_id', pdvIds)
-      .limit(Math.max(pdvIds.length, 1))
+      .limit(Math.max(pdvIds.length, 1));
 
     if (pdvRelationsError) {
-      throw new Error(pdvRelationsError.message)
+      throw new Error(pdvRelationsError.message);
     }
 
     const validPdvIds = new Set(
       (pdvRelations ?? [])
         .filter((item) => item.activo && (!item.fecha_fin || item.fecha_fin >= fechaInicio))
         .map((item) => item.pdv_id)
-    )
+    );
 
     if (validPdvIds.size !== pdvIds.length) {
-      throw new Error('Todos los PDVs deben pertenecer a la cuenta cliente activa y seguir vigentes.')
+      throw new Error(
+        'Todos los PDVs deben pertenecer a la cuenta cliente activa y seguir vigentes.'
+      );
     }
 
     if (productoIds.length > 0) {
@@ -1215,35 +1259,36 @@ export async function guardarCampana(
         .select('id')
         .in('id', productoIds)
         .eq('activo', true)
-        .limit(Math.max(productoIds.length, 1))
+        .limit(Math.max(productoIds.length, 1));
 
       if (productosError || (productos ?? []).length !== productoIds.length) {
-        throw new Error(productosError?.message ?? 'Uno o mas productos foco no existen o estan inactivos.')
+        throw new Error(
+          productosError?.message ?? 'Uno o mas productos foco no existen o estan inactivos.'
+        );
       }
     }
 
-    const invalidGoalProduct = productGoals.find((item) => !productoIds.includes(item.productId))
+    const invalidGoalProduct = productGoals.find((item) => !productoIds.includes(item.productId));
 
     if (invalidGoalProduct) {
-      throw new Error('Cada meta por producto debe corresponder a un producto foco seleccionado.')
+      throw new Error('Cada meta por producto debe corresponder a un producto foco seleccionado.');
     }
 
-    const existingCampaignMetadata =
-      campanaId
-        ? normalizeMetadataRecord(
-            (
-              await service
-                .from('campana')
-                .select('metadata')
-                .eq('id', campanaId)
-                .eq('cuenta_cliente_id', cuentaCliente.id)
-                .maybeSingle()
-            ).data?.metadata
-          )
-        : {}
+    const existingCampaignMetadata = campanaId
+      ? normalizeMetadataRecord(
+          (
+            await service
+              .from('campana')
+              .select('metadata')
+              .eq('id', campanaId)
+              .eq('cuenta_cliente_id', cuentaCliente.id)
+              .maybeSingle()
+          ).data?.metadata
+        )
+      : {};
 
-    const existingManual = readCampaignManualDocument(existingCampaignMetadata)
-    const taskVariability = Math.max(1, tareasTemplate.length)
+    const existingManual = readCampaignManualDocument(existingCampaignMetadata);
+    const taskVariability = Math.max(1, tareasTemplate.length);
     const campaignPayload = {
       cuenta_cliente_id: cuentaCliente.id,
       cadena_id: cadenaId,
@@ -1275,21 +1320,27 @@ export async function guardarCampana(
       },
       updated_by_usuario_id: actor.usuarioId,
       updated_at: new Date().toISOString(),
-    }
+    };
 
     const campaignQuery = campanaId
-      ? service.from('campana').update(campaignPayload).eq('id', campanaId).eq('cuenta_cliente_id', cuentaCliente.id)
+      ? service
+          .from('campana')
+          .update(campaignPayload)
+          .eq('id', campanaId)
+          .eq('cuenta_cliente_id', cuentaCliente.id)
       : service.from('campana').insert({
           ...campaignPayload,
           created_by_usuario_id: actor.usuarioId,
-        })
+        });
 
     const { data: campaign, error: campaignError } = await campaignQuery
-      .select('id, nombre, fecha_inicio, fecha_fin, cuenta_cliente_id, evidencias_requeridas, metadata')
-      .maybeSingle()
+      .select(
+        'id, nombre, fecha_inicio, fecha_fin, cuenta_cliente_id, evidencias_requeridas, metadata'
+      )
+      .maybeSingle();
 
     if (campaignError || !campaign) {
-      throw new Error(campaignError?.message ?? 'No fue posible guardar la campana.')
+      throw new Error(campaignError?.message ?? 'No fue posible guardar la campana.');
     }
 
     if (manualMercadeoUpload || hasDirectR2Reference(manualMercadeoR2)) {
@@ -1299,7 +1350,7 @@ export async function guardarCampana(
         campanaId: campaign.id,
         file: manualMercadeoUpload,
         directReference: manualMercadeoR2,
-      })
+      });
 
       if (storedManual) {
         const { error: manualUpdateError } = await service
@@ -1319,10 +1370,10 @@ export async function guardarCampana(
             updated_by_usuario_id: actor.usuarioId,
             updated_at: new Date().toISOString(),
           })
-          .eq('id', campaign.id)
+          .eq('id', campaign.id);
 
         if (manualUpdateError) {
-          throw new Error(manualUpdateError.message)
+          throw new Error(manualUpdateError.message);
         }
       }
     }
@@ -1331,58 +1382,62 @@ export async function guardarCampana(
       .from('campana_pdv')
       .select('id, pdv_id, tareas_cumplidas, evidencias_cargadas, comentarios, metadata')
       .eq('campana_id', campaign.id)
-      .limit(1000)
+      .limit(1000);
 
     if (existingRowsError) {
-      throw new Error(existingRowsError.message)
+      throw new Error(existingRowsError.message);
     }
 
-    const existingMap = new Map((existingRows ?? []).map((item) => [item.pdv_id, item]))
+    const existingMap = new Map((existingRows ?? []).map((item) => [item.pdv_id, item]));
 
     const { data: assignmentRows, error: assignmentError } = await service
       .from('asignacion')
-      .select('pdv_id, empleado_id, supervisor_empleado_id, fecha_inicio, fecha_fin, estado_publicacion, created_at')
+      .select(
+        'pdv_id, empleado_id, supervisor_empleado_id, fecha_inicio, fecha_fin, estado_publicacion, created_at'
+      )
       .in('pdv_id', pdvIds)
-      .limit(1200)
+      .limit(1200);
 
     if (assignmentError) {
-      throw new Error(assignmentError.message)
+      throw new Error(assignmentError.message);
     }
 
-    const assignmentMap = new Map<string, (typeof assignmentRows)[number][]>()
+    const assignmentMap = new Map<string, (typeof assignmentRows)[number][]>();
 
     for (const assignment of assignmentRows ?? []) {
-      const current = assignmentMap.get(assignment.pdv_id) ?? []
-      current.push(assignment)
-      assignmentMap.set(assignment.pdv_id, current)
+      const current = assignmentMap.get(assignment.pdv_id) ?? [];
+      current.push(assignment);
+      assignmentMap.set(assignment.pdv_id, current);
     }
 
     for (const [pdvId, items] of assignmentMap.entries()) {
       assignmentMap.set(
         pdvId,
         [...items].sort((left, right) => right.created_at.localeCompare(left.created_at))
-      )
+      );
     }
 
     const rowsToUpsert = pdvIds.map((pdvId) => {
-      const previousRow = existingMap.get(pdvId)
-      const previousMetadata = normalizeMetadataRecord(previousRow?.metadata)
+      const previousRow = existingMap.get(pdvId);
+      const previousMetadata = normalizeMetadataRecord(previousRow?.metadata);
       const overlappingAssignment = (assignmentMap.get(pdvId) ?? []).find(
         (item) =>
           item.estado_publicacion === 'PUBLICADA' &&
           rangesOverlapIso(item.fecha_inicio, item.fecha_fin, fechaInicio, fechaFin)
-      )
+      );
       const completedTasks = dedupeStringArray(
-        ((previousRow?.tareas_cumplidas ?? []) as string[]).filter((item) => tareasTemplate.includes(item))
-      )
-      const evidenceUploaded = previousRow?.evidencias_cargadas ?? 0
+        ((previousRow?.tareas_cumplidas ?? []) as string[]).filter((item) =>
+          tareasTemplate.includes(item)
+        )
+      );
+      const evidenceUploaded = previousRow?.evidencias_cargadas ?? 0;
       const progress = buildCampaignProgress(
         tareasTemplate,
         completedTasks,
         campaign.evidencias_requeridas.length,
         evidenceUploaded,
         fechaFin
-      )
+      );
 
       return {
         campana_id: campaign.id,
@@ -1400,30 +1455,30 @@ export async function guardarCampana(
           supervisor_empleado_id: overlappingAssignment?.supervisor_empleado_id ?? null,
         },
         updated_by_usuario_id: actor.usuarioId,
-      }
-    })
+      };
+    });
 
     if (rowsToUpsert.length > 0) {
       const { error: upsertError } = await service
         .from('campana_pdv')
-        .upsert(rowsToUpsert, { onConflict: 'campana_id,pdv_id' })
+        .upsert(rowsToUpsert, { onConflict: 'campana_id,pdv_id' });
 
       if (upsertError) {
-        throw new Error(upsertError.message)
+        throw new Error(upsertError.message);
       }
     }
 
-    const pdvIdsToDelete = Array.from(existingMap.keys()).filter((item) => !pdvIds.includes(item))
+    const pdvIdsToDelete = Array.from(existingMap.keys()).filter((item) => !pdvIds.includes(item));
 
     if (pdvIdsToDelete.length > 0) {
       const { error: deleteError } = await service
         .from('campana_pdv')
         .delete()
         .eq('campana_id', campaign.id)
-        .in('pdv_id', pdvIdsToDelete)
+        .in('pdv_id', pdvIdsToDelete);
 
       if (deleteError) {
-        throw new Error(deleteError.message)
+        throw new Error(deleteError.message);
       }
     }
 
@@ -1432,22 +1487,22 @@ export async function guardarCampana(
         .from('campana_pdv')
         .select('id, pdv_id')
         .eq('campana_id', campaign.id)
-        .limit(1000)
+        .limit(1000);
 
       if (refreshedCampaignPdvsError) {
-        throw new Error(refreshedCampaignPdvsError.message)
+        throw new Error(refreshedCampaignPdvsError.message);
       }
 
       const campaignPdvIdByPdv = new Map(
         (refreshedCampaignPdvs ?? []).map((item) => [item.pdv_id, item.id] as const)
-      )
+      );
 
       const rowsToUpsert = importedGoalRows.map((row) => {
-        const campanaPdvId = campaignPdvIdByPdv.get(row.pdvId)
+        const campanaPdvId = campaignPdvIdByPdv.get(row.pdvId);
         if (!campanaPdvId) {
           throw new Error(
             `No fue posible enlazar la meta importada del PDV ${row.pdvId} a la campaña actual.`
-          )
+          );
         }
 
         return {
@@ -1461,40 +1516,40 @@ export async function guardarCampana(
           observaciones: row.notes,
           updated_by_usuario_id: actor.usuarioId,
           created_by_usuario_id: actor.usuarioId,
-        }
-      })
+        };
+      });
 
       const { error: metasUpsertError } = await service
         .from('campana_pdv_producto_meta')
-        .upsert(rowsToUpsert, { onConflict: 'campana_id,pdv_id,producto_id' })
+        .upsert(rowsToUpsert, { onConflict: 'campana_id,pdv_id,producto_id' });
 
       if (metasUpsertError) {
-        throw new Error(metasUpsertError.message)
+        throw new Error(metasUpsertError.message);
       }
 
       const { data: existingMetas, error: existingMetasError } = await service
         .from('campana_pdv_producto_meta')
         .select('id, pdv_id, producto_id')
         .eq('campana_id', campaign.id)
-        .limit(5000)
+        .limit(5000);
 
       if (existingMetasError) {
-        throw new Error(existingMetasError.message)
+        throw new Error(existingMetasError.message);
       }
 
-      const importedKeys = new Set(importedGoalRows.map((row) => `${row.pdvId}::${row.productId}`))
+      const importedKeys = new Set(importedGoalRows.map((row) => `${row.pdvId}::${row.productId}`));
       const staleMetaIds = (existingMetas ?? [])
         .filter((row) => !importedKeys.has(`${row.pdv_id}::${row.producto_id}`))
-        .map((row) => row.id)
+        .map((row) => row.id);
 
       if (staleMetaIds.length > 0) {
         const { error: staleMetaDeleteError } = await service
           .from('campana_pdv_producto_meta')
           .delete()
-          .in('id', staleMetaIds)
+          .in('id', staleMetaIds);
 
         if (staleMetaDeleteError) {
-          throw new Error(staleMetaDeleteError.message)
+          throw new Error(staleMetaDeleteError.message);
         }
       }
     }
@@ -1515,27 +1570,27 @@ export async function guardarCampana(
         metas_producto_por_pdv: importedGoalRows.length,
         manual_cargado: Boolean(manualMercadeoUpload || existingManual),
       },
-    })
+    });
 
     await publishCampanaUiChanges(actor, service, {
       cuentaClienteId: cuentaCliente.id,
       campanaId: campaign.id,
       eventType: campanaId ? 'campana_actualizada' : 'campana_creada',
-    })
+    });
     await publishCampanaUiChanges(actor, service, {
       cuentaClienteId: cuentaCliente.id,
       campanaId: campanaId ?? null,
       eventType: 'campana_actualizada',
-    })
+    });
 
     return buildState({
       ok: true,
       message: campanaId ? 'Campana actualizada.' : 'Campana creada y asignada a PDVs objetivo.',
-    })
+    });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible guardar la campana.',
-    })
+    });
   }
 }
 
@@ -1544,35 +1599,41 @@ export async function actualizarCumplimientoCampanaPdv(
   formData: FormData
 ): Promise<CampanaAdminActionState> {
   try {
-    const actor = await requerirGestorCampanas()
-    const service = createServiceClient()
-    const campanaPdvId = normalizeRequiredText(formData.get('campana_pdv_id'), 'Objetivo campana-PDV')
-    const completedTasks = getSelectedValues(formData, 'tarea_cumplida')
-    const evidenciasCargadas = normalizeNonNegativeInteger(formData.get('evidencias_cargadas'), 'Evidencias cargadas')
-    const comentarios = normalizeOptionalText(formData.get('comentarios'))
+    const actor = await requerirGestorCampanas();
+    const service = createServiceClient();
+    const campanaPdvId = normalizeRequiredText(
+      formData.get('campana_pdv_id'),
+      'Objetivo campana-PDV'
+    );
+    const completedTasks = getSelectedValues(formData, 'tarea_cumplida');
+    const evidenciasCargadas = normalizeNonNegativeInteger(
+      formData.get('evidencias_cargadas'),
+      'Evidencias cargadas'
+    );
+    const comentarios = normalizeOptionalText(formData.get('comentarios'));
 
     const { data: row, error: rowError } = await service
       .from('campana_pdv')
       .select('id, campana_id, cuenta_cliente_id, tareas_requeridas')
       .eq('id', campanaPdvId)
-      .maybeSingle()
+      .maybeSingle();
 
     if (rowError || !row) {
-      throw new Error(rowError?.message ?? 'No fue posible encontrar el objetivo de campana.')
+      throw new Error(rowError?.message ?? 'No fue posible encontrar el objetivo de campana.');
     }
 
     if (actor.cuentaClienteId && actor.cuentaClienteId !== row.cuenta_cliente_id) {
-      throw new Error('No puedes editar campanas fuera de tu cuenta cliente asignada.')
+      throw new Error('No puedes editar campanas fuera de tu cuenta cliente asignada.');
     }
 
     const { data: campaign, error: campaignError } = await service
       .from('campana')
       .select('id, fecha_fin, evidencias_requeridas')
       .eq('id', row.campana_id)
-      .maybeSingle()
+      .maybeSingle();
 
     if (campaignError || !campaign) {
-      throw new Error(campaignError?.message ?? 'No fue posible encontrar la campana relacionada.')
+      throw new Error(campaignError?.message ?? 'No fue posible encontrar la campana relacionada.');
     }
 
     const progress = buildCampaignProgress(
@@ -1581,7 +1642,7 @@ export async function actualizarCumplimientoCampanaPdv(
       (campaign.evidencias_requeridas ?? []).length,
       evidenciasCargadas,
       campaign.fecha_fin
-    )
+    );
 
     const { error: updateError } = await service
       .from('campana_pdv')
@@ -1594,10 +1655,10 @@ export async function actualizarCumplimientoCampanaPdv(
         updated_by_usuario_id: actor.usuarioId,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', campanaPdvId)
+      .eq('id', campanaPdvId);
 
     if (updateError) {
-      throw new Error(updateError.message)
+      throw new Error(updateError.message);
     }
 
     await registrarEventoAudit(service, {
@@ -1611,24 +1672,25 @@ export async function actualizarCumplimientoCampanaPdv(
         avance_porcentaje: progress.progressPercentage,
         estatus: progress.status,
       },
-    })
+    });
 
     await publishCampanaUiChanges(actor, service, {
       cuentaClienteId: row.cuenta_cliente_id,
       campanaId: row.campana_id,
       campanaPdvId: row.id,
       eventType: 'campana_pdv_cumplimiento_actualizado',
-    })
+    });
     // Published selectively above; no route-wide refresh needed.
 
     return buildState({
       ok: true,
       message: 'Cumplimiento de campana actualizado.',
-    })
+    });
   } catch (error) {
     return buildState({
-      message: error instanceof Error ? error.message : 'No fue posible actualizar el cumplimiento.',
-    })
+      message:
+        error instanceof Error ? error.message : 'No fue posible actualizar el cumplimiento.',
+    });
   }
 }
 
@@ -1637,47 +1699,58 @@ export async function ejecutarTareasCampanaPdv(
   formData: FormData
 ): Promise<CampanaAdminActionState> {
   try {
-    const actor = await requerirDermoconsejeroCampana()
-    const service = createServiceClient()
-    const campanaPdvId = normalizeRequiredText(formData.get('campana_pdv_id'), 'Objetivo campana-PDV')
-    const comentarios = normalizeOptionalText(formData.get('comentarios'))
-    const selectedEvidenceRequirementId = normalizeOptionalText(formData.get('evidence_requirement_id'))
-    const evidenceFiles = getUploadedFiles(formData, 'evidencia')
-    const evidenceR2Manifest = readDirectR2Manifest(formData, 'evidencia_r2_manifest')
-    const taskEvidenceR2Manifest = readDirectR2Manifest(formData, 'task_evidence_r2_manifest')
+    const actor = await requerirDermoconsejeroCampana();
+    const service = createServiceClient();
+    const campanaPdvId = normalizeRequiredText(
+      formData.get('campana_pdv_id'),
+      'Objetivo campana-PDV'
+    );
+    const comentarios = normalizeOptionalText(formData.get('comentarios'));
+    const selectedEvidenceRequirementId = normalizeOptionalText(
+      formData.get('evidence_requirement_id')
+    );
+    const evidenceFiles = getUploadedFiles(formData, 'evidencia');
+    const evidenceR2Manifest = readDirectR2Manifest(formData, 'evidencia_r2_manifest');
+    const taskEvidenceR2Manifest = readDirectR2Manifest(formData, 'task_evidence_r2_manifest');
 
     const { data: row, error: rowError } = await service
       .from('campana_pdv')
-      .select('id, campana_id, cuenta_cliente_id, pdv_id, dc_empleado_id, tareas_requeridas, metadata')
+      .select(
+        'id, campana_id, cuenta_cliente_id, pdv_id, dc_empleado_id, tareas_requeridas, metadata'
+      )
       .eq('id', campanaPdvId)
-      .maybeSingle()
+      .maybeSingle();
 
     if (rowError || !row) {
-      throw new Error(rowError?.message ?? 'No fue posible encontrar el objetivo de campana.')
+      throw new Error(rowError?.message ?? 'No fue posible encontrar el objetivo de campana.');
     }
 
     if (row.dc_empleado_id && row.dc_empleado_id !== actor.empleadoId) {
-      throw new Error('Esta tarea de visita no corresponde al dermoconsejero autenticado.')
+      throw new Error('Esta tarea de visita no corresponde al dermoconsejero autenticado.');
     }
 
     if (actor.cuentaClienteId && actor.cuentaClienteId !== row.cuenta_cliente_id) {
-      throw new Error('No puedes ejecutar tareas fuera de tu cuenta cliente asignada.')
+      throw new Error('No puedes ejecutar tareas fuera de tu cuenta cliente asignada.');
     }
 
-    const todayIso = new Date().toISOString().slice(0, 10)
+    const todayIso = new Date().toISOString().slice(0, 10);
 
     const { data: campaign, error: campaignError } = await service
       .from('campana')
       .select('id, fecha_inicio, fecha_fin, evidencias_requeridas, estado, metadata')
       .eq('id', row.campana_id)
-      .maybeSingle()
+      .maybeSingle();
 
     if (campaignError || !campaign) {
-      throw new Error(campaignError?.message ?? 'No fue posible encontrar la campana relacionada.')
+      throw new Error(campaignError?.message ?? 'No fue posible encontrar la campana relacionada.');
     }
 
-    if (campaign.estado !== 'ACTIVA' || campaign.fecha_inicio > todayIso || campaign.fecha_fin < todayIso) {
-      throw new Error('La campana no esta activa para la fecha de operacion actual.')
+    if (
+      campaign.estado !== 'ACTIVA' ||
+      campaign.fecha_inicio > todayIso ||
+      campaign.fecha_fin < todayIso
+    ) {
+      throw new Error('La campana no esta activa para la fecha de operacion actual.');
     }
 
     const { data: activeAttendance, error: attendanceError } = await service
@@ -1691,37 +1764,44 @@ export async function ejecutarTareasCampanaPdv(
       .is('check_out_utc', null)
       .order('check_in_utc', { ascending: false })
       .limit(1)
-      .maybeSingle()
+      .maybeSingle();
 
     if (attendanceError) {
-      throw new Error(attendanceError.message)
+      throw new Error(attendanceError.message);
     }
 
     if (!activeAttendance?.id || !activeAttendance.check_in_utc) {
-      throw new Error('Necesitas un check-in valido y activo en este PDV para ejecutar tareas de visita.')
+      throw new Error(
+        'Necesitas un check-in valido y activo en este PDV para ejecutar tareas de visita.'
+      );
     }
 
-    const nowIso = new Date().toISOString()
-    const metadataRecord = normalizeMetadataRecord(row.metadata)
-    const variabilityCount = readCampaignTaskVariability(campaign.metadata, (row.tareas_requeridas ?? []).length)
-    const visitTaskTemplate = readVisitTaskTemplate(campaign.metadata, row.tareas_requeridas ?? [])
-    const evidenceTemplate = readCampaignEvidenceTemplate(campaign.metadata, campaign.evidencias_requeridas ?? [])
-    const selectedEvidenceRequirement =
-      selectedEvidenceRequirementId
-        ? evidenceTemplate.find((item) => item.id === selectedEvidenceRequirementId) ?? null
-        : null
+    const nowIso = new Date().toISOString();
+    const metadataRecord = normalizeMetadataRecord(row.metadata);
+    const variabilityCount = readCampaignTaskVariability(
+      campaign.metadata,
+      (row.tareas_requeridas ?? []).length
+    );
+    const visitTaskTemplate = readVisitTaskTemplate(campaign.metadata, row.tareas_requeridas ?? []);
+    const evidenceTemplate = readCampaignEvidenceTemplate(
+      campaign.metadata,
+      campaign.evidencias_requeridas ?? []
+    );
+    const selectedEvidenceRequirement = selectedEvidenceRequirementId
+      ? (evidenceTemplate.find((item) => item.id === selectedEvidenceRequirementId) ?? null)
+      : null;
     const { sessions, session } = ensureVisitTaskSession(metadataRecord, {
       attendanceId: activeAttendance.id,
       templateTasks: visitTaskTemplate,
       variabilityCount,
       generatedAt: nowIso,
-    })
-    const updatedSession = updateVisitTaskSession(session, getTaskSessionUpdates(formData), nowIso)
-    const existingEntries = readCampaignEvidenceEntries(row.metadata)
-    const uploadedEntries: CampaignEvidenceEntry[] = []
-    const suspiciousNotifications: Array<{ taskLabel: string; reason: string }> = []
-    const taskEvidencePayloads = getTaskEvidencePayloads(formData)
-    const resolvedTaskMap = new Map(updatedSession.tasks.map((task) => [task.key, task]))
+    });
+    const updatedSession = updateVisitTaskSession(session, getTaskSessionUpdates(formData), nowIso);
+    const existingEntries = readCampaignEvidenceEntries(row.metadata);
+    const uploadedEntries: CampaignEvidenceEntry[] = [];
+    const suspiciousNotifications: Array<{ taskLabel: string; reason: string }> = [];
+    const taskEvidencePayloads = getTaskEvidencePayloads(formData);
+    const resolvedTaskMap = new Map(updatedSession.tasks.map((task) => [task.key, task]));
 
     for (const task of updatedSession.tasks) {
       if (
@@ -1729,7 +1809,9 @@ export async function ejecutarTareasCampanaPdv(
         task.status === 'COMPLETADA' &&
         !taskEvidencePayloads.some((entry) => entry.taskKey === task.key)
       ) {
-        throw new Error(`La tarea "${task.label}" requiere evidencia fotografica capturada desde camara.`)
+        throw new Error(
+          `La tarea "${task.label}" requiere evidencia fotografica capturada desde camara.`
+        );
       }
     }
 
@@ -1739,7 +1821,7 @@ export async function ejecutarTareasCampanaPdv(
         cuentaClienteId: row.cuenta_cliente_id,
         campanaPdvId: row.id,
         file,
-      })
+      });
 
       uploadedEntries.push({
         url: stored.archivo.url,
@@ -1763,7 +1845,7 @@ export async function ejecutarTareasCampanaPdv(
         suspiciousReason: null,
         evidenceLabel: selectedEvidenceRequirement?.label ?? null,
         evidenceKind: selectedEvidenceRequirement?.kind ?? null,
-      } as const)
+      } as const);
     }
 
     if (evidenceR2Manifest.length > 0) {
@@ -1772,7 +1854,7 @@ export async function ejecutarTareasCampanaPdv(
         modulo: 'campanas_evidencia',
         referenciaEntidadId: row.id,
         references: evidenceR2Manifest,
-      })
+      });
 
       for (const stored of registeredGeneralEvidence) {
         uploadedEntries.push({
@@ -1797,18 +1879,18 @@ export async function ejecutarTareasCampanaPdv(
           suspiciousReason: null,
           evidenceLabel: selectedEvidenceRequirement?.label ?? null,
           evidenceKind: selectedEvidenceRequirement?.kind ?? null,
-        } as const)
+        } as const);
       }
     }
 
-    const taskSessionUpdates = getTaskSessionUpdates(formData)
-    const taskSessionUpdateMap = new Map(taskSessionUpdates.map((entry) => [entry.key, entry]))
+    const taskSessionUpdates = getTaskSessionUpdates(formData);
+    const taskSessionUpdateMap = new Map(taskSessionUpdates.map((entry) => [entry.key, entry]));
 
     for (const payload of taskEvidencePayloads) {
-      const task = resolvedTaskMap.get(payload.taskKey)
+      const task = resolvedTaskMap.get(payload.taskKey);
 
       if (!task) {
-        continue
+        continue;
       }
 
       const stored = await uploadCampaignEvidence(service, {
@@ -1816,30 +1898,38 @@ export async function ejecutarTareasCampanaPdv(
         cuentaClienteId: row.cuenta_cliente_id,
         campanaPdvId: row.id,
         file: payload.file,
-      })
+      });
 
-      const metadata = payload.metadata
+      const metadata = payload.metadata;
       const capturedAt =
-        typeof metadata?.capturedAt === 'string' && metadata.capturedAt.trim() ? metadata.capturedAt.trim() : null
-      const latitude = typeof metadata?.latitude === 'number' ? metadata.latitude : null
-      const longitude = typeof metadata?.longitude === 'number' ? metadata.longitude : null
-      const cameraCaptured = metadata?.captureSource === 'camera' || metadata?.cameraCaptured === true
-      const timestampStamped = metadata?.timestampStamped === true
-      let suspiciousReason: string | null = null
-      let distanceFromCheckInMeters: number | null = null
+        typeof metadata?.capturedAt === 'string' && metadata.capturedAt.trim()
+          ? metadata.capturedAt.trim()
+          : null;
+      const latitude = typeof metadata?.latitude === 'number' ? metadata.latitude : null;
+      const longitude = typeof metadata?.longitude === 'number' ? metadata.longitude : null;
+      const cameraCaptured =
+        metadata?.captureSource === 'camera' || metadata?.cameraCaptured === true;
+      const timestampStamped = metadata?.timestampStamped === true;
+      let suspiciousReason: string | null = null;
+      let distanceFromCheckInMeters: number | null = null;
 
       if (!cameraCaptured || !timestampStamped || !capturedAt) {
-        suspiciousReason = 'La evidencia no contiene metadata valida de captura en vivo.'
+        suspiciousReason = 'La evidencia no contiene metadata valida de captura en vivo.';
       }
 
       if (capturedAt) {
-        const capturedAtMs = Date.parse(capturedAt)
-        const checkInMs = Date.parse(activeAttendance.check_in_utc)
-        const nowMs = Date.parse(nowIso)
+        const capturedAtMs = Date.parse(capturedAt);
+        const checkInMs = Date.parse(activeAttendance.check_in_utc);
+        const nowMs = Date.parse(nowIso);
 
-        if (!Number.isFinite(capturedAtMs) || capturedAtMs < checkInMs - 60000 || capturedAtMs > nowMs + 30000) {
+        if (
+          !Number.isFinite(capturedAtMs) ||
+          capturedAtMs < checkInMs - 60000 ||
+          capturedAtMs > nowMs + 30000
+        ) {
           suspiciousReason =
-            suspiciousReason ?? 'La evidencia no fue capturada dentro de la ventana temporal valida de la visita activa.'
+            suspiciousReason ??
+            'La evidencia no fue capturada dentro de la ventana temporal valida de la visita activa.';
         }
       }
 
@@ -1854,27 +1944,30 @@ export async function ejecutarTareasCampanaPdv(
           activeAttendance.longitud_check_in,
           latitude,
           longitude
-        )
+        );
 
         if (distanceFromCheckInMeters > 200) {
-          suspiciousReason = `Las coordenadas de la evidencia difieren ${Math.round(distanceFromCheckInMeters)} m del check-in activo.`
+          suspiciousReason = `Las coordenadas de la evidencia difieren ${Math.round(distanceFromCheckInMeters)} m del check-in activo.`;
         }
       } else if (visitTaskRequiresPhoto(task.kind)) {
-        suspiciousReason = suspiciousReason ?? 'La evidencia no contiene coordenadas GPS consistentes.'
+        suspiciousReason =
+          suspiciousReason ?? 'La evidencia no contiene coordenadas GPS consistentes.';
       }
 
       if (visitTaskRequiresPhoto(task.kind) && !payload.file.type.startsWith('image/')) {
-        suspiciousReason = suspiciousReason ?? 'La tarea fotografica no envio un archivo de imagen valido.'
+        suspiciousReason =
+          suspiciousReason ?? 'La tarea fotografica no envio un archivo de imagen valido.';
       }
 
       const reusedEvidence = existingEntries.find(
         (entry) => entry.hash === stored.archivo.hash && entry.asistenciaId !== activeAttendance.id
-      )
+      );
       if (reusedEvidence) {
-        suspiciousReason = suspiciousReason ?? 'La evidencia coincide con una captura previa de otra visita.'
+        suspiciousReason =
+          suspiciousReason ?? 'La evidencia coincide con una captura previa de otra visita.';
       }
 
-      const suspicious = Boolean(suspiciousReason)
+      const suspicious = Boolean(suspiciousReason);
 
       uploadedEntries.push({
         url: stored.archivo.url,
@@ -1898,7 +1991,7 @@ export async function ejecutarTareasCampanaPdv(
         suspiciousReason,
         evidenceLabel: selectedEvidenceRequirement?.label ?? task.label,
         evidenceKind: selectedEvidenceRequirement?.kind ?? null,
-      })
+      });
 
       taskSessionUpdateMap.set(task.key, {
         key: task.key,
@@ -1907,13 +2000,13 @@ export async function ejecutarTareasCampanaPdv(
         suspicious,
         suspiciousReason,
         evidenceCountIncrement: 1,
-      })
+      });
 
       if (suspicious && suspiciousReason) {
         suspiciousNotifications.push({
           taskLabel: task.label,
           reason: suspiciousReason,
-        })
+        });
       }
     }
 
@@ -1923,41 +2016,47 @@ export async function ejecutarTareasCampanaPdv(
         modulo: 'campanas_tarea',
         referenciaEntidadId: row.id,
         references: taskEvidenceR2Manifest,
-      })
+      });
 
       for (const stored of registeredTaskEvidence) {
         const metadata =
-          stored.metadata && typeof stored.metadata === 'object' ? stored.metadata : {}
-        const taskKey = typeof metadata.taskKey === 'string' ? metadata.taskKey : null
+          stored.metadata && typeof stored.metadata === 'object' ? stored.metadata : {};
+        const taskKey = typeof metadata.taskKey === 'string' ? metadata.taskKey : null;
         if (!taskKey) {
-          continue
+          continue;
         }
 
-        const task = resolvedTaskMap.get(taskKey)
+        const task = resolvedTaskMap.get(taskKey);
         if (!task) {
-          continue
+          continue;
         }
 
-        const capturedAt = typeof metadata.capturedAt === 'string' ? metadata.capturedAt : null
-        const latitude = typeof metadata.latitude === 'number' ? metadata.latitude : null
-        const longitude = typeof metadata.longitude === 'number' ? metadata.longitude : null
-        const cameraCaptured = metadata.captureSource === 'camera' || metadata.cameraCaptured === true
-        const timestampStamped = metadata.timestampStamped === true
-        let suspiciousReason: string | null = null
-        let distanceFromCheckInMeters: number | null = null
+        const capturedAt = typeof metadata.capturedAt === 'string' ? metadata.capturedAt : null;
+        const latitude = typeof metadata.latitude === 'number' ? metadata.latitude : null;
+        const longitude = typeof metadata.longitude === 'number' ? metadata.longitude : null;
+        const cameraCaptured =
+          metadata.captureSource === 'camera' || metadata.cameraCaptured === true;
+        const timestampStamped = metadata.timestampStamped === true;
+        let suspiciousReason: string | null = null;
+        let distanceFromCheckInMeters: number | null = null;
 
         if (!cameraCaptured || !timestampStamped || !capturedAt) {
-          suspiciousReason = 'La evidencia no contiene metadata valida de captura en vivo.'
+          suspiciousReason = 'La evidencia no contiene metadata valida de captura en vivo.';
         }
 
         if (capturedAt) {
-          const capturedAtMs = Date.parse(capturedAt)
-          const checkInMs = Date.parse(activeAttendance.check_in_utc)
-          const nowMs = Date.parse(nowIso)
+          const capturedAtMs = Date.parse(capturedAt);
+          const checkInMs = Date.parse(activeAttendance.check_in_utc);
+          const nowMs = Date.parse(nowIso);
 
-          if (!Number.isFinite(capturedAtMs) || capturedAtMs < checkInMs - 60000 || capturedAtMs > nowMs + 30000) {
+          if (
+            !Number.isFinite(capturedAtMs) ||
+            capturedAtMs < checkInMs - 60000 ||
+            capturedAtMs > nowMs + 30000
+          ) {
             suspiciousReason =
-              suspiciousReason ?? 'La evidencia no fue capturada dentro de la ventana temporal valida de la visita activa.'
+              suspiciousReason ??
+              'La evidencia no fue capturada dentro de la ventana temporal valida de la visita activa.';
           }
         }
 
@@ -1972,27 +2071,30 @@ export async function ejecutarTareasCampanaPdv(
             activeAttendance.longitud_check_in,
             latitude,
             longitude
-          )
+          );
 
           if (distanceFromCheckInMeters > 200) {
-            suspiciousReason = `Las coordenadas de la evidencia difieren ${Math.round(distanceFromCheckInMeters)} m del check-in activo.`
+            suspiciousReason = `Las coordenadas de la evidencia difieren ${Math.round(distanceFromCheckInMeters)} m del check-in activo.`;
           }
         } else if (visitTaskRequiresPhoto(task.kind)) {
-          suspiciousReason = suspiciousReason ?? 'La evidencia no contiene coordenadas GPS consistentes.'
+          suspiciousReason =
+            suspiciousReason ?? 'La evidencia no contiene coordenadas GPS consistentes.';
         }
 
         if (visitTaskRequiresPhoto(task.kind) && !(stored.contentType ?? '').startsWith('image/')) {
-          suspiciousReason = suspiciousReason ?? 'La tarea fotografica no envio un archivo de imagen valido.'
+          suspiciousReason =
+            suspiciousReason ?? 'La tarea fotografica no envio un archivo de imagen valido.';
         }
 
         const reusedEvidence = existingEntries.find(
           (entry) => entry.hash === stored.hash && entry.asistenciaId !== activeAttendance.id
-        )
+        );
         if (reusedEvidence) {
-          suspiciousReason = suspiciousReason ?? 'La evidencia coincide con una captura previa de otra visita.'
+          suspiciousReason =
+            suspiciousReason ?? 'La evidencia coincide con una captura previa de otra visita.';
         }
 
-        const suspicious = Boolean(suspiciousReason)
+        const suspicious = Boolean(suspiciousReason);
 
         uploadedEntries.push({
           url: stored.url,
@@ -2016,7 +2118,7 @@ export async function ejecutarTareasCampanaPdv(
           suspiciousReason,
           evidenceLabel: selectedEvidenceRequirement?.label ?? task.label,
           evidenceKind: selectedEvidenceRequirement?.kind ?? null,
-        })
+        });
 
         taskSessionUpdateMap.set(task.key, {
           key: task.key,
@@ -2025,13 +2127,13 @@ export async function ejecutarTareasCampanaPdv(
           suspicious,
           suspiciousReason,
           evidenceCountIncrement: 1,
-        })
+        });
 
         if (suspicious && suspiciousReason) {
           suspiciousNotifications.push({
             taskLabel: task.label,
             reason: suspiciousReason,
-          })
+          });
         }
       }
     }
@@ -2040,19 +2142,19 @@ export async function ejecutarTareasCampanaPdv(
       session,
       Array.from(taskSessionUpdateMap.values()),
       nowIso
-    )
+    );
 
-    const mergedEntries = mergeCampaignEvidenceEntries(existingEntries, uploadedEntries)
-    const resolvedTasks = getResolvedVisitTaskLabels(finalSession)
+    const mergedEntries = mergeCampaignEvidenceEntries(existingEntries, uploadedEntries);
+    const resolvedTasks = getResolvedVisitTaskLabels(finalSession);
     const progress = buildCampaignProgress(
       row.tareas_requeridas ?? [],
       resolvedTasks,
       (campaign.evidencias_requeridas ?? []).length,
       mergedEntries.length,
       campaign.fecha_fin
-    )
-    const executionMinutesMap = readVisitTaskExecutionMinutesMap(metadataRecord)
-    const executionMinutes = getVisitTaskExecutionMinutes(finalSession)
+    );
+    const executionMinutesMap = readVisitTaskExecutionMinutesMap(metadataRecord);
+    const executionMinutes = getVisitTaskExecutionMinutes(finalSession);
 
     const nextMetadata = {
       ...metadataRecord,
@@ -2070,7 +2172,7 @@ export async function ejecutarTareasCampanaPdv(
         ejecutada_en: nowIso,
         ejecutada_por: actor.usuarioId,
       },
-    }
+    };
 
     const { error: updateError } = await service
       .from('campana_pdv')
@@ -2085,10 +2187,10 @@ export async function ejecutarTareasCampanaPdv(
         updated_by_usuario_id: actor.usuarioId,
         updated_at: nowIso,
       })
-      .eq('id', campanaPdvId)
+      .eq('id', campanaPdvId);
 
     if (updateError) {
-      throw new Error(updateError.message)
+      throw new Error(updateError.message);
     }
 
     await registrarEventoAudit(service, {
@@ -2106,11 +2208,13 @@ export async function ejecutarTareasCampanaPdv(
         execution_minutes: executionMinutes,
         suspicious_tasks: suspiciousNotifications,
       },
-    })
+    });
 
     const supervisorEmpleadoId =
       activeAttendance.supervisor_empleado_id ??
-      (typeof metadataRecord.supervisor_empleado_id === 'string' ? metadataRecord.supervisor_empleado_id : null)
+      (typeof metadataRecord.supervisor_empleado_id === 'string'
+        ? metadataRecord.supervisor_empleado_id
+        : null);
 
     if (supervisorEmpleadoId) {
       for (const suspicious of suspiciousNotifications) {
@@ -2124,7 +2228,7 @@ export async function ejecutarTareasCampanaPdv(
           pdvId: row.pdv_id,
           taskLabel: suspicious.taskLabel,
           suspiciousReason: suspicious.reason,
-        })
+        });
       }
     }
 
@@ -2135,7 +2239,7 @@ export async function ejecutarTareasCampanaPdv(
       campanaId: row.campana_id,
       campanaPdvId: row.id,
       eventType: 'campana_pdv_tareas_ejecutadas',
-    })
+    });
     // Published selectively above; no route-wide refresh needed.
 
     return buildState({
@@ -2146,10 +2250,11 @@ export async function ejecutarTareasCampanaPdv(
           : uploadedEntries.length > 0
             ? 'Tareas de visita actualizadas con evidencia en campo.'
             : 'Tareas de visita actualizadas.',
-    })
+    });
   } catch (error) {
     return buildState({
-      message: error instanceof Error ? error.message : 'No fue posible ejecutar las tareas de visita.',
-    })
+      message:
+        error instanceof Error ? error.message : 'No fue posible ejecutar las tareas de visita.',
+    });
   }
 }

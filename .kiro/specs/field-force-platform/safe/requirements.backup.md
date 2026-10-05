@@ -45,6 +45,7 @@ La plataforma tiene tres actores principales: el **Promotor** (usuario de campo,
 ---
 
 ## Requirements
+
 ### Requirement 0: Disciplina de Implementacion Asistida por Skills
 
 **User Story:** Como dueno tecnico del repositorio, quiero que todo agente que modifique el proyecto use las skills locales relevantes de forma obligatoria, para estandarizar calidad, depuracion, pruebas, performance y manejo seguro de encoding.

@@ -1,11 +1,11 @@
-'use client'
+'use client';
 
-import { OfflineStatusCard } from '@/components/pwa/OfflineStatusCard'
-import { Card } from '@/components/ui/card'
-import { useOfflineSync } from '@/hooks/useOfflineSync'
+import { OfflineStatusCard } from '@/components/pwa/OfflineStatusCard';
+import { Card } from '@/components/ui/card';
+import { useOfflineSync } from '@/hooks/useOfflineSync';
 
 export function OfflinePageStatus() {
-  const offline = useOfflineSync()
+  const offline = useOfflineSync();
 
   return (
     <>
@@ -13,11 +13,7 @@ export function OfflinePageStatus() {
         <CardMetric label="Pendientes" value={String(offline.summary.pending)} />
         <CardMetric label="Fallidos" value={String(offline.summary.failed)} />
         <CardMetric label="Sincronizados" value={String(offline.summary.syncedDrafts)} />
-        <CardMetric
-          label="Estado"
-          value={offline.isOnline ? 'Online' : 'Offline'}
-          highlighted
-        />
+        <CardMetric label="Estado" value={offline.isOnline ? 'Online' : 'Offline'} highlighted />
       </div>
 
       <OfflineStatusCard
@@ -27,7 +23,7 @@ export function OfflinePageStatus() {
         compact
       />
     </>
-  )
+  );
 }
 
 function CardMetric({
@@ -35,9 +31,9 @@ function CardMetric({
   value,
   highlighted,
 }: {
-  label: string
-  value: string
-  highlighted?: boolean
+  label: string;
+  value: string;
+  highlighted?: boolean;
 }) {
   return (
     <Card
@@ -50,5 +46,5 @@ function CardMetric({
       <p className="text-xs font-semibold text-slate-400">{label}</p>
       <p className="mt-2 text-2xl font-semibold text-white">{value}</p>
     </Card>
-  )
+  );
 }

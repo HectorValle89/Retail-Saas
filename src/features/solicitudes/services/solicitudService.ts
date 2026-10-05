@@ -1,329 +1,296 @@
-import { unstable_cache } from 'next/cache'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ActorActual } from '@/lib/auth/session'
-import { buildModuleCacheTags } from '@/lib/cache/moduleTags'
-import { createServiceClient } from '@/lib/supabase/server'
-import type { CuentaCliente, Empleado, Puesto, Solicitud } from '@/types/database'
-import {
-  getIncapacidadApprovalPath,
-  getIncapacidadNextActor,
-} from '../lib/incapacidadWorkflow'
+import { unstable_cache } from 'next/cache';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ActorActual } from '@/lib/auth/session';
+import { buildModuleCacheTags } from '@/lib/cache/moduleTags';
+import { createServiceClient } from '@/lib/supabase/server';
+import type { CuentaCliente, Empleado, Puesto, Solicitud } from '@/types/database';
+import { getIncapacidadApprovalPath, getIncapacidadNextActor } from '../lib/incapacidadWorkflow';
 
-type MaybeMany<T> = T | T[] | null
+type MaybeMany<T> = T | T[] | null;
 
-type CuentaClienteRelacion = Pick<CuentaCliente, 'id' | 'nombre'>
-type EmpleadoRelacion = Pick<Empleado, 'id' | 'nombre_completo' | 'puesto'>
+type CuentaClienteRelacion = Pick<CuentaCliente, 'id' | 'nombre'>;
+type EmpleadoRelacion = Pick<Empleado, 'id' | 'nombre_completo' | 'puesto'>;
 
-interface SolicitudQueryRow
-  extends Pick<
-    Solicitud,
-    | 'id'
-    | 'cuenta_cliente_id'
-    | 'empleado_id'
-    | 'supervisor_empleado_id'
-    | 'tipo'
-    | 'fecha_inicio'
-    | 'fecha_fin'
-    | 'motivo'
-    | 'justificante_url'
-    | 'justificante_hash'
-    | 'estatus'
-    | 'comentarios'
-    | 'metadata'
-  > {
-  cuenta_cliente: MaybeMany<CuentaClienteRelacion>
-  empleado: MaybeMany<EmpleadoRelacion>
-  supervisor: MaybeMany<EmpleadoRelacion>
+interface SolicitudQueryRow extends Pick<
+  Solicitud,
+  | 'id'
+  | 'cuenta_cliente_id'
+  | 'empleado_id'
+  | 'supervisor_empleado_id'
+  | 'tipo'
+  | 'fecha_inicio'
+  | 'fecha_fin'
+  | 'motivo'
+  | 'justificante_url'
+  | 'justificante_hash'
+  | 'estatus'
+  | 'comentarios'
+  | 'metadata'
+> {
+  cuenta_cliente: MaybeMany<CuentaClienteRelacion>;
+  empleado: MaybeMany<EmpleadoRelacion>;
+  supervisor: MaybeMany<EmpleadoRelacion>;
 }
 
 export interface SelectorOption {
-  id: string
-  label: string
+  id: string;
+  label: string;
 }
 
 export interface SolicitudResumen {
-  total: number
-  pendientes: number
-  validadasSupervisor: number
-  registradasRh: number
-  rechazadas: number
-  aprobadas: number
-  pendientesAccionables: number
+  total: number;
+  pendientes: number;
+  validadasSupervisor: number;
+  registradasRh: number;
+  rechazadas: number;
+  aprobadas: number;
+  pendientesAccionables: number;
 }
 
 export interface SolicitudNotificacionItem {
-  canal: string
-  mensaje: string
-  estado: string
-  destinatarioPuesto: string | null
-  creadaEn: string | null
+  canal: string;
+  mensaje: string;
+  estado: string;
+  destinatarioPuesto: string | null;
+  creadaEn: string | null;
 }
 
 export interface SolicitudListadoItem {
-  id: string
-  cuentaClienteId: string
-  cuentaCliente: string | null
-  empleadoId: string
-  empleado: string
-  empleadoPuesto: string | null
-  supervisorId: string | null
-  supervisor: string | null
-  tipo: Solicitud['tipo']
-  fechaInicio: string
-  fechaFin: string
-  motivo: string | null
-  justificanteUrl: string | null
-  justificanteHash: string | null
-  tieneJustificante: boolean
-  estatus: Solicitud['estatus']
-  estadoResolucion: 'PENDIENTE' | 'APROBADA' | 'RECHAZADA'
-  comentarios: string | null
-  approvalPath: string[]
-  justificaAsistencia: boolean
-  diaJustificado: boolean
-  siguienteActor: string | null
-  requiereAccionActor: boolean
-  notificaciones: SolicitudNotificacionItem[]
+  id: string;
+  cuentaClienteId: string;
+  cuentaCliente: string | null;
+  empleadoId: string;
+  empleado: string;
+  empleadoPuesto: string | null;
+  supervisorId: string | null;
+  supervisor: string | null;
+  tipo: Solicitud['tipo'];
+  fechaInicio: string;
+  fechaFin: string;
+  motivo: string | null;
+  justificanteUrl: string | null;
+  justificanteHash: string | null;
+  tieneJustificante: boolean;
+  estatus: Solicitud['estatus'];
+  estadoResolucion: 'PENDIENTE' | 'APROBADA' | 'RECHAZADA';
+  comentarios: string | null;
+  approvalPath: string[];
+  incapacidadClase: 'INICIAL' | 'SUBSECUENTE' | null;
+  justificaAsistencia: boolean;
+  diaJustificado: boolean;
+  siguienteActor: string | null;
+  requiereAccionActor: boolean;
+  notificaciones: SolicitudNotificacionItem[];
 }
 
 export interface SolicitudesFilterState {
-  tipo: string
-  estatus: string
-  empleadoId: string
-  fechaInicio: string
-  fechaFin: string
-  month: string
+  tipo: string;
+  estatus: string;
+  empleadoId: string;
+  fechaInicio: string;
+  fechaFin: string;
+  month: string;
 }
 
 export interface SolicitudCalendarEvent {
-  id: string
-  empleado: string
-  tipo: Solicitud['tipo']
-  estatus: Solicitud['estatus']
-  fechaInicio: string
-  fechaFin: string
-  cuentaCliente: string | null
+  id: string;
+  empleado: string;
+  tipo: Solicitud['tipo'];
+  estatus: Solicitud['estatus'];
+  fechaInicio: string;
+  fechaFin: string;
+  cuentaCliente: string | null;
 }
 
 export interface SolicitudCalendarDay {
-  date: string
-  inCurrentMonth: boolean
-  isToday: boolean
-  events: SolicitudCalendarEvent[]
+  date: string;
+  inCurrentMonth: boolean;
+  isToday: boolean;
+  events: SolicitudCalendarEvent[];
 }
 
 export interface SolicitudesCalendarData {
-  month: string
-  monthLabel: string
-  canView: boolean
-  days: SolicitudCalendarDay[]
+  month: string;
+  monthLabel: string;
+  canView: boolean;
+  days: SolicitudCalendarDay[];
 }
 
 export interface SolicitudesPanelData {
-  resumen: SolicitudResumen
-  solicitudes: SolicitudListadoItem[]
-  pendientesAccionables: SolicitudListadoItem[]
-  cuentas: SelectorOption[]
-  empleados: SelectorOption[]
-  supervisores: SelectorOption[]
-  actorPuesto: Puesto | null
+  resumen: SolicitudResumen;
+  solicitudes: SolicitudListadoItem[];
+  pendientesAccionables: SolicitudListadoItem[];
+  cuentas: SelectorOption[];
+  empleados: SelectorOption[];
+  supervisores: SelectorOption[];
+  actorPuesto: Puesto | null;
   paginacion: {
-    page: number
-    pageSize: number
-    totalItems: number
-    totalPages: number
-  }
-  filtros: SolicitudesFilterState
-  infraestructuraLista: boolean
-  mensajeInfraestructura?: string
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+  };
+  filtros: SolicitudesFilterState;
+  infraestructuraLista: boolean;
+  mensajeInfraestructura?: string;
 }
 
-const obtenerPrimero = <T>(value: MaybeMany<T>): T | null => {
+const obtenerPrimero = <T,>(value: MaybeMany<T>): T | null => {
   if (!value) {
-    return null
+    return null;
   }
 
-  return Array.isArray(value) ? value[0] ?? null : value
-}
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+};
 
 function normalizeMetadata(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {}
+    return {};
   }
 
-  return value as Record<string, unknown>
+  return value as Record<string, unknown>;
 }
 
 function normalizeNotifications(value: unknown): SolicitudNotificacionItem[] {
   if (!Array.isArray(value)) {
-    return []
+    return [];
   }
 
   return value
     .map((item) => {
       if (!item || typeof item !== 'object' || Array.isArray(item)) {
-        return null
+        return null;
       }
 
-      const payload = item as Record<string, unknown>
-      const mensaje = String(payload.mensaje ?? '').trim()
+      const payload = item as Record<string, unknown>;
+      const mensaje = String(payload.mensaje ?? '').trim();
 
       if (!mensaje) {
-        return null
+        return null;
       }
 
       return {
         canal: String(payload.canal ?? 'IN_APP').trim() || 'IN_APP',
         mensaje,
         estado: String(payload.estado ?? 'GENERADA').trim() || 'GENERADA',
-        destinatarioPuesto: payload.destinatario_puesto ? String(payload.destinatario_puesto) : null,
+        destinatarioPuesto: payload.destinatario_puesto
+          ? String(payload.destinatario_puesto)
+          : null,
         creadaEn: payload.creada_en ? String(payload.creada_en) : null,
-      }
+      };
     })
-    .filter((item): item is SolicitudNotificacionItem => Boolean(item))
+    .filter((item): item is SolicitudNotificacionItem => Boolean(item));
 }
 
 function getApprovalPath(tipo: Solicitud['tipo'], metadata: unknown) {
-  const payload = normalizeMetadata(metadata)
-  const configuredPath = payload.approval_path
+  const payload = normalizeMetadata(metadata);
+  const configuredPath = payload.approval_path;
 
   if (Array.isArray(configuredPath)) {
     return configuredPath
       .map((item) => String(item ?? '').trim())
-      .filter((item) => item.length > 0)
+      .filter((item) => item.length > 0);
   }
 
   if (tipo === 'INCAPACIDAD') {
-    return getIncapacidadApprovalPath({ metadata })
+    return getIncapacidadApprovalPath({ metadata });
   }
 
   if (tipo === 'AVISO_INASISTENCIA') {
-    return ['SUPERVISOR']
+    return ['SUPERVISOR'];
   }
 
   if (tipo === 'JUSTIFICACION_FALTA') {
-    return ['SUPERVISOR']
+    return ['SUPERVISOR'];
   }
 
   if (tipo === 'VACACIONES') {
-    return ['COORDINADOR']
+    return ['COORDINADOR'];
   }
 
-  return ['SUPERVISOR', 'COORDINADOR']
+  return ['SUPERVISOR', 'COORDINADOR'];
 }
 
 function getResolutionState(estatus: Solicitud['estatus']): 'PENDIENTE' | 'APROBADA' | 'RECHAZADA' {
   if (estatus === 'RECHAZADA') {
-    return 'RECHAZADA'
+    return 'RECHAZADA';
   }
 
   if (estatus === 'REGISTRADA_RH' || estatus === 'REGISTRADA') {
-    return 'APROBADA'
+    return 'APROBADA';
   }
 
-  return 'PENDIENTE'
+  return 'PENDIENTE';
 }
 
 function getNextActor(tipo: Solicitud['tipo'], estatus: Solicitud['estatus'], metadata?: unknown) {
-  const approvalPath = getApprovalPath(tipo, metadata)
+  const approvalPath = getApprovalPath(tipo, metadata);
 
   if (tipo === 'INCAPACIDAD') {
     return getIncapacidadNextActor({
       estatus,
       metadata,
-    })
+    });
   }
 
-  if (tipo === 'JUSTIFICACION_FALTA' && (estatus === 'ENVIADA' || estatus === 'CORRECCION_SOLICITADA')) {
-    return estatus === 'CORRECCION_SOLICITADA' ? 'DERMOCONSEJERO' : 'SUPERVISOR'
+  if (
+    tipo === 'JUSTIFICACION_FALTA' &&
+    (estatus === 'ENVIADA' || estatus === 'CORRECCION_SOLICITADA')
+  ) {
+    return estatus === 'CORRECCION_SOLICITADA' ? 'DERMOCONSEJERO' : 'SUPERVISOR';
   }
 
   if (estatus === 'BORRADOR' || estatus === 'ENVIADA') {
-    return approvalPath[0] ?? null
+    return approvalPath[0] ?? null;
   }
 
   if (estatus === 'VALIDADA_SUP') {
-    return approvalPath[1] ?? null
+    return approvalPath[1] ?? null;
   }
 
-  return null
+  return null;
 }
 
 function canActorResolve(actorPuesto: Puesto | null, nextActor: string | null) {
   if (!actorPuesto || !nextActor) {
-    return false
+    return false;
   }
 
-  return actorPuesto === 'ADMINISTRADOR' || actorPuesto === nextActor
+  return actorPuesto === 'ADMINISTRADOR' || actorPuesto === nextActor;
 }
 
 function normalizePage(value?: number) {
   if (!value || Number.isNaN(value)) {
-    return 1
+    return 1;
   }
 
-  return Math.max(1, Math.floor(value))
+  return Math.max(1, Math.floor(value));
 }
 
 function normalizePageSize(value?: number) {
   if (!value || Number.isNaN(value)) {
-    return 50
+    return 50;
   }
 
-  return Math.min(50, Math.max(10, Math.floor(value)))
+  return Math.min(50, Math.max(10, Math.floor(value)));
 }
 
 function normalizeFilterToken(value?: string | null) {
-  return String(value ?? '').trim()
+  return String(value ?? '').trim();
 }
 
 function normalizeMonth(value?: string | null) {
-  const normalized = normalizeFilterToken(value)
+  const normalized = normalizeFilterToken(value);
 
   if (/^\d{4}-\d{2}$/.test(normalized)) {
-    return normalized
+    return normalized;
   }
 
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Mexico_City',
     year: 'numeric',
     month: '2-digit',
-  }).format(new Date())
-}
-
-function getMonthRange(month: string) {
-  const [yearRaw, monthRaw] = month.split('-')
-  const year = Number(yearRaw)
-  const monthIndex = Number(monthRaw) - 1
-  const monthStartDate = new Date(Date.UTC(year, monthIndex, 1))
-  const nextMonthDate = new Date(Date.UTC(year, monthIndex + 1, 1))
-  const monthEndDate = new Date(Date.UTC(year, monthIndex + 1, 0))
-  return {
-    start: monthStartDate.toISOString().slice(0, 10),
-    end: monthEndDate.toISOString().slice(0, 10),
-    monthStartDate,
-    nextMonthDate,
-  }
-}
-
-function shiftIsoDate(date: string, deltaDays: number) {
-  const value = new Date(`${date}T00:00:00.000Z`)
-  value.setUTCDate(value.getUTCDate() + deltaDays)
-  return value.toISOString().slice(0, 10)
-}
-
-function formatMonthLabel(month: string) {
-  const [yearRaw, monthRaw] = month.split('-')
-  const value = new Date(Date.UTC(Number(yearRaw), Number(monthRaw) - 1, 1))
-  return new Intl.DateTimeFormat('es-MX', {
-    timeZone: 'UTC',
-    month: 'long',
-    year: 'numeric',
-  }).format(value)
-}
-
-function getTodayIso() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date())
+  }).format(new Date());
 }
 
 function createEmptySummary(): SolicitudResumen {
@@ -335,7 +302,7 @@ function createEmptySummary(): SolicitudResumen {
     rechazadas: 0,
     aprobadas: 0,
     pendientesAccionables: 0,
-  }
+  };
 }
 
 function buildDefaultFilters(month?: string): SolicitudesFilterState {
@@ -346,71 +313,22 @@ function buildDefaultFilters(month?: string): SolicitudesFilterState {
     fechaInicio: '',
     fechaFin: '',
     month: normalizeMonth(month),
-  }
+  };
 }
 
-function buildEmptyCalendar(month: string, canView: boolean): SolicitudesCalendarData {
-  return {
-    month,
-    monthLabel: formatMonthLabel(month),
-    canView,
-    days: [],
-  }
-}
-
-function buildCalendar(
-  month: string,
-  solicitudes: SolicitudListadoItem[],
-  canView: boolean
-): SolicitudesCalendarData {
-  const { start, end, monthStartDate } = getMonthRange(month)
-  const firstVisible = shiftIsoDate(start, -monthStartDate.getUTCDay())
-  const lastVisible = shiftIsoDate(
-    end,
-    6 - new Date(`${end}T00:00:00.000Z`).getUTCDay()
-  )
-  const todayIso = getTodayIso()
-  const days: SolicitudCalendarDay[] = []
-
-  for (let cursor = firstVisible; cursor <= lastVisible; cursor = shiftIsoDate(cursor, 1)) {
-    const events = solicitudes
-      .filter((item) => item.fechaInicio <= cursor && item.fechaFin >= cursor)
-      .map((item) => ({
-        id: item.id,
-        empleado: item.empleado,
-        tipo: item.tipo,
-        estatus: item.estatus,
-        fechaInicio: item.fechaInicio,
-        fechaFin: item.fechaFin,
-        cuentaCliente: item.cuentaCliente,
-      }))
-
-    days.push({
-      date: cursor,
-      inCurrentMonth: cursor >= start && cursor <= end,
-      isToday: cursor === todayIso,
-      events,
-    })
-  }
-
-  return {
-    month,
-    monthLabel: formatMonthLabel(month),
-    canView,
-    days,
-  }
-}
-
-function mapSolicitudRow(item: SolicitudQueryRow, actorPuesto: Puesto | null): SolicitudListadoItem {
-  const empleado = obtenerPrimero(item.empleado)
-  const supervisor = obtenerPrimero(item.supervisor)
-  const metadata = normalizeMetadata(item.metadata)
-  const approvalPath = getApprovalPath(item.tipo, item.metadata)
-  const estadoResolucion = getResolutionState(item.estatus)
+function mapSolicitudRow(
+  item: SolicitudQueryRow,
+  actorPuesto: Puesto | null
+): SolicitudListadoItem {
+  const empleado = obtenerPrimero(item.empleado);
+  const supervisor = obtenerPrimero(item.supervisor);
+  const metadata = normalizeMetadata(item.metadata);
+  const approvalPath = getApprovalPath(item.tipo, item.metadata);
+  const estadoResolucion = getResolutionState(item.estatus);
   const siguienteActor =
     typeof metadata.siguiente_actor === 'string' && metadata.siguiente_actor.trim().length > 0
       ? metadata.siguiente_actor.trim()
-      : getNextActor(item.tipo, item.estatus, item.metadata)
+      : getNextActor(item.tipo, item.estatus, item.metadata);
 
   return {
     id: item.id,
@@ -432,75 +350,81 @@ function mapSolicitudRow(item: SolicitudQueryRow, actorPuesto: Puesto | null): S
     estadoResolucion,
     comentarios: item.comentarios,
     approvalPath,
+    incapacidadClase:
+      item.tipo === 'INCAPACIDAD' && metadata.incapacidad_clase === 'SUBSECUENTE'
+        ? 'SUBSECUENTE'
+        : item.tipo === 'INCAPACIDAD' && metadata.incapacidad_clase === 'INICIAL'
+          ? 'INICIAL'
+          : null,
     justificaAsistencia: Boolean(metadata.justifica_asistencia),
     diaJustificado: Boolean(metadata.justifica_asistencia) && estadoResolucion === 'APROBADA',
     siguienteActor,
     requiereAccionActor: canActorResolve(actorPuesto, siguienteActor),
     notificaciones: normalizeNotifications(metadata.notificaciones),
-  }
+  };
 }
 
 // Supabase encadena builders con tipos recursivos; aqui priorizamos un helper legible.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applySolicitudFilters(query: any, filters: SolicitudesFilterState) {
-  let current = query
+  let current = query;
 
   if (filters.tipo) {
-    current = current.eq('tipo', filters.tipo)
+    current = current.eq('tipo', filters.tipo);
   }
 
   if (filters.estatus) {
-    current = current.eq('estatus', filters.estatus)
+    current = current.eq('estatus', filters.estatus);
   }
 
   if (filters.empleadoId) {
-    current = current.eq('empleado_id', filters.empleadoId)
+    current = current.eq('empleado_id', filters.empleadoId);
   }
 
   if (filters.fechaInicio) {
-    current = current.gte('fecha_inicio', filters.fechaInicio)
+    current = current.gte('fecha_inicio', filters.fechaInicio);
   }
 
   if (filters.fechaFin) {
-    current = current.lte('fecha_fin', filters.fechaFin)
+    current = current.lte('fecha_fin', filters.fechaFin);
   }
 
-  return current
+  return current;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TypedSupabaseClient = SupabaseClient<any>
+type TypedSupabaseClient = SupabaseClient<any>;
 
 function isSupabaseClient(value: unknown): value is SupabaseClient {
   return Boolean(
     value &&
-      typeof value === 'object' &&
-      'from' in value &&
-      typeof (value as { from?: unknown }).from === 'function'
-  )
+    typeof value === 'object' &&
+    'from' in value &&
+    typeof (value as { from?: unknown }).from === 'function'
+  );
 }
 
 function isActorActual(value: unknown): value is ActorActual {
   return Boolean(
     value &&
-      typeof value === 'object' &&
-      'empleadoId' in value &&
-      'usuarioId' in value &&
-      'puesto' in value
-  )
+    typeof value === 'object' &&
+    'empleadoId' in value &&
+    'usuarioId' in value &&
+    'puesto' in value
+  );
 }
 
 interface ObtenerPanelSolicitudesOptions {
-  actor?: ActorActual | null
-  serviceClient?: TypedSupabaseClient
-  actorPuesto?: Puesto | null
-  actorEmpleadoId?: string | null
-  page?: number
-  pageSize?: number
-  filters?: Partial<SolicitudesFilterState>
+  actor?: ActorActual | null;
+  serviceClient?: TypedSupabaseClient;
+  actorPuesto?: Puesto | null;
+  actorEmpleadoId?: string | null;
+  page?: number;
+  pageSize?: number;
+  filters?: Partial<SolicitudesFilterState>;
 }
 
-const SOLICITUDES_PANEL_REVALIDATE_SECONDS = 60
+const SOLICITUDES_PANEL_REVALIDATE_SECONDS = 60;
 
 function buildSolicitudesCacheKey(
   actor: Pick<ActorActual, 'cuentaClienteId' | 'empleadoId' | 'puesto'>,
@@ -520,7 +444,7 @@ function buildSolicitudesCacheKey(
       fechaFin: normalizeFilterToken(options.filters?.fechaFin),
       month: normalizeMonth(options.filters?.month),
     },
-  })
+  });
 }
 
 function buildSolicitudesCacheTags(
@@ -533,18 +457,18 @@ function buildSolicitudesCacheTags(
     employeeId: actor.empleadoId,
     supervisorId: actor.puesto === 'SUPERVISOR' ? actor.empleadoId : null,
     period: filters.month,
-  })
+  });
 }
 
 async function obtenerPanelSolicitudesUncached(
   supabase: TypedSupabaseClient,
   options: ObtenerPanelSolicitudesOptions = {}
 ): Promise<SolicitudesPanelData> {
-  const client = options?.serviceClient ?? supabase
-  const actorPuesto = options?.actor?.puesto ?? options?.actorPuesto ?? null
-  const actorEmpleadoId = options?.actor?.empleadoId ?? options?.actorEmpleadoId ?? null
-  const page = normalizePage(options?.page)
-  const pageSize = normalizePageSize(options?.pageSize)
+  const client = options?.serviceClient ?? supabase;
+  const actorPuesto = options?.actor?.puesto ?? options?.actorPuesto ?? null;
+  const actorEmpleadoId = options?.actor?.empleadoId ?? options?.actorEmpleadoId ?? null;
+  const page = normalizePage(options?.page);
+  const pageSize = normalizePageSize(options?.pageSize);
   const filters: SolicitudesFilterState = {
     ...buildDefaultFilters(options?.filters?.month),
     tipo: normalizeFilterToken(options?.filters?.tipo),
@@ -553,9 +477,9 @@ async function obtenerPanelSolicitudesUncached(
     fechaInicio: normalizeFilterToken(options?.filters?.fechaInicio),
     fechaFin: normalizeFilterToken(options?.filters?.fechaFin),
     month: normalizeMonth(options?.filters?.month),
-  }
-  const countQuery = client.from('solicitud').select('id', { count: 'exact', head: true })
-  const { count, error: countError } = await applySolicitudFilters(countQuery, filters)
+  };
+  const countQuery = client.from('solicitud').select('id', { count: 'exact', head: true });
+  const { count, error: countError } = await applySolicitudFilters(countQuery, filters);
 
   if (countError) {
     return {
@@ -576,19 +500,17 @@ async function obtenerPanelSolicitudesUncached(
       infraestructuraLista: false,
       mensajeInfraestructura:
         'La tabla `solicitud` aun no esta disponible en Supabase. Ejecuta la migracion de solicitudes.',
-    }
+    };
   }
 
-  const totalItems = count ?? 0
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-  const safePage = Math.min(page, totalPages)
-  const from = (safePage - 1) * pageSize
-  const to = from + pageSize - 1
+  const totalItems = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const from = (safePage - 1) * pageSize;
+  const to = from + pageSize - 1;
 
   const solicitudesQuery = applySolicitudFilters(
-    client
-      .from('solicitud')
-      .select(`
+    client.from('solicitud').select(`
         id,
         cuenta_cliente_id,
         empleado_id,
@@ -607,25 +529,27 @@ async function obtenerPanelSolicitudesUncached(
         supervisor:supervisor_empleado_id(id, nombre_completo, puesto)
       `),
     filters
-  )
+  );
 
-  const [solicitudesResult, cuentasResult, empleadosResult, supervisoresResult] = await Promise.all([
-    solicitudesQuery.order('fecha_inicio', { ascending: false }).range(from, to),
-    client.from('cuenta_cliente').select('id, nombre').eq('activa', true).order('nombre'),
-    client
-      .from('empleado')
-      .select('id, nombre_completo, puesto')
-      .eq('estatus_laboral', 'ACTIVO')
-      .order('nombre_completo')
-      .limit(40),
-    client
-      .from('empleado')
-      .select('id, nombre_completo, puesto')
-      .in('puesto', ['SUPERVISOR', 'COORDINADOR', 'ADMINISTRADOR', 'NOMINA'])
-      .eq('estatus_laboral', 'ACTIVO')
-      .order('nombre_completo')
-      .limit(40),
-  ])
+  const [solicitudesResult, cuentasResult, empleadosResult, supervisoresResult] = await Promise.all(
+    [
+      solicitudesQuery.order('fecha_inicio', { ascending: false }).range(from, to),
+      client.from('cuenta_cliente').select('id, nombre').eq('activa', true).order('nombre'),
+      client
+        .from('empleado')
+        .select('id, nombre_completo, puesto')
+        .eq('estatus_laboral', 'ACTIVO')
+        .order('nombre_completo')
+        .limit(40),
+      client
+        .from('empleado')
+        .select('id, nombre_completo, puesto')
+        .in('puesto', ['SUPERVISOR', 'COORDINADOR', 'ADMINISTRADOR', 'NOMINA'])
+        .eq('estatus_laboral', 'ACTIVO')
+        .order('nombre_completo')
+        .limit(40),
+    ]
+  );
 
   if (solicitudesResult.error) {
     return {
@@ -644,20 +568,23 @@ async function obtenerPanelSolicitudesUncached(
       },
       filtros: filters,
       infraestructuraLista: false,
-      mensajeInfraestructura:
-        `La tabla \`solicitud\` aun no esta disponible en Supabase. ${solicitudesResult.error.message}`,
-    }
+      mensajeInfraestructura: `La tabla \`solicitud\` aun no esta disponible en Supabase. ${solicitudesResult.error.message}`,
+    };
   }
 
-  const solicitudes = ((solicitudesResult.data ?? []) as SolicitudQueryRow[]).map((item) => mapSolicitudRow(item, actorPuesto))
-  const pendientesAccionables = solicitudes.filter((item) => item.requiereAccionActor)
+  const solicitudes = ((solicitudesResult.data ?? []) as SolicitudQueryRow[]).map((item) =>
+    mapSolicitudRow(item, actorPuesto)
+  );
+  const pendientesAccionables = solicitudes.filter((item) => item.requiereAccionActor);
 
   return {
     resumen: {
       total: totalItems,
       pendientes: solicitudes.filter((item) => item.estadoResolucion === 'PENDIENTE').length,
       validadasSupervisor: solicitudes.filter((item) => item.estatus === 'VALIDADA_SUP').length,
-      registradasRh: solicitudes.filter((item) => ['REGISTRADA_RH', 'REGISTRADA'].includes(item.estatus)).length,
+      registradasRh: solicitudes.filter((item) =>
+        ['REGISTRADA_RH', 'REGISTRADA'].includes(item.estatus)
+      ).length,
       rechazadas: solicitudes.filter((item) => item.estatus === 'RECHAZADA').length,
       aprobadas: solicitudes.filter((item) => item.estadoResolucion === 'APROBADA').length,
       pendientesAccionables: pendientesAccionables.length,
@@ -668,11 +595,15 @@ async function obtenerPanelSolicitudesUncached(
       id: item.id,
       label: item.nombre,
     })),
-    empleados: ((empleadosResult.data ?? []) as Pick<Empleado, 'id' | 'nombre_completo' | 'puesto'>[]).map((item) => ({
+    empleados: (
+      (empleadosResult.data ?? []) as Pick<Empleado, 'id' | 'nombre_completo' | 'puesto'>[]
+    ).map((item) => ({
       id: item.id,
       label: `${item.nombre_completo} - ${item.puesto}`,
     })),
-    supervisores: ((supervisoresResult.data ?? []) as Pick<Empleado, 'id' | 'nombre_completo' | 'puesto'>[]).map((item) => ({
+    supervisores: (
+      (supervisoresResult.data ?? []) as Pick<Empleado, 'id' | 'nombre_completo' | 'puesto'>[]
+    ).map((item) => ({
       id: item.id,
       label: `${item.nombre_completo} - ${item.puesto}`,
     })),
@@ -685,7 +616,7 @@ async function obtenerPanelSolicitudesUncached(
     },
     filtros: filters,
     infraestructuraLista: true,
-  }
+  };
 }
 
 export async function obtenerPanelSolicitudes(
@@ -694,28 +625,25 @@ export async function obtenerPanelSolicitudes(
   customSupabase?: TypedSupabaseClient
 ): Promise<SolicitudesPanelData> {
   if (isSupabaseClient(actorOrSupabase)) {
-    const actor =
-      isActorActual(optionsOrActor) ? optionsOrActor : optionsOrActor.actor ?? null
-    const options = isActorActual(optionsOrActor)
-      ? { actor: optionsOrActor }
-      : optionsOrActor
+    const actor = isActorActual(optionsOrActor) ? optionsOrActor : (optionsOrActor.actor ?? null);
+    const options = isActorActual(optionsOrActor) ? { actor: optionsOrActor } : optionsOrActor;
 
     return obtenerPanelSolicitudesUncached(actorOrSupabase, {
       ...options,
       actor,
-    })
+    });
   }
 
-  const actor = actorOrSupabase
+  const actor = actorOrSupabase;
   const options = isActorActual(optionsOrActor)
     ? { actor }
     : {
         ...optionsOrActor,
         actor,
-      }
+      };
 
   if (customSupabase) {
-    return obtenerPanelSolicitudesUncached(customSupabase, options)
+    return obtenerPanelSolicitudesUncached(customSupabase, options);
   }
 
   const normalizedFilters: SolicitudesFilterState = {
@@ -726,18 +654,18 @@ export async function obtenerPanelSolicitudes(
     fechaInicio: normalizeFilterToken(options.filters?.fechaInicio),
     fechaFin: normalizeFilterToken(options.filters?.fechaFin),
     month: normalizeMonth(options.filters?.month),
-  }
-  const cacheKey = buildSolicitudesCacheKey(actor, options)
+  };
+  const cacheKey = buildSolicitudesCacheKey(actor, options);
 
   return unstable_cache(
     async () => {
-      const service = createServiceClient()
-      return obtenerPanelSolicitudesUncached(service, options)
+      const service = createServiceClient();
+      return obtenerPanelSolicitudesUncached(service, options);
     },
     ['solicitudes:panel', cacheKey],
     {
       tags: buildSolicitudesCacheTags(actor, normalizedFilters),
       revalidate: SOLICITUDES_PANEL_REVALIDATE_SECONDS,
     }
-  )()
+  )();
 }

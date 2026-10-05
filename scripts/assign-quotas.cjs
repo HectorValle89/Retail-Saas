@@ -4,22 +4,22 @@ const path = require('node:path');
 
 function loadEnvFile(filePath, { override = false } = {}) {
   if (!fs.existsSync(filePath)) {
-    return
+    return;
   }
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/)
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
   for (const line of lines) {
-    const trimmed = line.trim()
+    const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) {
-      continue
+      continue;
     }
-    const separatorIndex = trimmed.indexOf('=')
+    const separatorIndex = trimmed.indexOf('=');
     if (separatorIndex === -1) {
-      continue
+      continue;
     }
-    const key = trimmed.slice(0, separatorIndex).trim()
-    const value = trimmed.slice(separatorIndex + 1).trim()
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
     if (override || !process.env[key]) {
-      process.env[key] = value
+      process.env[key] = value;
     }
   }
 }
@@ -38,7 +38,7 @@ const SUPERVISORS = [
   'test_supervisor_03@fieldforce.test',
   'test_supervisor_01', // also support without suffix
   'test_supervisor_02',
-  'test_supervisor_03'
+  'test_supervisor_03',
 ];
 
 const WEEKS = ['2026-04-13', '2026-04-20', '2026-04-27'];
@@ -91,9 +91,9 @@ async function run() {
         continue;
       }
 
-      const pdvIds = [...new Set(asignaciones.map(a => a.pdv_id))];
+      const pdvIds = [...new Set(asignaciones.map((a) => a.pdv_id))];
       const quotas = {};
-      pdvIds.forEach(id => {
+      pdvIds.forEach((id) => {
         quotas[id] = visitsPerStore;
       });
 
@@ -104,7 +104,7 @@ async function run() {
         ...(ruta.metadata || {}),
         pdvMonthlyQuotas: quotas,
         expectedMonthlyVisits: totalExpected,
-        minimumVisitsPerPdv: visitsPerStore
+        minimumVisitsPerPdv: visitsPerStore,
       };
 
       const { error: updateError } = await supabase
@@ -115,7 +115,9 @@ async function run() {
       if (updateError) {
         console.error(`  ERROR [${email}] al actualizar:`, updateError);
       } else {
-        console.log(`  EXITO [${email}]: Meta de ${totalExpected} visitas (${pdvIds.length} tiendas x ${visitsPerStore}) asignada.`);
+        console.log(
+          `  EXITO [${email}]: Meta de ${totalExpected} visitas (${pdvIds.length} tiendas x ${visitsPerStore}) asignada.`
+        );
       }
     }
   }

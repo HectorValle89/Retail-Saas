@@ -86,20 +86,48 @@ export async function getR2Object(r2ObjectKey: string) {
 }
 
 export async function buildR2ObjectResponse(r2ObjectKey: string) {
-  const object = await getR2Object(r2ObjectKey);
+  const key = normalizeR2ObjectKey(r2ObjectKey);
+  const bucket = await getR2BucketBinding();
 
-  if (!object?.body) {
-    return null;
+  if (bucket) {
+    const object = await bucket.get(key);
+    if (object?.body) {
+      const headers = new Headers();
+      object.writeHttpMetadata(headers);
+      headers.set('etag', object.httpEtag);
+      headers.set('Cache-Control', buildR2CacheControl(r2ObjectKey));
+      return new Response(object.body, { headers });
+    }
   }
 
-  const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set('etag', object.httpEtag);
-  headers.set('Cache-Control', buildR2CacheControl(r2ObjectKey));
+  // Fallback a cliente S3 para entornos Node.js / dev
+  try {
+    const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+    const client = await getR2Client();
+    const command = new GetObjectCommand({
+      Bucket: defaultBucket,
+      Key: key,
+    });
+    const s3Response = await client.send(command);
+    if (!s3Response.Body) {
+      return null;
+    }
 
-  return new Response(object.body, {
-    headers,
-  });
+    const headers = new Headers();
+    if (s3Response.ContentType) {
+      headers.set('Content-Type', s3Response.ContentType);
+    }
+    if (s3Response.ETag) {
+      headers.set('etag', s3Response.ETag);
+    }
+    headers.set('Cache-Control', buildR2CacheControl(r2ObjectKey));
+
+    const webStream = s3Response.Body.transformToWebStream();
+    return new Response(webStream, { headers });
+  } catch (err) {
+    console.error('Error al obtener objeto R2 vía S3 client:', err);
+    return null;
+  }
 }
 
 function buildR2CacheControl(r2ObjectKey: string) {
@@ -172,4 +200,35 @@ export async function generateR2DownloadUrl(r2ObjectKey: string, expiresInSecond
   }
 
   return generateR2PresignedDownloadUrl(key, expiresInSeconds);
+}
+
+/**
+ * Sube un buffer de archivo directamente a Cloudflare R2 utilizando las credenciales S3 del servidor.
+ * Previene problemas de CORS/DNS del cliente al subir.
+ */
+export async function uploadObjectToR2(
+  fileBuffer: Buffer,
+  fileName: string,
+  contentType: string,
+  modulo: string
+) {
+  const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+  const client = await getR2Client();
+
+  const safeName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_').toLowerCase();
+  const r2Key = `${modulo.toLowerCase()}/${Date.now()}-${safeName}`;
+
+  const command = new PutObjectCommand({
+    Bucket: defaultBucket,
+    Key: r2Key,
+    ContentType: contentType,
+    Body: fileBuffer,
+  });
+
+  await client.send(command);
+
+  return {
+    objectKey: r2Key,
+    bucket: defaultBucket,
+  };
 }

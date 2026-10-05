@@ -1,17 +1,17 @@
-import { expect, test } from '@playwright/test'
-import { obtenerPanelConfiguracion } from '../src/features/configuracion/services/configuracionService'
+import { expect, test } from '@playwright/test';
+import { obtenerPanelConfiguracion } from '../src/features/configuracion/services/configuracionService';
 import {
   OCR_MODEL_CONFIG_KEY,
   OCR_PROVIDER_CONFIG_KEY,
   PDF_COMPRESSION_PROVIDER_CONFIG_KEY,
   PDF_COMPRESSION_STIRLING_BASE_URL_CONFIG_KEY,
   TURNOS_CONFIG_KEY,
-} from '../src/features/configuracion/configuracionCatalog'
+} from '../src/features/configuracion/configuracionCatalog';
 
 type QueryResult = {
-  data: unknown[] | null
-  error: { message: string } | null
-}
+  data: unknown[] | null;
+  error: { message: string } | null;
+};
 
 function createFakeConfiguracionSupabase(results: Record<string, QueryResult>) {
   const expectedOrderCalls: Record<string, number> = {
@@ -20,44 +20,44 @@ function createFakeConfiguracionSupabase(results: Record<string, QueryResult>) {
     cadena: 1,
     ciudad: 1,
     mision_dia: 2,
-  }
+  };
 
   return {
     from(table: string) {
-      let orderCalls = 0
+      let orderCalls = 0;
 
       return {
         select() {
-          return this
+          return this;
         },
         order() {
-          orderCalls += 1
+          orderCalls += 1;
 
           if (orderCalls >= (expectedOrderCalls[table] ?? 1)) {
-            return Promise.resolve(results[table])
+            return Promise.resolve(results[table]);
           }
 
-          return this
+          return this;
         },
-      }
+      };
     },
-  }
+  };
 }
 
 test('consolida catalogos, parametros y OCR centralizado para configuracion', async () => {
-  const previousProvider = process.env.OCR_PROVIDER
-  const previousKey = process.env.GEMINI_API_KEY
-  const previousPdfProvider = process.env.PDF_COMPRESSION_PROVIDER
-  const previousFetch = global.fetch
+  const previousProvider = process.env.OCR_PROVIDER;
+  const previousKey = process.env.GEMINI_API_KEY;
+  const previousPdfProvider = process.env.PDF_COMPRESSION_PROVIDER;
+  const previousFetch = global.fetch;
 
-  delete process.env.OCR_PROVIDER
-  process.env.GEMINI_API_KEY = 'secret'
-  delete process.env.PDF_COMPRESSION_PROVIDER
+  delete process.env.OCR_PROVIDER;
+  process.env.GEMINI_API_KEY = 'secret';
+  delete process.env.PDF_COMPRESSION_PROVIDER;
   global.fetch = (async () =>
     ({
       ok: true,
       status: 200,
-    }) as Response) as typeof fetch
+    }) as Response) as typeof fetch;
 
   try {
     const client = createFakeConfiguracionSupabase({
@@ -198,11 +198,11 @@ test('consolida catalogos, parametros y OCR centralizado para configuracion', as
         ],
         error: null,
       },
-    })
+    });
 
-    const data = await obtenerPanelConfiguracion(client as never)
+    const data = await obtenerPanelConfiguracion(client as never);
 
-    expect(data.infraestructuraLista).toBe(true)
+    expect(data.infraestructuraLista).toBe(true);
     expect(data.resumen).toMatchObject({
       productosActivos: 1,
       cadenasActivas: 1,
@@ -210,61 +210,61 @@ test('consolida catalogos, parametros y OCR centralizado para configuracion', as
       turnosCatalogo: 1,
       misionesActivas: 1,
       parametrosConfigurados: 2,
-    })
+    });
     expect(data.turnos[0]).toMatchObject({
       nomenclatura: 'SP_9_18',
       horaEntrada: '09:00:00',
       horaSalida: '18:00:00',
-    })
+    });
     expect(
       data.parametrosGlobales.find((item) => item.key === 'geocerca.radio_default_metros')
     ).toMatchObject({
       key: 'geocerca.radio_default_metros',
       value: '150',
       persisted: true,
-    })
+    });
     expect(
       data.parametrosGlobales.find((item) => item.key === 'biometria.umbral_similitud')
     ).toMatchObject({
       value: '0.82',
       persisted: false,
-    })
+    });
     expect(data.ocr).toMatchObject({
       source: 'CONFIGURACION',
       effectiveProvider: 'gemini',
       effectiveModel: 'gemini-2.5-flash-lite',
       status: 'LISTO',
       available: true,
-    })
+    });
     expect(data.pdfCompression).toMatchObject({
       source: 'CONFIGURACION',
       effectiveProvider: 'stirling',
       effectiveBaseUrl: 'http://stirling.local',
       status: 'LISTO',
       available: true,
-    })
+    });
   } finally {
     if (previousProvider === undefined) {
-      delete process.env.OCR_PROVIDER
+      delete process.env.OCR_PROVIDER;
     } else {
-      process.env.OCR_PROVIDER = previousProvider
+      process.env.OCR_PROVIDER = previousProvider;
     }
 
     if (previousKey === undefined) {
-      delete process.env.GEMINI_API_KEY
+      delete process.env.GEMINI_API_KEY;
     } else {
-      process.env.GEMINI_API_KEY = previousKey
+      process.env.GEMINI_API_KEY = previousKey;
     }
 
     if (previousPdfProvider === undefined) {
-      delete process.env.PDF_COMPRESSION_PROVIDER
+      delete process.env.PDF_COMPRESSION_PROVIDER;
     } else {
-      process.env.PDF_COMPRESSION_PROVIDER = previousPdfProvider
+      process.env.PDF_COMPRESSION_PROVIDER = previousPdfProvider;
     }
 
-    global.fetch = previousFetch
+    global.fetch = previousFetch;
   }
-})
+});
 
 test('marca infraestructura parcial cuando falta alguna tabla base de configuracion', async () => {
   const client = createFakeConfiguracionSupabase({
@@ -288,21 +288,21 @@ test('marca infraestructura parcial cuando falta alguna tabla base de configurac
       data: [],
       error: null,
     },
-  })
+  });
 
-  const data = await obtenerPanelConfiguracion(client as never)
+  const data = await obtenerPanelConfiguracion(client as never);
 
-  expect(data.infraestructuraLista).toBe(false)
-  expect(data.mensajeInfraestructura).toContain('relation public.configuracion does not exist')
-  expect(data.turnos).toHaveLength(0)
+  expect(data.infraestructuraLista).toBe(false);
+  expect(data.mensajeInfraestructura).toContain('relation public.configuracion does not exist');
+  expect(data.turnos).toHaveLength(0);
   expect(
     data.parametrosGlobales.find((item) => item.key === 'geocerca.radio_default_metros')
   ).toMatchObject({
     key: 'geocerca.radio_default_metros',
     value: '150',
     persisted: false,
-  })
-  expect(data.ocr.status).toBe('DESHABILITADO')
-  expect(data.pdfCompression.status).toBe('LISTO')
-  expect(data.pdfCompression.effectiveProvider).toBe('local')
-})
+  });
+  expect(data.ocr.status).toBe('DESHABILITADO');
+  expect(data.pdfCompression.status).toBe('LISTO');
+  expect(data.pdfCompression.effectiveProvider).toBe('local');
+});

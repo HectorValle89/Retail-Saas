@@ -19,6 +19,7 @@ import {
   getWeekDayShortLabel,
   getWeekEndIso,
   getWeekStartIso,
+  isAssignmentActiveForMonth,
   isAssignmentActiveForWeek,
   sortWeeklyVisits,
 } from '../lib/weeklyRoute'
@@ -252,6 +253,9 @@ export interface RutaSemanalPdvOption {
   longitud: number | null
   formato: string | null
   horarioReferencia: string | null
+  diasDisponibles?: string[]
+  vigenteDesde?: string | null
+  vigenteHasta?: string | null
 }
 
 export interface RutaQuotaProgressItem {
@@ -271,6 +275,8 @@ export interface RutaQuotaProgressItem {
   cumplimientoPorcentaje: number
   latitud: number | null
   longitud: number | null
+  quotaVigenteDesde: string | null
+  esVacante: boolean
 }
 
 export interface RutaBlockedDayItem {
@@ -293,6 +299,8 @@ export interface RutaSupervisorWarRoomItem {
   supervisorEmpleadoId: string
   supervisor: string
   zona: string | null
+  cuentaClienteId?: string | null
+  quotaEffectiveMonth?: string | null
   rutaId: string | null
   weekStart: string
   rutaEstatus: RutaSemanalItem['estatus'] | null
@@ -303,6 +311,9 @@ export interface RutaSupervisorWarRoomItem {
   cumplimientoPorcentaje: number
   semaforo: 'OK' | 'RIESGO' | 'CRITICO'
   totalPdvsAsignados: number
+  totalPdvsConCuota?: number
+  totalPdvsVacantes?: number
+  storesWithoutVisitMonth?: number
   changeRequestsPendientes: number
   agendaApprovalsPendientes: number
   visitasPendientesReposicion: number
@@ -329,6 +340,8 @@ export interface RutaExceptionItem {
 
 export interface RutaSemanalWarRoomData {
   metadataColumnAvailable: boolean
+  quotaInfrastructureAvailable?: boolean
+  quotaInfrastructureMessage?: string | null
   supervisors: RutaSupervisorWarRoomItem[]
   planningStatus: RutaPlanningStatusCount[]
   exceptions: RutaExceptionItem[]
@@ -587,6 +600,14 @@ export interface SupervisorTodayRouteData {
   agendaInfrastructureMessage?: string
   infraestructuraLista: boolean
   mensajeInfraestructura?: string
+  resumenMensual?: {
+    expectedMonthlyVisits: number
+    monthlyVisitsCompleted: number
+    monthlyPendingVisits: number
+    totalPdvsConCuota?: number
+    totalPdvsVacantes?: number
+    storesWithoutVisitMonth?: number
+  } | null
 }
 
 const EMPTY_DATA: RutaSemanalPanelData = {
@@ -815,6 +836,11 @@ export async function obtenerResumenAlcanceVisitas(
   const allowGlobalScope = actor.puesto === 'ADMINISTRADOR' && !actor.cuentaClienteId
   const weekStart = filters.weekStart
   const weekEnd = getWeekEndIso(weekStart)
+  const quotaMonthKey = weekStart.slice(0, 7)
+  const quotaMonthStart = `${quotaMonthKey}-01`
+  const [qYear, qMonth] = quotaMonthKey.split('-').map(Number)
+  const qLastDay = new Date(Date.UTC(qYear, qMonth, 0)).getUTCDate()
+  const quotaMonthEnd = `${quotaMonthKey}-${String(qLastDay).padStart(2, '0')}`
 
   const { result: rutasResult, metadataColumnAvailable } = await fetchRutasWithWorkflowSupport(supabase, {
     actor,
@@ -858,7 +884,26 @@ export async function obtenerResumenAlcanceVisitas(
     rotationQuery = rotationQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
   }
 
-  const [visitasResult, pdvsResult, asignacionesResult, empleadosResult, rotationResult] = await Promise.all([
+  let recurringQuotaQuery = supabase
+    .from('ruta_cuota_supervisor_pdv')
+    .select('supervisor_empleado_id, pdv_id, visitas_mensuales, vigente_desde, vigente_hasta')
+    .lte('vigente_desde', quotaMonthEnd)
+    .or(`vigente_hasta.is.null,vigente_hasta.gte.${quotaMonthStart}`)
+    .order('vigente_desde', { ascending: false })
+    .limit(3000)
+
+  if (!allowGlobalScope && actor.cuentaClienteId) {
+    recurringQuotaQuery = recurringQuotaQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+
+  const [
+    visitasResult,
+    pdvsResult,
+    asignacionesResult,
+    empleadosResult,
+    rotationResult,
+    recurringQuotaResult,
+  ] = await Promise.all([
     visitasPromise,
     supabase
       .from('pdv')
@@ -867,7 +912,7 @@ export async function obtenerResumenAlcanceVisitas(
       )
       .order('nombre', { ascending: true })
       .limit(500),
-    buildAsignacionesQuery(supabase, actor, false, allowGlobalScope),
+    buildAsignacionesQuery(supabase, actor, false, allowGlobalScope, quotaMonthStart, quotaMonthEnd),
     supabase
       .from('empleado')
       .select('id, nombre_completo, puesto, zona, estatus_laboral, supervisor_empleado_id')
@@ -875,6 +920,7 @@ export async function obtenerResumenAlcanceVisitas(
       .order('nombre_completo', { ascending: true })
       .limit(400),
     rotationQuery.limit(700),
+    recurringQuotaQuery,
   ])
 
   const errorMessage =
@@ -1048,10 +1094,53 @@ export async function obtenerResumenAlcanceVisitas(
     } satisfies RutaSemanalItem
   })
 
-  const activeAssignments = asignacionesRaw.filter((item) => isAssignmentActiveForWeek(item, weekStart, weekEnd))
+  const recurringQuotaRows = ((recurringQuotaResult as { data?: unknown[] | null })?.data ?? []) as Array<{
+    supervisor_empleado_id: string
+    pdv_id: string
+    visitas_mensuales: number
+    vigente_desde: string
+    vigente_hasta: string | null
+  }>
+
+  const recurringQuotaMap = new Map<
+    string,
+    Map<
+      string,
+      {
+        supervisorEmpleadoId: string
+        pdvId: string
+        visitasMensuales: number
+        vigenteDesde: string
+        vigenteHasta: string | null
+      }
+    >
+  >()
+
+  for (const row of recurringQuotaRows) {
+    let supMap = recurringQuotaMap.get(row.supervisor_empleado_id)
+    if (!supMap) {
+      supMap = new Map()
+      recurringQuotaMap.set(row.supervisor_empleado_id, supMap)
+    }
+    if (!supMap.has(row.pdv_id)) {
+      supMap.set(row.pdv_id, {
+        supervisorEmpleadoId: row.supervisor_empleado_id,
+        pdvId: row.pdv_id,
+        visitasMensuales: row.visitas_mensuales,
+        vigenteDesde: row.vigente_desde,
+        vigenteHasta: row.vigente_hasta,
+      })
+    }
+  }
+
+  const activeAssignments = asignacionesRaw.filter((item) =>
+    isAssignmentActiveForMonth(item, quotaMonthKey)
+  )
   const warRoom = buildWarRoomData({
     actor,
     metadataColumnAvailable,
+    quotaInfrastructureAvailable: true,
+    recurringQuotaMap,
     rutas,
     agendaEventsByRoute: new Map(),
     pendingRepositionsByRoute: new Map(),
@@ -1282,10 +1371,16 @@ export async function obtenerPanelRutaSemanal(
   options?: {
     referenceDate?: string | Date
     includePlanningCatalog?: boolean
+    surface?: 'full' | 'planning' | 'warroom' | 'mobile' | 'quotas' | string
   }
 ): Promise<RutaSemanalPanelData> {
   const semanaActualInicio = getWeekStartIso(options?.referenceDate)
   const semanaActualFin = getWeekEndIso(semanaActualInicio)
+  const panelMonthKey = semanaActualInicio.slice(0, 7)
+  const panelMonthStart = `${panelMonthKey}-01`
+  const [pYear, pMonth] = panelMonthKey.split('-').map(Number)
+  const pLastDay = new Date(Date.UTC(pYear, pMonth, 0)).getUTCDate()
+  const panelMonthEnd = `${panelMonthKey}-${String(pLastDay).padStart(2, '0')}`
   const puedeEditar = actor.puesto === 'SUPERVISOR'
   const allowGlobalScope = actor.puesto === 'ADMINISTRADOR' && !actor.cuentaClienteId
   const shouldBuildWarRoom = actor.puesto !== 'SUPERVISOR'
@@ -1327,6 +1422,20 @@ export async function obtenerPanelRutaSemanal(
 
   rotationQuery = rotationQuery.limit(600)
 
+  let recurringQuotaQuery = supabase
+    .from('ruta_cuota_supervisor_pdv')
+    .select('supervisor_empleado_id, pdv_id, visitas_mensuales, vigente_desde, vigente_hasta')
+    .lte('vigente_desde', panelMonthEnd)
+    .or(`vigente_hasta.is.null,vigente_hasta.gte.${panelMonthStart}`)
+    .order('vigente_desde', { ascending: false })
+    .limit(3000)
+
+  if (puedeEditar) {
+    recurringQuotaQuery = recurringQuotaQuery.eq('supervisor_empleado_id', actor.empleadoId)
+  } else if (!allowGlobalScope && actor.cuentaClienteId) {
+    recurringQuotaQuery = recurringQuotaQuery.eq('cuenta_cliente_id', actor.cuentaClienteId)
+  }
+
   const cuentaPdvResult =
     !shouldLoadPdvCatalog || allowGlobalScope || !actor.cuentaClienteId
       ? { data: [] as CuentaClientePdvRow[], error: null as { message: string } | null }
@@ -1362,6 +1471,7 @@ export async function obtenerPanelRutaSemanal(
     asignacionesResult,
     rotationResult,
     empleadosResult,
+    recurringQuotaResult,
     agendaEventosResult,
     pendientesReposicionResult,
   ] =
@@ -1407,7 +1517,7 @@ export async function obtenerPanelRutaSemanal(
           : geocercasQuery
         : Promise.resolve({ data: [], error: null }),
       shouldLoadPdvCatalog
-        ? buildAsignacionesQuery(supabase, actor, puedeEditar, allowGlobalScope)
+        ? buildAsignacionesQuery(supabase, actor, puedeEditar, allowGlobalScope, panelMonthStart, panelMonthEnd)
         : Promise.resolve({ data: [], error: null }),
       shouldLoadPdvCatalog ? rotationQuery : Promise.resolve({ data: [], error: null }),
       shouldBuildWarRoom
@@ -1418,6 +1528,7 @@ export async function obtenerPanelRutaSemanal(
             .order('nombre_completo', { ascending: true })
             .limit(400)
         : Promise.resolve({ data: [], error: null }),
+      shouldBuildWarRoom ? recurringQuotaQuery : Promise.resolve({ data: [], error: null }),
       rutaIds.length > 0
         ? supabase
             .from('ruta_agenda_evento')
@@ -1707,6 +1818,48 @@ export async function obtenerPanelRutaSemanal(
     } satisfies RutaSemanalItem
   })
 
+  const recurringQuotaRows = ((recurringQuotaResult as { data?: unknown[] | null })?.data ?? []) as Array<{
+    supervisor_empleado_id: string
+    pdv_id: string
+    visitas_mensuales: number
+    vigente_desde: string
+    vigente_hasta: string | null
+  }>
+
+  const recurringQuotaMap = new Map<
+    string,
+    Map<
+      string,
+      {
+        supervisorEmpleadoId: string
+        pdvId: string
+        visitasMensuales: number
+        vigenteDesde: string
+        vigenteHasta: string | null
+      }
+    >
+  >()
+
+  for (const row of recurringQuotaRows) {
+    let supMap = recurringQuotaMap.get(row.supervisor_empleado_id)
+    if (!supMap) {
+      supMap = new Map()
+      recurringQuotaMap.set(row.supervisor_empleado_id, supMap)
+    }
+    if (!supMap.has(row.pdv_id)) {
+      supMap.set(row.pdv_id, {
+        supervisorEmpleadoId: row.supervisor_empleado_id,
+        pdvId: row.pdv_id,
+        visitasMensuales: row.visitas_mensuales,
+        vigenteDesde: row.vigente_desde,
+        vigenteHasta: row.vigente_hasta,
+      })
+    }
+  }
+
+  const activeAssignmentsMonth = asignacionesRaw.filter((item) =>
+    isAssignmentActiveForMonth(item, panelMonthKey)
+  )
   const activeAssignments = asignacionesRaw.filter((item) =>
     isAssignmentActiveForWeek(item, semanaActualInicio, semanaActualFin)
   )
@@ -1782,6 +1935,8 @@ export async function obtenerPanelRutaSemanal(
     ? buildWarRoomData({
         actor,
         metadataColumnAvailable,
+        quotaInfrastructureAvailable: true,
+        recurringQuotaMap,
         rutas,
         agendaEventsByRoute,
         pendingRepositionsByRoute,
@@ -1789,7 +1944,7 @@ export async function obtenerPanelRutaSemanal(
         pdvsWithSupervisors: pdvsRaw,
         geocercaMap,
         rotacionMap,
-        activeAssignments,
+        activeAssignments: activeAssignmentsMonth,
         employees: empleadosRaw,
         weekStart: semanaActualInicio,
       })
@@ -1897,11 +2052,13 @@ export async function obtenerPanelRutaSemanalParaActor(
     serviceClient?: TypedSupabaseClient
     cacheBuster?: string | null
     includePlanningCatalog?: boolean
+    surface?: 'full' | 'planning' | 'warroom' | 'mobile' | 'quotas' | string
   }
 ): Promise<RutaSemanalPanelData> {
   const cacheKey = [
     ...buildRutaSemanalCacheKey(actor, options?.referenceDate),
     options?.includePlanningCatalog === false ? 'without-planning-catalog' : 'with-planning-catalog',
+    options?.surface ?? 'full',
   ]
   const tags = buildRutaSemanalCacheTags(actor, options?.referenceDate)
 
@@ -1911,6 +2068,7 @@ export async function obtenerPanelRutaSemanalParaActor(
       return obtenerPanelRutaSemanal(service, actor, {
         referenceDate: options?.referenceDate,
         includePlanningCatalog: options?.includePlanningCatalog,
+        surface: options?.surface,
       })
     },
     cacheKey,
@@ -2215,31 +2373,30 @@ function buildAsignacionesQuery(
   supabase: TypedSupabaseClient,
   actor: ActorActual,
   puedeEditar: boolean,
-  allowGlobalScope: boolean
+  allowGlobalScope: boolean,
+  rangeStart?: string,
+  rangeEnd?: string
 ) {
-  if (puedeEditar) {
-    return supabase
-      .from('asignacion')
-      .select(
-        'id, cuenta_cliente_id, supervisor_empleado_id, pdv_id, fecha_inicio, fecha_fin, estado_publicacion, horario_referencia'
-      )
-      .eq('supervisor_empleado_id', actor.empleadoId)
-      .order('created_at', { ascending: false })
-      .limit(240)
-  }
-
   let query = supabase
     .from('asignacion')
     .select(
       'id, cuenta_cliente_id, supervisor_empleado_id, pdv_id, fecha_inicio, fecha_fin, estado_publicacion, horario_referencia'
     )
-    .order('created_at', { ascending: false })
+    .eq('estado_publicacion', 'PUBLICADA')
 
-  if (!allowGlobalScope && actor.cuentaClienteId) {
+  if (puedeEditar) {
+    query = query.eq('supervisor_empleado_id', actor.empleadoId)
+  } else if (!allowGlobalScope && actor.cuentaClienteId) {
     query = query.eq('cuenta_cliente_id', actor.cuentaClienteId)
   }
 
-  return query.limit(400)
+  if (rangeStart && rangeEnd) {
+    query = query
+      .lte('fecha_inicio', rangeEnd)
+      .or(`fecha_fin.is.null,fecha_fin.gte.${rangeStart}`)
+  }
+
+  return query.order('fecha_inicio', { ascending: false }).limit(2000)
 }
 
 async function fetchRutasWithWorkflowSupport(
@@ -2362,9 +2519,11 @@ async function fetchRutasWithWorkflowSupport(
   }
 }
 
-function buildWarRoomData({
+export function buildWarRoomData({
   actor,
   metadataColumnAvailable,
+  quotaInfrastructureAvailable,
+  recurringQuotaMap,
   rutas,
   agendaEventsByRoute,
   pendingRepositionsByRoute,
@@ -2378,6 +2537,20 @@ function buildWarRoomData({
 }: {
   actor: ActorActual
   metadataColumnAvailable: boolean
+  quotaInfrastructureAvailable?: boolean
+  recurringQuotaMap?: Map<
+    string,
+    Map<
+      string,
+      {
+        supervisorEmpleadoId: string
+        pdvId: string
+        visitasMensuales: number
+        vigenteDesde: string
+        vigenteHasta: string | null
+      }
+    >
+  >
   rutas: RutaSemanalItem[]
   agendaEventsByRoute: Map<string, RutaAgendaEventRecord[]>
   pendingRepositionsByRoute: Map<string, RutaAgendaPendingRecord[]>
@@ -2419,6 +2592,47 @@ function buildWarRoomData({
         sTotalCompletadas++
       }
     }
+
+    const routeEvents = agendaEventsByRoute.get(route.id) ?? []
+    for (const event of routeEvents) {
+      if (event.estatusEjecucion === 'COMPLETADO' && event.pdvId) {
+        const pdvVisits = sVisitasMap.get(event.pdvId) ?? []
+        pdvVisits.push({
+          id: event.id,
+          rutaId: route.id,
+          cuentaClienteId: route.cuentaClienteId,
+          supervisorEmpleadoId: sId,
+          pdvId: event.pdvId,
+          asignacionId: null,
+          diaSemana: 1,
+          diaLabel: 'Evento',
+          diaShortLabel: 'EVT',
+          orden: 999,
+          estatus: 'COMPLETADA',
+          pdv: event.pdv,
+          pdvClaveBtl: null,
+          zona: event.zona ?? null,
+          direccion: null,
+          latitud: null,
+          longitud: null,
+          geocercaRadioMetros: null,
+          selfieUrl: event.selfieUrl ?? null,
+          evidenciaUrl: event.evidenciaUrl ?? null,
+          comentarios: event.descripcion,
+          checklistCalidad: null,
+          completadaEn: event.checkOutAt ?? event.checkInAt ?? null,
+          bloqueada: false,
+          motivoBloqueo: null,
+          enConflicto: false,
+          metadata: {},
+          createdAt: event.createdAt,
+          updatedAt: event.updatedAt,
+        } as unknown as RutaSemanalVisitItem)
+        sVisitasMap.set(event.pdvId, pdvVisits)
+        sTotalCompletadas++
+      }
+    }
+
     visitasPorSupervisorYPdv.set(sId, sVisitasMap)
     visitasCompletadasPorSupervisor.set(sId, sTotalCompletadas)
   }
@@ -2571,20 +2785,30 @@ function buildWarRoomData({
           continue
         }
 
+        const existing = pdvCandidates.get(assignment.pdv_id)
         pdvCandidates.set(assignment.pdv_id, {
-          pdv,
+          pdv: existing?.pdv ?? pdv,
           hasActiveAssignment: true,
         })
       }
 
       const quotaProgress = Array.from(pdvCandidates.values())
-        .map(({ pdv }) => {
+        .map(({ pdv, hasActiveAssignment }) => {
           const geocerca = geocercaMap.get(pdv.id)
           const rotacion = rotacionMap.get(pdv.id)
           const visitsForPdv = visitasPorSupervisorYPdv.get(supervisorEmpleadoId)?.get(pdv.id) ?? []
           const visitasRealizadas = visitsForPdv.filter((visit) => visit.estatus === 'COMPLETADA').length
-          const quotaMensual = currentRoute?.pdvMonthlyQuotas[pdv.id] ?? currentRoute?.minimumVisitsPerPdv ?? 0
-          const visitasPendientes = Math.max(quotaMensual - visitasRealizadas, 0)
+
+          const recurringItem = recurringQuotaMap?.get(supervisorEmpleadoId)?.get(pdv.id)
+          const quotaMensualBase =
+            recurringItem?.visitasMensuales ??
+            currentRoute?.pdvMonthlyQuotas[pdv.id] ??
+            currentRoute?.minimumVisitsPerPdv ??
+            0
+
+          const esVacante = !hasActiveAssignment
+          const quotaMensual = esVacante ? 0 : quotaMensualBase
+          const visitasPendientes = esVacante ? 0 : Math.max(quotaMensual - visitasRealizadas, 0)
           const cumplimientoPorcentaje = Math.min(
             100,
             quotaMensual > 0 ? Math.round((visitasRealizadas / quotaMensual) * 100) : 0
@@ -2608,20 +2832,31 @@ function buildWarRoomData({
             cumplimientoPorcentaje,
             latitud: geocerca?.latitud ?? null,
             longitud: geocerca?.longitud ?? null,
+            quotaVigenteDesde: recurringItem?.vigenteDesde ?? null,
+            esVacante,
           } satisfies RutaQuotaProgressItem
         })
         .filter((item): item is RutaQuotaProgressItem => Boolean(item))
         .sort((left, right) => right.visitasPendientes - left.visitasPendientes || left.nombre.localeCompare(right.nombre))
 
+      const totalPdvsAsignados = quotaProgress.length
+      const totalPdvsConCuota = quotaProgress.filter((item) => !item.esVacante).length
+      const totalPdvsVacantes = quotaProgress.filter((item) => item.esVacante).length
+
       const minimumVisitsPerPdv = currentRoute?.minimumVisitsPerPdv ?? null
       const expectedMonthlyVisits =
-        currentRoute?.expectedMonthlyVisits ??
-        (minimumVisitsPerPdv !== null
-          ? Math.max(minimumVisitsPerPdv * quotaProgress.length, 0)
-          : Math.max(quotaProgress.reduce((acc, item) => acc + item.quotaMensual, 0), 0))
+        recurringQuotaMap?.has(supervisorEmpleadoId)
+          ? quotaProgress.reduce((acc, item) => acc + item.quotaMensual, 0)
+          : (currentRoute?.expectedMonthlyVisits ??
+            (minimumVisitsPerPdv !== null
+              ? Math.max(minimumVisitsPerPdv * totalPdvsConCuota, 0)
+              : Math.max(quotaProgress.reduce((acc, item) => acc + item.quotaMensual, 0), 0)))
+
       const monthlyVisitsCompleted =
+        visitasCompletadasPorSupervisor.get(supervisorEmpleadoId) ??
         currentRoute?.monthlyVisitsCompleted ??
-        visitasCompletadasPorSupervisor.get(supervisorEmpleadoId) ?? 0
+        0
+
       const cumplimientoPorcentaje =
         expectedMonthlyVisits > 0
           ? Math.min(100, Math.round((monthlyVisitsCompleted / expectedMonthlyVisits) * 100))
@@ -2648,7 +2883,12 @@ function buildWarRoomData({
             : cumplimientoPorcentaje >= 60
               ? 'RIESGO'
               : 'CRITICO',
-        totalPdvsAsignados: quotaProgress.length,
+        totalPdvsAsignados,
+        totalPdvsConCuota,
+        totalPdvsVacantes,
+        storesWithoutVisitMonth: quotaProgress.filter((p) => p.visitasRealizadas === 0 && !p.esVacante).length,
+        cuentaClienteId: currentRoute?.cuentaClienteId ?? null,
+        quotaEffectiveMonth: weekStart.slice(0, 7),
         changeRequestsPendientes: changeRequestsPorSupervisor.get(supervisorEmpleadoId) ?? 0,
         agendaApprovalsPendientes: agendaApprovalsPorSupervisor.get(supervisorEmpleadoId) ?? 0,
         visitasPendientesReposicion: reposicionesPorSupervisor.get(supervisorEmpleadoId) ?? 0,
@@ -2697,6 +2937,8 @@ function buildWarRoomData({
 
   return {
     metadataColumnAvailable,
+    quotaInfrastructureAvailable: quotaInfrastructureAvailable ?? true,
+    quotaInfrastructureMessage: null,
     supervisors,
     planningStatus,
     exceptions,

@@ -6,50 +6,50 @@ const NETWORK_ERROR_PATTERNS = [
   /not valid json/i,
   /error code:\s*1016/i,
   /invalid json/i,
-]
+];
 
 function extractErrorMessage(error: unknown): string {
   if (typeof error === 'string') {
-    return error
+    return error;
   }
 
   if (error instanceof Error) {
-    return error.message
+    return error.message;
   }
 
   if (typeof error === 'object' && error && 'message' in error) {
-    const { message } = error as { message?: unknown }
+    const { message } = error as { message?: unknown };
     if (typeof message === 'string') {
-      return message
+      return message;
     }
   }
 
-  return ''
+  return '';
 }
 
 export function isSupabaseAuthNetworkError(error: unknown): boolean {
-  const message = extractErrorMessage(error)
+  const message = extractErrorMessage(error);
 
   if (!message) {
-    return false
+    return false;
   }
 
-  return NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(message))
+  return NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 export function getSupabaseAuthFriendlyErrorMessage(
   error: unknown,
   fallback = 'No fue posible conectar con el servicio de autenticacion. Reintenta en unos minutos.'
 ) {
-  const message = extractErrorMessage(error)
+  const message = extractErrorMessage(error);
 
   if (!message) {
-    return fallback
+    return fallback;
   }
 
   if (isSupabaseAuthNetworkError(message)) {
-    return fallback
+    return fallback;
   }
 
-  return message
+  return message;
 }

@@ -6,11 +6,13 @@ description: Commits estructurados con Conventional Commits
 # Git Conventional Commits - Beteele
 
 ## Cuando Usar
+
 - SIEMPRE antes de hacer commit
 - Al generar changelog automático
 - Antes de release (semantic versioning)
 
 ## Formato
+
 ```
 <type>(<scope>): <description>
 
@@ -20,6 +22,7 @@ description: Commits estructurados con Conventional Commits
 ```
 
 ## Types
+
 - `feat`: Nueva funcionalidad
 - `fix`: Bug fix
 - `refactor`: Cambio código sin cambiar comportamiento
@@ -29,6 +32,7 @@ description: Commits estructurados con Conventional Commits
 - `chore`: Mantenimiento (deps, config)
 
 ## Ejemplos Beteele
+
 ```bash
 # Feature nueva
 git commit -m "feat(asistencia): agregar cálculo de cuotas por bloque mensual"
@@ -46,6 +50,7 @@ BREAKING CHANGE: Cambiar toda capa de datos de Firestore a SQLite"
 ```
 
 ## Comandos
+
 ```bash
 # Commit interactivo
 git commit

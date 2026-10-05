@@ -1,16 +1,21 @@
-'use server'
+'use server';
 
-import type { SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   SUPERVISOR_INHERITANCE_RULE_CODE,
   readSupervisorInheritanceRule,
   resolveSupervisorInheritance,
   type BusinessRuleRow,
-} from '@/features/reglas/lib/businessRules'
-import { requerirAdministradorActivo, requerirPuestosActivos } from '@/lib/auth/session'
-import { getSingleTenantAccountId } from '@/lib/tenant/singleTenant'
-import { createClient, createServiceClient } from '@/lib/supabase/server'
-import type { Empleado, Pdv, UsuarioSistema, VacanteOperativaFuturaSeguimiento } from '@/types/database'
+} from '@/features/reglas/lib/businessRules';
+import { requerirAdministradorActivo, requerirPuestosActivos } from '@/lib/auth/session';
+import { getSingleTenantAccountId } from '@/lib/tenant/singleTenant';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
+import type {
+  Empleado,
+  Pdv,
+  UsuarioSistema,
+  VacanteOperativaFuturaSeguimiento,
+} from '@/types/database';
 import {
   evaluarReglasAsignacion,
   resumirIssuesAsignacion,
@@ -20,30 +25,31 @@ import {
   type AssignmentValidationEmployee,
   type AssignmentValidationPdv,
   type SupervisorAsignacionRow,
-} from './lib/assignmentValidation'
+} from './lib/assignmentValidation';
+import { normalizeDiaLaboralCode, serializeDiasLaborales } from './lib/assignmentPlanning';
+import { buildAssignmentScopeOrFilter } from './lib/assignmentQuery';
 import {
-  normalizeDiaLaboralCode,
-  serializeDiasLaborales,
-} from './lib/assignmentPlanning'
-import { buildAssignmentScopeOrFilter } from './lib/assignmentQuery'
-import { parseTurnosCatalogo, TURNOS_CONFIG_KEY } from '@/features/configuracion/configuracionCatalog'
-import { parseAssignmentCatalogWorkbook } from './lib/assignmentCatalogImport'
-import { parseAssignmentWeeklyScheduleWorkbook } from './lib/assignmentWeeklyScheduleImport'
-import { parsePdvRotationCatalogWorkbook } from './lib/pdvRotationCatalogImport'
+  parseTurnosCatalogo,
+  TURNOS_CONFIG_KEY,
+} from '@/features/configuracion/configuracionCatalog';
+import { parseAssignmentCatalogWorkbook } from './lib/assignmentCatalogImport';
+import { parseAssignmentWeeklyScheduleWorkbook } from './lib/assignmentWeeklyScheduleImport';
+import { parsePdvRotationCatalogWorkbook } from './lib/pdvRotationCatalogImport';
 import {
   buildAssignmentTransitionPlan,
   type AssignmentEngineDraft,
   type AssignmentEngineTransitionPlan,
   type AssignmentEngineRow,
   type AssignmentEngineNature,
-} from './lib/assignmentEngine'
+} from './lib/assignmentEngine';
+import { collectPublishedAssignmentIds } from './lib/assignmentPublication';
 import {
   enqueueAndProcessMaterializedAssignments,
   resolveMaterializationImpactRange,
-} from './services/asignacionMaterializationService'
-import { publishUiChanges } from '@/lib/ui-change/server'
-import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
-import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus'
+} from './services/asignacionMaterializationService';
+import { publishUiChanges } from '@/lib/ui-change/server';
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types';
+import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus';
 import {
   normalizeAssignmentRestMonthlyRule,
   normalizeIsoDateList,
@@ -52,7 +58,7 @@ import {
   type AssignmentRestWeekdayCode,
   summarizeRestOverrideDates,
   type AssignmentRestOverrideLike,
-} from './lib/assignmentRestOverride'
+} from './lib/assignmentRestOverride';
 import {
   ESTADO_ACTUALIZACION_VACANTE_OPERATIVA_INICIAL,
   ESTADO_ASIGNACION_INICIAL,
@@ -66,55 +72,52 @@ import {
   type GuardarDescansoPermanenteState,
   type PublicarCatalogoAsignacionesState,
   type RestOverridePreviewSummary,
-} from './state'
-import {
-  type ImportarRotacionMaestraState,
-  type PdvRotacionImportConflict,
-} from './rotationState'
+} from './state';
+import { type ImportarRotacionMaestraState, type PdvRotacionImportConflict } from './rotationState';
 
 interface AsignacionEstadoRow {
-  id: string
-  cuenta_cliente_id: string | null
-  empleado_id: string
-  supervisor_empleado_id: string | null
-  pdv_id: string
-  tipo: string
-  factor_tiempo: number
-  dias_laborales: string | null
-  dia_descanso: string | null
-  horario_referencia: string | null
-  fecha_inicio: string
-  fecha_fin: string | null
-  naturaleza: AssignmentEngineNature
-  retorna_a_base: boolean
-  asignacion_base_id: string | null
-  asignacion_origen_id: string | null
-  prioridad: number
-  motivo_movimiento: string | null
-  observaciones: string | null
-  generado_automaticamente: boolean
-  estado_publicacion: 'BORRADOR' | 'PUBLICADA'
+  id: string;
+  cuenta_cliente_id: string | null;
+  empleado_id: string;
+  supervisor_empleado_id: string | null;
+  pdv_id: string;
+  tipo: string;
+  factor_tiempo: number;
+  dias_laborales: string | null;
+  dia_descanso: string | null;
+  horario_referencia: string | null;
+  fecha_inicio: string;
+  fecha_fin: string | null;
+  naturaleza: AssignmentEngineNature;
+  retorna_a_base: boolean;
+  asignacion_base_id: string | null;
+  asignacion_origen_id: string | null;
+  prioridad: number;
+  motivo_movimiento: string | null;
+  observaciones: string | null;
+  generado_automaticamente: boolean;
+  estado_publicacion: 'BORRADOR' | 'PUBLICADA';
 }
 
 interface GeocercaAsignacionRow {
-  pdv_id: string
-  latitud: number | null
-  longitud: number | null
-  radio_tolerancia_metros: number | null
+  pdv_id: string;
+  latitud: number | null;
+  longitud: number | null;
+  radio_tolerancia_metros: number | null;
 }
 
 interface SupervisorResolucionRow extends SupervisorAsignacionRow {
-  empleado_id: string | null
+  empleado_id: string | null;
 }
 
 interface CuentaClientePdvRow {
-  cuenta_cliente_id: string
-  activo: boolean
-  fecha_fin: string | null
+  cuenta_cliente_id: string;
+  activo: boolean;
+  fecha_fin: string | null;
 }
 
-type TypedSupabaseClient = SupabaseClient<any>
-type MaybeMany<T> = T | T[] | null
+type TypedSupabaseClient = SupabaseClient<any>;
+type MaybeMany<T> = T | T[] | null;
 
 async function publishAsignacionesUiChanges(
   actor: Awaited<ReturnType<typeof requerirAdministradorActivo>>,
@@ -137,7 +140,7 @@ async function publishAsignacionesUiChanges(
       metadata: { source: 'asignaciones_actions' },
     }),
     { service }
-  )
+  );
 }
 
 type EmpleadoContextRow = Pick<
@@ -149,7 +152,7 @@ type EmpleadoContextRow = Pick<
   | 'telefono'
   | 'correo_electronico'
   | 'supervisor_empleado_id'
->
+>;
 
 type EmpleadoImportRow = Pick<
   Empleado,
@@ -161,22 +164,21 @@ type EmpleadoImportRow = Pick<
   | 'supervisor_empleado_id'
   | 'telefono'
   | 'correo_electronico'
->
+>;
 
 type CadenaContextRow = {
-  codigo: string | null
-  factor_cuota_default: number | null
-}
+  codigo: string | null;
+  factor_cuota_default: number | null;
+};
 
-type UsuarioImportRow = Pick<UsuarioSistema, 'empleado_id' | 'username'>
+type UsuarioImportRow = Pick<UsuarioSistema, 'empleado_id' | 'username'>;
 
-interface PdvContextRow
-  extends Pick<Pdv, 'id' | 'estatus'> {
-  cadena: CadenaContextRow[] | null
+interface PdvContextRow extends Pick<Pdv, 'id' | 'estatus'> {
+  cadena: CadenaContextRow[] | null;
 }
 
 interface PdvImportRow extends Pick<Pdv, 'id' | 'clave_btl' | 'estatus'> {
-  cadena: CadenaContextRow[] | null
+  cadena: CadenaContextRow[] | null;
 }
 
 function buildState(
@@ -187,7 +189,7 @@ function buildState(
     ...partial,
     issues: partial.issues ?? [],
     redirectTo: partial.redirectTo ?? ESTADO_ASIGNACION_INICIAL.redirectTo,
-  }
+  };
 }
 
 function buildImportState(
@@ -200,7 +202,7 @@ function buildImportState(
     summary: null,
     previewRows: [],
     redirectTo: null,
-  }
+  };
 
   return {
     ...baseState,
@@ -209,7 +211,7 @@ function buildImportState(
     summary: partial.summary ?? baseState.summary,
     previewRows: partial.previewRows ?? baseState.previewRows,
     redirectTo: partial.redirectTo ?? baseState.redirectTo,
-  }
+  };
 }
 
 function buildVacanteOperativaState(
@@ -218,16 +220,16 @@ function buildVacanteOperativaState(
   return {
     ...ESTADO_ACTUALIZACION_VACANTE_OPERATIVA_INICIAL,
     ...partial,
-  }
+  };
 }
 
 function isMissingSchemaTableError(error: unknown, tableName: string) {
-  const message = error instanceof Error ? error.message : String(error ?? '')
-  const normalized = message.toLowerCase()
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const normalized = message.toLowerCase();
   return (
     normalized.includes(tableName.toLowerCase()) &&
     (normalized.includes('schema cache') || normalized.includes('could not find the table'))
-  )
+  );
 }
 
 function buildPublishState(
@@ -235,18 +237,18 @@ function buildPublishState(
 ): PublicarCatalogoAsignacionesState {
   const baseState: PublicarCatalogoAsignacionesState = {
     ...ESTADO_PUBLICACION_CATALOGO_ASIGNACIONES_INICIAL,
-  }
+  };
 
   return {
     ...baseState,
     ...partial,
-      conflicts: partial.conflicts ?? baseState.conflicts,
-      publishedRows: partial.publishedRows ?? baseState.publishedRows,
-      materializedEmployees: partial.materializedEmployees ?? baseState.materializedEmployees,
-      materializedWindowLabel: partial.materializedWindowLabel ?? baseState.materializedWindowLabel,
-      redirectTo: partial.redirectTo ?? baseState.redirectTo,
-    }
-  }
+    conflicts: partial.conflicts ?? baseState.conflicts,
+    publishedRows: partial.publishedRows ?? baseState.publishedRows,
+    materializedEmployees: partial.materializedEmployees ?? baseState.materializedEmployees,
+    materializedWindowLabel: partial.materializedWindowLabel ?? baseState.materializedWindowLabel,
+    redirectTo: partial.redirectTo ?? baseState.redirectTo,
+  };
+}
 
 function buildRotationImportState(
   partial: Partial<ImportarRotacionMaestraState>
@@ -256,14 +258,14 @@ function buildRotationImportState(
     message: null,
     conflicts: [],
     summary: null,
-  }
+  };
 
   return {
     ...baseState,
     ...partial,
     conflicts: partial.conflicts ?? baseState.conflicts,
     summary: partial.summary ?? baseState.summary,
-  }
+  };
 }
 
 function buildDescansoPermanentState(
@@ -271,14 +273,14 @@ function buildDescansoPermanentState(
 ): GuardarDescansoPermanenteState {
   const baseState: GuardarDescansoPermanenteState = {
     ...ESTADO_DESCANSO_PERMANENTE_INICIAL,
-  }
+  };
 
   return {
     ...baseState,
     ...partial,
     preview: partial.preview ?? baseState.preview,
     overrideId: partial.overrideId ?? baseState.overrideId,
-  }
+  };
 }
 
 function getCurrentMxMonth() {
@@ -286,7 +288,7 @@ function getCurrentMxMonth() {
     timeZone: 'America/Mexico_City',
     year: 'numeric',
     month: '2-digit',
-  }).format(new Date())
+  }).format(new Date());
 }
 
 function getCurrentMxDate() {
@@ -295,36 +297,36 @@ function getCurrentMxDate() {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date())
+  }).format(new Date());
 }
 
 function addUtcMonths(month: string, offset: number) {
-  const date = new Date(`${month}-01T12:00:00Z`)
-  date.setUTCMonth(date.getUTCMonth() + offset, 1)
-  return date.toISOString().slice(0, 7)
+  const date = new Date(`${month}-01T12:00:00Z`);
+  date.setUTCMonth(date.getUTCMonth() + offset, 1);
+  return date.toISOString().slice(0, 7);
 }
 
 function startOfMonth(month: string) {
-  return `${month}-01`
+  return `${month}-01`;
 }
 
 function endOfMonth(month: string) {
-  const date = new Date(`${month}-01T12:00:00Z`)
-  date.setUTCMonth(date.getUTCMonth() + 1, 0)
-  return date.toISOString().slice(0, 10)
+  const date = new Date(`${month}-01T12:00:00Z`);
+  date.setUTCMonth(date.getUTCMonth() + 1, 0);
+  return date.toISOString().slice(0, 10);
 }
 
 function formatMonthLabel(month: string) {
-  const date = new Date(`${month}-01T12:00:00Z`)
+  const date = new Date(`${month}-01T12:00:00Z`);
   return new Intl.DateTimeFormat('es-MX', {
     timeZone: 'UTC',
     month: 'long',
     year: 'numeric',
-  }).format(date)
+  }).format(date);
 }
 
 function buildOperationalWindowLabel(baseMonth = getCurrentMxMonth()) {
-  return `${formatMonthLabel(baseMonth)} + ${formatMonthLabel(addUtcMonths(baseMonth, 1))}`
+  return `${formatMonthLabel(baseMonth)} + ${formatMonthLabel(addUtcMonths(baseMonth, 1))}`;
 }
 
 function buildMonthlyMaterializationRange(
@@ -332,31 +334,31 @@ function buildMonthlyMaterializationRange(
   fechaFin: string | null,
   month: string
 ) {
-  const lowerBound = startOfMonth(month)
-  const upperBound = endOfMonth(month)
-  const normalizedStart = fechaInicio.slice(0, 10)
-  const normalizedEnd = fechaFin ? fechaFin.slice(0, 10) : upperBound
-  const effectiveStart = normalizedStart > lowerBound ? normalizedStart : lowerBound
-  const effectiveEnd = normalizedEnd < upperBound ? normalizedEnd : upperBound
+  const lowerBound = startOfMonth(month);
+  const upperBound = endOfMonth(month);
+  const normalizedStart = fechaInicio.slice(0, 10);
+  const normalizedEnd = fechaFin ? fechaFin.slice(0, 10) : upperBound;
+  const effectiveStart = normalizedStart > lowerBound ? normalizedStart : lowerBound;
+  const effectiveEnd = normalizedEnd < upperBound ? normalizedEnd : upperBound;
 
   if (effectiveStart > effectiveEnd) {
-    return null
+    return null;
   }
 
   return {
     fechaInicio: effectiveStart,
     fechaFin: effectiveEnd,
-  }
+  };
 }
 
 function isValidMonthInput(value: string) {
-  return /^\d{4}-\d{2}$/.test(value)
+  return /^\d{4}-\d{2}$/.test(value);
 }
 function buildValidationEmployee(
   empleado: EmpleadoContextRow | null
 ): AssignmentValidationEmployee | null {
   if (!empleado) {
-    return null
+    return null;
   }
 
   return {
@@ -365,15 +367,18 @@ function buildValidationEmployee(
     estatus_laboral: empleado.estatus_laboral,
     telefono: empleado.telefono,
     correo_electronico: empleado.correo_electronico,
-  }
+  };
 }
 
-function buildValidationPdv(pdv: PdvContextRow | null, geocerca: GeocercaAsignacionRow | null): AssignmentValidationPdv | null {
+function buildValidationPdv(
+  pdv: PdvContextRow | null,
+  geocerca: GeocercaAsignacionRow | null
+): AssignmentValidationPdv | null {
   if (!pdv) {
-    return null
+    return null;
   }
 
-  const cadena = pdv.cadena?.[0] ?? null
+  const cadena = pdv.cadena?.[0] ?? null;
 
   return {
     id: pdv.id,
@@ -381,10 +386,22 @@ function buildValidationPdv(pdv: PdvContextRow | null, geocerca: GeocercaAsignac
     radio_tolerancia_metros: geocerca?.radio_tolerancia_metros ?? null,
     cadena_codigo: cadena?.codigo ?? null,
     factor_cuota_default: cadena?.factor_cuota_default ?? null,
-  }
+  };
 }
 
-function buildComparableRow(row: Pick<AsignacionEstadoRow, 'id' | 'empleado_id' | 'pdv_id' | 'supervisor_empleado_id' | 'tipo' | 'fecha_inicio' | 'fecha_fin' | 'dias_laborales'>): AssignmentComparableRow {
+function buildComparableRow(
+  row: Pick<
+    AsignacionEstadoRow,
+    | 'id'
+    | 'empleado_id'
+    | 'pdv_id'
+    | 'supervisor_empleado_id'
+    | 'tipo'
+    | 'fecha_inicio'
+    | 'fecha_fin'
+    | 'dias_laborales'
+  >
+): AssignmentComparableRow {
   return {
     id: row.id,
     empleado_id: row.empleado_id,
@@ -394,79 +411,75 @@ function buildComparableRow(row: Pick<AsignacionEstadoRow, 'id' | 'empleado_id' 
     fecha_inicio: row.fecha_inicio,
     fecha_fin: row.fecha_fin,
     dias_laborales: row.dias_laborales,
-  }
+  };
 }
 
-function obtenerSupervisorVigente(
-  supervisores: SupervisorResolucionRow[],
-  referencia: string
-) {
+function obtenerSupervisorVigente(supervisores: SupervisorResolucionRow[], referencia: string) {
   return (
     supervisores.find(
       (item) => item.activo && item.empleado_id && (!item.fecha_fin || item.fecha_fin >= referencia)
     ) ?? null
-  )
+  );
 }
 
-function pickCuentaClienteOperativa(
-  relaciones: CuentaClientePdvRow[],
-  referencia: string
-) {
+function pickCuentaClienteOperativa(relaciones: CuentaClientePdvRow[], referencia: string) {
   return (
-    relaciones.find((item) => item.activo && (!item.fecha_fin || item.fecha_fin >= referencia)) ?? null
-  )
+    relaciones.find((item) => item.activo && (!item.fecha_fin || item.fecha_fin >= referencia)) ??
+    null
+  );
 }
 
 function normalizeDate(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
-  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null
+  const normalized = String(value ?? '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
 }
 
 function normalizeOptionalText(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
-  return normalized || null
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
 }
 
 function previousIsoDate(value: string) {
-  const date = new Date(`${value}T12:00:00Z`)
-  date.setUTCDate(date.getUTCDate() - 1)
-  return date.toISOString().slice(0, 10)
+  const date = new Date(`${value}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
 }
 
 function parseIsoDateLines(value: FormDataEntryValue | null) {
-  const raw = String(value ?? '').trim()
+  const raw = String(value ?? '').trim();
   if (!raw) {
     return {
       dates: [] as string[],
       invalidTokens: [] as string[],
-    }
+    };
   }
 
   const tokens = raw
     .split(/[\n,;|]+/)
     .map((item) => item.trim())
-    .filter(Boolean)
+    .filter(Boolean);
 
-  const dates = Array.from(new Set(tokens.filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item))))
-    .sort((left, right) => left.localeCompare(right))
-  const invalidTokens = tokens.filter((item) => !/^\d{4}-\d{2}-\d{2}$/.test(item))
+  const dates = Array.from(new Set(tokens.filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item)))).sort(
+    (left, right) => left.localeCompare(right)
+  );
+  const invalidTokens = tokens.filter((item) => !/^\d{4}-\d{2}-\d{2}$/.test(item));
 
-  return { dates, invalidTokens }
+  return { dates, invalidTokens };
 }
 
 function parseOccurrenceList(value: FormDataEntryValue | null) {
-  const raw = String(value ?? '').trim()
+  const raw = String(value ?? '').trim();
   if (!raw) {
     return {
       values: [] as number[],
       invalidTokens: [] as string[],
-    }
+    };
   }
 
   const tokens = raw
     .split(/[\n,;|]+/)
     .map((item) => item.trim())
-    .filter(Boolean)
+    .filter(Boolean);
 
   const validValues = Array.from(
     new Set(
@@ -474,56 +487,56 @@ function parseOccurrenceList(value: FormDataEntryValue | null) {
         .map((item) => Number(item))
         .filter((item) => Number.isInteger(item) && item >= 1 && item <= 5)
     )
-  ).sort((left, right) => left - right)
+  ).sort((left, right) => left - right);
 
   const invalidTokens = tokens.filter((item) => {
-    const parsed = Number(item)
-    return !Number.isInteger(parsed) || parsed < 1 || parsed > 5
-  })
+    const parsed = Number(item);
+    return !Number.isInteger(parsed) || parsed < 1 || parsed > 5;
+  });
 
   return {
     values: validValues,
     invalidTokens,
-  }
+  };
 }
 
 function parseMonthlyWeekdayRuleFields(formData: FormData) {
-  const invalidTokens: string[] = []
+  const invalidTokens: string[] = [];
   const values = WEEKDAY_MONTHLY_RULES.map((item) => {
-    const rest = parseOccurrenceList(formData.get(`regla_${item.code}_descanso`))
-    const work = parseOccurrenceList(formData.get(`regla_${item.code}_trabajo`))
+    const rest = parseOccurrenceList(formData.get(`regla_${item.code}_descanso`));
+    const work = parseOccurrenceList(formData.get(`regla_${item.code}_trabajo`));
 
-    invalidTokens.push(...rest.invalidTokens, ...work.invalidTokens)
+    invalidTokens.push(...rest.invalidTokens, ...work.invalidTokens);
 
     return {
       weekday: item.code,
       descanso: rest.values,
       trabajo: work.values,
-    }
-  })
+    };
+  });
 
   return {
     values,
     invalidTokens,
-  }
+  };
 }
 
 function buildMonthlyWeekdayRule(
   input: Array<{
-    weekday: AssignmentRestWeekdayCode
-    descanso: number[]
-    trabajo: number[]
+    weekday: AssignmentRestWeekdayCode;
+    descanso: number[];
+    trabajo: number[];
   }>
 ): AssignmentRestMonthlyRule | null {
   const rest = input
     .filter((item) => item.descanso.length > 0)
-    .map((item) => ({ weekday: item.weekday, occurrences: item.descanso }))
+    .map((item) => ({ weekday: item.weekday, occurrences: item.descanso }));
   const work = input
     .filter((item) => item.trabajo.length > 0)
-    .map((item) => ({ weekday: item.weekday, occurrences: item.trabajo }))
+    .map((item) => ({ weekday: item.weekday, occurrences: item.trabajo }));
 
   if (rest.length === 0 && work.length === 0) {
-    return null
+    return null;
   }
 
   return {
@@ -531,7 +544,7 @@ function buildMonthlyWeekdayRule(
     timezone: 'America/Mexico_City',
     rest,
     work,
-  }
+  };
 }
 
 function listDatesForMonthlyRule(rule: AssignmentRestMonthlyRule | null, month: string) {
@@ -539,90 +552,112 @@ function listDatesForMonthlyRule(rule: AssignmentRestMonthlyRule | null, month: 
     return {
       descansos: [] as string[],
       trabajos: [] as string[],
-    }
+    };
   }
 
-  const start = startOfMonth(month)
-  const end = endOfMonth(month)
-  const descansos: string[] = []
-  const trabajos: string[] = []
-  const weekdayMap = WEEKDAY_MONTHLY_RULES.map((item) => item.code) as AssignmentRestWeekdayCode[]
+  const start = startOfMonth(month);
+  const end = endOfMonth(month);
+  const descansos: string[] = [];
+  const trabajos: string[] = [];
+  const weekdayMap = WEEKDAY_MONTHLY_RULES.map((item) => item.code) as AssignmentRestWeekdayCode[];
 
   for (let cursor = start; cursor <= end; ) {
-    const normalized = normalizeAssignmentRestMonthlyRule(rule)
+    const normalized = normalizeAssignmentRestMonthlyRule(rule);
     if (!normalized) {
-      break
+      break;
     }
 
-    const [yearRaw, monthRaw, dayRaw] = cursor.split('-').map(Number)
-    const date = new Date(Date.UTC(yearRaw, monthRaw - 1, dayRaw))
-    const weekday = weekdayMap[date.getUTCDay()] ?? 'DOM'
-    const occurrence = Math.floor((date.getUTCDate() - 1) / 7) + 1
+    const [yearRaw, monthRaw, dayRaw] = cursor.split('-').map(Number);
+    const date = new Date(Date.UTC(yearRaw, monthRaw - 1, dayRaw));
+    const weekday = weekdayMap[date.getUTCDay()] ?? 'DOM';
+    const occurrence = Math.floor((date.getUTCDate() - 1) / 7) + 1;
 
-    if (normalized.work.some((entry) => entry.weekday === weekday && entry.occurrences.includes(occurrence))) {
-      trabajos.push(cursor)
-    } else if (normalized.rest.some((entry) => entry.weekday === weekday && entry.occurrences.includes(occurrence))) {
-      descansos.push(cursor)
+    if (
+      normalized.work.some(
+        (entry) => entry.weekday === weekday && entry.occurrences.includes(occurrence)
+      )
+    ) {
+      trabajos.push(cursor);
+    } else if (
+      normalized.rest.some(
+        (entry) => entry.weekday === weekday && entry.occurrences.includes(occurrence)
+      )
+    ) {
+      descansos.push(cursor);
     }
 
-    date.setUTCDate(date.getUTCDate() + 1)
-    cursor = date.toISOString().slice(0, 10)
+    date.setUTCDate(date.getUTCDate() + 1);
+    cursor = date.toISOString().slice(0, 10);
   }
 
-  return { descansos, trabajos }
+  return { descansos, trabajos };
 }
 
 function buildRuleLabel(rule: AssignmentRestMonthlyRule | null) {
   if (!rule) {
-    return null
+    return null;
   }
 
-  const labelByCode = new Map(WEEKDAY_MONTHLY_RULES.map((item) => [item.code, item.label] as const))
-  const parts = [...rule.rest.map((entry) => `Descanso ${labelByCode.get(entry.weekday) ?? entry.weekday} ${entry.occurrences.join('/')}`)]
-  parts.push(...rule.work.map((entry) => `Trabajo ${labelByCode.get(entry.weekday) ?? entry.weekday} ${entry.occurrences.join('/')}`))
-  return parts.join(' · ')
+  const labelByCode = new Map(
+    WEEKDAY_MONTHLY_RULES.map((item) => [item.code, item.label] as const)
+  );
+  const parts = [
+    ...rule.rest.map(
+      (entry) =>
+        `Descanso ${labelByCode.get(entry.weekday) ?? entry.weekday} ${entry.occurrences.join('/')}`
+    ),
+  ];
+  parts.push(
+    ...rule.work.map(
+      (entry) =>
+        `Trabajo ${labelByCode.get(entry.weekday) ?? entry.weekday} ${entry.occurrences.join('/')}`
+    )
+  );
+  return parts.join(' · ');
 }
 
-function serializeRestMonthlyRule(rule: AssignmentRestMonthlyRule | null): Record<string, unknown> | null {
-  return rule ? (rule as unknown as Record<string, unknown>) : null
+function serializeRestMonthlyRule(
+  rule: AssignmentRestMonthlyRule | null
+): Record<string, unknown> | null {
+  return rule ? (rule as unknown as Record<string, unknown>) : null;
 }
-
-
 
 function normalizeAssignmentNature(value: FormDataEntryValue | null): AssignmentEngineNature {
-  const normalized = String(value ?? '').trim().toUpperCase()
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase();
 
   if (normalized === 'COBERTURA_TEMPORAL' || normalized === 'MOVIMIENTO') {
-    return 'COBERTURA_TEMPORAL'
+    return 'COBERTURA_TEMPORAL';
   }
 
   if (normalized === 'COBERTURA_PERMANENTE') {
-    return 'COBERTURA_PERMANENTE'
+    return 'COBERTURA_PERMANENTE';
   }
 
-  return 'BASE'
+  return 'BASE';
 }
 
 function derivePriorityFromNature(naturaleza: AssignmentEngineNature) {
   if (naturaleza === 'COBERTURA_TEMPORAL' || naturaleza === 'MOVIMIENTO') {
-    return 200
+    return 200;
   }
 
   if (naturaleza === 'COBERTURA_PERMANENTE') {
-    return 150
+    return 150;
   }
 
-  return 100
+  return 100;
 }
 
 function buildDescansoOverridePreviewSummary(input: {
-  assignmentId: string
-  assignmentLabel: string
-  modo: 'EXPLICITO' | 'REGLA_MENSUAL'
-  reglaLabel: string | null
-  fechasDescanso: string[]
-  fechasTrabajo: string[]
-  previewMonth: string
+  assignmentId: string;
+  assignmentLabel: string;
+  modo: 'EXPLICITO' | 'REGLA_MENSUAL';
+  reglaLabel: string | null;
+  fechasDescanso: string[];
+  fechasTrabajo: string[];
+  previewMonth: string;
 }): RestOverridePreviewSummary {
   return {
     mes: input.previewMonth,
@@ -633,7 +668,7 @@ function buildDescansoOverridePreviewSummary(input: {
     fechasDescanso: input.fechasDescanso,
     fechasTrabajo: input.fechasTrabajo,
     diasAfectados: Array.from(new Set([...input.fechasDescanso, ...input.fechasTrabajo])).length,
-  }
+  };
 }
 
 async function registrarEventoAudit(
@@ -645,11 +680,11 @@ async function registrarEventoAudit(
     usuarioId,
     cuentaClienteId,
   }: {
-    tabla: string
-    registroId: string
-    payload: Record<string, unknown>
-    usuarioId: string
-    cuentaClienteId: string | null
+    tabla: string;
+    registroId: string;
+    payload: Record<string, unknown>;
+    usuarioId: string;
+    cuentaClienteId: string | null;
   }
 ) {
   await supabase.from('audit_log').insert({
@@ -659,7 +694,7 @@ async function registrarEventoAudit(
     payload,
     usuario_id: usuarioId,
     cuenta_cliente_id: cuentaClienteId,
-  })
+  });
 }
 
 async function cargarContextoAsignacion(
@@ -669,9 +704,9 @@ async function cargarContextoAsignacion(
     empleadoId,
     pdvId,
   }: {
-    asignacionId: string | null
-    empleadoId: string
-    pdvId: string
+    asignacionId: string | null;
+    empleadoId: string;
+    pdvId: string;
   }
 ) {
   const [
@@ -687,7 +722,9 @@ async function cargarContextoAsignacion(
   ] = await Promise.all([
     supabase
       .from('empleado')
-      .select('id, nombre_completo, puesto, estatus_laboral, telefono, correo_electronico, supervisor_empleado_id')
+      .select(
+        'id, nombre_completo, puesto, estatus_laboral, telefono, correo_electronico, supervisor_empleado_id'
+      )
       .eq('id', empleadoId)
       .maybeSingle(),
     supabase
@@ -711,11 +748,15 @@ async function cargarContextoAsignacion(
       .order('fecha_inicio', { ascending: false }),
     supabase
       .from('asignacion')
-      .select('id, empleado_id, pdv_id, supervisor_empleado_id, tipo, factor_tiempo, fecha_inicio, fecha_fin, dias_laborales, dia_descanso, horario_referencia, cuenta_cliente_id, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion')
+      .select(
+        'id, empleado_id, pdv_id, supervisor_empleado_id, tipo, factor_tiempo, fecha_inicio, fecha_fin, dias_laborales, dia_descanso, horario_referencia, cuenta_cliente_id, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion'
+      )
       .eq('empleado_id', empleadoId),
     supabase
       .from('asignacion')
-      .select('id, empleado_id, pdv_id, supervisor_empleado_id, tipo, factor_tiempo, fecha_inicio, fecha_fin, dias_laborales, dia_descanso, horario_referencia, cuenta_cliente_id, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion')
+      .select(
+        'id, empleado_id, pdv_id, supervisor_empleado_id, tipo, factor_tiempo, fecha_inicio, fecha_fin, dias_laborales, dia_descanso, horario_referencia, cuenta_cliente_id, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion'
+      )
       .eq('pdv_id', pdvId)
       .order('fecha_inicio', { ascending: false })
       .limit(20),
@@ -725,7 +766,7 @@ async function cargarContextoAsignacion(
       .select('id, codigo, modulo, descripcion, severidad, prioridad, condicion, accion, activa')
       .eq('codigo', SUPERVISOR_INHERITANCE_RULE_CODE)
       .maybeSingle(),
-  ])
+  ]);
 
   return {
     empleado: (empleadoResult.data as EmpleadoContextRow | null) ?? null,
@@ -757,84 +798,92 @@ async function cargarContextoAsignacion(
       horariosResult.error?.message ??
       supervisorRuleResult.error?.message ??
       null,
-  }
+  };
 }
 
 function buildDiasLaboralesFromForm(formData: FormData) {
   const dias = formData
     .getAll('dias_laborales')
     .map((value) => normalizeDiaLaboralCode(String(value)))
-    .filter((value): value is NonNullable<typeof value> => Boolean(value))
+    .filter((value): value is NonNullable<typeof value> => Boolean(value));
 
-  return serializeDiasLaborales(dias)
+  return serializeDiasLaborales(dias);
 }
 
 export async function guardarAsignacionPlanificada(
   _prevState: ActualizarEstadoAsignacionState,
   formData: FormData
 ): Promise<ActualizarEstadoAsignacionState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const supabase = await createClient()
-    const asignacionId = normalizeOptionalText(formData.get('asignacion_id'))
-    const empleadoId = String(formData.get('empleado_id') ?? '').trim()
-    const pdvId = String(formData.get('pdv_id') ?? '').trim()
-    const tipo = String(formData.get('tipo') ?? '').trim()
-    const fechaInicio = normalizeDate(formData.get('fecha_inicio'))
-    const fechaFin = normalizeDate(formData.get('fecha_fin'))
-    const horarioReferencia = normalizeOptionalText(formData.get('horario_referencia'))
-    const diaDescanso = normalizeOptionalText(formData.get('dia_descanso'))
-    const diasLaborales = buildDiasLaboralesFromForm(formData)
-    const observaciones = normalizeOptionalText(formData.get('observaciones'))
-    const factorTiempo = 1
-    const naturaleza = normalizeAssignmentNature(formData.get('naturaleza'))
-    const retornaABase = String(formData.get('retorna_a_base') ?? '').trim() === 'true'
-    const motivoMovimiento = normalizeOptionalText(formData.get('motivo_movimiento'))
-    const prioridad = derivePriorityFromNature(naturaleza)
+    const supabase = await createClient();
+    const asignacionId = normalizeOptionalText(formData.get('asignacion_id'));
+    const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+    const pdvId = String(formData.get('pdv_id') ?? '').trim();
+    const tipo = String(formData.get('tipo') ?? '').trim();
+    const fechaInicio = normalizeDate(formData.get('fecha_inicio'));
+    const fechaFin = normalizeDate(formData.get('fecha_fin'));
+    const horarioReferencia = normalizeOptionalText(formData.get('horario_referencia'));
+    const diaDescanso = normalizeOptionalText(formData.get('dia_descanso'));
+    const diasLaborales = buildDiasLaboralesFromForm(formData);
+    const observaciones = normalizeOptionalText(formData.get('observaciones'));
+    const factorTiempo = 1;
+    const naturaleza = normalizeAssignmentNature(formData.get('naturaleza'));
+    const retornaABase = String(formData.get('retorna_a_base') ?? '').trim() === 'true';
+    const motivoMovimiento = normalizeOptionalText(formData.get('motivo_movimiento'));
+    const prioridad = derivePriorityFromNature(naturaleza);
 
     if (naturaleza === 'BASE') {
-      return buildState({ message: 'La base general se carga desde el catalogo maestro inicial.' })
+      return buildState({ message: 'La base general se carga desde el catalogo maestro inicial.' });
     }
 
     if (naturaleza === 'COBERTURA_TEMPORAL' && !fechaFin) {
-      return buildState({ message: 'La cobertura temporal requiere fecha fin.' })
+      return buildState({ message: 'La cobertura temporal requiere fecha fin.' });
     }
 
     if (naturaleza === 'COBERTURA_PERMANENTE' && fechaFin) {
-      return buildState({ message: 'La cobertura permanente debe quedar sin fecha fin.' })
+      return buildState({ message: 'La cobertura permanente debe quedar sin fecha fin.' });
     }
 
     if (!empleadoId || !pdvId || !fechaInicio) {
       return buildState({
         message: 'Empleado, PDV y fecha inicio son obligatorios para guardar la asignacion.',
-      })
+      });
     }
 
     if (tipo !== 'FIJA' && tipo !== 'ROTATIVA' && tipo !== 'COBERTURA') {
-      return buildState({ message: 'El tipo de asignacion no es valido.' })
+      return buildState({ message: 'El tipo de asignacion no es valido.' });
     }
 
     const contexto = await cargarContextoAsignacion(supabase, {
       asignacionId,
       empleadoId,
       pdvId,
-    })
+    });
 
     if (contexto.error) {
-      return buildState({ message: contexto.error })
+      return buildState({ message: contexto.error });
     }
 
-    const cuentaClienteRelacion = pickCuentaClienteOperativa(contexto.cuentaClienteRelaciones, fechaInicio)
-    const cuentaClienteId = actor.cuentaClienteId ?? cuentaClienteRelacion?.cuenta_cliente_id ?? null
+    const cuentaClienteRelacion = pickCuentaClienteOperativa(
+      contexto.cuentaClienteRelaciones,
+      fechaInicio
+    );
+    const cuentaClienteId =
+      actor.cuentaClienteId ?? cuentaClienteRelacion?.cuenta_cliente_id ?? null;
 
-    if (actor.cuentaClienteId && cuentaClienteRelacion && actor.cuentaClienteId !== cuentaClienteRelacion.cuenta_cliente_id) {
+    if (
+      actor.cuentaClienteId &&
+      cuentaClienteRelacion &&
+      actor.cuentaClienteId !== cuentaClienteRelacion.cuenta_cliente_id
+    ) {
       return buildState({
         message: 'El PDV seleccionado no pertenece a la cuenta cliente activa del administrador.',
-      })
+      });
     }
 
-    const supervisorPdv = obtenerSupervisorVigente(contexto.supervisores, fechaInicio)
+    const supervisorPdv = obtenerSupervisorVigente(contexto.supervisores, fechaInicio);
     const supervisorResuelto = resolveSupervisorInheritance(
       [
         {
@@ -849,7 +898,7 @@ export async function guardarAsignacionPlanificada(
         },
       ],
       contexto.supervisorRule
-    )
+    );
 
     const draft = {
       id: asignacionId,
@@ -864,7 +913,7 @@ export async function guardarAsignacionPlanificada(
       dia_descanso: diaDescanso,
       horario_referencia: horarioReferencia,
       naturaleza,
-    }
+    };
 
     const issues = evaluarReglasAsignacion(draft, {
       employee: buildValidationEmployee(contexto.empleado),
@@ -874,14 +923,14 @@ export async function guardarAsignacionPlanificada(
       comparableAssignments: contexto.comparables,
       historicalAssignmentsForPdv: contexto.historialPdv,
       horariosPorPdv: { [pdvId]: contexto.horariosCount },
-    })
-    const resumen = resumirIssuesAsignacion(issues)
+    });
+    const resumen = resumirIssuesAsignacion(issues);
 
     if (resumen.errores.length > 0) {
       return buildState({
         message: `No se pudo guardar la asignacion: ${resumen.errores.map((item) => item.label).join(', ')}.`,
         issues,
-      })
+      });
     }
 
     const payload = {
@@ -903,18 +952,18 @@ export async function guardarAsignacionPlanificada(
       motivo_movimiento: motivoMovimiento,
       observaciones,
       updated_at: new Date().toISOString(),
-    }
+    };
 
     const query = asignacionId
       ? supabase.from('asignacion').update(payload).eq('id', asignacionId)
-      : supabase.from('asignacion').insert({ ...payload, estado_publicacion: 'BORRADOR' })
+      : supabase.from('asignacion').insert({ ...payload, estado_publicacion: 'BORRADOR' });
 
     const { data, error } = await query
       .select('id, cuenta_cliente_id, estado_publicacion')
-      .maybeSingle()
+      .maybeSingle();
 
     if (error || !data) {
-      return buildState({ message: error?.message ?? 'No fue posible guardar la asignacion.' })
+      return buildState({ message: error?.message ?? 'No fue posible guardar la asignacion.' });
     }
 
     await registrarEventoAudit(supabase, {
@@ -930,10 +979,14 @@ export async function guardarAsignacionPlanificada(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId: data.cuenta_cliente_id,
-    })
-    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
+    });
+    await publishAsignacionesUiChanges(
+      actor,
+      createServiceClient() as TypedSupabaseClient,
+      'asignaciones_actualizadas'
+    );
 
-    const nonBlocking = [...resumen.alertas, ...resumen.avisos]
+    const nonBlocking = [...resumen.alertas, ...resumen.avisos];
 
     return buildState({
       ok: true,
@@ -942,54 +995,63 @@ export async function guardarAsignacionPlanificada(
           ? `Asignacion guardada en borrador con ${nonBlocking.length} issue(s) no bloqueantes.`
           : 'Asignacion guardada en borrador.',
       issues,
-    })
+    });
   } catch (error) {
-      return buildState({
-        message: error instanceof Error ? error.message : 'No fue posible guardar la asignacion.',
-      })
-    }
+    return buildState({
+      message: error instanceof Error ? error.message : 'No fue posible guardar la asignacion.',
+    });
   }
+}
 
 export async function guardarDescansoPermanenteAsignacion(
   _prevState: GuardarDescansoPermanenteState,
   formData: FormData
 ): Promise<GuardarDescansoPermanenteState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const supabase = await createClient()
-    const service = createServiceClient() as TypedSupabaseClient
-    const asignacionId = normalizeOptionalText(formData.get('asignacion_id'))
-    const actionMode = String(formData.get('descanso_action') ?? 'preview').trim().toLowerCase()
-    const overrideMode = String(formData.get('override_mode') ?? 'EXPLICITO').trim().toUpperCase() === 'REGLA_MENSUAL'
-      ? 'REGLA_MENSUAL'
-      : 'EXPLICITO'
-    const previewMonthRaw = normalizeOptionalText(formData.get('preview_month'))
-    const previewMonth = /^\d{4}-\d{2}$/.test(previewMonthRaw ?? '') ? previewMonthRaw! : getCurrentMxMonth()
-    const vigenteDesde = normalizeDate(formData.get('vigente_desde')) ?? getCurrentMxDate()
-    const observaciones = normalizeOptionalText(formData.get('observaciones'))
+    const supabase = await createClient();
+    const service = createServiceClient() as TypedSupabaseClient;
+    const asignacionId = normalizeOptionalText(formData.get('asignacion_id'));
+    const actionMode = String(formData.get('descanso_action') ?? 'preview')
+      .trim()
+      .toLowerCase();
+    const overrideMode =
+      String(formData.get('override_mode') ?? 'EXPLICITO')
+        .trim()
+        .toUpperCase() === 'REGLA_MENSUAL'
+        ? 'REGLA_MENSUAL'
+        : 'EXPLICITO';
+    const previewMonthRaw = normalizeOptionalText(formData.get('preview_month'));
+    const previewMonth = /^\d{4}-\d{2}$/.test(previewMonthRaw ?? '')
+      ? previewMonthRaw!
+      : getCurrentMxMonth();
+    const vigenteDesde = normalizeDate(formData.get('vigente_desde')) ?? getCurrentMxDate();
+    const observaciones = normalizeOptionalText(formData.get('observaciones'));
     const { dates: descansoRaw, invalidTokens: descansoInvalid } = parseIsoDateLines(
       formData.get('fechas_descanso')
-    )
-    const { dates: trabajoRaw, invalidTokens: trabajoInvalid } = parseIsoDateLines(formData.get('fechas_trabajo'))
-    const fechasDescanso = normalizeIsoDateList(descansoRaw)
-    const fechasTrabajo = normalizeIsoDateList(trabajoRaw)
-    const monthlyRuleFields = parseMonthlyWeekdayRuleFields(formData)
-    const monthlyRule = buildMonthlyWeekdayRule(monthlyRuleFields.values)
-    const rulePreviewDates = listDatesForMonthlyRule(monthlyRule, previewMonth)
+    );
+    const { dates: trabajoRaw, invalidTokens: trabajoInvalid } = parseIsoDateLines(
+      formData.get('fechas_trabajo')
+    );
+    const fechasDescanso = normalizeIsoDateList(descansoRaw);
+    const fechasTrabajo = normalizeIsoDateList(trabajoRaw);
+    const monthlyRuleFields = parseMonthlyWeekdayRuleFields(formData);
+    const monthlyRule = buildMonthlyWeekdayRule(monthlyRuleFields.values);
+    const rulePreviewDates = listDatesForMonthlyRule(monthlyRule, previewMonth);
     const effectiveFechasDescanso =
       overrideMode === 'REGLA_MENSUAL'
         ? normalizeIsoDateList([...rulePreviewDates.descansos, ...fechasDescanso])
-        : fechasDescanso
+        : fechasDescanso;
     const effectiveFechasTrabajo =
       overrideMode === 'REGLA_MENSUAL'
         ? normalizeIsoDateList([...rulePreviewDates.trabajos, ...fechasTrabajo])
-        : fechasTrabajo
+        : fechasTrabajo;
 
     if (!asignacionId) {
       return buildDescansoPermanentState({
         message: 'La asignacion es obligatoria para configurar descansos permanentes.',
-      })
+      });
     }
 
     if (
@@ -998,28 +1060,25 @@ export async function guardarDescansoPermanenteAsignacion(
       monthlyRuleFields.invalidTokens.length > 0
     ) {
       const invalidTokens = Array.from(
-        new Set([
-          ...descansoInvalid,
-          ...trabajoInvalid,
-          ...monthlyRuleFields.invalidTokens,
-        ])
-      )
+        new Set([...descansoInvalid, ...trabajoInvalid, ...monthlyRuleFields.invalidTokens])
+      );
       return buildDescansoPermanentState({
         message: `Usa fechas ISO validas y ocurrencias mensuales del 1 al 5. Tokens invalidos: ${invalidTokens.join(', ')}.`,
-      })
+      });
     }
 
     if (!monthlyRule && fechasDescanso.length === 0 && fechasTrabajo.length === 0) {
       return buildDescansoPermanentState({
-        message: 'Agrega al menos una regla mensual o una fecha de descanso/trabajo antes de guardar.',
-      })
+        message:
+          'Agrega al menos una regla mensual o una fecha de descanso/trabajo antes de guardar.',
+      });
     }
 
-    const overlap = effectiveFechasDescanso.filter((item) => effectiveFechasTrabajo.includes(item))
+    const overlap = effectiveFechasDescanso.filter((item) => effectiveFechasTrabajo.includes(item));
     if (overlap.length > 0) {
       return buildDescansoPermanentState({
         message: `Las mismas fechas no pueden quedar como descanso y trabajo al mismo tiempo: ${overlap.join(', ')}.`,
-      })
+      });
     }
 
     const { data: assignmentRaw, error: assignmentError } = await supabase
@@ -1037,48 +1096,60 @@ export async function guardarDescansoPermanenteAsignacion(
         `
       )
       .eq('id', asignacionId)
-      .maybeSingle()
+      .maybeSingle();
 
     if (assignmentError || !assignmentRaw) {
       return buildDescansoPermanentState({
         message: assignmentError?.message ?? 'No fue posible encontrar la asignacion seleccionada.',
-      })
+      });
     }
 
     const assignment = assignmentRaw as {
-      id: string
-      cuenta_cliente_id: string | null
-      empleado_id: string
-      pdv_id: string
-      estado_publicacion: 'BORRADOR' | 'PUBLICADA'
-      naturaleza: AssignmentEngineNature
-      empleado: MaybeMany<Pick<Empleado, 'nombre_completo'>>
-      pdv: MaybeMany<Pick<Pdv, 'nombre' | 'clave_btl'>>
-    }
+      id: string;
+      cuenta_cliente_id: string | null;
+      empleado_id: string;
+      pdv_id: string;
+      estado_publicacion: 'BORRADOR' | 'PUBLICADA';
+      naturaleza: AssignmentEngineNature;
+      empleado: MaybeMany<Pick<Empleado, 'nombre_completo'>>;
+      pdv: MaybeMany<Pick<Pdv, 'nombre' | 'clave_btl'>>;
+    };
 
     if (assignment.naturaleza !== 'BASE') {
       return buildDescansoPermanentState({
         message: 'Los descansos permanentes solo se pueden configurar sobre asignaciones base.',
-      })
+      });
     }
 
     if (assignment.estado_publicacion !== 'PUBLICADA') {
       return buildDescansoPermanentState({
         message: 'Primero publica la asignacion base para poder agregar descansos permanentes.',
-      })
+      });
     }
 
-    if (actor.cuentaClienteId && assignment.cuenta_cliente_id && actor.cuentaClienteId !== assignment.cuenta_cliente_id) {
+    if (
+      actor.cuentaClienteId &&
+      assignment.cuenta_cliente_id &&
+      actor.cuentaClienteId !== assignment.cuenta_cliente_id
+    ) {
       return buildDescansoPermanentState({
         message: 'La asignacion seleccionada no pertenece a la cuenta activa del administrador.',
-      })
+      });
     }
 
-    const empleado = Array.isArray(assignment.empleado) ? assignment.empleado[0] ?? null : assignment.empleado ?? null
-    const pdv = Array.isArray(assignment.pdv) ? assignment.pdv[0] ?? null : assignment.pdv ?? null
-    const assignmentLabel = [empleado?.nombre_completo ?? assignment.empleado_id, pdv?.clave_btl ?? null, pdv?.nombre ?? null]
+    const empleado = Array.isArray(assignment.empleado)
+      ? (assignment.empleado[0] ?? null)
+      : (assignment.empleado ?? null);
+    const pdv = Array.isArray(assignment.pdv)
+      ? (assignment.pdv[0] ?? null)
+      : (assignment.pdv ?? null);
+    const assignmentLabel = [
+      empleado?.nombre_completo ?? assignment.empleado_id,
+      pdv?.clave_btl ?? null,
+      pdv?.nombre ?? null,
+    ]
       .filter(Boolean)
-      .join(' · ')
+      .join(' · ');
 
     const activeOverrideResult = await service
       .from('asignacion_descanso_override')
@@ -1103,7 +1174,7 @@ export async function guardarDescansoPermanenteAsignacion(
       )
       .eq('asignacion_id', assignment.id)
       .eq('activo', true)
-      .maybeSingle()
+      .maybeSingle();
 
     if (activeOverrideResult.error) {
       if (isMissingSchemaTableError(activeOverrideResult.error, 'asignacion_descanso_override')) {
@@ -1111,10 +1182,10 @@ export async function guardarDescansoPermanenteAsignacion(
           preview: null,
           overrideId: null,
           message: 'La capa de descansos permanentes aun no esta disponible en este entorno.',
-        })
+        });
       }
 
-      return buildDescansoPermanentState({ message: activeOverrideResult.error.message })
+      return buildDescansoPermanentState({ message: activeOverrideResult.error.message });
     }
 
     const activeOverride = activeOverrideResult.data
@@ -1133,10 +1204,14 @@ export async function guardarDescansoPermanenteAsignacion(
               ? (activeOverrideResult.data.regla_descanso as Record<string, unknown>)
               : null,
           fechas_descanso: Array.isArray(activeOverrideResult.data.fechas_descanso)
-            ? activeOverrideResult.data.fechas_descanso.filter((item): item is string => typeof item === 'string')
+            ? activeOverrideResult.data.fechas_descanso.filter(
+                (item): item is string => typeof item === 'string'
+              )
             : [],
           fechas_trabajo: Array.isArray(activeOverrideResult.data.fechas_trabajo)
-            ? activeOverrideResult.data.fechas_trabajo.filter((item): item is string => typeof item === 'string')
+            ? activeOverrideResult.data.fechas_trabajo.filter(
+                (item): item is string => typeof item === 'string'
+              )
             : [],
           observaciones: activeOverrideResult.data.observaciones ?? null,
           activo: activeOverrideResult.data.activo,
@@ -1149,9 +1224,9 @@ export async function guardarDescansoPermanenteAsignacion(
           created_at: activeOverrideResult.data.created_at,
           updated_at: activeOverrideResult.data.updated_at,
         } satisfies AssignmentRestOverrideLike)
-      : null
+      : null;
 
-    const normalizedActive = activeOverride ? summarizeRestOverrideDates(activeOverride) : null
+    const normalizedActive = activeOverride ? summarizeRestOverrideDates(activeOverride) : null;
     const normalizedInput = summarizeRestOverrideDates({
       id: 'preview',
       asignacion_id: assignment.id,
@@ -1166,7 +1241,7 @@ export async function guardarDescansoPermanenteAsignacion(
       observaciones,
       activo: true,
       metadata: {},
-    })
+    });
 
     const preview = buildDescansoOverridePreviewSummary({
       assignmentId: assignment.id,
@@ -1176,15 +1251,16 @@ export async function guardarDescansoPermanenteAsignacion(
       fechasDescanso: effectiveFechasDescanso,
       fechasTrabajo: effectiveFechasTrabajo,
       previewMonth,
-    })
+    });
 
     if (actionMode !== 'save') {
       return buildDescansoPermanentState({
         ok: true,
-        message: 'Vista previa lista. Revisa el impacto mensual antes de guardar el cambio permanente.',
+        message:
+          'Vista previa lista. Revisa el impacto mensual antes de guardar el cambio permanente.',
         preview,
         overrideId: activeOverride?.id ?? null,
-      })
+      });
     }
 
     if (
@@ -1202,19 +1278,19 @@ export async function guardarDescansoPermanenteAsignacion(
         message: 'El descanso permanente vigente ya coincide con esta configuracion.',
         preview,
         overrideId: activeOverride.id,
-      })
+      });
     }
 
     if (activeOverride && vigenteDesde < activeOverride.vigente_desde) {
       return buildDescansoPermanentState({
         message:
           'La nueva vigencia no puede empezar antes que la version actual del descanso permanente. Elige la misma fecha o una posterior.',
-      })
+      });
     }
 
-    const now = new Date().toISOString()
+    const now = new Date().toISOString();
     if (activeOverride) {
-      const closeDate = previousIsoDate(vigenteDesde)
+      const closeDate = previousIsoDate(vigenteDesde);
       const { error: deactivateError } = await service
         .from('asignacion_descanso_override')
         .update({
@@ -1228,10 +1304,10 @@ export async function guardarDescansoPermanenteAsignacion(
             reemplazado_por_vigencia_desde: vigenteDesde,
           },
         })
-        .eq('id', activeOverride.id)
+        .eq('id', activeOverride.id);
 
       if (deactivateError) {
-        return buildDescansoPermanentState({ message: deactivateError.message })
+        return buildDescansoPermanentState({ message: deactivateError.message });
       }
     }
 
@@ -1246,7 +1322,7 @@ export async function guardarDescansoPermanenteAsignacion(
       observaciones,
       preview_month: previewMonth,
       override_anterior_id: activeOverride?.id ?? null,
-    }
+    };
 
     const { data: insertedOverride, error: insertError } = await service
       .from('asignacion_descanso_override')
@@ -1270,17 +1346,18 @@ export async function guardarDescansoPermanenteAsignacion(
         },
       })
       .select('id')
-      .maybeSingle()
+      .maybeSingle();
 
     if (insertError || !insertedOverride) {
       return buildDescansoPermanentState({
         message: insertError?.message ?? 'No fue posible guardar el descanso permanente.',
         preview,
-      })
+      });
     }
 
-    const materializationStart = startOfMonth(previewMonth) < vigenteDesde ? vigenteDesde : startOfMonth(previewMonth)
-    const materializationEnd = endOfMonth(addUtcMonths(previewMonth, 1))
+    const materializationStart =
+      startOfMonth(previewMonth) < vigenteDesde ? vigenteDesde : startOfMonth(previewMonth);
+    const materializationEnd = endOfMonth(addUtcMonths(previewMonth, 1));
 
     await registrarEventoAudit(service, {
       tabla: 'asignacion_descanso_override',
@@ -1291,7 +1368,7 @@ export async function guardarDescansoPermanenteAsignacion(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId: assignment.cuenta_cliente_id ?? actor.cuentaClienteId,
-    })
+    });
 
     await refreshMaterializedAssignmentRanges([
       {
@@ -1304,9 +1381,9 @@ export async function guardarDescansoPermanenteAsignacion(
           descanso_override_id: insertedOverride.id,
         },
       },
-    ])
+    ]);
 
-    await publishAsignacionesUiChanges(actor, service, 'asignaciones_actualizadas')
+    await publishAsignacionesUiChanges(actor, service, 'asignaciones_actualizadas');
 
     return buildDescansoPermanentState({
       ok: true,
@@ -1315,41 +1392,40 @@ export async function guardarDescansoPermanenteAsignacion(
         : 'Descanso permanente guardado y versionado.',
       preview,
       overrideId: insertedOverride.id,
-    })
+    });
   } catch (error) {
     return buildDescansoPermanentState({
-      message: error instanceof Error ? error.message : 'No fue posible guardar el descanso permanente.',
-    })
+      message:
+        error instanceof Error ? error.message : 'No fue posible guardar el descanso permanente.',
+    });
   }
 }
-  
-function buildImportComparableKey(input: {
-  empleadoId: string
-  pdvId: string
-  tipo: string
-}) {
-  return `${input.empleadoId}::${input.pdvId}::${input.tipo}`
+
+function buildImportComparableKey(input: { empleadoId: string; pdvId: string; tipo: string }) {
+  return `${input.empleadoId}::${input.pdvId}::${input.tipo}`;
 }
 
 async function refreshMaterializedAssignmentRanges(
   inputs: Array<{
-    empleadoId: string
-    fechaInicio: string
-    fechaFin: string | null
-    motivo: string
-    payload?: Record<string, unknown>
+    empleadoId: string;
+    fechaInicio: string;
+    fechaFin: string | null;
+    motivo: string;
+    payload?: Record<string, unknown>;
   }>
 ) {
-  const ranges = inputs.reduce<Array<{
-    empleadoId: string
-    fechaInicio: string
-    fechaFin: string
-    motivo: string
-    payload?: Record<string, unknown>
-  }>>((acc, item) => {
-    const impact = resolveMaterializationImpactRange(item.fechaInicio, item.fechaFin)
+  const ranges = inputs.reduce<
+    Array<{
+      empleadoId: string;
+      fechaInicio: string;
+      fechaFin: string;
+      motivo: string;
+      payload?: Record<string, unknown>;
+    }>
+  >((acc, item) => {
+    const impact = resolveMaterializationImpactRange(item.fechaInicio, item.fechaFin);
     if (!impact) {
-      return acc
+      return acc;
     }
 
     acc.push({
@@ -1358,59 +1434,43 @@ async function refreshMaterializedAssignmentRanges(
       fechaFin: impact.fechaFin,
       motivo: item.motivo,
       payload: item.payload,
-    })
+    });
 
-    return acc
-  }, [])
+    return acc;
+  }, []);
 
   if (ranges.length === 0) {
-    return
+    return;
   }
 
   await enqueueAndProcessMaterializedAssignments(
     ranges,
     createServiceClient() as TypedSupabaseClient
-  )
-}
-async function safelyRefreshMaterializedAssignmentRanges(
-  inputs: Array<{
-    empleadoId: string
-    fechaInicio: string
-    fechaFin: string | null
-    motivo: string
-    payload?: Record<string, unknown>
-  }>
-) {
-  try {
-    await refreshMaterializedAssignmentRanges(inputs)
-    return null
-  } catch (error) {
-    return error instanceof Error
-      ? error.message
-      : 'No fue posible rematerializar el calendario operativo despues del cambio.'
-  }
+  );
 }
 export async function importarCatalogoMaestroAsignaciones(
   _prevState: ImportarCatalogoAsignacionesState,
   formData: FormData
 ): Promise<ImportarCatalogoAsignacionesState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const uploadedFile = formData.get('catalogo_asignaciones_file')
+    const uploadedFile = formData.get('catalogo_asignaciones_file');
 
     if (!(uploadedFile instanceof File) || uploadedFile.size === 0) {
-      return buildImportState({ message: 'Adjunta un archivo XLSX para importar el catalogo maestro.' })
+      return buildImportState({
+        message: 'Adjunta un archivo XLSX para importar el catalogo maestro.',
+      });
     }
 
     if (!uploadedFile.name.toLowerCase().endsWith('.xlsx')) {
-      return buildImportState({ message: 'El catalogo maestro debe estar en formato XLSX.' })
+      return buildImportState({ message: 'El catalogo maestro debe estar en formato XLSX.' });
     }
 
-    const buffer = Buffer.from(await uploadedFile.arrayBuffer())
-    const parsed = parseAssignmentCatalogWorkbook(buffer)
-    const service = createServiceClient() as TypedSupabaseClient
-    const importDate = new Date().toISOString().slice(0, 10)
+    const buffer = Buffer.from(await uploadedFile.arrayBuffer());
+    const parsed = parseAssignmentCatalogWorkbook(buffer);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const importDate = new Date().toISOString().slice(0, 10);
     const conflicts: AssignmentImportConflict[] = parsed.issues.map((issue) => ({
       rowNumber: issue.rowNumber,
       claveBtl: null,
@@ -1430,15 +1490,21 @@ export async function importarCatalogoMaestroAsignaciones(
                 : 'Dias laborales invalidos',
       message: issue.message,
       source: 'PARSER' as const,
-    }))
+    }));
 
-    const pdvClaves = Array.from(new Set(parsed.rows.map((item) => item.claveBtl)))
+    const pdvClaves = Array.from(new Set(parsed.rows.map((item) => item.claveBtl)));
     const employeeIds = Array.from(
       new Set(parsed.rows.map((item) => item.empleadoId).filter(Boolean) as string[])
-    )
-    const nominaIds = Array.from(new Set(parsed.rows.map((item) => item.idNomina).filter(Boolean) as string[]))
-    const usernames = Array.from(new Set(parsed.rows.map((item) => item.username).filter(Boolean) as string[]))
-    const employeeNames = Array.from(new Set(parsed.rows.map((item) => item.nombreDc).filter(Boolean) as string[]))
+    );
+    const nominaIds = Array.from(
+      new Set(parsed.rows.map((item) => item.idNomina).filter(Boolean) as string[])
+    );
+    const usernames = Array.from(
+      new Set(parsed.rows.map((item) => item.username).filter(Boolean) as string[])
+    );
+    const employeeNames = Array.from(
+      new Set(parsed.rows.map((item) => item.nombreDc).filter(Boolean) as string[])
+    );
 
     const [
       pdvsResult,
@@ -1455,19 +1521,25 @@ export async function importarCatalogoMaestroAsignaciones(
       employeeIds.length > 0
         ? service
             .from('empleado')
-            .select('id, id_nomina, nombre_completo, puesto, estatus_laboral, supervisor_empleado_id, telefono, correo_electronico')
+            .select(
+              'id, id_nomina, nombre_completo, puesto, estatus_laboral, supervisor_empleado_id, telefono, correo_electronico'
+            )
             .in('id', employeeIds)
         : Promise.resolve({ data: [], error: null }),
       nominaIds.length > 0
         ? service
             .from('empleado')
-            .select('id, id_nomina, nombre_completo, puesto, estatus_laboral, supervisor_empleado_id, telefono, correo_electronico')
+            .select(
+              'id, id_nomina, nombre_completo, puesto, estatus_laboral, supervisor_empleado_id, telefono, correo_electronico'
+            )
             .in('id_nomina', nominaIds)
         : Promise.resolve({ data: [], error: null }),
       employeeNames.length > 0
         ? service
             .from('empleado')
-            .select('id, id_nomina, nombre_completo, puesto, estatus_laboral, supervisor_empleado_id, telefono, correo_electronico')
+            .select(
+              'id, id_nomina, nombre_completo, puesto, estatus_laboral, supervisor_empleado_id, telefono, correo_electronico'
+            )
             .in('nombre_completo', employeeNames)
         : Promise.resolve({ data: [], error: null }),
       usernames.length > 0
@@ -1478,7 +1550,7 @@ export async function importarCatalogoMaestroAsignaciones(
         .select('id, codigo, modulo, descripcion, severidad, prioridad, condicion, accion, activa')
         .eq('codigo', SUPERVISOR_INHERITANCE_RULE_CODE)
         .maybeSingle(),
-    ])
+    ]);
 
     const bulkInfraError =
       pdvsResult.error?.message ??
@@ -1486,14 +1558,14 @@ export async function importarCatalogoMaestroAsignaciones(
       employeesByNominaResult.error?.message ??
       employeesByNameResult.error?.message ??
       usersResult.error?.message ??
-      supervisorRuleResult.error?.message
+      supervisorRuleResult.error?.message;
 
     if (bulkInfraError) {
-      return buildImportState({ message: bulkInfraError, conflicts })
+      return buildImportState({ message: bulkInfraError, conflicts });
     }
 
-    const pdvs = (pdvsResult.data ?? []) as PdvImportRow[]
-    const users = (usersResult.data ?? []) as UsuarioImportRow[]
+    const pdvs = (pdvsResult.data ?? []) as PdvImportRow[];
+    const users = (usersResult.data ?? []) as UsuarioImportRow[];
     const preloadedEmployees = Array.from(
       new Map(
         [
@@ -1502,25 +1574,27 @@ export async function importarCatalogoMaestroAsignaciones(
           ...((employeesByNameResult.data ?? []) as EmpleadoImportRow[]),
         ].map((item) => [item.id, item])
       ).values()
-    )
+    );
     const employeeIdByUsername = new Map(
       users
         .filter((item) => item.username && item.empleado_id)
         .map((item) => [item.username as string, item.empleado_id])
-    )
+    );
     const missingEmployeeIds = Array.from(new Set(employeeIdByUsername.values())).filter(
       (employeeId) => !preloadedEmployees.some((item) => item.id === employeeId)
-    )
+    );
     const employeesByUsernameResult =
       missingEmployeeIds.length > 0
         ? await service
             .from('empleado')
-            .select('id, id_nomina, nombre_completo, puesto, estatus_laboral, supervisor_empleado_id, telefono, correo_electronico')
+            .select(
+              'id, id_nomina, nombre_completo, puesto, estatus_laboral, supervisor_empleado_id, telefono, correo_electronico'
+            )
             .in('id', missingEmployeeIds)
-        : { data: [], error: null }
+        : { data: [], error: null };
 
     if (employeesByUsernameResult.error?.message) {
-      return buildImportState({ message: employeesByUsernameResult.error.message, conflicts })
+      return buildImportState({ message: employeesByUsernameResult.error.message, conflicts });
     }
 
     const employees = Array.from(
@@ -1530,62 +1604,60 @@ export async function importarCatalogoMaestroAsignaciones(
           ...((employeesByUsernameResult.data ?? []) as EmpleadoImportRow[]),
         ].map((item) => [item.id, item])
       ).values()
-    )
-    const pdvByClave = new Map(pdvs.map((item) => [item.clave_btl, item]))
-    const employeeById = new Map(employees.map((item) => [item.id, item]))
+    );
+    const pdvByClave = new Map(pdvs.map((item) => [item.clave_btl, item]));
+    const employeeById = new Map(employees.map((item) => [item.id, item]));
     const employeeByNomina = new Map(
-      employees
-        .filter((item) => item.id_nomina)
-        .map((item) => [item.id_nomina as string, item])
-    )
+      employees.filter((item) => item.id_nomina).map((item) => [item.id_nomina as string, item])
+    );
     const employeesByName = employees.reduce<Map<string, EmpleadoImportRow[]>>((acc, item) => {
-      const current = acc.get(item.nombre_completo) ?? []
-      current.push(item)
-      acc.set(item.nombre_completo, current)
-      return acc
-    }, new Map())
+      const current = acc.get(item.nombre_completo) ?? [];
+      current.push(item);
+      acc.set(item.nombre_completo, current);
+      return acc;
+    }, new Map());
     const supervisorRule = readSupervisorInheritanceRule(
       (supervisorRuleResult.data as BusinessRuleRow | null) ?? null
-    )
+    );
     const buildEmployeeReference = (row: (typeof parsed.rows)[number]) =>
-      row.empleadoId ?? row.username ?? row.nombreDc ?? row.idNomina ?? null
+      row.empleadoId ?? row.username ?? row.nombreDc ?? row.idNomina ?? null;
     const resolveImportedEmployee = (row: (typeof parsed.rows)[number]) => {
       if (row.empleadoId) {
         return {
           employee: employeeById.get(row.empleadoId) ?? null,
           ambiguity: null as 'NOMBRE_DC' | null,
-        }
+        };
       }
 
       if (row.username) {
-        const employeeId = employeeIdByUsername.get(row.username) ?? null
+        const employeeId = employeeIdByUsername.get(row.username) ?? null;
         return {
-          employee: employeeId ? employeeById.get(employeeId) ?? null : null,
+          employee: employeeId ? (employeeById.get(employeeId) ?? null) : null,
           ambiguity: null as 'NOMBRE_DC' | null,
-        }
+        };
       }
 
       if (row.nombreDc) {
-        const matches = employeesByName.get(row.nombreDc) ?? []
+        const matches = employeesByName.get(row.nombreDc) ?? [];
         if (matches.length > 1) {
-          return { employee: null, ambiguity: 'NOMBRE_DC' as const }
+          return { employee: null, ambiguity: 'NOMBRE_DC' as const };
         }
 
         return {
           employee: matches[0] ?? null,
           ambiguity: null as 'NOMBRE_DC' | null,
-        }
+        };
       }
 
       if (row.idNomina) {
         return {
           employee: employeeByNomina.get(row.idNomina) ?? null,
           ambiguity: null as 'NOMBRE_DC' | null,
-        }
+        };
       }
 
-      return { employee: null, ambiguity: null as 'NOMBRE_DC' | null }
-    }
+      return { employee: null, ambiguity: null as 'NOMBRE_DC' | null };
+    };
 
     const resolvedEmployeeIds = Array.from(
       new Set(
@@ -1593,100 +1665,125 @@ export async function importarCatalogoMaestroAsignaciones(
           .map((row) => resolveImportedEmployee(row).employee?.id ?? null)
           .filter(Boolean) as string[]
       )
-    )
-    const pdvIds = pdvs.map((item) => item.id)
+    );
+    const pdvIds = pdvs.map((item) => item.id);
 
     const relatedAssignmentsFilter = buildAssignmentScopeOrFilter({
       empleadoIds: resolvedEmployeeIds,
       pdvIds,
-    })
+    });
 
-    const [supervisorsResult, cuentaPdvResult, geocercasResult, horariosResult, relatedAssignmentsResult] =
-      await Promise.all([
-        pdvIds.length > 0
-          ? service
-              .from('supervisor_pdv')
-              .select('pdv_id, empleado_id, activo, fecha_fin')
-              .in('pdv_id', pdvIds)
-          : Promise.resolve({ data: [], error: null }),
-        pdvIds.length > 0
-          ? service
-              .from('cuenta_cliente_pdv')
-              .select('pdv_id, cuenta_cliente_id, activo, fecha_fin, fecha_inicio')
-              .in('pdv_id', pdvIds)
-          : Promise.resolve({ data: [], error: null }),
-        pdvIds.length > 0
-          ? service
-              .from('geocerca_pdv')
-              .select('pdv_id, latitud, longitud, radio_tolerancia_metros')
-              .in('pdv_id', pdvIds)
-          : Promise.resolve({ data: [], error: null }),
-        pdvIds.length > 0
-          ? service.from('horario_pdv').select('id, pdv_id').in('pdv_id', pdvIds).eq('activo', true)
-          : Promise.resolve({ data: [], error: null }),
-        relatedAssignmentsFilter
-          ? service
-              .from('asignacion')
-              .select('id, empleado_id, pdv_id, supervisor_empleado_id, tipo, factor_tiempo, fecha_inicio, fecha_fin, dias_laborales, dia_descanso, horario_referencia, cuenta_cliente_id, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion')
-              .or(relatedAssignmentsFilter)
-          : Promise.resolve({ data: [], error: null }),
-      ])
+    const [
+      supervisorsResult,
+      cuentaPdvResult,
+      geocercasResult,
+      horariosResult,
+      relatedAssignmentsResult,
+    ] = await Promise.all([
+      pdvIds.length > 0
+        ? service
+            .from('supervisor_pdv')
+            .select('pdv_id, empleado_id, activo, fecha_fin')
+            .in('pdv_id', pdvIds)
+        : Promise.resolve({ data: [], error: null }),
+      pdvIds.length > 0
+        ? service
+            .from('cuenta_cliente_pdv')
+            .select('pdv_id, cuenta_cliente_id, activo, fecha_fin, fecha_inicio')
+            .in('pdv_id', pdvIds)
+        : Promise.resolve({ data: [], error: null }),
+      pdvIds.length > 0
+        ? service
+            .from('geocerca_pdv')
+            .select('pdv_id, latitud, longitud, radio_tolerancia_metros')
+            .in('pdv_id', pdvIds)
+        : Promise.resolve({ data: [], error: null }),
+      pdvIds.length > 0
+        ? service.from('horario_pdv').select('id, pdv_id').in('pdv_id', pdvIds).eq('activo', true)
+        : Promise.resolve({ data: [], error: null }),
+      relatedAssignmentsFilter
+        ? service
+            .from('asignacion')
+            .select(
+              'id, empleado_id, pdv_id, supervisor_empleado_id, tipo, factor_tiempo, fecha_inicio, fecha_fin, dias_laborales, dia_descanso, horario_referencia, cuenta_cliente_id, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion'
+            )
+            .or(relatedAssignmentsFilter)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
     const relationInfraError =
       supervisorsResult.error?.message ??
       cuentaPdvResult.error?.message ??
       geocercasResult.error?.message ??
       horariosResult.error?.message ??
-      relatedAssignmentsResult.error?.message
+      relatedAssignmentsResult.error?.message;
 
     if (relationInfraError) {
-      return buildImportState({ message: relationInfraError, conflicts })
+      return buildImportState({ message: relationInfraError, conflicts });
     }
 
-    const supervisors = (supervisorsResult.data ?? []) as SupervisorResolucionRow[]
-    const cuentaRelaciones = (cuentaPdvResult.data ?? []) as Array<CuentaClientePdvRow & { pdv_id: string }>
-    const geocercas = (geocercasResult.data ?? []) as GeocercaAsignacionRow[]
-    const horarios = (horariosResult.data ?? []) as Array<{ id: string; pdv_id: string }>
-    const relatedAssignments = (relatedAssignmentsResult.data ?? []) as AsignacionEstadoRow[]
-    const employeeAssignments = relatedAssignments.filter((item) => resolvedEmployeeIds.includes(item.empleado_id))
-    const pdvAssignments = relatedAssignments.filter((item) => pdvIds.includes(item.pdv_id))
+    const supervisors = (supervisorsResult.data ?? []) as SupervisorResolucionRow[];
+    const cuentaRelaciones = (cuentaPdvResult.data ?? []) as Array<
+      CuentaClientePdvRow & { pdv_id: string }
+    >;
+    const geocercas = (geocercasResult.data ?? []) as GeocercaAsignacionRow[];
+    const horarios = (horariosResult.data ?? []) as Array<{ id: string; pdv_id: string }>;
+    const relatedAssignments = (relatedAssignmentsResult.data ?? []) as AsignacionEstadoRow[];
+    const employeeAssignments = relatedAssignments.filter((item) =>
+      resolvedEmployeeIds.includes(item.empleado_id)
+    );
+    const pdvAssignments = relatedAssignments.filter((item) => pdvIds.includes(item.pdv_id));
 
-    const supervisorByPdv = supervisors.reduce<Record<string, SupervisorResolucionRow[]>>((acc, item) => {
-      const current = acc[item.pdv_id] ?? []
-      current.push(item)
-      acc[item.pdv_id] = current
-      return acc
-    }, {})
-    const cuentaByPdv = cuentaRelaciones.reduce<Record<string, CuentaClientePdvRow[]>>((acc, item) => {
-      const current = acc[item.pdv_id] ?? []
-      current.push({
-        cuenta_cliente_id: item.cuenta_cliente_id,
-        activo: item.activo,
-        fecha_fin: item.fecha_fin,
-      })
-      acc[item.pdv_id] = current
-      return acc
-    }, {})
+    const supervisorByPdv = supervisors.reduce<Record<string, SupervisorResolucionRow[]>>(
+      (acc, item) => {
+        const current = acc[item.pdv_id] ?? [];
+        current.push(item);
+        acc[item.pdv_id] = current;
+        return acc;
+      },
+      {}
+    );
+    const cuentaByPdv = cuentaRelaciones.reduce<Record<string, CuentaClientePdvRow[]>>(
+      (acc, item) => {
+        const current = acc[item.pdv_id] ?? [];
+        current.push({
+          cuenta_cliente_id: item.cuenta_cliente_id,
+          activo: item.activo,
+          fecha_fin: item.fecha_fin,
+        });
+        acc[item.pdv_id] = current;
+        return acc;
+      },
+      {}
+    );
     const pdvsConGeocerca = new Set(
       geocercas
-        .filter((item) => item.latitud !== null && item.longitud !== null && item.radio_tolerancia_metros !== null)
+        .filter(
+          (item) =>
+            item.latitud !== null && item.longitud !== null && item.radio_tolerancia_metros !== null
+        )
         .map((item) => item.pdv_id)
-    )
+    );
     const horariosPorPdv = horarios.reduce<Record<string, number>>((acc, item) => {
-      acc[item.pdv_id] = (acc[item.pdv_id] ?? 0) + 1
-      return acc
-    }, {})
-    const employeeAssignmentsByEmployee = employeeAssignments.reduce<Record<string, AsignacionEstadoRow[]>>((acc, item) => {
-      const current = acc[item.empleado_id] ?? []
-      current.push(item)
-      acc[item.empleado_id] = current
-      return acc
-    }, {})
-    const historicalAssignmentsByPdv = pdvAssignments.reduce<Record<string, AsignacionEstadoRow[]>>((acc, item) => {
-      const current = acc[item.pdv_id] ?? []
-      current.push(item)
-      acc[item.pdv_id] = current
-      return acc
-    }, {})
+      acc[item.pdv_id] = (acc[item.pdv_id] ?? 0) + 1;
+      return acc;
+    }, {});
+    const employeeAssignmentsByEmployee = employeeAssignments.reduce<
+      Record<string, AsignacionEstadoRow[]>
+    >((acc, item) => {
+      const current = acc[item.empleado_id] ?? [];
+      current.push(item);
+      acc[item.empleado_id] = current;
+      return acc;
+    }, {});
+    const historicalAssignmentsByPdv = pdvAssignments.reduce<Record<string, AsignacionEstadoRow[]>>(
+      (acc, item) => {
+        const current = acc[item.pdv_id] ?? [];
+        current.push(item);
+        acc[item.pdv_id] = current;
+        return acc;
+      },
+      {}
+    );
     const existingByKey = new Map(
       employeeAssignments
         .filter((item) => item.naturaleza === 'BASE')
@@ -1698,29 +1795,29 @@ export async function importarCatalogoMaestroAsignaciones(
           }),
           { id: item.id, fechaInicio: item.fecha_inicio },
         ])
-    )
+    );
 
     const resolvedRows: Array<{
-      parsedRow: (typeof parsed.rows)[number]
-      employee: EmpleadoImportRow
-      pdv: PdvImportRow
-      existingAssignmentId: string | null
-      effectiveFechaInicio: string
-      supervisorEmpleadoId: string | null
-      cuentaClienteId: string | null
-      comparableId: string
-      payload: Record<string, unknown>
-    }> = []
-    const previewRows: AssignmentImportPreviewRow[] = []
+      parsedRow: (typeof parsed.rows)[number];
+      employee: EmpleadoImportRow;
+      pdv: PdvImportRow;
+      existingAssignmentId: string | null;
+      effectiveFechaInicio: string;
+      supervisorEmpleadoId: string | null;
+      cuentaClienteId: string | null;
+      comparableId: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const previewRows: AssignmentImportPreviewRow[] = [];
 
-    let unresolvedPdvs = 0
-    let unresolvedEmployees = 0
+    let unresolvedPdvs = 0;
+    let unresolvedEmployees = 0;
 
     for (const row of parsed.rows) {
-      const pdv = pdvByClave.get(row.claveBtl) ?? null
-      const referenciaDc = buildEmployeeReference(row)
+      const pdv = pdvByClave.get(row.claveBtl) ?? null;
+      const referenciaDc = buildEmployeeReference(row);
       if (!pdv) {
-        unresolvedPdvs += 1
+        unresolvedPdvs += 1;
         conflicts.push({
           rowNumber: row.rowNumber,
           claveBtl: row.claveBtl,
@@ -1731,13 +1828,13 @@ export async function importarCatalogoMaestroAsignaciones(
           label: 'PDV no resuelto',
           message: 'No existe un PDV activo en catalogo con esa clave BTL.',
           source: 'RESOLUCION',
-        })
-        continue
+        });
+        continue;
       }
 
-      const employeeResolution = resolveImportedEmployee(row)
+      const employeeResolution = resolveImportedEmployee(row);
       if (employeeResolution.ambiguity === 'NOMBRE_DC') {
-        unresolvedEmployees += 1
+        unresolvedEmployees += 1;
         conflicts.push({
           rowNumber: row.rowNumber,
           claveBtl: row.claveBtl,
@@ -1746,16 +1843,17 @@ export async function importarCatalogoMaestroAsignaciones(
           severity: 'ERROR',
           code: 'EMPLEADO_AMBIGUO',
           label: 'Nombre ambiguo',
-          message: 'El nombre DC coincide con mas de una dermoconsejera activa. Usa EMPLEADO_ID o USUARIO para desambiguar.',
+          message:
+            'El nombre DC coincide con mas de una dermoconsejera activa. Usa EMPLEADO_ID o USUARIO para desambiguar.',
           source: 'RESOLUCION',
-        })
-        continue
+        });
+        continue;
       }
 
-      const employee = employeeResolution.employee
+      const employee = employeeResolution.employee;
 
       if (!employee) {
-        unresolvedEmployees += 1
+        unresolvedEmployees += 1;
         conflicts.push({
           rowNumber: row.rowNumber,
           claveBtl: row.claveBtl,
@@ -1764,14 +1862,15 @@ export async function importarCatalogoMaestroAsignaciones(
           severity: 'ERROR',
           code: 'EMPLEADO_NO_RESUELTO',
           label: 'DC no resuelta',
-          message: 'No fue posible resolver la dermoconsejera por EMPLEADO_ID, USUARIO, NOMBRE DC o IDNOM.',
+          message:
+            'No fue posible resolver la dermoconsejera por EMPLEADO_ID, USUARIO, NOMBRE DC o IDNOM.',
           source: 'RESOLUCION',
-        })
-        continue
+        });
+        continue;
       }
 
       if (employee.puesto !== 'DERMOCONSEJERO' || employee.estatus_laboral !== 'ACTIVO') {
-        unresolvedEmployees += 1
+        unresolvedEmployees += 1;
         conflicts.push({
           rowNumber: row.rowNumber,
           claveBtl: row.claveBtl,
@@ -1780,14 +1879,18 @@ export async function importarCatalogoMaestroAsignaciones(
           severity: 'ERROR',
           code: 'EMPLEADO_NO_OPERATIVO',
           label: 'DC no operativa',
-          message: 'La persona resuelta no es una dermoconsejera activa y no puede entrar al catalogo maestro.',
+          message:
+            'La persona resuelta no es una dermoconsejera activa y no puede entrar al catalogo maestro.',
           source: 'RESOLUCION',
-        })
-        continue
+        });
+        continue;
       }
 
-      const effectiveFechaInicio = row.fechaInicio ?? importDate
-      const supervisorPdv = obtenerSupervisorVigente(supervisorByPdv[pdv.id] ?? [], effectiveFechaInicio)
+      const effectiveFechaInicio = row.fechaInicio ?? importDate;
+      const supervisorPdv = obtenerSupervisorVigente(
+        supervisorByPdv[pdv.id] ?? [],
+        effectiveFechaInicio
+      );
       const supervisorResuelto = resolveSupervisorInheritance(
         [
           {
@@ -1802,15 +1905,18 @@ export async function importarCatalogoMaestroAsignaciones(
           },
         ],
         supervisorRule
-      )
-      const cuentaRelacion = pickCuentaClienteOperativa(cuentaByPdv[pdv.id] ?? [], effectiveFechaInicio)
+      );
+      const cuentaRelacion = pickCuentaClienteOperativa(
+        cuentaByPdv[pdv.id] ?? [],
+        effectiveFechaInicio
+      );
       const existingAssignment = existingByKey.get(
         buildImportComparableKey({
           empleadoId: employee.id,
           pdvId: pdv.id,
           tipo: row.tipo,
         })
-      )
+      );
 
       previewRows.push({
         rowNumber: row.rowNumber,
@@ -1824,7 +1930,7 @@ export async function importarCatalogoMaestroAsignaciones(
         diasLaborales: row.diasLaborales,
         diaDescanso: row.diaDescanso,
         fechaInicio: effectiveFechaInicio,
-      })
+      });
 
       resolvedRows.push({
         parsedRow: row,
@@ -1856,11 +1962,13 @@ export async function importarCatalogoMaestroAsignaciones(
           estado_publicacion: 'BORRADOR',
           updated_at: new Date().toISOString(),
         },
-      })
+      });
     }
 
-    const importedComparableByEmployee = resolvedRows.reduce<Record<string, AssignmentComparableRow[]>>((acc, item) => {
-      const current = acc[item.employee.id] ?? []
+    const importedComparableByEmployee = resolvedRows.reduce<
+      Record<string, AssignmentComparableRow[]>
+    >((acc, item) => {
+      const current = acc[item.employee.id] ?? [];
       current.push({
         id: item.comparableId,
         empleado_id: item.employee.id,
@@ -1870,16 +1978,18 @@ export async function importarCatalogoMaestroAsignaciones(
         fecha_inicio: item.effectiveFechaInicio,
         fecha_fin: null,
         dias_laborales: item.parsedRow.diasLaborales,
-      })
-      acc[item.employee.id] = current
-      return acc
-    }, {})
+      });
+      acc[item.employee.id] = current;
+      return acc;
+    }, {});
 
     for (const item of resolvedRows) {
       const currentComparableRows = [
         ...(employeeAssignmentsByEmployee[item.employee.id] ?? []).map(buildComparableRow),
-        ...((importedComparableByEmployee[item.employee.id] ?? []).filter((row) => row.id !== item.comparableId)),
-      ]
+        ...(importedComparableByEmployee[item.employee.id] ?? []).filter(
+          (row) => row.id !== item.comparableId
+        ),
+      ];
 
       const issues = evaluarReglasAsignacion(
         {
@@ -1897,14 +2007,19 @@ export async function importarCatalogoMaestroAsignaciones(
         },
         {
           employee: buildValidationEmployee(item.employee),
-          pdv: buildValidationPdv(item.pdv as unknown as PdvContextRow, geocercas.find((geo) => geo.pdv_id === item.pdv.id) ?? null),
+          pdv: buildValidationPdv(
+            item.pdv as unknown as PdvContextRow,
+            geocercas.find((geo) => geo.pdv_id === item.pdv.id) ?? null
+          ),
           pdvsConGeocerca,
           supervisoresPorPdv: supervisorByPdv,
           comparableAssignments: currentComparableRows,
-          historicalAssignmentsForPdv: (historicalAssignmentsByPdv[item.pdv.id] ?? []).map(buildComparableRow),
+          historicalAssignmentsForPdv: (historicalAssignmentsByPdv[item.pdv.id] ?? []).map(
+            buildComparableRow
+          ),
           horariosPorPdv,
         }
-      )
+      );
 
       for (const issue of issues) {
         conflicts.push({
@@ -1922,13 +2037,13 @@ export async function importarCatalogoMaestroAsignaciones(
           label: issue.label,
           message: issue.message,
           source: 'VALIDACION',
-        })
+        });
       }
     }
 
-    const conflictCount = conflicts.filter((item) => item.severity === 'ERROR').length
-    const alertCount = conflicts.filter((item) => item.severity === 'ALERTA').length
-    const noticeCount = conflicts.filter((item) => item.severity === 'AVISO').length
+    const conflictCount = conflicts.filter((item) => item.severity === 'ERROR').length;
+    const alertCount = conflicts.filter((item) => item.severity === 'ALERTA').length;
+    const noticeCount = conflicts.filter((item) => item.severity === 'AVISO').length;
     const summary = {
       parsedRows: parsed.rows.length,
       skippedRows: parsed.skippedRows,
@@ -1939,7 +2054,7 @@ export async function importarCatalogoMaestroAsignaciones(
       conflictCount,
       alertCount,
       noticeCount,
-    }
+    };
 
     if (conflictCount > 0) {
       return buildImportState({
@@ -1947,12 +2062,12 @@ export async function importarCatalogoMaestroAsignaciones(
         conflicts: conflicts.sort((left, right) => (left.rowNumber ?? 0) - (right.rowNumber ?? 0)),
         summary,
         previewRows,
-      })
+      });
     }
 
     const rowsToInsert = resolvedRows
       .filter((item) => !item.existingAssignmentId)
-      .map((item) => item.payload)
+      .map((item) => item.payload);
     const rowsToUpdate = resolvedRows
       .filter((item) => Boolean(item.existingAssignmentId))
       .map((item) => ({
@@ -1968,19 +2083,27 @@ export async function importarCatalogoMaestroAsignaciones(
               })
             )?.fechaInicio ?? item.effectiveFechaInicio,
         },
-      }))
+      }));
 
     if (rowsToInsert.length > 0) {
-      const { error } = await service.from('asignacion').insert(rowsToInsert)
+      const { error } = await service.from('asignacion').insert(rowsToInsert);
       if (error) {
-        return buildImportState({ message: error.message ?? 'No fue posible importar el catalogo maestro.', conflicts, summary })
+        return buildImportState({
+          message: error.message ?? 'No fue posible importar el catalogo maestro.',
+          conflicts,
+          summary,
+        });
       }
     }
 
     for (const update of rowsToUpdate) {
-      const { error } = await service.from('asignacion').update(update.payload).eq('id', update.id)
+      const { error } = await service.from('asignacion').update(update.payload).eq('id', update.id);
       if (error) {
-        return buildImportState({ message: error.message ?? 'No fue posible actualizar el catalogo maestro.', conflicts, summary })
+        return buildImportState({
+          message: error.message ?? 'No fue posible actualizar el catalogo maestro.',
+          conflicts,
+          summary,
+        });
       }
     }
 
@@ -2002,8 +2125,12 @@ export async function importarCatalogoMaestroAsignaciones(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId: actor.cuentaClienteId,
-    })
-    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
+    });
+    await publishAsignacionesUiChanges(
+      actor,
+      createServiceClient() as TypedSupabaseClient,
+      'asignaciones_actualizadas'
+    );
 
     return buildImportState({
       ok: true,
@@ -2012,14 +2139,14 @@ export async function importarCatalogoMaestroAsignaciones(
       summary,
       previewRows,
       redirectTo: '/asignaciones/asignaciones?estado=BORRADOR',
-    })
+    });
   } catch (error) {
     return buildImportState({
       message:
         error instanceof Error
           ? error.message
           : 'No fue posible importar el catalogo maestro de asignaciones.',
-    })
+    });
   }
 }
 
@@ -2028,29 +2155,29 @@ function applyTransitionPlanToWorkingAssignments(
   draft: AssignmentEngineRow,
   enginePlan: AssignmentEngineTransitionPlan
 ) {
-  const nextAssignments = assignments.map((item) => ({ ...item }))
-  const draftIndex = nextAssignments.findIndex((item) => item.id === draft.id)
+  const nextAssignments = assignments.map((item) => ({ ...item }));
+  const draftIndex = nextAssignments.findIndex((item) => item.id === draft.id);
 
   if (draftIndex >= 0) {
     nextAssignments[draftIndex] = {
       ...nextAssignments[draftIndex],
       ...draft,
       estado_publicacion: 'PUBLICADA',
-    }
+    };
   } else {
     nextAssignments.push({
       ...draft,
       estado_publicacion: 'PUBLICADA',
-    })
+    });
   }
 
   for (const update of enginePlan.updates) {
-    const index = nextAssignments.findIndex((item) => item.id === update.id)
+    const index = nextAssignments.findIndex((item) => item.id === update.id);
     if (index >= 0) {
       nextAssignments[index] = {
         ...nextAssignments[index],
         ...update.patch,
-      }
+      };
     }
   }
 
@@ -2058,77 +2185,91 @@ function applyTransitionPlanToWorkingAssignments(
     nextAssignments.push({
       id: `auto-${draft.id}`,
       ...enginePlan.continuationInsert,
-    })
+    });
   }
 
-  return nextAssignments
+  return nextAssignments;
 }
 
 export async function publicarCatalogoMaestroAsignaciones(
   _prevState: PublicarCatalogoAsignacionesState,
   _formData: FormData
 ): Promise<PublicarCatalogoAsignacionesState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const service = createServiceClient() as TypedSupabaseClient
+    const service = createServiceClient() as TypedSupabaseClient;
     const { data: draftRowsRaw, error: draftRowsError } = await service
       .from('asignacion')
-      .select('id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, pdv_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion')
+      .select(
+        'id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, pdv_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion'
+      )
       .eq('cuenta_cliente_id', actor.cuentaClienteId)
       .eq('naturaleza', 'BASE')
       .eq('estado_publicacion', 'BORRADOR')
       .order('empleado_id', { ascending: true })
-      .order('fecha_inicio', { ascending: true })
+      .order('fecha_inicio', { ascending: true });
 
     if (draftRowsError) {
-      return buildPublishState({ message: draftRowsError.message })
+      return buildPublishState({ message: draftRowsError.message });
     }
 
-    const draftRows = (draftRowsRaw ?? []) as AsignacionEstadoRow[]
+    const draftRows = (draftRowsRaw ?? []) as AsignacionEstadoRow[];
     if (draftRows.length === 0) {
       return buildPublishState({
         ok: true,
         message: 'No hay asignaciones base en borrador pendientes por aprobar.',
-      })
+      });
     }
 
-    const employeeIds = Array.from(new Set(draftRows.map((item) => item.empleado_id)))
-    const pdvIds = Array.from(new Set(draftRows.map((item) => item.pdv_id)))
+    const employeeIds = Array.from(new Set(draftRows.map((item) => item.empleado_id)));
+    const pdvIds = Array.from(new Set(draftRows.map((item) => item.pdv_id)));
 
-    const [employeesResult, pdvsResult, supervisorsResult, cuentaPdvResult, geocercasResult, horariosResult, employeeAssignmentsResult, supervisorRuleResult] =
-      await Promise.all([
-        service
-          .from('empleado')
-          .select('id, id_nomina, nombre_completo, puesto, estatus_laboral, supervisor_empleado_id, telefono, correo_electronico')
-          .in('id', employeeIds),
-        service
-          .from('pdv')
-          .select('id, clave_btl, estatus, cadena:cadena_id(codigo, factor_cuota_default)')
-          .in('id', pdvIds),
-        service
-          .from('supervisor_pdv')
-          .select('pdv_id, empleado_id, activo, fecha_fin')
-          .in('pdv_id', pdvIds),
-        service
-          .from('cuenta_cliente_pdv')
-          .select('pdv_id, cuenta_cliente_id, activo, fecha_fin, fecha_inicio')
-          .in('pdv_id', pdvIds),
-        service
-          .from('geocerca_pdv')
-          .select('pdv_id, latitud, longitud, radio_tolerancia_metros')
-          .in('pdv_id', pdvIds),
-        service.from('horario_pdv').select('id, pdv_id').in('pdv_id', pdvIds).eq('activo', true),
-        service
-          .from('asignacion')
-          .select('id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, pdv_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion')
-          .in('empleado_id', employeeIds),
-        service
-          .from('regla_negocio')
-          .select('id, codigo, modulo, descripcion, severidad, prioridad, condicion, accion, activa')
-          .eq('codigo', SUPERVISOR_INHERITANCE_RULE_CODE)
-          .maybeSingle(),
-      ])
+    const [
+      employeesResult,
+      pdvsResult,
+      supervisorsResult,
+      cuentaPdvResult,
+      geocercasResult,
+      horariosResult,
+      employeeAssignmentsResult,
+      supervisorRuleResult,
+    ] = await Promise.all([
+      service
+        .from('empleado')
+        .select(
+          'id, id_nomina, nombre_completo, puesto, estatus_laboral, supervisor_empleado_id, telefono, correo_electronico'
+        )
+        .in('id', employeeIds),
+      service
+        .from('pdv')
+        .select('id, clave_btl, estatus, cadena:cadena_id(codigo, factor_cuota_default)')
+        .in('id', pdvIds),
+      service
+        .from('supervisor_pdv')
+        .select('pdv_id, empleado_id, activo, fecha_fin')
+        .in('pdv_id', pdvIds),
+      service
+        .from('cuenta_cliente_pdv')
+        .select('pdv_id, cuenta_cliente_id, activo, fecha_fin, fecha_inicio')
+        .in('pdv_id', pdvIds),
+      service
+        .from('geocerca_pdv')
+        .select('pdv_id, latitud, longitud, radio_tolerancia_metros')
+        .in('pdv_id', pdvIds),
+      service.from('horario_pdv').select('id, pdv_id').in('pdv_id', pdvIds).eq('activo', true),
+      service
+        .from('asignacion')
+        .select(
+          'id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, pdv_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion'
+        )
+        .in('empleado_id', employeeIds),
+      service
+        .from('regla_negocio')
+        .select('id, codigo, modulo, descripcion, severidad, prioridad, condicion, accion, activa')
+        .eq('codigo', SUPERVISOR_INHERITANCE_RULE_CODE)
+        .maybeSingle(),
+    ]);
 
     const infraError =
       employeesResult.error?.message ??
@@ -2138,77 +2279,92 @@ export async function publicarCatalogoMaestroAsignaciones(
       geocercasResult.error?.message ??
       horariosResult.error?.message ??
       employeeAssignmentsResult.error?.message ??
-      supervisorRuleResult.error?.message
+      supervisorRuleResult.error?.message;
 
     if (infraError) {
-      return buildPublishState({ message: infraError })
+      return buildPublishState({ message: infraError });
     }
 
-    const employees = (employeesResult.data ?? []) as EmpleadoImportRow[]
-    const pdvs = (pdvsResult.data ?? []) as PdvImportRow[]
-    const supervisors = (supervisorsResult.data ?? []) as SupervisorResolucionRow[]
-    const cuentaRelaciones = (cuentaPdvResult.data ?? []) as Array<CuentaClientePdvRow & { pdv_id: string }>
-    const geocercas = (geocercasResult.data ?? []) as GeocercaAsignacionRow[]
-    const horarios = (horariosResult.data ?? []) as Array<{ id: string; pdv_id: string }>
-    const employeeAssignments = (employeeAssignmentsResult.data ?? []) as AsignacionEstadoRow[]
+    const employees = (employeesResult.data ?? []) as EmpleadoImportRow[];
+    const pdvs = (pdvsResult.data ?? []) as PdvImportRow[];
+    const supervisors = (supervisorsResult.data ?? []) as SupervisorResolucionRow[];
+    const cuentaRelaciones = (cuentaPdvResult.data ?? []) as Array<
+      CuentaClientePdvRow & { pdv_id: string }
+    >;
+    const geocercas = (geocercasResult.data ?? []) as GeocercaAsignacionRow[];
+    const horarios = (horariosResult.data ?? []) as Array<{ id: string; pdv_id: string }>;
+    const employeeAssignments = (employeeAssignmentsResult.data ?? []) as AsignacionEstadoRow[];
     const supervisorRule = readSupervisorInheritanceRule(
       (supervisorRuleResult.data as BusinessRuleRow | null) ?? null
-    )
+    );
 
-    const employeeById = new Map(employees.map((item) => [item.id, item]))
-    const pdvById = new Map(pdvs.map((item) => [item.id, item]))
-    const supervisorByPdv = supervisors.reduce<Record<string, SupervisorResolucionRow[]>>((acc, item) => {
-      const current = acc[item.pdv_id] ?? []
-      current.push(item)
-      acc[item.pdv_id] = current
-      return acc
-    }, {})
-    const cuentaByPdv = cuentaRelaciones.reduce<Record<string, CuentaClientePdvRow[]>>((acc, item) => {
-      const current = acc[item.pdv_id] ?? []
-      current.push({
-        cuenta_cliente_id: item.cuenta_cliente_id,
-        activo: item.activo,
-        fecha_fin: item.fecha_fin,
-      })
-      acc[item.pdv_id] = current
-      return acc
-    }, {})
+    const employeeById = new Map(employees.map((item) => [item.id, item]));
+    const pdvById = new Map(pdvs.map((item) => [item.id, item]));
+    const supervisorByPdv = supervisors.reduce<Record<string, SupervisorResolucionRow[]>>(
+      (acc, item) => {
+        const current = acc[item.pdv_id] ?? [];
+        current.push(item);
+        acc[item.pdv_id] = current;
+        return acc;
+      },
+      {}
+    );
+    const cuentaByPdv = cuentaRelaciones.reduce<Record<string, CuentaClientePdvRow[]>>(
+      (acc, item) => {
+        const current = acc[item.pdv_id] ?? [];
+        current.push({
+          cuenta_cliente_id: item.cuenta_cliente_id,
+          activo: item.activo,
+          fecha_fin: item.fecha_fin,
+        });
+        acc[item.pdv_id] = current;
+        return acc;
+      },
+      {}
+    );
     const pdvsConGeocerca = new Set(
       geocercas
-        .filter((item) => item.latitud !== null && item.longitud !== null && item.radio_tolerancia_metros !== null)
+        .filter(
+          (item) =>
+            item.latitud !== null && item.longitud !== null && item.radio_tolerancia_metros !== null
+        )
         .map((item) => item.pdv_id)
-    )
+    );
     const horariosPorPdv = horarios.reduce<Record<string, number>>((acc, item) => {
-      acc[item.pdv_id] = (acc[item.pdv_id] ?? 0) + 1
-      return acc
-    }, {})
-    const geocercaByPdv = new Map(geocercas.map((item) => [item.pdv_id, item]))
-    const historicalAssignmentsByPdv = employeeAssignments.reduce<Record<string, AsignacionEstadoRow[]>>((acc, item) => {
-      const current = acc[item.pdv_id] ?? []
-      current.push(item)
-      acc[item.pdv_id] = current
-      return acc
-    }, {})
-    const workingAssignmentsByEmployee = employeeAssignments.reduce<Record<string, AssignmentEngineRow[]>>((acc, item) => {
-      const current = acc[item.empleado_id] ?? []
-      current.push({ ...item })
-      acc[item.empleado_id] = current
-      return acc
-    }, {})
+      acc[item.pdv_id] = (acc[item.pdv_id] ?? 0) + 1;
+      return acc;
+    }, {});
+    const geocercaByPdv = new Map(geocercas.map((item) => [item.pdv_id, item]));
+    const historicalAssignmentsByPdv = employeeAssignments.reduce<
+      Record<string, AsignacionEstadoRow[]>
+    >((acc, item) => {
+      const current = acc[item.pdv_id] ?? [];
+      current.push(item);
+      acc[item.pdv_id] = current;
+      return acc;
+    }, {});
+    const workingAssignmentsByEmployee = employeeAssignments.reduce<
+      Record<string, AssignmentEngineRow[]>
+    >((acc, item) => {
+      const current = acc[item.empleado_id] ?? [];
+      current.push({ ...item });
+      acc[item.empleado_id] = current;
+      return acc;
+    }, {});
 
-    const conflicts: AssignmentImportConflict[] = []
+    const conflicts: AssignmentImportConflict[] = [];
     const approvalPlans: Array<{
-      row: AsignacionEstadoRow
-      supervisorEmpleadoId: string | null
-      cuentaClienteId: string | null
-      enginePlan: AssignmentEngineTransitionPlan
-      employeeId: string
-      materializationRange: { fechaInicio: string; fechaFin: string } | null
-    }> = []
+      row: AsignacionEstadoRow;
+      supervisorEmpleadoId: string | null;
+      cuentaClienteId: string | null;
+      enginePlan: AssignmentEngineTransitionPlan;
+      employeeId: string;
+      materializationRange: { fechaInicio: string; fechaFin: string } | null;
+    }> = [];
 
     for (const row of draftRows) {
-      const employee = employeeById.get(row.empleado_id) ?? null
-      const pdv = pdvById.get(row.pdv_id) ?? null
+      const employee = employeeById.get(row.empleado_id) ?? null;
+      const pdv = pdvById.get(row.pdv_id) ?? null;
 
       if (!employee) {
         conflicts.push({
@@ -2219,10 +2375,11 @@ export async function publicarCatalogoMaestroAsignaciones(
           severity: 'ERROR',
           code: 'EMPLEADO_NO_RESUELTO',
           label: 'DC no resuelta',
-          message: 'La asignacion en borrador apunta a una dermoconsejera inexistente o inaccesible.',
+          message:
+            'La asignacion en borrador apunta a una dermoconsejera inexistente o inaccesible.',
           source: 'RESOLUCION',
-        })
-        continue
+        });
+        continue;
       }
 
       if (!pdv) {
@@ -2236,11 +2393,14 @@ export async function publicarCatalogoMaestroAsignaciones(
           label: 'PDV no resuelto',
           message: 'La asignacion en borrador apunta a un PDV inexistente o inaccesible.',
           source: 'RESOLUCION',
-        })
-        continue
+        });
+        continue;
       }
 
-      const supervisorPdv = obtenerSupervisorVigente(supervisorByPdv[pdv.id] ?? [], row.fecha_inicio)
+      const supervisorPdv = obtenerSupervisorVigente(
+        supervisorByPdv[pdv.id] ?? [],
+        row.fecha_inicio
+      );
       const supervisorResuelto = resolveSupervisorInheritance(
         [
           {
@@ -2260,16 +2420,20 @@ export async function publicarCatalogoMaestroAsignaciones(
           },
         ],
         supervisorRule
-      )
-      const cuentaRelacion = pickCuentaClienteOperativa(cuentaByPdv[pdv.id] ?? [], row.fecha_inicio)
-      const cuentaClienteId = row.cuenta_cliente_id ?? actor.cuentaClienteId ?? cuentaRelacion?.cuenta_cliente_id ?? null
-      const workingRows = workingAssignmentsByEmployee[row.empleado_id] ?? []
+      );
+      const cuentaRelacion = pickCuentaClienteOperativa(
+        cuentaByPdv[pdv.id] ?? [],
+        row.fecha_inicio
+      );
+      const cuentaClienteId =
+        row.cuenta_cliente_id ?? actor.cuentaClienteId ?? cuentaRelacion?.cuenta_cliente_id ?? null;
+      const workingRows = workingAssignmentsByEmployee[row.empleado_id] ?? [];
       const draftForEngine: AssignmentEngineRow = {
         ...row,
         cuenta_cliente_id: cuentaClienteId,
         supervisor_empleado_id: supervisorResuelto.supervisorEmpleadoId,
-      }
-      const enginePlan = buildAssignmentTransitionPlan(draftForEngine, workingRows)
+      };
+      const enginePlan = buildAssignmentTransitionPlan(draftForEngine, workingRows);
 
       const issues = evaluarReglasAsignacion(
         {
@@ -2279,16 +2443,21 @@ export async function publicarCatalogoMaestroAsignaciones(
         },
         {
           employee: buildValidationEmployee(employee),
-          pdv: buildValidationPdv(pdv as unknown as PdvContextRow, geocercaByPdv.get(pdv.id) ?? null),
+          pdv: buildValidationPdv(
+            pdv as unknown as PdvContextRow,
+            geocercaByPdv.get(pdv.id) ?? null
+          ),
           pdvsConGeocerca,
           supervisoresPorPdv: supervisorByPdv,
           comparableAssignments: workingRows
             .map(buildComparableRow)
             .filter((item) => !enginePlan.ignoredComparableIds.includes(item.id)),
-          historicalAssignmentsForPdv: (historicalAssignmentsByPdv[pdv.id] ?? []).map(buildComparableRow),
+          historicalAssignmentsForPdv: (historicalAssignmentsByPdv[pdv.id] ?? []).map(
+            buildComparableRow
+          ),
           horariosPorPdv,
         }
-      )
+      );
 
       for (const issue of issues) {
         conflicts.push({
@@ -2301,18 +2470,18 @@ export async function publicarCatalogoMaestroAsignaciones(
           label: issue.label,
           message: issue.message,
           source: 'VALIDACION',
-        })
+        });
       }
 
       if (issues.some((issue) => issue.severity === 'ERROR')) {
-        continue
+        continue;
       }
 
       workingAssignmentsByEmployee[row.empleado_id] = applyTransitionPlanToWorkingAssignments(
         workingRows,
         draftForEngine,
         enginePlan
-      )
+      );
 
       approvalPlans.push({
         row,
@@ -2321,15 +2490,16 @@ export async function publicarCatalogoMaestroAsignaciones(
         enginePlan,
         employeeId: row.empleado_id,
         materializationRange: resolveMaterializationImpactRange(row.fecha_inicio, row.fecha_fin),
-      })
+      });
     }
 
-    const errorCount = conflicts.filter((item) => item.severity === 'ERROR').length
+    const errorCount = conflicts.filter((item) => item.severity === 'ERROR').length;
     if (errorCount > 0) {
       return buildPublishState({
-        message: 'Se detectaron conflictos que bloquean la aprobacion del catalogo maestro. Corrige el catalogo antes de continuar.',
+        message:
+          'Se detectaron conflictos que bloquean la aprobacion del catalogo maestro. Corrige el catalogo antes de continuar.',
         conflicts,
-      })
+      });
     }
 
     for (const plan of approvalPlans) {
@@ -2341,10 +2511,10 @@ export async function publicarCatalogoMaestroAsignaciones(
           cuenta_cliente_id: plan.cuentaClienteId,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', plan.row.id)
+        .eq('id', plan.row.id);
 
       if (publishError) {
-        return buildPublishState({ message: publishError.message, conflicts })
+        return buildPublishState({ message: publishError.message, conflicts });
       }
 
       for (const update of plan.enginePlan.updates) {
@@ -2354,10 +2524,10 @@ export async function publicarCatalogoMaestroAsignaciones(
             ...update.patch,
             updated_at: new Date().toISOString(),
           })
-          .eq('id', update.id)
+          .eq('id', update.id);
 
         if (error) {
-          return buildPublishState({ message: error.message, conflicts })
+          return buildPublishState({ message: error.message, conflicts });
         }
       }
 
@@ -2365,12 +2535,25 @@ export async function publicarCatalogoMaestroAsignaciones(
         const { error } = await service.from('asignacion').insert({
           ...plan.enginePlan.continuationInsert,
           updated_at: new Date().toISOString(),
-        })
+        });
 
         if (error) {
-          return buildPublishState({ message: error.message, conflicts })
+          return buildPublishState({ message: error.message, conflicts });
         }
       }
+    }
+
+    const finalizedDraftIds = collectPublishedAssignmentIds(draftRows, approvalPlans);
+    const { error: finalizeError } = await service
+      .from('asignacion')
+      .update({
+        estado_publicacion: 'PUBLICADA',
+        updated_at: new Date().toISOString(),
+      })
+      .in('id', finalizedDraftIds);
+
+    if (finalizeError) {
+      return buildPublishState({ message: finalizeError.message, conflicts });
     }
 
     const materializationInputs = approvalPlans
@@ -2384,10 +2567,10 @@ export async function publicarCatalogoMaestroAsignaciones(
           asignacion_id: plan.row.id,
           origen: 'CATALOGO_MAESTRO_APROBADO',
         },
-      }))
+      }));
 
     if (materializationInputs.length > 0) {
-      await enqueueAndProcessMaterializedAssignments(materializationInputs, service)
+      await enqueueAndProcessMaterializedAssignments(materializationInputs, service);
     }
 
     await registrarEventoAudit(service, {
@@ -2396,32 +2579,41 @@ export async function publicarCatalogoMaestroAsignaciones(
       payload: {
         evento: 'asignacion_catalogo_maestro_aprobado',
         asignaciones_publicadas: approvalPlans.length,
-        empleados_materializados: Array.from(new Set(materializationInputs.map((item) => item.empleadoId))).length,
+        empleados_materializados: Array.from(
+          new Set(materializationInputs.map((item) => item.empleadoId))
+        ).length,
         alertas: conflicts.filter((item) => item.severity === 'ALERTA').length,
         avisos: conflicts.filter((item) => item.severity === 'AVISO').length,
         ventana_operativa: buildOperationalWindowLabel(),
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId: actor.cuentaClienteId,
-    })
-    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
+    });
+    await publishAsignacionesUiChanges(
+      actor,
+      createServiceClient() as TypedSupabaseClient,
+      'asignaciones_actualizadas'
+    );
 
     return buildPublishState({
       ok: true,
-      message: 'Catalogo maestro aprobado. Se publicaron las bases y se materializo la ventana operativa del mes actual y el siguiente.',
+      message:
+        'Catalogo maestro aprobado. Se publicaron las bases y se materializo la ventana operativa del mes actual y el siguiente.',
       conflicts,
       publishedRows: approvalPlans.length,
-      materializedEmployees: Array.from(new Set(materializationInputs.map((item) => item.empleadoId))).length,
+      materializedEmployees: Array.from(
+        new Set(materializationInputs.map((item) => item.empleadoId))
+      ).length,
       materializedWindowLabel: buildOperationalWindowLabel(),
       redirectTo: '/asignaciones/asignaciones?estado=PUBLICADA',
-    })
+    });
   } catch (error) {
     return buildPublishState({
       message:
         error instanceof Error
           ? error.message
           : 'No fue posible aprobar el catalogo maestro de asignaciones.',
-    })
+    });
   }
 }
 
@@ -2429,51 +2621,53 @@ export async function publicarOperacionMensualAsignaciones(
   _prevState: PublicarCatalogoAsignacionesState,
   formData: FormData
 ): Promise<PublicarCatalogoAsignacionesState> {
-  const actor = await requerirAdministradorActivo()
-  const monthRaw = String(formData.get('operational_month') ?? '').trim()
-  const targetMonth = isValidMonthInput(monthRaw) ? monthRaw : getCurrentMxMonth()
+  const actor = await requerirAdministradorActivo();
+  const monthRaw = String(formData.get('operational_month') ?? '').trim();
+  const targetMonth = isValidMonthInput(monthRaw) ? monthRaw : getCurrentMxMonth();
 
   try {
-    const service = createServiceClient() as TypedSupabaseClient
+    const service = createServiceClient() as TypedSupabaseClient;
     const { data: publishedRowsRaw, error: publishedRowsError } = await service
       .from('asignacion')
-      .select('id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, pdv_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion')
+      .select(
+        'id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, pdv_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion'
+      )
       .eq('cuenta_cliente_id', actor.cuentaClienteId)
       .eq('naturaleza', 'BASE')
       .eq('estado_publicacion', 'PUBLICADA')
       .order('empleado_id', { ascending: true })
-      .order('fecha_inicio', { ascending: true })
+      .order('fecha_inicio', { ascending: true });
 
     if (publishedRowsError) {
-      return buildPublishState({ message: publishedRowsError.message })
+      return buildPublishState({ message: publishedRowsError.message });
     }
 
-    const publishedRows = (publishedRowsRaw ?? []) as AsignacionEstadoRow[]
+    const publishedRows = (publishedRowsRaw ?? []) as AsignacionEstadoRow[];
     if (publishedRows.length === 0) {
       return buildPublishState({
         ok: true,
         message: 'No hay asignaciones base publicadas para generar la operacion mensual.',
         materializedWindowLabel: formatMonthLabel(targetMonth),
-      })
+      });
     }
 
     const eligibleRows = publishedRows.filter((row) =>
       Boolean(buildMonthlyMaterializationRange(row.fecha_inicio, row.fecha_fin, targetMonth))
-    )
+    );
 
     if (eligibleRows.length === 0) {
       return buildPublishState({
         ok: true,
         message: `No hay asignaciones base activas que intersecten con ${formatMonthLabel(targetMonth)}.`,
         materializedWindowLabel: formatMonthLabel(targetMonth),
-      })
+      });
     }
 
-    const employeeIds = Array.from(new Set(eligibleRows.map((row) => row.empleado_id)))
+    const employeeIds = Array.from(new Set(eligibleRows.map((row) => row.empleado_id)));
     const materializationRange = {
       fechaInicio: startOfMonth(targetMonth),
       fechaFin: endOfMonth(targetMonth),
-    }
+    };
     const materializationInputs = employeeIds.map((empleadoId) => ({
       empleadoId,
       fechaInicio: materializationRange.fechaInicio,
@@ -2482,9 +2676,9 @@ export async function publicarOperacionMensualAsignaciones(
       payload: {
         month: targetMonth,
       },
-    }))
+    }));
 
-    await enqueueAndProcessMaterializedAssignments(materializationInputs, service)
+    await enqueueAndProcessMaterializedAssignments(materializationInputs, service);
 
     await registrarEventoAudit(service, {
       tabla: 'asignacion',
@@ -2497,8 +2691,12 @@ export async function publicarOperacionMensualAsignaciones(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId: actor.cuentaClienteId,
-    })
-    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
+    });
+    await publishAsignacionesUiChanges(
+      actor,
+      createServiceClient() as TypedSupabaseClient,
+      'asignaciones_actualizadas'
+    );
 
     return buildPublishState({
       ok: true,
@@ -2506,7 +2704,7 @@ export async function publicarOperacionMensualAsignaciones(
       publishedRows: eligibleRows.length,
       materializedEmployees: employeeIds.length,
       materializedWindowLabel: formatMonthLabel(targetMonth),
-    })
+    });
   } catch (error) {
     return buildPublishState({
       message:
@@ -2514,65 +2712,65 @@ export async function publicarOperacionMensualAsignaciones(
           ? error.message
           : 'No fue posible publicar la operacion mensual de asignaciones.',
       materializedWindowLabel: formatMonthLabel(targetMonth),
-    })
+    });
   }
 }
 function normalizeTimeText(value: string | null) {
   if (!value) {
-    return null
+    return null;
   }
 
-  const normalized = value.trim()
+  const normalized = value.trim();
   if (/^\d{2}:\d{2}$/.test(normalized)) {
-    return normalized
+    return normalized;
   }
 
   if (/^\d{2}:\d{2}:\d{2}$/.test(normalized)) {
-    return normalized.slice(0, 5)
+    return normalized.slice(0, 5);
   }
 
-  return null
+  return null;
 }
 
 function chunkArray<T>(items: T[], size: number) {
-  const chunks: T[][] = []
+  const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size))
+    chunks.push(items.slice(index, index + size));
   }
-  return chunks
+  return chunks;
 }
 
 export async function importarRotacionMaestraPdvs(
   _prevState: ImportarRotacionMaestraState,
   formData: FormData
 ): Promise<ImportarRotacionMaestraState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const uploadedFile = formData.get('rotacion_maestra_file')
+    const uploadedFile = formData.get('rotacion_maestra_file');
 
     if (!(uploadedFile instanceof File) || uploadedFile.size === 0) {
       return buildRotationImportState({
         message: 'Adjunta un archivo XLSX para importar la rotacion maestra.',
-      })
+      });
     }
 
     if (!uploadedFile.name.toLowerCase().endsWith('.xlsx')) {
       return buildRotationImportState({
         message: 'La rotacion maestra debe estar en formato XLSX.',
-      })
+      });
     }
 
-    const buffer = Buffer.from(await uploadedFile.arrayBuffer())
-    const parsed = parsePdvRotationCatalogWorkbook(buffer)
-    const service = createServiceClient() as TypedSupabaseClient
-    const cuentaClienteId = actor.cuentaClienteId ?? getSingleTenantAccountId()
+    const buffer = Buffer.from(await uploadedFile.arrayBuffer());
+    const parsed = parsePdvRotationCatalogWorkbook(buffer);
+    const service = createServiceClient() as TypedSupabaseClient;
+    const cuentaClienteId = actor.cuentaClienteId ?? getSingleTenantAccountId();
     const today = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/Mexico_City',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
-    }).format(new Date())
+    }).format(new Date());
 
     const conflicts: PdvRotacionImportConflict[] = parsed.issues.map((issue) => ({
       rowNumber: issue.rowNumber,
@@ -2591,69 +2789,75 @@ export async function importarRotacionMaestraPdvs(
                 : 'Posicion invalida',
       message: issue.message,
       source: 'PARSER',
-    }))
+    }));
 
     const { data: relationRows, error: relationError } = await service
       .from('cuenta_cliente_pdv')
-      .select(`
+      .select(
+        `
         pdv_id,
         activo,
         fecha_inicio,
         fecha_fin,
         pdv:pdv_id(id, clave_btl, nombre, estatus)
-      `)
+      `
+      )
       .eq('cuenta_cliente_id', cuentaClienteId)
-      .eq('activo', true)
+      .eq('activo', true);
 
     if (relationError) {
       return buildRotationImportState({
-        message: relationError.message ?? 'No fue posible cargar los PDVs operables de la cuenta activa.',
+        message:
+          relationError.message ?? 'No fue posible cargar los PDVs operables de la cuenta activa.',
         conflicts,
-      })
+      });
     }
 
-    const operableRows = ((relationRows ?? []) as Array<{
-      pdv_id: string
-      activo: boolean
-      fecha_inicio: string
-      fecha_fin: string | null
-      pdv:
-        | { id: string; clave_btl: string; nombre: string; estatus: string }
-        | Array<{ id: string; clave_btl: string; nombre: string; estatus: string }>
-        | null
-    }>)
+    const operableRows = (
+      (relationRows ?? []) as Array<{
+        pdv_id: string;
+        activo: boolean;
+        fecha_inicio: string;
+        fecha_fin: string | null;
+        pdv:
+          | { id: string; clave_btl: string; nombre: string; estatus: string }
+          | Array<{ id: string; clave_btl: string; nombre: string; estatus: string }>
+          | null;
+      }>
+    )
       .map((item) => ({
         ...item,
-        pdv: Array.isArray(item.pdv) ? item.pdv[0] ?? null : item.pdv,
+        pdv: Array.isArray(item.pdv) ? (item.pdv[0] ?? null) : item.pdv,
       }))
       .filter((item) => {
         if (!item.pdv) {
-          return false
+          return false;
         }
 
-        const withinRange = item.fecha_inicio <= today && (!item.fecha_fin || item.fecha_fin >= today)
-        return withinRange && isOperablePdvStatus(item.pdv.estatus)
-      })
+        const withinRange =
+          item.fecha_inicio <= today && (!item.fecha_fin || item.fecha_fin >= today);
+        return withinRange && isOperablePdvStatus(item.pdv.estatus);
+      });
 
     const pdvByClave = new Map(
       operableRows.filter((item) => item.pdv).map((item) => [item.pdv!.clave_btl, item.pdv!])
-    )
-    const operableClaves = new Set(Array.from(pdvByClave.keys()))
-    const seenOperableClaves = new Set<string>()
+    );
+    const operableClaves = new Set(Array.from(pdvByClave.keys()));
+    const seenOperableClaves = new Set<string>();
     const validRows: Array<{
-      rowNumber: number
-      claveBtl: string
-      pdvId: string
-      clasificacionMaestra: 'FIJO' | 'ROTATIVO'
-      grupoRotacionCodigo: string | null
-      grupoTamano: 2 | 3 | null
-      slotRotacion: 'A' | 'B' | 'C' | null
-      observaciones: string | null
-      referenciaDcActual: string | null
-    }> = []
+      rowNumber: number;
+      claveBtl: string;
+      pdvId: string;
+      clasificacionMaestra: 'FIJO' | 'ROTATIVO';
+      grupoRotacionCodigo: string | null;
+      grupoTamano: 2 | 3 | null;
+      slotRotacion: 'A' | 'B' | 'C' | null;
+      observaciones: string | null;
+      referenciaDcActual: string | null;
+    }> = [];
 
     for (const row of parsed.rows) {
-      const pdv = pdvByClave.get(row.claveBtl)
+      const pdv = pdvByClave.get(row.claveBtl);
       if (!pdv) {
         conflicts.push({
           rowNumber: row.rowNumber,
@@ -2663,11 +2867,11 @@ export async function importarRotacionMaestraPdvs(
           label: 'PDV fuera de la cuenta operable',
           message: 'La clave BTL no pertenece a un PDV operable vigente de la cuenta activa.',
           source: 'RESOLUCION',
-        })
-        continue
+        });
+        continue;
       }
 
-      seenOperableClaves.add(row.claveBtl)
+      seenOperableClaves.add(row.claveBtl);
 
       if (!row.clasificacionMaestra) {
         conflicts.push({
@@ -2678,11 +2882,14 @@ export async function importarRotacionMaestraPdvs(
           label: 'Clasificacion requerida',
           message: 'Cada PDV operable debe venir clasificado como FIJO o ROTATIVO.',
           source: 'VALIDACION',
-        })
-        continue
+        });
+        continue;
       }
 
-      if (row.clasificacionMaestra === 'FIJO' && (row.grupoRotacionCodigo || row.grupoTamano || row.slotRotacion)) {
+      if (
+        row.clasificacionMaestra === 'FIJO' &&
+        (row.grupoRotacionCodigo || row.grupoTamano || row.slotRotacion)
+      ) {
         conflicts.push({
           rowNumber: row.rowNumber,
           claveBtl: row.claveBtl,
@@ -2691,11 +2898,14 @@ export async function importarRotacionMaestraPdvs(
           label: 'FIJO con grupo',
           message: 'Un PDV FIJO no debe tener grupo, tamano ni posicion de rotacion.',
           source: 'VALIDACION',
-        })
-        continue
+        });
+        continue;
       }
 
-      if (row.clasificacionMaestra === 'ROTATIVO' && (!row.grupoRotacionCodigo || !row.grupoTamano || !row.slotRotacion)) {
+      if (
+        row.clasificacionMaestra === 'ROTATIVO' &&
+        (!row.grupoRotacionCodigo || !row.grupoTamano || !row.slotRotacion)
+      ) {
         conflicts.push({
           rowNumber: row.rowNumber,
           claveBtl: row.claveBtl,
@@ -2704,8 +2914,8 @@ export async function importarRotacionMaestraPdvs(
           label: 'Rotativo incompleto',
           message: 'Un PDV ROTATIVO debe incluir grupo, tamano y posicion.',
           source: 'VALIDACION',
-        })
-        continue
+        });
+        continue;
       }
 
       validRows.push({
@@ -2713,15 +2923,18 @@ export async function importarRotacionMaestraPdvs(
         claveBtl: row.claveBtl,
         pdvId: pdv.id,
         clasificacionMaestra: row.clasificacionMaestra,
-        grupoRotacionCodigo: row.clasificacionMaestra === 'ROTATIVO' ? row.grupoRotacionCodigo : null,
+        grupoRotacionCodigo:
+          row.clasificacionMaestra === 'ROTATIVO' ? row.grupoRotacionCodigo : null,
         grupoTamano: row.clasificacionMaestra === 'ROTATIVO' ? row.grupoTamano : null,
         slotRotacion: row.clasificacionMaestra === 'ROTATIVO' ? row.slotRotacion : null,
         observaciones: row.observaciones,
         referenciaDcActual: row.referenciaDcActual,
-      })
+      });
     }
 
-    const missingOperableClaves = Array.from(operableClaves).filter((clave) => !seenOperableClaves.has(clave))
+    const missingOperableClaves = Array.from(operableClaves).filter(
+      (clave) => !seenOperableClaves.has(clave)
+    );
     for (const clave of missingOperableClaves) {
       conflicts.push({
         rowNumber: null,
@@ -2731,32 +2944,34 @@ export async function importarRotacionMaestraPdvs(
         label: 'PDV operable faltante',
         message: 'El archivo final debe incluir todos los PDVs operables de la cuenta activa.',
         source: 'VALIDACION',
-      })
+      });
     }
 
-    const groups = new Map<string, typeof validRows>()
-    for (const row of validRows.filter((item) => item.clasificacionMaestra === 'ROTATIVO' && item.grupoRotacionCodigo)) {
-      const current = groups.get(row.grupoRotacionCodigo!) ?? []
-      current.push(row)
-      groups.set(row.grupoRotacionCodigo!, current)
+    const groups = new Map<string, typeof validRows>();
+    for (const row of validRows.filter(
+      (item) => item.clasificacionMaestra === 'ROTATIVO' && item.grupoRotacionCodigo
+    )) {
+      const current = groups.get(row.grupoRotacionCodigo!) ?? [];
+      current.push(row);
+      groups.set(row.grupoRotacionCodigo!, current);
     }
 
-    let incompleteGroups = 0
+    let incompleteGroups = 0;
     for (const [groupCode, rows] of groups.entries()) {
-      const expectedSize = rows[0]?.grupoTamano ?? null
-      const distinctSizes = new Set(rows.map((item) => item.grupoTamano))
-      const slots = rows.map((item) => item.slotRotacion).filter(Boolean) as Array<'A' | 'B' | 'C'>
-      const distinctSlots = new Set(slots)
-      const expectedSlots = expectedSize === 3 ? ['A', 'B', 'C'] : ['A', 'B']
+      const expectedSize = rows[0]?.grupoTamano ?? null;
+      const distinctSizes = new Set(rows.map((item) => item.grupoTamano));
+      const slots = rows.map((item) => item.slotRotacion).filter(Boolean) as Array<'A' | 'B' | 'C'>;
+      const distinctSlots = new Set(slots);
+      const expectedSlots = expectedSize === 3 ? ['A', 'B', 'C'] : ['A', 'B'];
       const complete =
         (expectedSize === 2 || expectedSize === 3) &&
         distinctSizes.size === 1 &&
         rows.length === expectedSize &&
         distinctSlots.size === expectedSize &&
-        expectedSlots.every((slot) => distinctSlots.has(slot as 'A' | 'B' | 'C'))
+        expectedSlots.every((slot) => distinctSlots.has(slot as 'A' | 'B' | 'C'));
 
       if (!complete) {
-        incompleteGroups += 1
+        incompleteGroups += 1;
         for (const row of rows) {
           conflicts.push({
             rowNumber: row.rowNumber,
@@ -2766,30 +2981,32 @@ export async function importarRotacionMaestraPdvs(
             label: 'Grupo incompleto',
             message: `El grupo ${groupCode} no cierra con el tamano y las posiciones esperadas.`,
             source: 'VALIDACION',
-          })
+          });
         }
       }
     }
 
-    const hasBlockingConflicts = conflicts.some((item) => item.severity === 'ERROR')
+    const hasBlockingConflicts = conflicts.some((item) => item.severity === 'ERROR');
     const summary = {
       parsedRows: parsed.rows.length,
       skippedRows: parsed.skippedRows,
       importedRows: validRows.length,
       rotativos: validRows.filter((item) => item.clasificacionMaestra === 'ROTATIVO').length,
       fijos: validRows.filter((item) => item.clasificacionMaestra === 'FIJO').length,
-      unresolvedPdvs: conflicts.filter((item) => item.code === 'PDV_NO_OPERABLE' || item.code === 'CLASIFICACION_REQUERIDA').length,
+      unresolvedPdvs: conflicts.filter(
+        (item) => item.code === 'PDV_NO_OPERABLE' || item.code === 'CLASIFICACION_REQUERIDA'
+      ).length,
       missingOperablePdvs: missingOperableClaves.length,
       incompleteGroups,
       conflictCount: conflicts.length,
-    }
+    };
 
     if (hasBlockingConflicts) {
       return buildRotationImportState({
         message: 'La rotacion maestra tiene conflictos bloqueantes. Corrigelos antes de importar.',
         conflicts,
         summary,
-      })
+      });
     }
 
     const rowsToInsert = validRows.map((row) => ({
@@ -2807,29 +3024,31 @@ export async function importarRotacionMaestraPdvs(
         row_number: row.rowNumber,
         archivo: uploadedFile.name,
       },
-    }))
+    }));
 
     const { error: deleteError } = await service
       .from('pdv_rotacion_maestra')
       .delete()
-      .eq('cuenta_cliente_id', cuentaClienteId)
+      .eq('cuenta_cliente_id', cuentaClienteId);
 
     if (deleteError) {
       return buildRotationImportState({
         message: deleteError.message ?? 'No fue posible reemplazar la rotacion maestra actual.',
         conflicts,
         summary,
-      })
+      });
     }
 
     if (rowsToInsert.length > 0) {
-      const { error: insertError } = await service.from('pdv_rotacion_maestra').insert(rowsToInsert)
+      const { error: insertError } = await service
+        .from('pdv_rotacion_maestra')
+        .insert(rowsToInsert);
       if (insertError) {
         return buildRotationImportState({
           message: insertError.message ?? 'No fue posible importar la nueva rotacion maestra.',
           conflicts,
           summary,
-        })
+        });
       }
     }
 
@@ -2845,98 +3064,104 @@ export async function importarRotacionMaestraPdvs(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId,
-    })
-    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
+    });
+    await publishAsignacionesUiChanges(
+      actor,
+      createServiceClient() as TypedSupabaseClient,
+      'asignaciones_actualizadas'
+    );
 
     return buildRotationImportState({
       ok: true,
       message: `Rotacion maestra importada con ${rowsToInsert.length} fila(s) vigentes.`,
       conflicts,
       summary,
-    })
+    });
   } catch (error) {
     return buildRotationImportState({
       message:
-        error instanceof Error
-          ? error.message
-          : 'No fue posible importar la rotacion maestra.',
-    })
+        error instanceof Error ? error.message : 'No fue posible importar la rotacion maestra.',
+    });
   }
 }
 export async function importarHorariosSanPabloSemanales(
   _prevState: ImportarCatalogoAsignacionesState,
   formData: FormData
 ): Promise<ImportarCatalogoAsignacionesState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
   try {
-    const uploadedFile = formData.get('horarios_san_pablo_file')
+    const uploadedFile = formData.get('horarios_san_pablo_file');
 
     if (!(uploadedFile instanceof File) || uploadedFile.size === 0) {
-      return buildImportState({ message: 'Adjunta un archivo XLSX para importar los horarios semanales.' })
+      return buildImportState({
+        message: 'Adjunta un archivo XLSX para importar los horarios semanales.',
+      });
     }
 
     if (!uploadedFile.name.toLowerCase().endsWith('.xlsx')) {
-      return buildImportState({ message: 'Los horarios semanales deben estar en formato XLSX.' })
+      return buildImportState({ message: 'Los horarios semanales deben estar en formato XLSX.' });
     }
 
-    const buffer = Buffer.from(await uploadedFile.arrayBuffer())
-    const parsed = parseAssignmentWeeklyScheduleWorkbook(buffer)
-    const service = createServiceClient() as TypedSupabaseClient
+    const buffer = Buffer.from(await uploadedFile.arrayBuffer());
+    const parsed = parseAssignmentWeeklyScheduleWorkbook(buffer);
+    const service = createServiceClient() as TypedSupabaseClient;
 
-    const pdvClaves = Array.from(new Set(parsed.rows.map((item) => item.claveBtl)))
+    const pdvClaves = Array.from(new Set(parsed.rows.map((item) => item.claveBtl)));
     const [pdvsResult, turnCatalogResult] = await Promise.all([
       service
         .from('pdv')
         .select('id, clave_btl, cadena:cadena_id(codigo, nombre)')
         .in('clave_btl', pdvClaves),
       service.from('configuracion').select('valor').eq('clave', TURNOS_CONFIG_KEY).maybeSingle(),
-    ])
+    ]);
 
-    const infraError = pdvsResult.error?.message ?? turnCatalogResult.error?.message
+    const infraError = pdvsResult.error?.message ?? turnCatalogResult.error?.message;
     if (infraError) {
-      return buildImportState({ message: infraError })
+      return buildImportState({ message: infraError });
     }
 
     const pdvs = (pdvsResult.data ?? []) as Array<{
-      id: string
-      clave_btl: string
-      cadena: Array<{ codigo: string | null; nombre: string | null }> | null
-    }>
-    const pdvByClave = new Map(pdvs.map((item) => [item.clave_btl, item]))
-    const turnCatalog = parseTurnosCatalogo((turnCatalogResult.data as { valor: unknown } | null)?.valor)
-    const turnByCode = new Map(turnCatalog.map((item) => [item.nomenclatura, item]))
+      id: string;
+      clave_btl: string;
+      cadena: Array<{ codigo: string | null; nombre: string | null }> | null;
+    }>;
+    const pdvByClave = new Map(pdvs.map((item) => [item.clave_btl, item]));
+    const turnCatalog = parseTurnosCatalogo(
+      (turnCatalogResult.data as { valor: unknown } | null)?.valor
+    );
+    const turnByCode = new Map(turnCatalog.map((item) => [item.nomenclatura, item]));
 
-    let unresolvedPdvs = 0
-    let nonSanPabloPdvs = 0
-    let invalidTurns = 0
-    let skipped = parsed.skippedRows
-    const rowsToInsert: Array<Record<string, unknown>> = []
-    const affectedByPdv = new Map<string, Set<string>>()
+    let unresolvedPdvs = 0;
+    let nonSanPabloPdvs = 0;
+    let invalidTurns = 0;
+    let skipped = parsed.skippedRows;
+    const rowsToInsert: Array<Record<string, unknown>> = [];
+    const affectedByPdv = new Map<string, Set<string>>();
 
     for (const row of parsed.rows) {
-      const pdv = pdvByClave.get(row.claveBtl)
+      const pdv = pdvByClave.get(row.claveBtl);
       if (!pdv) {
-        unresolvedPdvs += 1
-        skipped += 1
-        continue
+        unresolvedPdvs += 1;
+        skipped += 1;
+        continue;
       }
 
-      const cadena = Array.isArray(pdv.cadena) ? pdv.cadena[0] ?? null : pdv.cadena ?? null
+      const cadena = Array.isArray(pdv.cadena) ? (pdv.cadena[0] ?? null) : (pdv.cadena ?? null);
       if (cadena?.codigo !== 'SAN_PABLO') {
-        nonSanPabloPdvs += 1
-        skipped += 1
-        continue
+        nonSanPabloPdvs += 1;
+        skipped += 1;
+        continue;
       }
 
-      const catalogTurn = row.codigoTurno ? turnByCode.get(row.codigoTurno) ?? null : null
-      const horaEntrada = normalizeTimeText(row.horaEntrada ?? catalogTurn?.horaEntrada ?? null)
-      const horaSalida = normalizeTimeText(row.horaSalida ?? catalogTurn?.horaSalida ?? null)
+      const catalogTurn = row.codigoTurno ? (turnByCode.get(row.codigoTurno) ?? null) : null;
+      const horaEntrada = normalizeTimeText(row.horaEntrada ?? catalogTurn?.horaEntrada ?? null);
+      const horaSalida = normalizeTimeText(row.horaSalida ?? catalogTurn?.horaSalida ?? null);
 
       if (!horaEntrada || !horaSalida) {
-        invalidTurns += 1
-        skipped += 1
-        continue
+        invalidTurns += 1;
+        skipped += 1;
+        continue;
       }
 
       rowsToInsert.push({
@@ -2949,45 +3174,58 @@ export async function importarHorariosSanPabloSemanales(
         hora_salida: horaSalida,
         activo: true,
         observaciones: row.observaciones,
-      })
+      });
 
-      const affectedDates = affectedByPdv.get(pdv.id) ?? new Set<string>()
-      affectedDates.add(row.fechaEspecifica)
-      affectedByPdv.set(pdv.id, affectedDates)
+      const affectedDates = affectedByPdv.get(pdv.id) ?? new Set<string>();
+      affectedDates.add(row.fechaEspecifica);
+      affectedByPdv.set(pdv.id, affectedDates);
     }
 
-    const affectedPdvIds = Array.from(affectedByPdv.keys())
+    const affectedPdvIds = Array.from(affectedByPdv.keys());
     if (affectedPdvIds.length > 0) {
       const { data: existingRows, error: existingError } = await service
         .from('horario_pdv')
         .select('id, pdv_id, fecha_especifica')
         .in('pdv_id', affectedPdvIds)
-        .eq('activo', true)
+        .eq('activo', true);
 
       if (existingError) {
-        return buildImportState({ message: existingError.message })
+        return buildImportState({ message: existingError.message });
       }
 
-      const idsToDeactivate = ((existingRows ?? []) as Array<{ id: string; pdv_id: string; fecha_especifica: string | null }>)
-        .filter((item) => item.fecha_especifica && affectedByPdv.get(item.pdv_id)?.has(item.fecha_especifica))
-        .map((item) => item.id)
+      const idsToDeactivate = (
+        (existingRows ?? []) as Array<{
+          id: string;
+          pdv_id: string;
+          fecha_especifica: string | null;
+        }>
+      )
+        .filter(
+          (item) =>
+            item.fecha_especifica && affectedByPdv.get(item.pdv_id)?.has(item.fecha_especifica)
+        )
+        .map((item) => item.id);
 
       for (const idsChunk of chunkArray(idsToDeactivate, 200)) {
         const { error } = await service
           .from('horario_pdv')
           .update({ activo: false, updated_at: new Date().toISOString() })
-          .in('id', idsChunk)
+          .in('id', idsChunk);
 
         if (error) {
-          return buildImportState({ message: error.message ?? 'No fue posible reemplazar horarios previos de la semana.' })
+          return buildImportState({
+            message: error.message ?? 'No fue posible reemplazar horarios previos de la semana.',
+          });
         }
       }
     }
 
     if (rowsToInsert.length > 0) {
-      const { error } = await service.from('horario_pdv').insert(rowsToInsert)
+      const { error } = await service.from('horario_pdv').insert(rowsToInsert);
       if (error) {
-        return buildImportState({ message: error.message ?? 'No fue posible importar los horarios semanales.' })
+        return buildImportState({
+          message: error.message ?? 'No fue posible importar los horarios semanales.',
+        });
       }
     }
 
@@ -3006,83 +3244,105 @@ export async function importarHorariosSanPabloSemanales(
       },
       usuarioId: actor.usuarioId,
       cuentaClienteId: actor.cuentaClienteId,
-    })
-    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
+    });
+    await publishAsignacionesUiChanges(
+      actor,
+      createServiceClient() as TypedSupabaseClient,
+      'asignaciones_actualizadas'
+    );
 
-    const detailMessage = unresolvedPdvs + nonSanPabloPdvs + invalidTurns > 0
-      ? ' Sin resolver -> PDVs: ' + unresolvedPdvs + ', fuera de San Pablo: ' + nonSanPabloPdvs + ', filas sin turno valido: ' + invalidTurns + '.'
-      : ''
+    const detailMessage =
+      unresolvedPdvs + nonSanPabloPdvs + invalidTurns > 0
+        ? ' Sin resolver -> PDVs: ' +
+          unresolvedPdvs +
+          ', fuera de San Pablo: ' +
+          nonSanPabloPdvs +
+          ', filas sin turno valido: ' +
+          invalidTurns +
+          '.'
+        : '';
 
     return buildImportState({
       ok: true,
-      message: 'Horarios San Pablo procesados. Nuevos: ' + rowsToInsert.length + '. Omitidos: ' + skipped + '.' + detailMessage,
-    })
+      message:
+        'Horarios San Pablo procesados. Nuevos: ' +
+        rowsToInsert.length +
+        '. Omitidos: ' +
+        skipped +
+        '.' +
+        detailMessage,
+    });
   } catch (error) {
     return buildImportState({
       message:
         error instanceof Error
           ? error.message
           : 'No fue posible importar los horarios semanales de San Pablo.',
-    })
+    });
   }
 }
 export async function actualizarEstadoPublicacionAsignacion(
   _prevState: ActualizarEstadoAsignacionState,
   formData: FormData
 ): Promise<ActualizarEstadoAsignacionState> {
-  const actor = await requerirAdministradorActivo()
+  const actor = await requerirAdministradorActivo();
 
-  const asignacionId = String(formData.get('asignacion_id') ?? '').trim()
-  const estadoDestino = String(formData.get('estado_destino') ?? '').trim()
+  const asignacionId = String(formData.get('asignacion_id') ?? '').trim();
+  const estadoDestino = String(formData.get('estado_destino') ?? '').trim();
 
   if (!asignacionId) {
-    return buildState({ message: 'La asignacion es obligatoria.' })
+    return buildState({ message: 'La asignacion es obligatoria.' });
   }
 
   if (estadoDestino !== 'BORRADOR' && estadoDestino !== 'PUBLICADA') {
-    return buildState({ message: 'El estado destino no es valido.' })
+    return buildState({ message: 'El estado destino no es valido.' });
   }
 
-  const confirmarAlertas = String(formData.get('confirmar_alertas') ?? '').trim() === 'true'
-  const supabase = await createClient()
+  const confirmarAlertas = String(formData.get('confirmar_alertas') ?? '').trim() === 'true';
+  const supabase = await createClient();
   const { data: asignacion, error: asignacionError } = await supabase
     .from('asignacion')
-    .select('id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, pdv_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion')
+    .select(
+      'id, cuenta_cliente_id, empleado_id, supervisor_empleado_id, pdv_id, tipo, factor_tiempo, dias_laborales, dia_descanso, horario_referencia, fecha_inicio, fecha_fin, naturaleza, retorna_a_base, asignacion_base_id, asignacion_origen_id, prioridad, motivo_movimiento, observaciones, generado_automaticamente, estado_publicacion'
+    )
     .eq('id', asignacionId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (asignacionError || !asignacion) {
     return buildState({
       message: asignacionError?.message ?? 'No fue posible encontrar la asignacion solicitada.',
-    })
+    });
   }
 
-  const asignacionActual = asignacion as AsignacionEstadoRow
+  const asignacionActual = asignacion as AsignacionEstadoRow;
 
   if (asignacionActual.estado_publicacion === estadoDestino) {
-    return buildState({ ok: true, message: 'La asignacion ya tiene ese estado.' })
+    return buildState({ ok: true, message: 'La asignacion ya tiene ese estado.' });
   }
 
-  let supervisorResueltoId = asignacionActual.supervisor_empleado_id
-  let issues: AssignmentIssue[] = []
+  let supervisorResueltoId = asignacionActual.supervisor_empleado_id;
+  let issues: AssignmentIssue[] = [];
   let enginePlan: AssignmentEngineTransitionPlan = {
     ignoredComparableIds: [] as string[],
     updates: [],
     continuationInsert: null,
-  }
+  };
 
   if (estadoDestino === 'PUBLICADA') {
     const contexto = await cargarContextoAsignacion(supabase, {
       asignacionId,
       empleadoId: asignacionActual.empleado_id,
       pdvId: asignacionActual.pdv_id,
-    })
+    });
 
     if (contexto.error) {
-      return buildState({ message: contexto.error })
+      return buildState({ message: contexto.error });
     }
 
-    const supervisorPdv = obtenerSupervisorVigente(contexto.supervisores, asignacionActual.fecha_inicio)
+    const supervisorPdv = obtenerSupervisorVigente(
+      contexto.supervisores,
+      asignacionActual.fecha_inicio
+    );
     const supervisorResuelto = resolveSupervisorInheritance(
       [
         {
@@ -3102,9 +3362,9 @@ export async function actualizarEstadoPublicacionAsignacion(
         },
       ],
       contexto.supervisorRule
-    )
+    );
 
-    supervisorResueltoId = supervisorResuelto.supervisorEmpleadoId
+    supervisorResueltoId = supervisorResuelto.supervisorEmpleadoId;
 
     enginePlan = buildAssignmentTransitionPlan(
       {
@@ -3129,7 +3389,7 @@ export async function actualizarEstadoPublicacionAsignacion(
         observaciones: asignacionActual.observaciones,
       } satisfies AssignmentEngineDraft,
       contexto.comparableRows as AssignmentEngineRow[]
-    )
+    );
 
     issues = evaluarReglasAsignacion(
       {
@@ -3139,7 +3399,9 @@ export async function actualizarEstadoPublicacionAsignacion(
       {
         employee: buildValidationEmployee(contexto.empleado),
         pdv: buildValidationPdv(contexto.pdv, contexto.geocerca),
-        pdvsConGeocerca: contexto.geocerca ? new Set<string>([asignacionActual.pdv_id]) : new Set<string>(),
+        pdvsConGeocerca: contexto.geocerca
+          ? new Set<string>([asignacionActual.pdv_id])
+          : new Set<string>(),
         supervisoresPorPdv: { [asignacionActual.pdv_id]: contexto.supervisores },
         comparableAssignments: contexto.comparables.filter(
           (item) => !enginePlan.ignoredComparableIds.includes(item.id)
@@ -3147,22 +3409,22 @@ export async function actualizarEstadoPublicacionAsignacion(
         historicalAssignmentsForPdv: contexto.historialPdv,
         horariosPorPdv: { [asignacionActual.pdv_id]: contexto.horariosCount },
       }
-    )
+    );
 
-    const resumen = resumirIssuesAsignacion(issues)
+    const resumen = resumirIssuesAsignacion(issues);
 
     if (resumen.errores.length > 0) {
       return buildState({
         message: `No se puede publicar: ${resumen.errores.map((item) => item.label).join(', ')}.`,
         issues,
-      })
+      });
     }
 
     if (requiereConfirmacionAlertas(issues) && !confirmarAlertas) {
       return buildState({
         message: `Confirma la publicacion con alertas: ${resumen.alertas.map((item) => item.label).join(', ')}.`,
         issues,
-      })
+      });
     }
   }
 
@@ -3173,10 +3435,10 @@ export async function actualizarEstadoPublicacionAsignacion(
       supervisor_empleado_id: supervisorResueltoId,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', asignacionId)
+    .eq('id', asignacionId);
 
   if (updateError) {
-    return buildState({ message: updateError.message })
+    return buildState({ message: updateError.message });
   }
 
   if (estadoDestino === 'PUBLICADA') {
@@ -3187,10 +3449,10 @@ export async function actualizarEstadoPublicacionAsignacion(
           ...update.patch,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', update.id)
+        .eq('id', update.id);
 
       if (error) {
-        return buildState({ message: error.message })
+        return buildState({ message: error.message });
       }
     }
 
@@ -3199,10 +3461,10 @@ export async function actualizarEstadoPublicacionAsignacion(
         ...enginePlan.continuationInsert,
         supervisor_empleado_id: enginePlan.continuationInsert.supervisor_empleado_id,
         updated_at: new Date().toISOString(),
-      })
+      });
 
       if (error) {
-        return buildState({ message: error.message })
+        return buildState({ message: error.message });
       }
     }
   }
@@ -3212,9 +3474,7 @@ export async function actualizarEstadoPublicacionAsignacion(
     registroId: asignacionId,
     payload: {
       evento:
-        estadoDestino === 'PUBLICADA'
-          ? 'asignacion_publicada'
-          : 'asignacion_regresada_borrador',
+        estadoDestino === 'PUBLICADA' ? 'asignacion_publicada' : 'asignacion_regresada_borrador',
       estado_destino: estadoDestino,
       engine_updates: enginePlan.updates.map((item) => ({ id: item.id, patch: item.patch })),
       retorno_generado: Boolean(enginePlan.continuationInsert),
@@ -3222,24 +3482,53 @@ export async function actualizarEstadoPublicacionAsignacion(
     },
     usuarioId: actor.usuarioId,
     cuentaClienteId: asignacionActual.cuenta_cliente_id,
-  })
+  });
 
   await refreshMaterializedAssignmentRanges([
     {
       empleadoId: asignacionActual.empleado_id,
       fechaInicio: asignacionActual.fecha_inicio,
       fechaFin: asignacionActual.fecha_fin,
-      motivo: estadoDestino === 'PUBLICADA' ? 'ASIGNACION_PUBLICADA' : 'ASIGNACION_REGRESADA_BORRADOR',
+      motivo:
+        estadoDestino === 'PUBLICADA' ? 'ASIGNACION_PUBLICADA' : 'ASIGNACION_REGRESADA_BORRADOR',
       payload: {
         asignacion_id: asignacionId,
         estado_destino: estadoDestino,
       },
     },
-  ])
-    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
+  ]);
+  const serviceClient = createServiceClient() as TypedSupabaseClient;
 
-  const resumen = resumirIssuesAsignacion(issues)
-  const nonBlockingCount = resumen.alertas.length + resumen.avisos.length
+  if (estadoDestino === 'PUBLICADA') {
+    await serviceClient
+      .from('vacante_operativa_futura')
+      .update({
+        estado_seguimiento: 'CUBIERTA',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('pdv_id', asignacionActual.pdv_id)
+      .in('estado_seguimiento', ['NUEVA', 'EN_BUSQUEDA', 'ASIGNADA_PARCIAL']);
+
+    await serviceClient
+      .from('pdv_cobertura_operativa')
+      .update({
+        estado_operativo: 'CUBIERTO',
+        motivo_operativo: null,
+        observaciones: `CUBIERTO_POR_ASIGNACION ${asignacionActual.fecha_inicio}`,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('pdv_id', asignacionActual.pdv_id)
+      .eq('estado_operativo', 'VACANTE');
+  }
+
+  await publishAsignacionesUiChanges(
+    actor,
+    serviceClient,
+    'asignaciones_actualizadas'
+  );
+
+  const resumen = resumirIssuesAsignacion(issues);
+  const nonBlockingCount = resumen.alertas.length + resumen.avisos.length;
 
   return buildState({
     ok: true,
@@ -3250,7 +3539,7 @@ export async function actualizarEstadoPublicacionAsignacion(
           : 'Asignacion publicada correctamente.'
         : 'Asignacion regresada a borrador.',
     issues,
-  })
+  });
 }
 
 export async function limpiarBorradorAsignacion(
@@ -3258,37 +3547,43 @@ export async function limpiarBorradorAsignacion(
   formData: FormData
 ): Promise<ActualizarEstadoAsignacionState> {
   try {
-    const actor = await requerirAdministradorActivo()
-    const asignacionId = String(formData.get('asignacion_id') ?? '').trim()
+    const actor = await requerirAdministradorActivo();
+    const asignacionId = String(formData.get('asignacion_id') ?? '').trim();
 
     if (!asignacionId) {
-      return buildState({ message: 'La asignacion es obligatoria.' })
+      return buildState({ message: 'La asignacion es obligatoria.' });
     }
 
-    const supabase = await createClient()
-    const service = createServiceClient() as TypedSupabaseClient
+    const supabase = await createClient();
+    const service = createServiceClient() as TypedSupabaseClient;
     const { data: asignacion, error: asignacionError } = await supabase
       .from('asignacion')
-      .select('id, cuenta_cliente_id, empleado_id, pdv_id, fecha_inicio, fecha_fin, estado_publicacion, naturaleza, tipo')
+      .select(
+        'id, cuenta_cliente_id, empleado_id, pdv_id, fecha_inicio, fecha_fin, estado_publicacion, naturaleza, tipo'
+      )
       .eq('id', asignacionId)
-      .maybeSingle()
+      .maybeSingle();
 
     if (asignacionError || !asignacion) {
       return buildState({
         message: asignacionError?.message ?? 'No fue posible encontrar la asignacion solicitada.',
-      })
+      });
     }
 
-    if (actor.cuentaClienteId && asignacion.cuenta_cliente_id && actor.cuentaClienteId !== asignacion.cuenta_cliente_id) {
+    if (
+      actor.cuentaClienteId &&
+      asignacion.cuenta_cliente_id &&
+      actor.cuentaClienteId !== asignacion.cuenta_cliente_id
+    ) {
       return buildState({
         message: 'La asignacion no pertenece a la cuenta cliente activa del administrador.',
-      })
+      });
     }
 
     if (asignacion.estado_publicacion !== 'BORRADOR') {
       return buildState({
         message: 'Solo se pueden limpiar asignaciones que sigan en borrador.',
-      })
+      });
     }
 
     const { data: deletedRows, error: deleteError } = await service
@@ -3296,21 +3591,22 @@ export async function limpiarBorradorAsignacion(
       .delete()
       .eq('id', asignacionId)
       .eq('estado_publicacion', 'BORRADOR')
-      .select('id')
+      .select('id');
 
     if (deleteError) {
       return buildState({
         message: deleteError.message ?? 'No fue posible limpiar el borrador de asignacion.',
-      })
+      });
     }
 
     if (!deletedRows || deletedRows.length === 0) {
       return buildState({
-        message: 'No se elimino el borrador. Revisa permisos o si la asignacion ya cambio de estado.',
-      })
+        message:
+          'No se elimino el borrador. Revisa permisos o si la asignacion ya cambio de estado.',
+      });
     }
 
-    let auditWarning: string | null = null
+    let auditWarning: string | null = null;
     try {
       await registrarEventoAudit(service, {
         tabla: 'asignacion',
@@ -3324,35 +3620,46 @@ export async function limpiarBorradorAsignacion(
         },
         usuarioId: actor.usuarioId,
         cuentaClienteId: asignacion.cuenta_cliente_id,
-      })
+      });
     } catch (error) {
-      auditWarning = error instanceof Error ? error.message : 'La trazabilidad del borrado quedo pendiente.'
+      auditWarning =
+        error instanceof Error ? error.message : 'La trazabilidad del borrado quedo pendiente.';
     }
 
-    let remainingDrafts = 0
-    const scopeCuentaClienteId = actor.cuentaClienteId ?? asignacion.cuenta_cliente_id ?? getSingleTenantAccountId()
+    let remainingDrafts = 0;
+    const scopeCuentaClienteId =
+      actor.cuentaClienteId ?? asignacion.cuenta_cliente_id ?? getSingleTenantAccountId();
     if (scopeCuentaClienteId) {
       const { count: remainingCount } = await service
         .from('asignacion')
         .select('id', { count: 'exact', head: true })
         .eq('cuenta_cliente_id', scopeCuentaClienteId)
-        .eq('estado_publicacion', 'BORRADOR')
-      remainingDrafts = remainingCount ?? 0
+        .eq('estado_publicacion', 'BORRADOR');
+      remainingDrafts = remainingCount ?? 0;
     }
-    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
+    await publishAsignacionesUiChanges(
+      actor,
+      createServiceClient() as TypedSupabaseClient,
+      'asignaciones_actualizadas'
+    );
 
     return buildState({
       ok: true,
-      redirectTo: remainingDrafts > 0 ? '/asignaciones/asignaciones?estado=BORRADOR' : '/asignaciones/asignaciones?estado=PUBLICADA',
-      message: auditWarning ? `Borrador limpiado. La trazabilidad quedo pendiente: ${auditWarning}` : 'Borrador limpiado.',
-    })
+      redirectTo:
+        remainingDrafts > 0
+          ? '/asignaciones/asignaciones?estado=BORRADOR'
+          : '/asignaciones/asignaciones?estado=PUBLICADA',
+      message: auditWarning
+        ? `Borrador limpiado. La trazabilidad quedo pendiente: ${auditWarning}`
+        : 'Borrador limpiado.',
+    });
   } catch (error) {
     return buildState({
       message:
         error instanceof Error
           ? error.message
           : 'No fue posible limpiar el borrador de asignacion.',
-    })
+    });
   }
 }
 
@@ -3361,29 +3668,29 @@ export async function limpiarTodosLosBorradoresAsignaciones(
   _formData: FormData
 ): Promise<ActualizarEstadoAsignacionState> {
   try {
-    const actor = await requerirAdministradorActivo()
-    const cuentaClienteId = actor.cuentaClienteId ?? getSingleTenantAccountId()
-    const service = createServiceClient() as TypedSupabaseClient
+    const actor = await requerirAdministradorActivo();
+    const cuentaClienteId = actor.cuentaClienteId ?? getSingleTenantAccountId();
+    const service = createServiceClient() as TypedSupabaseClient;
 
     const { count, error: countError } = await service
       .from('asignacion')
       .select('id', { count: 'exact', head: true })
       .eq('cuenta_cliente_id', cuentaClienteId)
-      .eq('estado_publicacion', 'BORRADOR')
+      .eq('estado_publicacion', 'BORRADOR');
 
     if (countError) {
       return buildState({
         message: countError.message ?? 'No fue posible contar los borradores de asignacion.',
-      })
+      });
     }
 
-    const total = count ?? 0
+    const total = count ?? 0;
     if (total === 0) {
       return buildState({
         ok: true,
         redirectTo: '/asignaciones/asignaciones?estado=PUBLICADA',
         message: 'No hay borradores para limpiar en la cuenta activa.',
-      })
+      });
     }
 
     const { data: deletedRows, error: deleteError } = await service
@@ -3391,26 +3698,27 @@ export async function limpiarTodosLosBorradoresAsignaciones(
       .delete()
       .eq('cuenta_cliente_id', cuentaClienteId)
       .eq('estado_publicacion', 'BORRADOR')
-      .select('id, cuenta_cliente_id')
+      .select('id, cuenta_cliente_id');
 
     if (deleteError) {
       return buildState({
         message: deleteError.message ?? 'No fue posible limpiar los borradores de asignacion.',
-      })
+      });
     }
 
     const deleted = (deletedRows ?? []) as Array<{
-      id: string
-      cuenta_cliente_id: string | null
-    }>
+      id: string;
+      cuenta_cliente_id: string | null;
+    }>;
 
     if (deleted.length === 0) {
       return buildState({
-        message: 'No se eliminaron borradores. Falta permiso de borrado o ya no existen en la cuenta activa.',
-      })
+        message:
+          'No se eliminaron borradores. Falta permiso de borrado o ya no existen en la cuenta activa.',
+      });
     }
 
-    let auditWarning: string | null = null
+    let auditWarning: string | null = null;
     try {
       await registrarEventoAudit(service, {
         tabla: 'asignacion',
@@ -3422,11 +3730,16 @@ export async function limpiarTodosLosBorradoresAsignaciones(
         },
         usuarioId: actor.usuarioId,
         cuentaClienteId,
-      })
+      });
     } catch (error) {
-      auditWarning = error instanceof Error ? error.message : 'La trazabilidad del borrado quedo pendiente.'
+      auditWarning =
+        error instanceof Error ? error.message : 'La trazabilidad del borrado quedo pendiente.';
     }
-    await publishAsignacionesUiChanges(actor, createServiceClient() as TypedSupabaseClient, 'asignaciones_actualizadas')
+    await publishAsignacionesUiChanges(
+      actor,
+      createServiceClient() as TypedSupabaseClient,
+      'asignaciones_actualizadas'
+    );
 
     return buildState({
       ok: true,
@@ -3434,21 +3747,23 @@ export async function limpiarTodosLosBorradoresAsignaciones(
       message: auditWarning
         ? `Se limpiaron ${deleted.length} borrador(es) de asignacion. La trazabilidad quedo pendiente: ${auditWarning}`
         : `Se limpiaron ${deleted.length} borrador(es) de asignacion.`,
-    })
+    });
   } catch (error) {
     return buildState({
       message:
         error instanceof Error
           ? error.message
           : 'No fue posible limpiar los borradores de asignacion.',
-    })
+    });
   }
 }
 
 function normalizeVacanteSeguimiento(
   value: FormDataEntryValue | null
 ): VacanteOperativaFuturaSeguimiento | null {
-  const normalized = String(value ?? '').trim().toUpperCase()
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase();
   if (
     normalized === 'NUEVA' ||
     normalized === 'EN_REVISION' ||
@@ -3456,43 +3771,43 @@ function normalizeVacanteSeguimiento(
     normalized === 'RESUELTA' ||
     normalized === 'DESCARTADA'
   ) {
-    return normalized
+    return normalized;
   }
 
-  return null
+  return null;
 }
 
 export async function actualizarEstadoVacanteOperativaFutura(
   _prevState: ActualizarVacanteOperativaFuturaState,
   formData: FormData
 ): Promise<ActualizarVacanteOperativaFuturaState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR'])
-  const service = createServiceClient() as TypedSupabaseClient
-  const vacanteId = String(formData.get('vacante_id') ?? '').trim()
-  const estadoSeguimiento = normalizeVacanteSeguimiento(formData.get('estado_seguimiento'))
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR']);
+  const service = createServiceClient() as TypedSupabaseClient;
+  const vacanteId = String(formData.get('vacante_id') ?? '').trim();
+  const estadoSeguimiento = normalizeVacanteSeguimiento(formData.get('estado_seguimiento'));
 
   if (!vacanteId) {
     return buildVacanteOperativaState({
       message: 'Selecciona una vacante operativa valida.',
-    })
+    });
   }
 
   if (!estadoSeguimiento) {
     return buildVacanteOperativaState({
       message: 'Selecciona un estado de seguimiento valido.',
-    })
+    });
   }
 
   const { data: currentVacancy, error: fetchError } = await service
     .from('vacante_operativa_futura')
     .select('id, cuenta_cliente_id, estado_seguimiento, metadata')
     .eq('id', vacanteId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (fetchError || !currentVacancy) {
     return buildVacanteOperativaState({
       message: fetchError?.message ?? 'La vacante operativa ya no existe.',
-    })
+    });
   }
 
   if (
@@ -3502,7 +3817,7 @@ export async function actualizarEstadoVacanteOperativaFutura(
   ) {
     return buildVacanteOperativaState({
       message: 'No tienes acceso a esta vacante operativa.',
-    })
+    });
   }
 
   const metadata =
@@ -3510,9 +3825,9 @@ export async function actualizarEstadoVacanteOperativaFutura(
     typeof currentVacancy.metadata === 'object' &&
     !Array.isArray(currentVacancy.metadata)
       ? (currentVacancy.metadata as Record<string, unknown>)
-      : {}
-  const previousState = currentVacancy.estado_seguimiento as VacanteOperativaFuturaSeguimiento
-  const now = new Date().toISOString()
+      : {};
+  const previousState = currentVacancy.estado_seguimiento as VacanteOperativaFuturaSeguimiento;
+  const now = new Date().toISOString();
 
   const { error: updateError } = await service
     .from('vacante_operativa_futura')
@@ -3530,12 +3845,12 @@ export async function actualizarEstadoVacanteOperativaFutura(
       },
       updated_at: now,
     })
-    .eq('id', vacanteId)
+    .eq('id', vacanteId);
 
   if (updateError) {
     return buildVacanteOperativaState({
       message: updateError.message ?? 'No fue posible actualizar el seguimiento de la vacante.',
-    })
+    });
   }
 
   await publishUiChanges(
@@ -3545,7 +3860,10 @@ export async function actualizarEstadoVacanteOperativaFutura(
       surfaces: ['panel', 'tabla', 'insights', 'all'],
       scopes: [
         buildUiChangeScope('global'),
-        buildUiChangeScope('cuenta', actor.cuentaClienteId ?? currentVacancy.cuenta_cliente_id ?? null),
+        buildUiChangeScope(
+          'cuenta',
+          actor.cuentaClienteId ?? currentVacancy.cuenta_cliente_id ?? null
+        ),
         buildUiChangeScope('empleado', actor.empleadoId),
       ],
       cuentaClienteId: actor.cuentaClienteId ?? currentVacancy.cuenta_cliente_id ?? null,
@@ -3558,13 +3876,10 @@ export async function actualizarEstadoVacanteOperativaFutura(
       },
     }),
     { service }
-  )
+  );
 
   return buildVacanteOperativaState({
     ok: true,
     message: `Seguimiento actualizado a ${estadoSeguimiento}.`,
-  })
+  });
 }
-
-
-

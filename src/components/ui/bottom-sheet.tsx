@@ -1,26 +1,26 @@
-'use client'
+'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { X } from '@phosphor-icons/react'
-import { lockBodyScroll } from '@/lib/ui/bodyScrollLock'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { X } from '@phosphor-icons/react';
+import { lockBodyScroll } from '@/lib/ui/bodyScrollLock';
 
-type BottomSheetSnap = 'partial' | 'expanded'
+type BottomSheetSnap = 'partial' | 'expanded';
 
 interface BottomSheetProps {
-  open: boolean
-  onClose: () => void
-  title: string
-  description?: string
-  initialSnap?: BottomSheetSnap
-  footer?: ReactNode
-  showBackButton?: boolean
-  children: ReactNode
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description?: string;
+  initialSnap?: BottomSheetSnap;
+  footer?: ReactNode;
+  showBackButton?: boolean;
+  children: ReactNode;
 }
 
 const SHEET_HEIGHTS: Record<BottomSheetSnap, string> = {
   partial: '50vh',
   expanded: '95vh',
-}
+};
 
 export function BottomSheet({
   open,
@@ -32,85 +32,85 @@ export function BottomSheet({
   showBackButton = true,
   children,
 }: BottomSheetProps) {
-  const [mounted, setMounted] = useState(open)
-  const [snap, setSnap] = useState<BottomSheetSnap>(initialSnap)
-  const [dragOffset, setDragOffset] = useState(0)
-  const dragStartRef = useRef<number | null>(null)
+  const [mounted, setMounted] = useState(open);
+  const [snap, setSnap] = useState<BottomSheetSnap>(initialSnap);
+  const [dragOffset, setDragOffset] = useState(0);
+  const dragStartRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (open) {
-      setMounted(true)
-      setSnap(initialSnap)
-      setDragOffset(0)
-      return lockBodyScroll()
+      setMounted(true);
+      setSnap(initialSnap);
+      setDragOffset(0);
+      return lockBodyScroll();
     }
     const timeout = window.setTimeout(() => {
-      setMounted(false)
-      setDragOffset(0)
-    }, 220)
+      setMounted(false);
+      setDragOffset(0);
+    }, 220);
 
-    return () => window.clearTimeout(timeout)
-  }, [initialSnap, open])
+    return () => window.clearTimeout(timeout);
+  }, [initialSnap, open]);
 
   useEffect(() => {
     if (!open) {
-      return
+      return;
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
+        event.preventDefault();
+        onClose();
       }
-    }
+    };
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, open])
-  const panelHeight = useMemo(() => SHEET_HEIGHTS[snap], [snap])
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, open]);
+  const panelHeight = useMemo(() => SHEET_HEIGHTS[snap], [snap]);
 
   const beginDrag = (clientY: number) => {
-    dragStartRef.current = clientY
-  }
+    dragStartRef.current = clientY;
+  };
 
   const updateDrag = (clientY: number) => {
     if (dragStartRef.current === null) {
-      return
+      return;
     }
 
-    const delta = clientY - dragStartRef.current
-    setDragOffset(delta > 0 ? delta : delta * 0.35)
-  }
+    const delta = clientY - dragStartRef.current;
+    setDragOffset(delta > 0 ? delta : delta * 0.35);
+  };
 
   const endDrag = () => {
     if (dragStartRef.current === null) {
-      return
+      return;
     }
 
-    const delta = dragOffset
-    dragStartRef.current = null
+    const delta = dragOffset;
+    dragStartRef.current = null;
 
     if (delta > 96) {
-      setDragOffset(0)
-      onClose()
-      return
+      setDragOffset(0);
+      onClose();
+      return;
     }
 
     if (delta < -80) {
-      setSnap('expanded')
-      setDragOffset(0)
-      return
+      setSnap('expanded');
+      setDragOffset(0);
+      return;
     }
 
     if (delta > 40) {
-      setSnap('partial')
+      setSnap('partial');
     }
 
-    setDragOffset(0)
-  }
+    setDragOffset(0);
+  };
 
   if (!mounted) {
-    return null
+    return null;
   }
 
   return (
@@ -175,9 +175,7 @@ export function BottomSheet({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-6 pt-4 sm:px-5">
-          {children}
-        </div>
+        <div className="flex-1 overflow-y-auto px-4 pb-6 pt-4 sm:px-5">{children}</div>
 
         {footer && (
           <div className="sticky bottom-0 border-t border-slate-200/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-4 backdrop-blur sm:px-5">
@@ -186,5 +184,5 @@ export function BottomSheet({
         )}
       </section>
     </div>
-  )
+  );
 }

@@ -1,16 +1,16 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   getActiveBodyScrollLocks,
   lockBodyScroll,
   resetBodyScrollLocksForTest,
-} from '@/lib/ui/bodyScrollLock'
+} from '@/lib/ui/bodyScrollLock';
 
 type MockBody = {
   style: {
-    overflow: string
-  }
-  dataset: Record<string, string | undefined>
-}
+    overflow: string;
+  };
+  dataset: Record<string, string | undefined>;
+};
 
 function installMockDocument(initialOverflow = '') {
   const body: MockBody = {
@@ -18,53 +18,53 @@ function installMockDocument(initialOverflow = '') {
       overflow: initialOverflow,
     },
     dataset: {},
-  }
+  };
 
   Object.defineProperty(globalThis, 'document', {
     configurable: true,
     value: { body },
-  })
+  });
 
-  return body
+  return body;
 }
 
 afterEach(() => {
-  resetBodyScrollLocksForTest()
-  Reflect.deleteProperty(globalThis, 'document')
-})
+  resetBodyScrollLocksForTest();
+  Reflect.deleteProperty(globalThis, 'document');
+});
 
 describe('bodyScrollLock', () => {
   it('bloquea el scroll del body y lo restaura al liberar el ultimo lock', () => {
-    const body = installMockDocument('auto')
+    const body = installMockDocument('auto');
 
-    const unlock = lockBodyScroll()
+    const unlock = lockBodyScroll();
 
-    expect(body.style.overflow).toBe('hidden')
-    expect(body.dataset.scrollLock).toBe('true')
+    expect(body.style.overflow).toBe('hidden');
+    expect(body.dataset.scrollLock).toBe('true');
 
-    unlock()
+    unlock();
 
-    expect(body.style.overflow).toBe('auto')
-    expect(body.dataset.scrollLock).toBeUndefined()
-  })
+    expect(body.style.overflow).toBe('auto');
+    expect(body.dataset.scrollLock).toBeUndefined();
+  });
 
   it('mantiene el scroll bloqueado mientras existan overlays apilados', () => {
-    const body = installMockDocument('')
+    const body = installMockDocument('');
 
-    const unlockFirst = lockBodyScroll()
-    const unlockSecond = lockBodyScroll()
+    const unlockFirst = lockBodyScroll();
+    const unlockSecond = lockBodyScroll();
 
-    expect(getActiveBodyScrollLocks()).toBe(2)
-    expect(body.style.overflow).toBe('hidden')
+    expect(getActiveBodyScrollLocks()).toBe(2);
+    expect(body.style.overflow).toBe('hidden');
 
-    unlockFirst()
+    unlockFirst();
 
-    expect(getActiveBodyScrollLocks()).toBe(1)
-    expect(body.style.overflow).toBe('hidden')
+    expect(getActiveBodyScrollLocks()).toBe(1);
+    expect(body.style.overflow).toBe('hidden');
 
-    unlockSecond()
+    unlockSecond();
 
-    expect(getActiveBodyScrollLocks()).toBe(0)
-    expect(body.style.overflow).toBe('')
-  })
-})
+    expect(getActiveBodyScrollLocks()).toBe(0);
+    expect(body.style.overflow).toBe('');
+  });
+});

@@ -5,6 +5,7 @@ Sistemas de diseño y patrones visuales listos para usar en proyectos SaaS Facto
 ## Estructura
 
 Cada sistema tiene su propia carpeta con:
+
 ```
 design-systems/
 ├── README.md
@@ -16,13 +17,13 @@ design-systems/
 
 ## Sistemas Disponibles
 
-| Sistema | Descripción | Estado |
-|---------|-------------|--------|
-| [Liquid Glass](./liquid-glass/) | Vidrio líquido con blur y animaciones fluidas | ✅ Completo |
-| [Neumorphism](./neumorphism/) | Soft UI con sombras duales (raised/inset) | ✅ Completo |
-| [Neobrutalism](./neobrutalism/) | Bordes duros, sombras sólidas, colores vibrantes | ✅ Completo |
-| [Bento Grid](./bento-grid/) | Layout modular estilo Apple/bento box | ✅ Completo |
-| [Gradient Mesh](./gradient-mesh/) | Fondos fluidos estilo Stripe/Linear/Vercel | ✅ Completo |
+| Sistema                           | Descripción                                      | Estado      |
+| --------------------------------- | ------------------------------------------------ | ----------- |
+| [Liquid Glass](./liquid-glass/)   | Vidrio líquido con blur y animaciones fluidas    | ✅ Completo |
+| [Neumorphism](./neumorphism/)     | Soft UI con sombras duales (raised/inset)        | ✅ Completo |
+| [Neobrutalism](./neobrutalism/)   | Bordes duros, sombras sólidas, colores vibrantes | ✅ Completo |
+| [Bento Grid](./bento-grid/)       | Layout modular estilo Apple/bento box            | ✅ Completo |
+| [Gradient Mesh](./gradient-mesh/) | Fondos fluidos estilo Stripe/Linear/Vercel       | ✅ Completo |
 
 ## Cómo Usar
 
@@ -38,4 +39,4 @@ Crea un dashboard usando el design system neumorphism
 
 ---
 
-*Parte del SaaS Factory V2 Design System.*
+_Parte del SaaS Factory V2 Design System._

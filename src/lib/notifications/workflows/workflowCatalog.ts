@@ -1,31 +1,31 @@
-import { readAppUrl } from '@/lib/runtime/env'
+import { readAppUrl } from '@/lib/runtime/env';
 
-const getAppUrl = () => readAppUrl()
+const getAppUrl = () => readAppUrl();
 
 export interface WorkflowNotificationEnvelope {
-  workflow: string
-  title: string
-  body: string
-  ctaLabel?: string
-  ctaUrl?: string | null
-  pushTitle?: string
-  pushBody?: string
-  pushPath?: string
-  pushTag?: string
-  data?: Record<string, unknown>
+  workflow: string;
+  title: string;
+  body: string;
+  ctaLabel?: string;
+  ctaUrl?: string | null;
+  pushTitle?: string;
+  pushBody?: string;
+  pushPath?: string;
+  pushTag?: string;
+  data?: Record<string, unknown>;
 }
 
 function routeWeeklyEnvelope(params: {
-  workflow: string
-  title: string
-  body: string
-  ctaLabel: string
-  ctaUrl: string
-  pushTitle?: string
-  pushBody?: string
-  pushPath?: string
-  pushTag: string
-  data?: Record<string, unknown>
+  workflow: string;
+  title: string;
+  body: string;
+  ctaLabel: string;
+  ctaUrl: string;
+  pushTitle?: string;
+  pushBody?: string;
+  pushPath?: string;
+  pushTag: string;
+  data?: Record<string, unknown>;
 }): WorkflowNotificationEnvelope {
   return {
     workflow: params.workflow,
@@ -38,12 +38,12 @@ function routeWeeklyEnvelope(params: {
     pushPath: params.pushPath ?? new URL(params.ctaUrl).pathname + new URL(params.ctaUrl).search,
     pushTag: params.pushTag,
     data: params.data,
-  }
+  };
 }
 
 export function buildNuevoCandidatoCoordinacionNotification(params: {
-  empleadoId: string
-  nombreCompleto: string
+  empleadoId: string;
+  nombreCompleto: string;
 }): WorkflowNotificationEnvelope {
   return {
     workflow: 'empleados_nuevo_candidato_coordinacion',
@@ -59,16 +59,16 @@ export function buildNuevoCandidatoCoordinacionNotification(params: {
       empleadoId: params.empleadoId,
       etapa: 'NUEVOS',
     },
-  }
+  };
 }
 
 export function buildRutaSemanalEnviadaNotification(params: {
-  supervisorNombre: string
-  supervisorId: string
-  semana: string
-  cuentaClienteId: string | null
-  totalTiendas: number
-  totalDias: number
+  supervisorNombre: string;
+  supervisorId: string;
+  semana: string;
+  cuentaClienteId: string | null;
+  totalTiendas: number;
+  totalDias: number;
 }): WorkflowNotificationEnvelope {
   return routeWeeklyEnvelope({
     workflow: 'ruta_enviada_coordinacion',
@@ -85,13 +85,45 @@ export function buildRutaSemanalEnviadaNotification(params: {
       totalTiendas: params.totalTiendas,
       totalDias: params.totalDias,
     },
-  })
+  });
+}
+
+export function buildRutaMensualEnviadaNotification(params: {
+  supervisorNombre: string;
+  supervisorId: string;
+  month: string;
+  cuentaClienteId: string | null;
+  totalVisitas: number;
+  totalDias: number;
+}): WorkflowNotificationEnvelope {
+  const monthLabel = new Intl.DateTimeFormat('es-MX', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${params.month}-01T12:00:00.000Z`));
+
+  return routeWeeklyEnvelope({
+    workflow: 'ruta_mensual_enviada_coordinacion',
+    title: `Nueva ruta mensual de ${params.supervisorNombre} — ${monthLabel}`,
+    body: `${params.supervisorNombre} envió la ruta completa de ${monthLabel}. Incluye ${params.totalVisitas} visitas distribuidas en ${params.totalDias} días.`,
+    ctaLabel: 'Revisar calendario mensual',
+    ctaUrl: `${getAppUrl()}/ruta-semanal?tab=routes&supervisor=${params.supervisorId}&mes=${params.month}`,
+    pushPath: `/ruta-semanal?tab=routes&supervisor=${params.supervisorId}&mes=${params.month}`,
+    pushTag: `ruta-mensual-enviada-${params.supervisorId}-${params.month}`,
+    data: {
+      supervisorId: params.supervisorId,
+      month: params.month,
+      cuentaClienteId: params.cuentaClienteId,
+      totalVisitas: params.totalVisitas,
+      totalDias: params.totalDias,
+    },
+  });
 }
 
 export function buildRutaSemanalAprobadaNotification(params: {
-  supervisorId: string
-  coordinadorNombre: string
-  semana: string
+  supervisorId: string;
+  coordinadorNombre: string;
+  semana: string;
 }): WorkflowNotificationEnvelope {
   return routeWeeklyEnvelope({
     workflow: 'ruta_aprobada',
@@ -105,14 +137,14 @@ export function buildRutaSemanalAprobadaNotification(params: {
       supervisorId: params.supervisorId,
       semana: params.semana,
     },
-  })
+  });
 }
 
 export function buildRutaSemanalRechazadaNotification(params: {
-  supervisorId: string
-  coordinadorNombre: string
-  semana: string
-  nota: string
+  supervisorId: string;
+  coordinadorNombre: string;
+  semana: string;
+  nota: string;
 }): WorkflowNotificationEnvelope {
   return routeWeeklyEnvelope({
     workflow: 'ruta_rechazada',
@@ -127,15 +159,46 @@ export function buildRutaSemanalRechazadaNotification(params: {
       semana: params.semana,
       nota: params.nota,
     },
-  })
+  });
+}
+
+export function buildRutasMesGestionadasNotification(params: {
+  action: 'APROBAR' | 'LIBERAR';
+  actorNombre: string;
+  month: string;
+}): WorkflowNotificationEnvelope {
+  const monthLabel = new Intl.DateTimeFormat('es-MX', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${params.month}-01T12:00:00.000Z`));
+  const released = params.action === 'LIBERAR';
+
+  return routeWeeklyEnvelope({
+    workflow: released ? 'rutas_mes_liberadas' : 'rutas_mes_aprobadas',
+    title: released
+      ? `Tus rutas de ${monthLabel} requieren actualización`
+      : `Tus rutas de ${monthLabel} fueron aprobadas`,
+    body: released
+      ? `${params.actorNombre} liberó las rutas de ${monthLabel}. Ya no están disponibles para ejecución; revísalas, realiza los ajustes necesarios y vuelve a enviarlas.`
+      : `${params.actorNombre} aprobó las rutas enviadas de ${monthLabel}. Ya están disponibles para ejecución en las fechas correspondientes.`,
+    ctaLabel: released ? 'Revisar y reenviar rutas' : 'Ver mis rutas',
+    ctaUrl: `${getAppUrl()}/ruta-semanal`,
+    pushPath: '/ruta-semanal',
+    pushTag: `rutas-mes-${params.action.toLowerCase()}-${params.month}`,
+    data: {
+      action: params.action,
+      month: params.month,
+    },
+  });
 }
 
 export function buildCambioRutaSolicitadoNotification(params: {
-  rutaId: string
-  supervisorNombre: string
-  dia: string
-  nota: string
-  cuentaClienteId: string | null
+  rutaId: string;
+  supervisorNombre: string;
+  dia: string;
+  nota: string;
+  cuentaClienteId: string | null;
 }): WorkflowNotificationEnvelope {
   return routeWeeklyEnvelope({
     workflow: 'ruta_cambio_solicitado',
@@ -151,20 +214,22 @@ export function buildCambioRutaSolicitadoNotification(params: {
       nota: params.nota,
       cuentaClienteId: params.cuentaClienteId,
     },
-  })
+  });
 }
 
 export function buildCambioRutaResueltoNotification(params: {
-  supervisorId: string
-  coordinadorNombre: string
-  dia: string
-  aprobado: boolean
-  nota?: string
+  supervisorId: string;
+  coordinadorNombre: string;
+  dia: string;
+  aprobado: boolean;
+  nota?: string;
 }): WorkflowNotificationEnvelope {
-  const subject = params.aprobado ? 'Tu solicitud de cambio fue aprobada' : 'Tu solicitud de cambio fue rechazada'
+  const subject = params.aprobado
+    ? 'Tu solicitud de cambio fue aprobada'
+    : 'Tu solicitud de cambio fue rechazada';
   const body = params.aprobado
     ? `El cambio solicitado para el día ${params.dia} fue aprobado por ${params.coordinadorNombre}.`
-    : `Tu solicitud de cambio para el día ${params.dia} fue rechazada. ${params.nota ? `Motivo: ${params.nota}` : ''}`
+    : `Tu solicitud de cambio para el día ${params.dia} fue rechazada. ${params.nota ? `Motivo: ${params.nota}` : ''}`;
 
   return routeWeeklyEnvelope({
     workflow: params.aprobado ? 'ruta_cambio_aprobado' : 'ruta_cambio_rechazado',
@@ -180,15 +245,15 @@ export function buildCambioRutaResueltoNotification(params: {
       aprobado: params.aprobado,
       nota: params.nota ?? null,
     },
-  })
+  });
 }
 
 export function buildAgendaEventoCreadoNotification(params: {
-  eventoId: string
-  supervisorNombre: string
-  tipo: string
-  fecha: string
-  cuentaClienteId: string | null
+  eventoId: string;
+  supervisorNombre: string;
+  tipo: string;
+  fecha: string;
+  cuentaClienteId: string | null;
 }): WorkflowNotificationEnvelope {
   return routeWeeklyEnvelope({
     workflow: 'agenda_evento_creado',
@@ -204,21 +269,21 @@ export function buildAgendaEventoCreadoNotification(params: {
       fecha: params.fecha,
       cuentaClienteId: params.cuentaClienteId,
     },
-  })
+  });
 }
 
 export function buildAgendaEventoResueltoNotification(params: {
-  supervisorId: string
-  coordinadorNombre: string
-  titulo: string
-  fecha: string
-  aprobado: boolean
-  nota?: string
+  supervisorId: string;
+  coordinadorNombre: string;
+  titulo: string;
+  fecha: string;
+  aprobado: boolean;
+  nota?: string;
 }): WorkflowNotificationEnvelope {
-  const subject = params.aprobado ? 'Tu evento fue aprobado' : 'Tu evento requiere ajustes'
+  const subject = params.aprobado ? 'Tu evento fue aprobado' : 'Tu evento requiere ajustes';
   const body = params.aprobado
     ? `El evento '${params.titulo}' del ${params.fecha} fue aprobado por ${params.coordinadorNombre}.`
-    : `El evento '${params.titulo}' del ${params.fecha} fue devuelto. ${params.nota ? `Motivo: ${params.nota}` : ''}`
+    : `El evento '${params.titulo}' del ${params.fecha} fue devuelto. ${params.nota ? `Motivo: ${params.nota}` : ''}`;
 
   return routeWeeklyEnvelope({
     workflow: params.aprobado ? 'agenda_evento_aprobado' : 'agenda_evento_rechazado',
@@ -235,5 +300,33 @@ export function buildAgendaEventoResueltoNotification(params: {
       aprobado: params.aprobado,
       nota: params.nota ?? null,
     },
-  })
+  });
+}
+
+export function buildRutaMensualCambiosSolicitadosNotification(params: {
+  supervisorId: string;
+  actorNombre: string;
+  month: string;
+  nota: string;
+}): WorkflowNotificationEnvelope {
+  const monthLabel = new Intl.DateTimeFormat('es-MX', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${params.month}-01T12:00:00.000Z`));
+
+  return routeWeeklyEnvelope({
+    workflow: 'rutas_mes_cambios_solicitados',
+    title: `Tu ruta de ${monthLabel} requiere cambios`,
+    body: `${params.actorNombre} te ha solicitado cambios en tu planeación de ${monthLabel}. Observaciones: "${params.nota}". Ingresa a tu aplicación para realizar las correcciones y volver a enviarla.`,
+    ctaLabel: 'Revisar y corregir ruta',
+    ctaUrl: `${getAppUrl()}/ruta-semanal`,
+    pushPath: '/ruta-semanal',
+    pushTag: `rutas-mes-cambios-${params.supervisorId}-${params.month}`,
+    data: {
+      action: 'CAMBIOS_SOLICITADOS',
+      month: params.month,
+      nota: params.nota,
+    },
+  });
 }

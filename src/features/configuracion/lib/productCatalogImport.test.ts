@@ -1,9 +1,9 @@
-import { expect, test } from 'vitest'
-import * as XLSX from 'xlsx'
-import { parseProductCatalogWorkbook } from './productCatalogImport'
+import { expect, test } from 'vitest';
+import * as XLSX from 'xlsx';
+import { parseProductCatalogWorkbook } from './productCatalogImport';
 
 test('parsea catalogo ISDIN con encabezados reales y normaliza categoria/top30', () => {
-  const workbook = XLSX.utils.book_new()
+  const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet([
     {
       'CATEGORÍA ': 'Fotoprotección',
@@ -19,13 +19,13 @@ test('parsea catalogo ISDIN con encabezados reales y normaliza categoria/top30',
       NOMBRE_CORTO: 'ACNIBEN GEL',
       'TOP 30': 'NO',
     },
-  ])
+  ]);
 
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1')
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
-  const result = parseProductCatalogWorkbook(buffer)
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  const result = parseProductCatalogWorkbook(buffer);
 
-  expect(result.skippedRows).toBe(0)
+  expect(result.skippedRows).toBe(0);
   expect(result.rows).toEqual([
     {
       sku: '8429420107503',
@@ -43,5 +43,5 @@ test('parsea catalogo ISDIN con encabezados reales y normaliza categoria/top30',
       top30: true,
       activo: true,
     },
-  ])
-})
+  ]);
+});

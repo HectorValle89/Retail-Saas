@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-const fs = require('fs')
-const path = require('path')
-const { execSync } = require('child_process')
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
 
 const hookContent = `#!/bin/sh
 
@@ -24,19 +24,19 @@ if [ $status -ne 0 ]; then
 fi
 
 exit 0
-`
+`;
 
 try {
-  const hookDir = path.join(process.cwd(), '.githooks')
-  const hookPath = path.join(hookDir, 'pre-commit')
+  const hookDir = path.join(process.cwd(), '.githooks');
+  const hookPath = path.join(hookDir, 'pre-commit');
 
-  fs.mkdirSync(hookDir, { recursive: true })
-  fs.writeFileSync(hookPath, hookContent, 'utf8')
+  fs.mkdirSync(hookDir, { recursive: true });
+  fs.writeFileSync(hookPath, hookContent, 'utf8');
   execSync('git config core.hooksPath .githooks', {
     stdio: 'inherit',
-  })
-  console.log('Git hooks instalados: core.hooksPath -> .githooks')
+  });
+  console.log('Git hooks instalados: core.hooksPath -> .githooks');
 } catch (error) {
-  console.error('No se pudo configurar core.hooksPath hacia .githooks.')
-  process.exit(error.status || 1)
+  console.error('No se pudo configurar core.hooksPath hacia .githooks.');
+  process.exit(error.status || 1);
 }

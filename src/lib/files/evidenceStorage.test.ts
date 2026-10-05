@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
-import { computeSHA256 } from './sha256'
-import { storeOptimizedEvidence } from './evidenceStorage'
+import { describe, expect, it, vi } from 'vitest';
+import { computeSHA256 } from './sha256';
+import { storeOptimizedEvidence } from './evidenceStorage';
 
 vi.mock('./documentOptimization', () => ({
   optimizeExpedienteDocument: vi.fn(async () => ({
@@ -27,24 +27,24 @@ vi.mock('./documentOptimization', () => ({
     officialAssetKind: 'optimized',
   })),
   exceedsOperationalDocumentUploadLimit: vi.fn(() => false),
-}))
+}));
 
 function buildFakeFile(name: string, type: string) {
-  return new File([Buffer.from('source-file-content')], name, { type })
+  return new File([Buffer.from('source-file-content')], name, { type });
 }
 
 function createFakeService(options?: {
   existing?: {
-    id: string
-    sha256: string
-    bucket: string
-    ruta_archivo: string
-    miniatura_sha256: string | null
-    miniatura_bucket: string | null
-    miniatura_ruta_archivo: string | null
-  } | null
+    id: string;
+    sha256: string;
+    bucket: string;
+    ruta_archivo: string;
+    miniatura_sha256: string | null;
+    miniatura_bucket: string | null;
+    miniatura_ruta_archivo: string | null;
+  } | null;
 }) {
-  const upload = vi.fn(async () => ({ error: null }))
+  const upload = vi.fn(async () => ({ error: null }));
   const insert = vi.fn(async () => ({
     data: {
       id: 'archivo-1',
@@ -56,12 +56,12 @@ function createFakeService(options?: {
       miniatura_ruta_archivo: 'expedientes/cuenta/empleado/hash-file-thumb.jpg',
     },
     error: null,
-  }))
-  const update = vi.fn(async () => ({ error: null }))
+  }));
+  const update = vi.fn(async () => ({ error: null }));
   const maybeSingle = vi.fn(async () => ({
     data: options?.existing ?? null,
     error: null,
-  }))
+  }));
 
   const service = {
     storage: {
@@ -71,7 +71,7 @@ function createFakeService(options?: {
     },
     from: vi.fn((table: string) => {
       if (table !== 'archivo_hash') {
-        throw new Error(`Unexpected table ${table}`)
+        throw new Error(`Unexpected table ${table}`);
       }
 
       return {
@@ -88,9 +88,9 @@ function createFakeService(options?: {
         update: vi.fn(() => ({
           eq: update,
         })),
-      }
+      };
     }),
-  }
+  };
 
   return {
     service,
@@ -98,28 +98,28 @@ function createFakeService(options?: {
     maybeSingle,
     insert,
     update,
-  }
+  };
 }
 
 describe('computeSHA256', () => {
   it('genera el mismo hash para el mismo contenido', async () => {
-    const left = await computeSHA256(Buffer.from('same-content'))
-    const right = await computeSHA256(new Uint8Array(Buffer.from('same-content')))
+    const left = await computeSHA256(Buffer.from('same-content'));
+    const right = await computeSHA256(new Uint8Array(Buffer.from('same-content')));
 
-    expect(left).toBe(right)
-  })
+    expect(left).toBe(right);
+  });
 
   it('genera hashes distintos para contenidos distintos', async () => {
-    const left = await computeSHA256(Buffer.from('content-a'))
-    const right = await computeSHA256(Buffer.from('content-b'))
+    const left = await computeSHA256(Buffer.from('content-a'));
+    const right = await computeSHA256(Buffer.from('content-b'));
 
-    expect(left).not.toBe(right)
-  })
-})
+    expect(left).not.toBe(right);
+  });
+});
 
 describe('storeOptimizedEvidence deduplication', () => {
   it('no realiza segundo upload cuando el hash ya existe', async () => {
-    const sha = await computeSHA256(Buffer.from('optimized-file-content'))
+    const sha = await computeSHA256(Buffer.from('optimized-file-content'));
     const fake = createFakeService({
       existing: {
         id: 'archivo-existente',
@@ -130,7 +130,7 @@ describe('storeOptimizedEvidence deduplication', () => {
         miniatura_bucket: 'operacion-evidencias',
         miniatura_ruta_archivo: 'expedientes/cuenta/empleado/existente-thumb.jpg',
       },
-    })
+    });
 
     const result = await storeOptimizedEvidence({
       service: fake.service as never,
@@ -138,11 +138,11 @@ describe('storeOptimizedEvidence deduplication', () => {
       actorUsuarioId: 'user-1',
       storagePrefix: 'expedientes/cuenta/empleado',
       file: buildFakeFile('evidencia.png', 'image/png'),
-    })
+    });
 
-    expect(result.deduplicated).toBe(true)
-    expect(result.archivo.hash).toBe(sha)
-    expect(fake.upload).not.toHaveBeenCalled()
-    expect(fake.insert).not.toHaveBeenCalled()
-  })
-})
+    expect(result.deduplicated).toBe(true);
+    expect(result.archivo.hash).toBe(sha);
+    expect(fake.upload).not.toHaveBeenCalled();
+    expect(fake.insert).not.toHaveBeenCalled();
+  });
+});

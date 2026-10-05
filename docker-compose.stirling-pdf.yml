@@ -3,8 +3,8 @@ services:
     image: stirlingtools/stirling-pdf:latest
     container_name: retail-stirling-pdf
     ports:
-      - "8088:8080"
+      - '8088:8080'
     environment:
-      DISABLE_ADDITIONAL_FEATURES: "false"
-      LANGS: "es_MX"
+      DISABLE_ADDITIONAL_FEATURES: 'false'
+      LANGS: 'es_MX'
     restart: unless-stopped

@@ -1,5 +1,5 @@
-import Link from 'next/link'
-import { ForgotPasswordForm } from '@/features/auth/components'
+import Link from 'next/link';
+import { ForgotPasswordForm } from '@/features/auth/components';
 
 export default function ForgotPasswordPage() {
   return (
@@ -12,7 +12,8 @@ export default function ForgotPasswordPage() {
           Recupera tu acceso paso a paso
         </h1>
         <p className="mt-2 text-slate-600">
-          Ingresa el correo que ya usas para entrar. Si la cuenta esta activa, te mandaremos un enlace temporal para crear una contrasena nueva.
+          Ingresa el correo que ya usas para entrar. Si la cuenta esta activa, te mandaremos un
+          enlace temporal para crear una contrasena nueva.
         </p>
       </div>
 
@@ -23,10 +24,15 @@ export default function ForgotPasswordPage() {
         className="flex items-center justify-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-950"
       >
         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M10 19l-7-7m0 0l7-7m-7 7h18"
+          />
         </svg>
         Volver al acceso
       </Link>
     </div>
-  )
+  );
 }

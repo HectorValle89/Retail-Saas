@@ -1,70 +1,86 @@
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import { isRedirectError } from 'next/dist/client/components/redirect-error'
-import { login } from '@/actions/auth'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { AccessRecoveryOtpForm } from './AccessRecoveryOtpForm'
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { isRedirectError } from 'next/dist/client/components/redirect-error';
+import { login } from '@/actions/auth';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { AccessRecoveryOtpForm } from './AccessRecoveryOtpForm';
 
 function EyeIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
       <circle cx="12" cy="12" r="3" />
     </svg>
-  )
+  );
 }
 
 function EyeOffIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
       <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
-  )
+  );
 }
 
 type LoginFormProps = {
-  initialError?: string | null
-  initialNotice?: string | null
-}
+  initialError?: string | null;
+  initialNotice?: string | null;
+};
 
 export function LoginForm({ initialError = null, initialNotice = null }: LoginFormProps) {
-  const [error, setError] = useState<string | null>(initialError)
-  const [notice, setNotice] = useState<string | null>(initialNotice)
-  const [loading, setLoading] = useState(false)
-  const [showPassword, setShowPassword] = useState(false)
-  const [accessValue, setAccessValue] = useState('')
+  const [error, setError] = useState<string | null>(initialError);
+  const [notice, setNotice] = useState<string | null>(initialNotice);
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [accessValue, setAccessValue] = useState('');
 
   useEffect(() => {
-    setError(initialError)
-  }, [initialError])
+    setError(initialError);
+  }, [initialError]);
 
   useEffect(() => {
-    setNotice(initialNotice)
-  }, [initialNotice])
+    setNotice(initialNotice);
+  }, [initialNotice]);
 
   async function handleSubmit(formData: FormData) {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
 
     try {
-      const result = await login(formData)
+      const result = await login(formData);
 
       if (result?.error) {
-        setError(result.error)
-        setNotice(null)
+        setError(result.error);
+        setNotice(null);
       }
     } catch (error) {
       if (isRedirectError(error)) {
-        throw error
+        throw error;
       }
 
-      setError('No fue posible iniciar sesion. Reintenta en unos minutos.')
+      setError('No fue posible iniciar sesion. Reintenta en unos minutos.');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
@@ -124,7 +140,10 @@ export function LoginForm({ initialError = null, initialNotice = null }: LoginFo
 
       <div className="text-center">
         <p className="text-sm text-slate-500">
-          <Link href="/forgot-password" className="font-medium text-slate-700 transition-colors hover:text-[#1a7fd4] hover:underline">
+          <Link
+            href="/forgot-password"
+            className="font-medium text-slate-700 transition-colors hover:text-[#1a7fd4] hover:underline"
+          >
             Recuperar acceso
           </Link>
         </p>
@@ -134,5 +153,5 @@ export function LoginForm({ initialError = null, initialNotice = null }: LoginFo
         <AccessRecoveryOtpForm initialEmail={accessValue.includes('@') ? accessValue : ''} />
       )}
     </form>
-  )
+  );
 }

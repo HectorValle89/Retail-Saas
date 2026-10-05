@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import type { AsignacionValidable } from './assignmentValidation'
+import { describe, expect, it } from 'vitest';
+import type { AsignacionValidable } from './assignmentValidation';
 import {
   evaluateRotationMasterImpact,
   type AssignmentRotationValidationData,
-} from './assignmentRotationValidation'
+} from './assignmentRotationValidation';
 
 function buildRotationData(): AssignmentRotationValidationData {
   return {
@@ -71,7 +71,7 @@ function buildRotationData(): AssignmentRotationValidationData {
         },
       ],
     },
-  }
+  };
 }
 
 describe('assignmentRotationValidation', () => {
@@ -87,15 +87,15 @@ describe('assignmentRotationValidation', () => {
       dias_laborales: 'LUN,MAR,MIE,JUE,VIE,SAB',
       dia_descanso: 'DOM',
       horario_referencia: null,
-    }
+    };
 
     const issues = evaluateRotationMasterImpact(draft, {
       rotationData: buildRotationData(),
       previousPdvId: 'pdv-a',
-    })
+    });
 
-    expect(issues.some((issue) => issue.code === 'ROTACION_MAESTRA_SIN_COBERTURA')).toBe(true)
-  })
+    expect(issues.some((issue) => issue.code === 'ROTACION_MAESTRA_SIN_COBERTURA')).toBe(true);
+  });
 
   it('genera alerta cuando un grupo queda partido entre distintas DCs', () => {
     const draft: AsignacionValidable = {
@@ -109,12 +109,12 @@ describe('assignmentRotationValidation', () => {
       dias_laborales: 'LUN,MAR,MIE',
       dia_descanso: 'DOM',
       horario_referencia: null,
-    }
+    };
 
     const issues = evaluateRotationMasterImpact(draft, {
       rotationData: buildRotationData(),
-    })
+    });
 
-    expect(issues.some((issue) => issue.code === 'ROTACION_MAESTRA_PARTIDA')).toBe(true)
-  })
-})
+    expect(issues.some((issue) => issue.code === 'ROTACION_MAESTRA_PARTIDA')).toBe(true);
+  });
+});

@@ -6,16 +6,17 @@ description: Compresión de imágenes antes de upload
 # Image Compression - Beteele
 
 ## Browser Compression
+
 ```typescript
 import imageCompression from 'browser-image-compression';
 
 async function compressPhoto(file: File): Promise<File> {
   const options = {
-    maxSizeMB: 0.2,  // 200KB max
+    maxSizeMB: 0.2, // 200KB max
     maxWidthOrHeight: 1920,
-    useWebWorker: true
+    useWebWorker: true,
   };
-  
+
   return await imageCompression(file, options);
 }
 
@@ -27,6 +28,7 @@ const handlePhotoCapture = async (file: File) => {
 ```
 
 ## Validación
+
 ```typescript
 if (compressed.size > 200 * 1024) {
   throw new Error('Imagen muy pesada, intenta de nuevo');

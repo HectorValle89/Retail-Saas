@@ -1,16 +1,16 @@
-import { NextResponse } from 'next/server'
+import { NextResponse } from 'next/server';
 import {
   buildOperationalDocumentUploadLimitMessage,
   exceedsOperationalDocumentUploadLimit,
-} from '@/lib/files/documentOptimization'
-import { performConfiguredDocumentOcr } from '@/lib/ocr/gemini'
-import { createServiceClient } from '@/lib/supabase/server'
-import { obtenerActorActual } from '@/lib/auth/session'
+} from '@/lib/files/documentOptimization';
+import { performConfiguredDocumentOcr } from '@/lib/ocr/gemini';
+import { createServiceClient } from '@/lib/supabase/server';
+import { obtenerActorActual } from '@/lib/auth/session';
 import {
   OCR_MODEL_CONFIG_KEY,
   OCR_PROVIDER_CONFIG_KEY,
-} from '@/features/configuracion/configuracionCatalog'
-import { buildEmpleadoOcrSnapshot } from '@/features/empleados/lib/ocrMapping'
+} from '@/features/configuracion/configuracionCatalog';
+import { buildEmpleadoOcrSnapshot } from '@/features/empleados/lib/ocrMapping';
 
 function countRecognizedSnapshotFields(snapshot: ReturnType<typeof buildEmpleadoOcrSnapshot>) {
   return [
@@ -31,36 +31,39 @@ function countRecognizedSnapshotFields(snapshot: ReturnType<typeof buildEmpleado
     snapshot.estadoCivil,
     snapshot.originario,
     snapshot.fuenteDireccion,
-  ].filter((value) => value !== null && value !== '').length
+  ].filter((value) => value !== null && value !== '').length;
 }
 
 export async function POST(request: Request) {
   try {
-    const actor = await obtenerActorActual()
+    const actor = await obtenerActorActual();
 
     if (!actor) {
-      return NextResponse.json({ message: 'Sesion no disponible.' }, { status: 401 })
+      return NextResponse.json({ message: 'Sesion no disponible.' }, { status: 401 });
     }
 
     if (!['ADMINISTRADOR', 'RECLUTAMIENTO'].includes(actor.puesto)) {
-      return NextResponse.json({ message: 'No autorizado para preanalizar curriculums.' }, { status: 403 })
+      return NextResponse.json(
+        { message: 'No autorizado para preanalizar curriculums.' },
+        { status: 403 }
+      );
     }
 
-    const formData = await request.formData()
-    const curriculumFile = formData.get('curriculum_pdf') ?? formData.get('expediente_pdf')
+    const formData = await request.formData();
+    const curriculumFile = formData.get('curriculum_pdf') ?? formData.get('expediente_pdf');
 
     if (!(curriculumFile instanceof File) || curriculumFile.size <= 0) {
       return NextResponse.json(
         { message: 'Adjunta el curriculum en PDF antes de analizar.' },
         { status: 400 }
-      )
+      );
     }
 
     if (curriculumFile.type !== 'application/pdf') {
       return NextResponse.json(
         { message: 'El curriculum inicial debe cargarse como PDF.' },
         { status: 400 }
-      )
+      );
     }
 
     if (exceedsOperationalDocumentUploadLimit(curriculumFile)) {
@@ -69,24 +72,24 @@ export async function POST(request: Request) {
           message: buildOperationalDocumentUploadLimitMessage('curriculum', curriculumFile),
         },
         { status: 400 }
-      )
+      );
     }
 
-    const originalBuffer = Buffer.from(await curriculumFile.arrayBuffer())
+    const originalBuffer = Buffer.from(await curriculumFile.arrayBuffer());
 
-    const service = createServiceClient()
+    const service = createServiceClient();
     const { data, error } = await service
       .from('configuracion')
       .select('clave, valor')
-      .in('clave', [OCR_PROVIDER_CONFIG_KEY, OCR_MODEL_CONFIG_KEY])
+      .in('clave', [OCR_PROVIDER_CONFIG_KEY, OCR_MODEL_CONFIG_KEY]);
 
     if (error) {
-      return NextResponse.json({ message: error.message }, { status: 500 })
+      return NextResponse.json({ message: error.message }, { status: 500 });
     }
 
-    const rows = Array.isArray(data) ? data : []
-    const providerRow = rows.find((item) => item.clave === OCR_PROVIDER_CONFIG_KEY)
-    const modelRow = rows.find((item) => item.clave === OCR_MODEL_CONFIG_KEY)
+    const rows = Array.isArray(data) ? data : [];
+    const providerRow = rows.find((item) => item.clave === OCR_PROVIDER_CONFIG_KEY);
+    const modelRow = rows.find((item) => item.clave === OCR_MODEL_CONFIG_KEY);
 
     const ocr = await performConfiguredDocumentOcr({
       buffer: originalBuffer,
@@ -95,9 +98,9 @@ export async function POST(request: Request) {
       expectedDocumentType: 'CV',
       providerOverride: String(providerRow?.valor ?? '').trim() || null,
       modelOverride: String(modelRow?.valor ?? '').trim() || null,
-    })
-    const snapshot = buildEmpleadoOcrSnapshot(ocr.result)
-    const recognizedFields = countRecognizedSnapshotFields(snapshot)
+    });
+    const snapshot = buildEmpleadoOcrSnapshot(ocr.result);
+    const recognizedFields = countRecognizedSnapshotFields(snapshot);
     if (recognizedFields === 0 && ocr.result.status !== 'ok') {
       return NextResponse.json(
         {
@@ -109,7 +112,7 @@ export async function POST(request: Request) {
           recognizedFields,
         },
         { status: 422 }
-      )
+      );
     }
 
     return NextResponse.json({
@@ -118,7 +121,7 @@ export async function POST(request: Request) {
       snapshot,
       result: ocr.result,
       recognizedFields,
-    })
+    });
   } catch (error) {
     return NextResponse.json(
       {
@@ -128,6 +131,6 @@ export async function POST(request: Request) {
             : 'No fue posible analizar el curriculum en este momento.',
       },
       { status: 500 }
-    )
+    );
   }
 }

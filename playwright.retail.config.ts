@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test'
+import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
@@ -8,4 +8,4 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   timeout: 30000,
-})
+});

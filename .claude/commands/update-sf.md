@@ -1,5 +1,5 @@
 ---
-description: "Actualiza SaaS Factory a la ultima version. Busca el alias saas-factory, hace git pull y reemplaza la carpeta .claude/"
+description: 'Actualiza SaaS Factory a la ultima version. Busca el alias saas-factory, hace git pull y reemplaza la carpeta .claude/'
 ---
 
 # Update SaaS Factory
@@ -21,6 +21,7 @@ grep "alias saas-factory" ~/.bashrc
 ```
 
 El alias tiene este formato:
+
 ```bash
 alias saas-factory="cp -r /ruta/al/repo/saas-factory/. ."
 ```
@@ -28,6 +29,7 @@ alias saas-factory="cp -r /ruta/al/repo/saas-factory/. ."
 **Extrae la ruta del repo** del alias (la parte entre `cp -r ` y `/saas-factory/.`).
 
 Si no encuentras el alias, pregunta al usuario:
+
 > No encontre el alias `saas-factory`. Por favor, indica la ruta donde tienes el repositorio de SaaS Factory.
 
 ### Paso 2: Actualizar el repositorio fuente

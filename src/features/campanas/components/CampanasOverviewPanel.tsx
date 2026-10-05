@@ -1,57 +1,60 @@
-'use client'
+'use client';
 
-import Link from 'next/link'
-import { useCallback, useMemo } from 'react'
-import { Card } from '@/components/ui/card'
-import { MetricCard } from '@/components/ui/metric-card'
-import type { ActorActual } from '@/lib/auth/session'
-import { useScopedWidgetData } from '@/lib/ui-change/client'
-import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types'
-import type { CampanaOverviewItem, CampanasOverviewData } from '../services/campanaService'
-import { CampanaPublishAction } from './CampanaPublishAction'
+import Link from 'next/link';
+import { useCallback, useMemo } from 'react';
+import { Card } from '@/components/ui/card';
+import { MetricCard } from '@/components/ui/metric-card';
+import type { ActorActual } from '@/lib/auth/session';
+import { useScopedWidgetData } from '@/lib/ui-change/client';
+import { getUiChangeScopeKeysForActor } from '@/lib/ui-change/types';
+import type { CampanaOverviewItem, CampanasOverviewData } from '../services/campanaService';
+import { CampanaPublishAction } from './CampanaPublishAction';
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('es-MX', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(new Date(value));
 }
 
 function formatPercent(value: number) {
-  return `${value.toFixed(0)}%`
+  return `${value.toFixed(0)}%`;
 }
 
 function getCampaignDisplayStatus(campaign: CampanaOverviewItem) {
   if (campaign.estado === 'CERRADA') {
-    return 'TERMINADA'
+    return 'TERMINADA';
   }
 
   if (campaign.ventanaActiva) {
-    return 'ACTIVA'
+    return 'ACTIVA';
   }
 
-  if (campaign.estado === 'ACTIVA' && campaign.fechaInicio > new Date().toISOString().slice(0, 10)) {
-    return 'PROGRAMADA'
+  if (
+    campaign.estado === 'ACTIVA' &&
+    campaign.fechaInicio > new Date().toISOString().slice(0, 10)
+  ) {
+    return 'PROGRAMADA';
   }
 
-  return campaign.estado
+  return campaign.estado;
 }
 
 function getStatusTone(campaign: CampanaOverviewItem) {
-  const displayStatus = getCampaignDisplayStatus(campaign)
+  const displayStatus = getCampaignDisplayStatus(campaign);
 
   switch (displayStatus) {
     case 'ACTIVA':
-      return 'bg-emerald-100 text-emerald-700'
+      return 'bg-emerald-100 text-emerald-700';
     case 'PROGRAMADA':
-      return 'bg-sky-100 text-sky-700'
+      return 'bg-sky-100 text-sky-700';
     case 'BORRADOR':
-      return 'bg-amber-100 text-amber-700'
+      return 'bg-amber-100 text-amber-700';
     case 'TERMINADA':
-      return 'bg-slate-200 text-slate-700'
+      return 'bg-slate-200 text-slate-700';
     default:
-      return 'bg-slate-100 text-slate-600'
+      return 'bg-slate-100 text-slate-600';
   }
 }
 
@@ -61,17 +64,17 @@ function EmptyState({ title, body }: { title: string; body: string }) {
       <p className="text-sm font-semibold text-slate-900">{title}</p>
       <p className="mt-2 text-sm leading-6 text-slate-600">{body}</p>
     </Card>
-  )
+  );
 }
 
 function CampaignOverviewCard({
   campaign,
   canManage,
 }: {
-  campaign: CampanaOverviewItem
-  canManage: boolean
+  campaign: CampanaOverviewItem;
+  canManage: boolean;
 }) {
-  const detailHref = `/campanas/${campaign.id}`
+  const detailHref = `/campanas/${campaign.id}`;
 
   return (
     <Card className="rounded-[30px] border border-[var(--module-border)] bg-white/95 p-5 shadow-[0_20px_44px_rgba(249,115,22,0.10)]">
@@ -79,12 +82,15 @@ function CampaignOverviewCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="truncate text-base font-semibold text-slate-950">{campaign.nombre}</h3>
-            <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${getStatusTone(campaign)}`}>
+            <span
+              className={`rounded-full px-3 py-1 text-[11px] font-semibold ${getStatusTone(campaign)}`}
+            >
               {getCampaignDisplayStatus(campaign)}
             </span>
           </div>
           <p className="mt-2 text-sm text-slate-600">
-            {campaign.cuentaCliente ?? 'Sin cuenta'} · {formatDate(campaign.fechaInicio)} - {formatDate(campaign.fechaFin)}
+            {campaign.cuentaCliente ?? 'Sin cuenta'} · {formatDate(campaign.fechaInicio)} -{' '}
+            {formatDate(campaign.fechaFin)}
           </p>
         </div>
         <Link
@@ -117,7 +123,7 @@ function CampaignOverviewCard({
         </div>
       ) : null}
     </Card>
-  )
+  );
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
@@ -129,7 +135,7 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
       labelClassName="text-[10px] text-orange-700/80"
       valueClassName="text-base sm:text-lg"
     />
-  )
+  );
 }
 
 function CampaignSection({
@@ -140,12 +146,12 @@ function CampaignSection({
   emptyTitle,
   emptyBody,
 }: {
-  title: string
-  description: string
-  campaigns: CampanaOverviewItem[]
-  canManage: boolean
-  emptyTitle: string
-  emptyBody: string
+  title: string;
+  description: string;
+  campaigns: CampanaOverviewItem[];
+  canManage: boolean;
+  emptyTitle: string;
+  emptyBody: string;
 }) {
   return (
     <section className="space-y-4">
@@ -163,31 +169,31 @@ function CampaignSection({
         </div>
       )}
     </section>
-  )
+  );
 }
 
 export function CampanasOverviewPanel({
   actor,
   data: initialData,
 }: {
-  actor: ActorActual
-  data: CampanasOverviewData
+  actor: ActorActual;
+  data: CampanasOverviewData;
 }) {
-  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor])
+  const scopeKeys = useMemo(() => getUiChangeScopeKeysForActor(actor), [actor]);
   const fetcher = useCallback(async (signal: AbortSignal) => {
     const response = await fetch('/api/campanas/panel', {
       cache: 'no-store',
       credentials: 'same-origin',
       signal,
-    })
-    const payload = (await response.json()) as { data?: CampanasOverviewData; message?: string }
+    });
+    const payload = (await response.json()) as { data?: CampanasOverviewData; message?: string };
 
     if (!response.ok || !payload.data) {
-      throw new Error(payload.message ?? 'No fue posible refrescar el resumen de campanas.')
+      throw new Error(payload.message ?? 'No fue posible refrescar el resumen de campanas.');
     }
 
-    return payload.data
-  }, [])
+    return payload.data;
+  }, []);
 
   const { data } = useScopedWidgetData({
     initialData,
@@ -197,17 +203,18 @@ export function CampanasOverviewPanel({
     roleTargets: [actor.puesto],
     fetcher,
     debounceMs: 650,
-  })
+  });
 
-  const todayIso = new Date().toISOString().slice(0, 10)
-  const draftCampaigns = data.campanas.filter((campaign) => campaign.estado === 'BORRADOR')
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const draftCampaigns = data.campanas.filter((campaign) => campaign.estado === 'BORRADOR');
   const scheduledCampaigns = data.campanas.filter(
-    (campaign) => campaign.estado === 'ACTIVA' && !campaign.ventanaActiva && campaign.fechaInicio > todayIso
-  )
+    (campaign) =>
+      campaign.estado === 'ACTIVA' && !campaign.ventanaActiva && campaign.fechaInicio > todayIso
+  );
   const activeCampaigns = data.campanas.filter(
     (campaign) => campaign.estado === 'ACTIVA' && campaign.ventanaActiva
-  )
-  const finishedCampaigns = data.campanas.filter((campaign) => campaign.estado === 'CERRADA')
+  );
+  const finishedCampaigns = data.campanas.filter((campaign) => campaign.estado === 'CERRADA');
 
   return (
     <div className="space-y-8">
@@ -222,13 +229,15 @@ export function CampanasOverviewPanel({
         <Card className="overflow-hidden rounded-[32px] border border-[var(--module-border)] bg-[linear-gradient(135deg,rgba(249,115,22,0.16),rgba(255,237,213,0.92),rgba(255,255,255,0.98))] p-6 shadow-[0_26px_60px_rgba(249,115,22,0.16)]">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-700">Crear campaña</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-700">
+                Crear campaña
+              </p>
               <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-slate-950">
                 Nueva campaña en borrador, sin precargar el editor
               </h2>
               <p className="mt-3 text-sm leading-7 text-slate-600">
-                El formulario de alta vive en una ruta dedicada. Solo se carga cuando realmente lo abres, junto con
-                los PDVs y catálogos necesarios para configurar el borrador.
+                El formulario de alta vive en una ruta dedicada. Solo se carga cuando realmente lo
+                abres, junto con los PDVs y catálogos necesarios para configurar el borrador.
               </p>
             </div>
             <Link
@@ -287,5 +296,5 @@ export function CampanasOverviewPanel({
         emptyBody="Aún no hay histórico terminado visible para este módulo."
       />
     </div>
-  )
+  );
 }

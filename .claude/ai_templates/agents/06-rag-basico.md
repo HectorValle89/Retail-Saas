@@ -104,19 +104,19 @@ $$;
 ```typescript
 // lib/ai/embeddings.ts
 
-import { embed, embedMany } from 'ai'
-import { openrouter } from '@openrouter/ai-sdk-provider'
+import { embed, embedMany } from 'ai';
+import { openrouter } from '@openrouter/ai-sdk-provider';
 
 // Modelo de embeddings
-const EMBEDDING_MODEL = 'openai/text-embedding-3-small'
+const EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 
 // Generar embedding de un texto
 export async function generateEmbedding(text: string): Promise<number[]> {
   const { embedding } = await embed({
     model: openrouter.textEmbeddingModel(EMBEDDING_MODEL),
     value: text,
-  })
-  return embedding
+  });
+  return embedding;
 }
 
 // Generar embeddings de multiples textos
@@ -124,8 +124,8 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   const { embeddings } = await embedMany({
     model: openrouter.textEmbeddingModel(EMBEDDING_MODEL),
     values: texts,
-  })
-  return embeddings
+  });
+  return embeddings;
 }
 ```
 
@@ -137,31 +137,29 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
 // lib/ai/chunking.ts
 
 interface Chunk {
-  content: string
-  index: number
+  content: string;
+  index: number;
 }
 
 // Dividir texto en chunks por oraciones
 // MODIFICAR: Ajusta segun tu caso de uso
 export function chunkText(text: string, maxChunkSize = 500): Chunk[] {
   // Dividir por oraciones
-  const sentences = text
-    .split(/(?<=[.!?])\s+/)
-    .filter(s => s.trim().length > 0)
+  const sentences = text.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 0);
 
-  const chunks: Chunk[] = []
-  let currentChunk = ''
-  let chunkIndex = 0
+  const chunks: Chunk[] = [];
+  let currentChunk = '';
+  let chunkIndex = 0;
 
   for (const sentence of sentences) {
     if ((currentChunk + sentence).length > maxChunkSize && currentChunk) {
       chunks.push({
         content: currentChunk.trim(),
         index: chunkIndex++,
-      })
-      currentChunk = sentence
+      });
+      currentChunk = sentence;
     } else {
-      currentChunk += (currentChunk ? ' ' : '') + sentence
+      currentChunk += (currentChunk ? ' ' : '') + sentence;
     }
   }
 
@@ -169,10 +167,10 @@ export function chunkText(text: string, maxChunkSize = 500): Chunk[] {
     chunks.push({
       content: currentChunk.trim(),
       index: chunkIndex,
-    })
+    });
   }
 
-  return chunks
+  return chunks;
 }
 ```
 
@@ -183,43 +181,41 @@ export function chunkText(text: string, maxChunkSize = 500): Chunk[] {
 ```typescript
 // lib/ai/rag.ts
 
-import { createClient } from '@/lib/supabase/server'
-import { generateEmbedding, generateEmbeddings } from './embeddings'
-import { chunkText } from './chunking'
+import { createClient } from '@/lib/supabase/server';
+import { generateEmbedding, generateEmbeddings } from './embeddings';
+import { chunkText } from './chunking';
 
 // Agregar documento a la base de conocimiento
 export async function addDocument(content: string, metadata?: Record<string, unknown>) {
-  const supabase = await createClient()
+  const supabase = await createClient();
 
   // 1. Guardar recurso original
   const { data: resource, error: resourceError } = await supabase
     .from('resources')
     .insert({ content, metadata })
     .select('id')
-    .single()
+    .single();
 
-  if (resourceError) throw resourceError
+  if (resourceError) throw resourceError;
 
   // 2. Dividir en chunks
-  const chunks = chunkText(content)
+  const chunks = chunkText(content);
 
   // 3. Generar embeddings
-  const embeddings = await generateEmbeddings(chunks.map(c => c.content))
+  const embeddings = await generateEmbeddings(chunks.map((c) => c.content));
 
   // 4. Guardar embeddings
   const embeddingRows = chunks.map((chunk, i) => ({
     resource_id: resource.id,
     content: chunk.content,
     embedding: embeddings[i],
-  }))
+  }));
 
-  const { error: embeddingError } = await supabase
-    .from('embeddings')
-    .insert(embeddingRows)
+  const { error: embeddingError } = await supabase.from('embeddings').insert(embeddingRows);
 
-  if (embeddingError) throw embeddingError
+  if (embeddingError) throw embeddingError;
 
-  return resource.id
+  return resource.id;
 }
 
 // Buscar contenido relevante
@@ -228,21 +224,21 @@ export async function findRelevantContent(
   threshold = 0.5,
   limit = 5
 ): Promise<{ content: string; similarity: number }[]> {
-  const supabase = await createClient()
+  const supabase = await createClient();
 
   // 1. Generar embedding de la pregunta
-  const queryEmbedding = await generateEmbedding(query)
+  const queryEmbedding = await generateEmbedding(query);
 
   // 2. Buscar similares
   const { data, error } = await supabase.rpc('match_embeddings', {
     query_embedding: queryEmbedding,
     match_threshold: threshold,
     match_count: limit,
-  })
+  });
 
-  if (error) throw error
+  if (error) throw error;
 
-  return data || []
+  return data || [];
 }
 ```
 
@@ -253,8 +249,8 @@ export async function findRelevantContent(
 ```typescript
 // lib/ai/tools/knowledge.ts
 
-import { z } from 'zod'
-import { findRelevantContent, addDocument } from '../rag'
+import { z } from 'zod';
+import { findRelevantContent, addDocument } from '../rag';
 
 export const knowledgeTools = {
   // Tool para buscar informacion
@@ -264,15 +260,13 @@ export const knowledgeTools = {
       query: z.string().describe('La pregunta o tema a buscar'),
     }),
     execute: async ({ query }: { query: string }) => {
-      const results = await findRelevantContent(query)
+      const results = await findRelevantContent(query);
 
       if (results.length === 0) {
-        return 'No encontre informacion relevante sobre eso.'
+        return 'No encontre informacion relevante sobre eso.';
       }
 
-      return results
-        .map(r => r.content)
-        .join('\n\n---\n\n')
+      return results.map((r) => r.content).join('\n\n---\n\n');
     },
   },
 
@@ -284,11 +278,11 @@ export const knowledgeTools = {
       source: z.string().optional().describe('Fuente de la informacion'),
     }),
     execute: async ({ content, source }: { content: string; source?: string }) => {
-      const id = await addDocument(content, { source })
-      return `Informacion agregada con ID: ${id}`
+      const id = await addDocument(content, { source });
+      return `Informacion agregada con ID: ${id}`;
     },
   },
-}
+};
 ```
 
 ---
@@ -299,17 +293,17 @@ export const knowledgeTools = {
 // app/api/chat/route.ts
 // MODIFICAR: Agregar tools de RAG
 
-import { openrouter, MODELS } from '@/lib/ai/openrouter'
-import { streamText, convertToModelMessages, type UIMessage } from 'ai'
-import { knowledgeTools } from '@/lib/ai/tools/knowledge'
+import { openrouter, MODELS } from '@/lib/ai/openrouter';
+import { streamText, convertToModelMessages, type UIMessage } from 'ai';
+import { knowledgeTools } from '@/lib/ai/tools/knowledge';
 
 const SYSTEM_PROMPT = `Eres un asistente con acceso a una base de conocimiento.
 Cuando el usuario pregunte sobre algo, USA la tool getInformation para buscar.
 Basa tus respuestas en la informacion encontrada.
-Si no encuentras nada relevante, dilo honestamente.`
+Si no encuentras nada relevante, dilo honestamente.`;
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json()
+  const { messages }: { messages: UIMessage[] } = await req.json();
 
   const result = streamText({
     model: openrouter(MODELS.balanced),
@@ -317,9 +311,9 @@ export async function POST(req: Request) {
     messages: convertToModelMessages(messages),
     tools: knowledgeTools,
     maxSteps: 3, // Permitir multiples llamadas a tools
-  })
+  });
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse();
 }
 ```
 
@@ -331,28 +325,28 @@ export async function POST(req: Request) {
 // scripts/index-docs.ts
 // Ejecutar: npx tsx scripts/index-docs.ts
 
-import { addDocument } from '@/lib/ai/rag'
-import fs from 'fs'
-import path from 'path'
+import { addDocument } from '@/lib/ai/rag';
+import fs from 'fs';
+import path from 'path';
 
 async function indexDocuments(docsDir: string) {
-  const files = fs.readdirSync(docsDir)
+  const files = fs.readdirSync(docsDir);
 
   for (const file of files) {
-    if (!file.endsWith('.md') && !file.endsWith('.txt')) continue
+    if (!file.endsWith('.md') && !file.endsWith('.txt')) continue;
 
-    const content = fs.readFileSync(path.join(docsDir, file), 'utf-8')
-    console.log(`Indexando: ${file}`)
+    const content = fs.readFileSync(path.join(docsDir, file), 'utf-8');
+    console.log(`Indexando: ${file}`);
 
-    await addDocument(content, { source: file })
-    console.log(`  ✓ Indexado`)
+    await addDocument(content, { source: file });
+    console.log(`  ✓ Indexado`);
   }
 
-  console.log('Indexacion completa!')
+  console.log('Indexacion completa!');
 }
 
 // Usar:
-indexDocuments('./docs')
+indexDocuments('./docs');
 ```
 
 ---
@@ -404,13 +398,13 @@ $$;
 // Los embeddings del mismo texto son deterministicos
 // Puedes cachearlos para evitar recalcular
 
-import { unstable_cache } from 'next/cache'
+import { unstable_cache } from 'next/cache';
 
 export const getCachedEmbedding = unstable_cache(
   async (text: string) => generateEmbedding(text),
   ['embedding'],
   { revalidate: 3600 * 24 } // 24 horas
-)
+);
 ```
 
 ---
@@ -430,10 +424,11 @@ export const getCachedEmbedding = unstable_cache(
 ## Siguiente Paso
 
 Con RAG configurado, tu agente puede:
+
 - Responder preguntas sobre documentos
 - Citar fuentes de informacion
 - Aprender nuevo conocimiento dinámicamente
 
 ---
 
-*"Un agente sin conocimiento solo puede adivinar. Con RAG, puede informar."*
+_"Un agente sin conocimiento solo puede adivinar. Con RAG, puede informar."_

@@ -1,22 +1,19 @@
-import { expect, test, vi } from 'vitest'
+import { expect, test, vi } from 'vitest';
 
-const {
-  sendOperationalPushNotificationMock,
-  sendWorkflowTransitionEmailMock,
-} = vi.hoisted(() => ({
+const { sendOperationalPushNotificationMock, sendWorkflowTransitionEmailMock } = vi.hoisted(() => ({
   sendOperationalPushNotificationMock: vi.fn().mockResolvedValue(undefined),
   sendWorkflowTransitionEmailMock: vi.fn().mockResolvedValue(undefined),
-}))
+}));
 
 vi.mock('@/lib/push/pushFanout', () => ({
   sendOperationalPushNotification: sendOperationalPushNotificationMock,
-}))
+}));
 
 vi.mock('@/lib/notifications/workflowTransitionEmail', () => ({
   sendWorkflowTransitionEmail: sendWorkflowTransitionEmailMock,
-}))
+}));
 
-import { sendWorkflowNotification } from './workflowFanout'
+import { sendWorkflowNotification } from './workflowFanout';
 
 test('envia correo y push deduplicando destinatarios', async () => {
   await sendWorkflowNotification(
@@ -37,9 +34,9 @@ test('envia correo y push deduplicando destinatarios', async () => {
       pushTag: 'ruta-semanal-enviada',
       data: { rutaId: 'ruta-1' },
     }
-  )
+  );
 
-  expect(sendWorkflowTransitionEmailMock).toHaveBeenCalledTimes(1)
+  expect(sendWorkflowTransitionEmailMock).toHaveBeenCalledTimes(1);
   expect(sendWorkflowTransitionEmailMock).toHaveBeenCalledWith({
     recipients: [
       { email: 'coord@empresa.com', name: 'Coord Uno' },
@@ -49,9 +46,9 @@ test('envia correo y push deduplicando destinatarios', async () => {
     body: 'La ruta semanal fue enviada.',
     ctaLabel: 'Revisar ruta',
     ctaUrl: 'https://beteele-one.com/ruta-semanal',
-  })
+  });
 
-  expect(sendOperationalPushNotificationMock).toHaveBeenCalledTimes(1)
+  expect(sendOperationalPushNotificationMock).toHaveBeenCalledTimes(1);
   expect(sendOperationalPushNotificationMock).toHaveBeenCalledWith({
     employeeIds: ['emp-1', 'emp-2'],
     title: 'Ruta semanal enviada',
@@ -62,5 +59,5 @@ test('envia correo y push deduplicando destinatarios', async () => {
       workflow: 'ruta_enviada_coordinacion',
       rutaId: 'ruta-1',
     },
-  })
-})
+  });
+});

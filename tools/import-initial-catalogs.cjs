@@ -1,50 +1,50 @@
-const fs = require("fs");
-const path = require("path");
-const XLSX = require("xlsx");
-const { Client } = require("pg");
+const fs = require('fs');
+const path = require('path');
+const XLSX = require('xlsx');
+const { Client } = require('pg');
 
-const IMPORT_EFFECTIVE_DATE = "2026-03-14";
-const IMPORT_SOURCE = "catalogos_excel_iniciales";
+const IMPORT_EFFECTIVE_DATE = '2026-03-14';
+const IMPORT_SOURCE = 'catalogos_excel_iniciales';
 
 const FILES = {
-  diasLaborales: "CAT DIAS LABORALES (PARA ASIGNACIONES).xlsx",
-  empleados: "CAT EMPELADOS.xlsx",
-  horariosSanPablo: "CAT HORARIOS SAN PABLO.xlsx",
-  pdvs: "CAT PDV.xlsx",
-  productos: "Catalogo_ISDIN_Nombres_Cortos.xlsx",
-  misiones: "MISIONES_CON_NOMBRES_CORTOS.xlsx",
+  diasLaborales: 'CAT DIAS LABORALES (PARA ASIGNACIONES).xlsx',
+  empleados: 'CAT EMPELADOS.xlsx',
+  horariosSanPablo: 'CAT HORARIOS SAN PABLO.xlsx',
+  pdvs: 'CAT PDV.xlsx',
+  productos: 'Catalogo_ISDIN_Nombres_Cortos.xlsx',
+  misiones: 'MISIONES_CON_NOMBRES_CORTOS.xlsx',
 };
 
 const ROLE_MAP = {
-  administrador: "ADMINISTRADOR",
-  coordinadora_dc: "COORDINADOR",
-  dermoconsejo: "DERMOCONSEJERO",
-  love_isdin: "LOVE_IS",
-  nomina: "NOMINA",
-  reclutamiento: "RECLUTAMIENTO",
-  supervisor: "SUPERVISOR",
-  ventas: "VENTAS",
+  administrador: 'ADMINISTRADOR',
+  coordinadora_dc: 'COORDINADOR',
+  dermoconsejo: 'DERMOCONSEJERO',
+  love_isdin: 'LOVE_IS',
+  nomina: 'NOMINA',
+  reclutamiento: 'RECLUTAMIENTO',
+  supervisor: 'SUPERVISOR',
+  ventas: 'VENTAS',
 };
 
 const CHAIN_CATALOG = {
-  benavides: { codigo: "BEN", factor: 1.2 },
-  chedraui: { codigo: "CHE", factor: 1.2 },
-  city_market: { codigo: "CIT", factor: 1.25 },
-  el_palacio_de_hierro: { codigo: "PAL", factor: 1.5 },
-  especializadas: { codigo: "ESP", factor: 1.0 },
-  f_ahorro_derma: { codigo: "FAH", factor: 1.25 },
-  fleming: { codigo: "FLE", factor: 1.1 },
-  fragua: { codigo: "FRA", factor: 1.1 },
-  fresko: { codigo: "FRK", factor: 1.25 },
-  heb: { codigo: "HEB", factor: 1.25 },
-  la_comer: { codigo: "LAC", factor: 1.25 },
-  liverpool: { codigo: "LIV", factor: 1.5 },
-  san_pablo: { codigo: "SAN", factor: 1.25 },
-  sanapiel: { codigo: "SAP", factor: 1.1 },
-  sanborns: { codigo: "SBN", factor: 1.15 },
-  sears: { codigo: "SEA", factor: 1.15 },
-  sephora: { codigo: "SEP", factor: 1.3 },
-  soriana: { codigo: "SOR", factor: 1.2 },
+  benavides: { codigo: 'BEN', factor: 1.2 },
+  chedraui: { codigo: 'CHE', factor: 1.2 },
+  city_market: { codigo: 'CIT', factor: 1.25 },
+  el_palacio_de_hierro: { codigo: 'PAL', factor: 1.5 },
+  especializadas: { codigo: 'ESP', factor: 1.0 },
+  f_ahorro_derma: { codigo: 'FAH', factor: 1.25 },
+  fleming: { codigo: 'FLE', factor: 1.1 },
+  fragua: { codigo: 'FRA', factor: 1.1 },
+  fresko: { codigo: 'FRK', factor: 1.25 },
+  heb: { codigo: 'HEB', factor: 1.25 },
+  la_comer: { codigo: 'LAC', factor: 1.25 },
+  liverpool: { codigo: 'LIV', factor: 1.5 },
+  san_pablo: { codigo: 'SAN', factor: 1.25 },
+  sanapiel: { codigo: 'SAP', factor: 1.1 },
+  sanborns: { codigo: 'SBN', factor: 1.15 },
+  sears: { codigo: 'SEA', factor: 1.15 },
+  sephora: { codigo: 'SEP', factor: 1.3 },
+  soriana: { codigo: 'SOR', factor: 1.2 },
 };
 
 function parseArgs(argv) {
@@ -52,34 +52,36 @@ function parseArgs(argv) {
 
   for (let index = 0; index < argv.length; index += 1) {
     const current = argv[index];
-    if (current === "--db-url") {
+    if (current === '--db-url') {
       parsed.dbUrl = argv[index + 1] ?? null;
       index += 1;
     }
   }
 
   if (!parsed.dbUrl) {
-    throw new Error("Falta --db-url o DATABASE_URL para conectar a Postgres.");
+    throw new Error('Falta --db-url o DATABASE_URL para conectar a Postgres.');
   }
 
   return parsed;
 }
 
 function stripDiacritics(value) {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
 function normalizeHeaderKey(header) {
   return stripDiacritics(header)
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
 function normalizeWhitespace(value) {
-  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  const text = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return text.length > 0 ? text : null;
 }
 
@@ -99,11 +101,11 @@ function normalizeUsername(value) {
 }
 
 function normalizeNomina(value) {
-  if (value === null || value === undefined || value === "") {
+  if (value === null || value === undefined || value === '') {
     return null;
   }
 
-  if (typeof value === "number" && Number.isFinite(value)) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
     return String(Math.trunc(value));
   }
 
@@ -112,31 +114,31 @@ function normalizeNomina(value) {
     return null;
   }
 
-  const normalized = text.replace(/\.0+$/, "");
+  const normalized = text.replace(/\.0+$/, '');
   return normalized.length > 0 ? normalized : null;
 }
 
 function normalizeBooleanFlag(value) {
-  return normalizeUpperAscii(value) === "SI";
+  return normalizeUpperAscii(value) === 'SI';
 }
 
 function normalizePdvStatus(value) {
-  return normalizeUpperAscii(value) === "NO" ? "INACTIVO" : "ACTIVO";
+  return normalizeUpperAscii(value) === 'NO' ? 'INACTIVO' : 'ACTIVO';
 }
 
 function parseExcelDate(value) {
-  if (value === null || value === undefined || value === "") {
+  if (value === null || value === undefined || value === '') {
     return null;
   }
 
-  if (typeof value === "number" && Number.isFinite(value)) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
     const parsed = XLSX.SSF.parse_date_code(value);
     if (!parsed) {
       return null;
     }
 
-    const month = String(parsed.m).padStart(2, "0");
-    const day = String(parsed.d).padStart(2, "0");
+    const month = String(parsed.m).padStart(2, '0');
+    const day = String(parsed.d).padStart(2, '0');
     return `${parsed.y}-${month}-${day}`;
   }
 
@@ -155,7 +157,7 @@ function parseCoordinates(value) {
     return null;
   }
 
-  const parts = text.split(",").map((item) => Number(item.trim()));
+  const parts = text.split(',').map((item) => Number(item.trim()));
   if (parts.length !== 2 || parts.some((item) => !Number.isFinite(item))) {
     return null;
   }
@@ -167,7 +169,7 @@ function parseCoordinates(value) {
 }
 
 function parseInteger(value, fallback = null) {
-  if (value === null || value === undefined || value === "") {
+  if (value === null || value === undefined || value === '') {
     return fallback;
   }
 
@@ -187,7 +189,7 @@ function clampInteger(value, min, max, fallback) {
 function parseTurnSchedule(rawValue) {
   const raw = normalizeWhitespace(rawValue);
   if (!raw) {
-    return { horario: null, horaEntrada: null, horaSalida: null, tipo: "VACIO" };
+    return { horario: null, horaEntrada: null, horaSalida: null, tipo: 'VACIO' };
   }
 
   const match = raw.match(/(\d{2}:\d{2})\s*a\s*(\d{2}:\d{2})/i);
@@ -196,7 +198,7 @@ function parseTurnSchedule(rawValue) {
       horario: raw,
       horaEntrada: null,
       horaSalida: null,
-      tipo: "ESPECIAL",
+      tipo: 'ESPECIAL',
     };
   }
 
@@ -204,7 +206,7 @@ function parseTurnSchedule(rawValue) {
     horario: raw,
     horaEntrada: match[1],
     horaSalida: match[2],
-    tipo: "RANGO_HORARIO",
+    tipo: 'RANGO_HORARIO',
   };
 }
 
@@ -223,7 +225,7 @@ function readSheetRows(filename) {
 
     for (const [key, value] of Object.entries(row)) {
       const baseKey = normalizeHeaderKey(key);
-      let candidate = baseKey || "columna";
+      let candidate = baseKey || 'columna';
       let suffix = 2;
 
       while (Object.prototype.hasOwnProperty.call(normalized, candidate)) {
@@ -366,7 +368,7 @@ function buildEmployeeRecords(employeeRows, pdvRows) {
       zona: null,
       telefono: normalizeWhitespace(row.telefono_celular),
       correoElectronico: normalizeLowerEmail(row.correo),
-      estatusLaboral: "ACTIVO",
+      estatusLaboral: 'ACTIVO',
       fechaAlta: parseExcelDate(row.fecha_de_ingreso),
       fechaBaja: null,
       metadata: {
@@ -418,18 +420,18 @@ function buildEmployeeRecords(employeeRows, pdvRows) {
       curp: null,
       nss: null,
       rfc: null,
-      puesto: "SUPERVISOR",
+      puesto: 'SUPERVISOR',
       zona,
       telefono: null,
       correoElectronico: null,
-      estatusLaboral: "ACTIVO",
+      estatusLaboral: 'ACTIVO',
       fechaAlta: IMPORT_EFFECTIVE_DATE,
       fechaBaja: null,
       metadata: {
         fuente: IMPORT_SOURCE,
         archivo: FILES.pdvs,
         placeholder: true,
-        origen_placeholder: "catalogo_pdv_sin_empleado_maestro",
+        origen_placeholder: 'catalogo_pdv_sin_empleado_maestro',
       },
       username: null,
     });
@@ -517,8 +519,8 @@ async function upsertUsuarios(client, employeeRecords, employeeIdByNomina) {
     }
 
     const estadoCuenta = employee.correoElectronico
-      ? "PENDIENTE_VERIFICACION_EMAIL"
-      : "PROVISIONAL";
+      ? 'PENDIENTE_VERIFICACION_EMAIL'
+      : 'PROVISIONAL';
 
     await client.query(
       `
@@ -571,6 +573,10 @@ async function upsertProductos(client, productRows) {
     const nombreCorto = normalizeWhitespace(row.nombre_corto);
     const categoria = normalizeUpperAscii(row.categoria);
 
+    const subcategoria = normalizeWhitespace(row.subcategoria);
+    const precio = parseFloat(row.precio || 0);
+    const stockInicial = parseInt(row.stock_inicial || 0, 10);
+
     if (!sku || !nombre || !nombreCorto || !categoria) {
       continue;
     }
@@ -603,7 +609,14 @@ async function upsertProductos(client, productRows) {
         nombreCorto,
         categoria,
         normalizeBooleanFlag(row.top_30),
-        JSON.stringify({ fuente: IMPORT_SOURCE, archivo: FILES.productos }),
+        JSON.stringify({
+          fuente: IMPORT_SOURCE,
+          archivo: FILES.productos,
+          subcategoria,
+          precio_sugerido: precio,
+          stock_inicial: stockInicial,
+          fecha_importacion: new Date().toISOString(),
+        }),
       ]
     );
 
@@ -796,12 +809,7 @@ async function upsertGeocercas(client, pdvRows, pdvIdByClave) {
           permite_checkin_con_justificacion = excluded.permite_checkin_con_justificacion,
           updated_at = now()
       `,
-      [
-        pdvId,
-        coordinates.latitud,
-        coordinates.longitud,
-        clampInteger(row.geocerca_m, 1, 1000, 100),
-      ]
+      [pdvId, coordinates.latitud, coordinates.longitud, clampInteger(row.geocerca_m, 1, 1000, 100)]
     );
 
     total += 1;
@@ -952,21 +960,22 @@ async function upsertConfiguracionCatalogos(client, daysRows, shiftRows, summary
 
   const entries = [
     {
-      clave: "asignaciones.catalogo_dias_laborales",
-      modulo: "asignaciones",
-      descripcion: "Catalogo base de patrones de dias laborales cargado desde Excel operativo.",
+      clave: 'asignaciones.catalogo_dias_laborales',
+      modulo: 'asignaciones',
+      descripcion: 'Catalogo base de patrones de dias laborales cargado desde Excel operativo.',
       valor: daysCatalog,
     },
     {
-      clave: "asistencias.san_pablo.catalogo_turnos",
-      modulo: "asistencias",
-      descripcion: "Catalogo de nomenclaturas y horarios base de SAN PABLO cargado desde Excel operativo.",
+      clave: 'asistencias.san_pablo.catalogo_turnos',
+      modulo: 'asistencias',
+      descripcion:
+        'Catalogo de nomenclaturas y horarios base de SAN PABLO cargado desde Excel operativo.',
       valor: shiftsCatalog,
     },
     {
-      clave: "catalogos.carga_inicial.resumen",
-      modulo: "configuracion",
-      descripcion: "Resumen de la ultima sincronizacion de catalogos operativos iniciales.",
+      clave: 'catalogos.carga_inicial.resumen',
+      modulo: 'configuracion',
+      descripcion: 'Resumen de la ultima sincronizacion de catalogos operativos iniciales.',
       valor: importSummary,
     },
   ];
@@ -1029,7 +1038,7 @@ async function main() {
   await client.connect();
 
   try {
-    await client.query("begin");
+    await client.query('begin');
 
     const cuentaClienteId = await upsertCuentaClienteIsdin(client);
     const chainIdByKey = await upsertCadenas(client, pdvRows);
@@ -1068,7 +1077,7 @@ async function main() {
     };
 
     await upsertConfiguracionCatalogos(client, daysRows, shiftRows, importSummary);
-    await client.query("commit");
+    await client.query('commit');
 
     const dbSummary = await collectSummary(client);
     console.log(
@@ -1082,7 +1091,7 @@ async function main() {
       )
     );
   } catch (error) {
-    await client.query("rollback");
+    await client.query('rollback');
     throw error;
   } finally {
     await client.end();
@@ -1093,4 +1102,3 @@ main().catch((error) => {
   console.error(error.message);
   process.exitCode = 1;
 });
-
