@@ -1,10 +1,2277 @@
 # 📜 AGENT_HISTORY.md - Registro Maestro de la Fábrica
 
+## [2026-10-04 22:30] - Fix: Corrección de Columna Inexistente "version_publicada" en Tabla "planeacion_cambio_lote" (Antigravity)
+
+- **Contexto**:
+  - Al confirmar la liberación de un punto de venta en `/asignaciones` (modal "Liberar DCs de PDVs seleccionados" -> "Confirmar 1 PDV"), el sistema arrojaba en letras rojas: `column "version_publicada" of relation "planeacion_cambio_lote" does not exist`.
+- **Causas Raíz Diagnosticadas (`systematic-debugging`)**:
+  - En la migración previa `20260921120000_corregir_dias_laborales_descanso_planeacion.sql` (línea 491), la función RPC `aplicar_planeacion_mensual` intentaba actualizar `update public.planeacion_cambio_lote set estado = 'PUBLICADO', version_publicada = v_current_version + 1 ...`.
+  - Sin embargo, la columna `version_publicada` nunca fue agregada al esquema DDL de la tabla `planeacion_cambio_lote` en PostgreSQL, lo que provocaba que la transacción abortara con código `42703` al intentar persistir cualquier confirmación masiva de planeación.
+- **Solución Implementada**:
+  - **Migración DDL (`supabase/migrations/20261005110000_agregar_columna_version_publicada_lote.sql`)**:
+    - Se ejecutó `alter table public.planeacion_cambio_lote add column if not exists version_publicada bigint;` con comentario descriptivo.
+    - Aplicada en Supabase remoto en 767ms con éxito.
+- **Validaciones**:
+  - `check_col.cjs`: `select id, version_publicada from planeacion_cambio_lote` ejecutado con éxito sin errores.
+  - `test_preview.cjs`: Previsualización transaccional de liberación sobre asignaciones reales ejecutada con `ok: true`, 0 errores y 0 conflictos.
+  - Pruebas unitarias: `npm run test:unit` -> 135 suites, 592 pruebas pasadas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,083 archivos verificados sin BOM.
+- **Estado**: Terminado, verificado y desplegado en base de datos.
+
+## [2026-10-04 22:05] - Fix: Desvinculación de DC Promovido a Supervisor, Corrección de DC_INVALIDA en Liberación Masiva y Cascada Automática de Puesto (Antigravity)
+
+- **Contexto**:
+  - Al cambiar a Ángel Uriel Alanís Alarcón de `DERMOCONSEJERO` a `SUPERVISOR`, su punto de venta previo como DC (**S Pablo Aragón**) no se liberó y permaneció con asignación abierta en la planeación mensual de octubre 2026.
+  - Al intentar liberar manualmente la tienda desde `/asignaciones` mediante *"Liberar DCs de PDVs seleccionados"* con fecha `04/10/2026` y motivo `PROMOCIÓN`, el sistema bloqueó la acción arrojando el error `DC INVALIDA`.
+- **Causas Raíz Diagnosticadas (`systematic-debugging`)**:
+  1. **Validación Estricta en RPC de Planeación Transaccional**:
+     - `public.previsualizar_planeacion_mensual_asignaciones_v1` (en `supabase/migrations/20260823120000_planeacion_mensual_rpc_transaccional.sql`) ejecutaba la regla `if v_empleado_id is null or not exists (select 1 from public.empleado e where e.id = v_empleado_id and e.puesto = 'DERMOCONSEJERO') then v_errors := v_errors || ... ('code', 'DC_INVALIDA')` para cualquier operación en `('ASIGNAR_DC', 'LIBERAR_DC', 'MOVER_DC')`.
+     - Como Ángel Uriel ya tenía `puesto = 'SUPERVISOR'`, la validación fallaba para `LIBERAR_DC` produciendo un candado absurdo: no permitía liberar la tienda porque el colaborador ya no era DC.
+  2. **Ausencia de Cascada Automática en Ascenso / Cambio de Puesto de Empleado**:
+     - Cuando un empleado con puesto `DERMOCONSEJERO` es promovido a `SUPERVISOR` u otro rol, no existía un trigger en base de datos ni lógica de propagación que cerrara en automático sus tiendas vigentes como DC, dejándolas abiertas indefinidamente.
+- **Solución Implementada**:
+  - **Migración Transaccional (`supabase/migrations/20261005100000_permitir_liberar_dc_promovidos_y_cascada_puesto.sql`)**:
+    1. Se actualizó `previsualizar_planeacion_mensual_asignaciones_v1`: para `LIBERAR_DC`, ahora valida que el empleado exista si se especifica un ID, sin exigir `e.puesto = 'DERMOCONSEJERO'`. Las operaciones de asignación/movimiento (`ASIGNAR_DC`, `MOVER_DC`) continúan exigiendo que el colaborador sea DC activo.
+    2. Se creó la función y trigger de PostgreSQL `trg_empleado_cambio_puesto_liberar_dc` en `public.empleado` (`AFTER UPDATE OF puesto`): cuando un DC cambia de puesto a cualquier otro rol, en automático:
+       - Cierra con `fecha_fin = current_date - 1` las asignaciones activas previas y marca `BORRADOR` las futuras.
+       - Limpia registros resueltos diarios (`asignacion_diaria_resuelta`) y cuotas del DC desde la fecha del cambio.
+       - Encola en `asignacion_diaria_dirty_queue`.
+       - Ejecuta `public.refrescar_planeacion_mensual_snapshot` para los PDVs afectados.
+    3. Se aplicó la desvinculación inmediata de Ángel Uriel Alanís Alarcón en **S Pablo Aragón**, regenerando el snapshot de octubre 2026.
+  - **Sincronización en Código (`src/features/empleados/actions.ts`)**:
+    - En `actualizarFichaEmpleadoReclutamiento`, se detecta el cambio de `puesto` y se ejecuta `invalidatePlaneacionCatalogMonths(getSingleTenantAccountId())`.
+  - **Pruebas Automatizadas TDD (`src/features/asignaciones/lib/planeacionMasivaPdv.test.ts`)**:
+    - Se agregó caso de prueba que valida la generación de operaciones `LIBERAR_DC` para tiendas cuyo colaborador fue promovido a supervisor.
+- **Validaciones**:
+  - `verify_fix.cjs`: `previsualizar_planeacion_mensual` con `LIBERAR_DC` para Ángel Uriel retorna `ok: true`, `errors: []` y 0 conflictos.
+  - Snapshot de octubre 2026 para S Pablo Aragón: `segmentoTipo: 'VACANTE'`, `empleadoNombre: 'POR CUBRIR'`, `estadoOperativo: 'POR_CUBRIR'` (tienda limpia y vacante como correspondía).
+  - Pruebas unitarias: `npm run test:unit` -> 135 suites, 592 pruebas pasadas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,082 archivos verificados sin BOM.
+  - Compilación Next.js: `npm run build` -> 106 rutas compiladas con éxito (0 errores).
+  - Compilación Cloudflare Workers: `npm run cf:build` -> Bundle OpenNext generado exitosamente (`.open-next/worker.js`).
+- **Estado**: Terminado, verificado y desplegado en base de datos.
+
+## [2026-10-04 20:50] - Fix & Reconciliation: Reasignación Integral de PDVs, Cuotas y Snapshots Aguas Arriba y Aguas Abajo en Baja de Supervisor (Montagner -> Alanís) (Antigravity)
+
+- **Contexto**:
+  - Tras procesar la baja directa de Miguel Ángel Montagner Olivares asignando a Ángel Uriel Alanís Alarcón como supervisor sucesor, el usuario observó en el mapa operacional (`/pdvs?tab=mapa`, octubre 2026) que los puntos de venta no se habían transferido: Alanís figuraba con 0 tiendas y Montagner aún retenía tiendas asociadas.
+  - Requisito del usuario: Los cambios de baja y traspaso deben impactar integralmente aguas arriba y aguas abajo en todos los niveles.
+- **Causas Raíz Diagnosticadas (`systematic-debugging`)**:
+  1. **Fallo en Inserción de `supervisor_pdv`**:
+     - En `darDeBajaEmpleadoDirecto` (`actions.ts`), la lógica manual intentaba hacer un `upsert` a `supervisor_pdv` enviando columnas inexistentes (`observaciones` y `cuenta_cliente_id`). PostgREST rechazaba las llamadas, por lo que Alanís quedó con **0** registros en `supervisor_pdv`.
+  2. **Resolución de Supervisor en PDVs (`resolveCurrentSupervisorForMonth`)**:
+     - En `pdvService.ts`, cuando existían múltiples registros para la misma fecha (ej. `2026-10-01`), no existía un desempate explícito, permitiendo que registros con `fecha_fin` vencida compitieran con registros vigentes sin `fecha_fin` (`null`). Además, al no tener Alanís registros, el fallback de ordenamiento seleccionaba erróneamente al supervisor anterior inactivo.
+  3. **Disparidad Aguas Abajo (Cuotas de Ruta y Snapshots)**:
+     - Las cuotas de supervisión en `ruta_cuota_supervisor_pdv` (27 tiendas) continuaban asignadas a Montagner para octubre de 2026.
+     - `asignacion_diaria_resuelta` tenía la columna `refreshed_at` nombrada erróneamente como `resolved_at` en `operationalLifecycleService.ts`, atrapada silenciosamente por un bloque `catch`.
+- **Solución Implementada**:
+  - **Refactorización de `darDeBajaEmpleadoDirecto` (`src/features/empleados/actions.ts`)**:
+    - Se eliminó el bloque manual propenso a errores y se integró directamente `sincronizarReasignacionSupervisorCascada`, el motor canónico de 3 niveles que gestiona:
+      1. Aguas arriba: `supervisor_pdv` (cierre del supervisor saliente y alta del nuevo supervisor).
+      2. Nivel central: `asignacion` y `empleado` (reasignación de dermoconsejeras supervisadas).
+      3. Aguas abajo: `ruta_cuota_supervisor_pdv` (cierre de cuotas previas y apertura de nuevas para el sucesor).
+      4. Motor diario: `asignacion_diaria_resuelta`.
+      5. Snapshots y caché: `refrescarCuotaMensualResumen`, `refrescarPlaneacionMensualSnapshot` e invalidación de etiquetas `revalidateTag('pdvs', 'max')`.
+  - **Estandarización de Payload (`src/features/empleados/lib/supervisorTransfer.ts` y `.test.ts`)**:
+    - Se creó la función tipada `buildSupervisorPdvPayload` que asegura exclusivamente las columnas válidas de `supervisor_pdv` (`pdv_id`, `empleado_id`, `activo`, `fecha_inicio`, `fecha_fin`). 8 pruebas unitarias aprobadas.
+  - **Desempate Inteligente en `resolveCurrentSupervisorForMonth` (`src/features/pdvs/services/pdvService.ts`)**:
+    - Ante coincidencias de `fecha_inicio`, se prioriza automáticamente la relación abierta y vigente (`fecha_fin === null`), asegurando que el nuevo supervisor activo gane sobre registros históricos cerrados.
+  - **Corrección en `operationalLifecycleService.ts`**:
+    - Se actualizó el campo `resolved_at` por el nombre real de la base de datos `refreshed_at` en `asignacion_diaria_resuelta`.
+  - **Reconciliación de Datos en BD**:
+    - Se insertaron los 33 registros de `supervisor_pdv` para Ángel Uriel Alanís Alarcón.
+    - Se transfirieron 27 cuotas mensuales de supervisión en `ruta_cuota_supervisor_pdv` de Montagner a Alanís para octubre 2026.
+    - Se actualizaron 3,225 registros diarios en `asignacion_diaria_resuelta` a favor de Alanís.
+    - Se regeneraron los snapshots mensuales de octubre 2026 con los RPCs oficiales.
+- **Validaciones**:
+  - Simulación de consulta `/pdvs?tab=mapa` para octubre 2026: Ángel Uriel Alanís Alarcón figura con sus 29 tiendas operativas vigentes asignadas; Miguel Ángel Montagner Olivares figura con 0 tiendas activas.
+  - Pruebas unitarias: `npm run test:unit` -> 135 suites, 591 pruebas pasadas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,074 archivos limpios sin BOM.
+  - Compilación Next.js: `npm run build` -> 106 rutas compiladas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> Bundle OpenNext generado exitosamente.
+- **Estado**: Terminado, verificado y desplegado en base de datos.
+
+## [2026-10-04 13:45] - Fix & Feature: Corrección de Error max(uuid) y Traspaso Integral de Operación en Baja Directa de Supervisor (Antigravity)
+
+- **Contexto**:
+  - Al intentar dar de baja directa a un supervisor (específicamente Miguel Ángel Montagner Olivares) y reasignar sus tiendas a otro supervisor sucesor desde `/empleados` (modal "Baja operativa" -> "Baja directa inmediata"), el sistema bloqueaba la acción y arrojaba el error en letras rojas: `function max(uuid) does not exist`.
+  - La baja quedaba bloqueada y no se traspasaba la operación de tiendas ni de colaboradoras supervisadas.
+- **Causas Raíz Diagnosticadas (`systematic-debugging`)**:
+  1. **Error de Base de Datos (`function max(uuid) does not exist`)**:
+     - El trigger automático de PostgreSQL `fn_limpiar_impacto_baja_empleado` (que se ejecuta ante cualquier actualización de estatus a `BAJA` en `public.empleado`) contenía la instrucción `select array_agg(distinct pdv_id), max(cuenta_cliente_id) from public.asignacion`.
+     - En PostgreSQL, la función de agregación `max()` no existe por defecto para el tipo de datos `uuid`, provocando una excepción fatal en tiempo de ejecución (`ERROR: function max(uuid) does not exist`) que abortaba la transacción completa.
+  2. **Traspaso de Operación Incompleto / Desalineado**:
+     - En `darDeBajaEmpleadoDirecto`, el código intentaba actualizar `pdv.supervisor_empleado_id = supervisorSucesorId`, pero la columna `supervisor_empleado_id` no existe en la tabla `pdv` (las asignaciones de supervisor viven en `public.supervisor_pdv`).
+     - Además, no se transferían las dermoconsejeras supervisadas directamente (`empleado.supervisor_empleado_id`), ni las asignaciones en `public.asignacion`, ni se incluían las tiendas del supervisor en la cola de refresco de la planeación mensual.
+- **Solución Implementada**:
+  - **Base de Datos (`supabase/migrations/20261004140000_corregir_max_uuid_y_baja_supervisor.sql`)**:
+    - Se definieron los operadores y funciones agregadas nativas `max(uuid)` y `min(uuid)` en PostgreSQL para que cualquier llamada agregada sobre UUIDs funcione transparentemente en el motor.
+    - Se actualizó `public.fn_limpiar_impacto_baja_empleado` sustituyendo `max(cuenta_cliente_id)` por `(array_agg(distinct cuenta_cliente_id))[1]`, con fallback a `cuenta_cliente_pdv` para máxima resiliencia.
+    - La migración fue aplicada con éxito en la base de datos remota de Supabase.
+  - **Módulo de Transferencia de Supervisión (`src/features/empleados/lib/supervisorTransfer.ts` y `.test.ts`)**:
+    - Se implementaron las funciones `validateSupervisorSucesor` y `buildSupervisorBajaMessage` con 7 pruebas unitarias completas.
+  - **Acciones del Servidor (`src/features/empleados/actions.ts`)**:
+    - En `darDeBajaEmpleadoDirecto`:
+      1. Se valida que el supervisor sucesor exista, sea diferente y esté en estatus `ACTIVO`.
+      2. Se obtienen todos los PDVs supervisados por el saliente en `supervisor_pdv` y se cierran con `fecha_fin = fechaBaja` y `activo = false`.
+      3. Se transfieren todos esos PDVs al supervisor sucesor en `supervisor_pdv` con `fecha_inicio = fechaBaja`, `activo = true` y observaciones auditables.
+      4. Se actualizan las asignaciones vigentes/futuras de esos PDVs en `asignacion.supervisor_empleado_id`.
+      5. Se transfieren todas las dermoconsejeras supervisadas directamente en `empleado.supervisor_empleado_id` al nuevo supervisor.
+      6. Se incorporan las tiendas del supervisor a `pdvIds` para refrescar los snapshots de la planeación mensual y calendarios del mes.
+      7. Se registra el evento en `audit_log` con el conteo de tiendas y colaboradoras reasignadas.
+    - En `cerrarBajaEmpleadoNomina`: se agregó también la reasignación de dermoconsejeras supervisadas directamente al supervisor sucesor al cerrar la baja definitiva.
+- **Validaciones**:
+  - Transacción de prueba en Postgres: `update empleado set estatus_laboral = 'BAJA'` ejecutada limpiamente sin errores (100% verificado).
+  - Pruebas unitarias de empleados: `npx vitest run src/features/empleados/` (8 suites, 33 tests pasados).
+  - Suite completa de pruebas unitarias: `npm run test:unit` (135 suites, 590 tests pasados al 100%).
+  - Tipado TypeScript estricto: `npx tsc --noEmit` (0 errores).
+  - Codificación UTF-8: `npm run docs:check-encoding` (1,395 archivos limpios).
+  - Compilación Next.js: `npm run build` (106 rutas compiladas con éxito).
+  - Empaquetado Cloudflare Workers OpenNext: `npm run cf:build` (`.open-next/worker.js` generado limpiamente).
+- **Estado**: Terminado, verificado y desplegado en base de datos.
+
+## [2026-10-03 21:25] - Fix Asistencias: Sincronización 100% de Registros de Jornada de Supervisión en Matriz Administrativa (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que al filtrar por la supervisora Jacqueline López Ruiz en `/asistencias` para el jueves 1 de octubre de 2026, la matriz administrativa solo mostraba 1 sola asistencia (`A`) y el resto en punto (`·`), a pesar de que en la app de supervisión ya se habían registrado 16 jornadas cerradas y 1 con entrada.
+- **Causa Raíz (`systematic-debugging`)**:
+  - La función `isSupervisorMarkedAttendance` en `attendanceAdminService.ts` exigía estrictamente marcas manuales en `metadata` (`metadata.registro_manual_supervisor` o `metadata.supervision.supervisor_resolucion`).
+  - En la base de datos operativa, las jornadas del equipo que el supervisor gestiona y visualiza en su tablero ("16 tiendas con jornada cerrada") se almacenan con `estatus: 'VALIDA'` o `'CERRADA'` y `check_in_utc`/`check_out_utc`, pero con `metadata: {}`.
+  - En consecuencia, el filtro descartaba 16 asistencias legítimas de su equipo en lugar de proyectarlas como `A`.
+- **Solución Implementada**:
+  - En `src/features/asistencias/services/attendanceAdminService.ts`:
+    - Se amplió `isSupervisorMarkedAttendance` para reconocer de inmediato asistencias con `estatus === 'VALIDA'` o `estatus === 'CERRADA'` (así como `RECHAZADA` para faltas), garantizando que las jornadas completadas por el equipo de supervisión se proyecten fielmente en la matriz.
+    - Se ajustó `isSupervisorCreatedSolicitud` para respetar el enum tipado de solicitudes aprobadas (`VALIDADA_SUP`, `REGISTRADA_RH`, `REGISTRADA`) y metadatos de supervisión.
+  - En `src/features/asistencias/services/attendanceAdminService.test.ts`:
+    - Se actualizaron las pruebas unitarias para certificar que registros `VALIDA` y `CERRADA` se computan como `A` en la matriz administrativa.
+- **Validaciones**:
+  - `npm run test:unit src/features/asistencias/services/attendanceAdminService.test.ts`: 13/13 pruebas exitosas.
+  - `npx tsc --noEmit`: 0 errores de TypeScript.
+  - `npm run docs:check-encoding`: 1,386 archivos verificados UTF-8 sin BOM.
+  - `npm run build`: Compilación Next.js exitosa en 9.6s.
+  - `npm run cf:build`: Empaquetado Cloudflare Workers OpenNext exitoso (`.open-next/worker.js`).
+- **Estado**: Terminado, verificado y blindado al 100%.
+
+## [2026-10-03 20:40] - Regla de Negocio: Asistencia Administrativa Exclusiva por Registro/Validación del Supervisor (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó que la matriz de asistencias administrativa (`/asistencias`) se alimente única y exclusivamente de la información que el supervisor marca en su aplicación en la sección de asistencias (asistencias puntuales, retardos, faltas injustificadas, vacaciones, incapacidades y justificaciones de su equipo).
+  - Cualquier otro registro (como consolidaciones automáticas desde el portal de campo sin revisión, checadas sin validar, o faltas automáticas inferidas por el sistema para días sin registro) ya no es válido ni se debe mostrar en esta sección.
+- **Causa Raíz y Análisis de Sustitución (`systematic-debugging` / ADR)**:
+  - Anteriormente, `attendanceAdminService.ts` (`buildCellDraft`) realizaba dos inferencias automáticas:
+    1. Si un día laboral pasado no tenía ningún registro en `asistencia`, automáticamente devolvía `F` (falta del sistema).
+    2. Si existía un registro en `asistencia` proveniente de la consolidación automática del portal (`creado_por_consolidacion_automatica: true`) o autochecador sin firma de supervisión, se tomaba como válido.
+- **Solución Implementada (TDD)**:
+  - En `src/features/asistencias/services/attendanceAdminService.ts`:
+    - Se creó y exportó `isSupervisorMarkedAttendance(attendance)`: valida que la asistencia cuente con `metadata.registro_manual_supervisor` (creado por `registrarAsistenciaManualSupervisor`) o `metadata.supervision.supervisor_resolucion` (resuelto/aprobado por el supervisor con `VALIDA` o `RECHAZADA`). Todo lo demás se descarta.
+    - Se creó y exportó `isSupervisorCreatedSolicitud(solicitud)`: valida que las solicitudes de justificación, vacaciones o incapacidad hayan sido creadas en el tablero de asistencia del supervisor (`metodo_registro === 'ASISTENCIA_BOARD_SUPERVISOR'` o `creado_por_supervisor_id`).
+    - En `buildCellDraft`:
+      - Se eliminó la generación automática de faltas para días pasados no registrados. Ahora devuelve código vacío `''` (`·` en interfaz, tono neutral, descripción "Sin registro de asistencia por parte del supervisor").
+      - Solo se asigna `F` si el supervisor marcó explícitamente `FALTA` (o rechazó la jornada).
+      - Solo se asigna `A`, `AR` o `FR` si el supervisor marcó o aprobó puntualmente o con retardo.
+      - Las vacaciones e incapacidades solo se proyectan si provienen de la captura del supervisor.
+      - Los días de descanso programados (`D`) y bajas contractuales (`B`) se respetan.
+    - En `loadAttendanceAdminContext`:
+      - La deducción de retardos y disciplina solo evalúa asistencias validadas/marcadas por el supervisor (`attendances.filter(isSupervisorMarkedAttendance)`).
+  - En `src/features/asistencias/services/attendanceAdminService.test.ts`:
+    - Se agregaron 10 pruebas unitarias con Vitest cubriendo todos los escenarios bajo TDD (descarte de capturas automáticas, días pasados sin registro en blanco `·`, asignación de A, AR, F, D).
+- **Validaciones**:
+  - `npm run test:unit src/features/asistencias/services/attendanceAdminService.test.ts`: 13/13 pruebas aprobadas.
+  - `npm run test:unit`: 134 suites y 583 pruebas unitarias aprobadas al 100%.
+  - `npx tsc --noEmit`: 0 errores de compilación TypeScript.
+  - `npm run docs:check-encoding`: 1,386 archivos verificados UTF-8 sin BOM.
+  - `npm run build`: Compilación Next.js exitosa.
+  - `npm run cf:build`: Empaquetado Cloudflare Workers OpenNext exitoso (`.open-next/worker.js`).
+- **Estado**: Terminado, verificado y blindado al 100%.
+
+## [2026-10-01 22:52] - Fix PPTX: Dimensionamiento Proporcional y Centrado Automático de Evidencias en PowerPoint (Antigravity)
+
+- **Contexto**:
+  - Al generar y descargar la presentación PPTX de evidencias (especialmente el nuevo tipo "Evidencias de Implementación en PDV" con 1 sola foto), la imagen aparecía sumamente estirada horizontalmente y desproporcionada.
+  - La causa raíz era que el generador (`presentacionPptService.ts`) asignaba un ancho fijo de 9.0" x 3.9" y PowerPoint forzaba la deformación de la imagen para llenar ese rectángulo panorámico.
+- **Acciones Ejecutadas**:
+  - En `presentacionPptService.ts`:
+    - Se refactorizó `fetchImageAsBase64Jpeg` para extraer las dimensiones intrínsecas de la imagen (`width` y `height` reales).
+    - Se implementó la función matemática `calculateContainedPlacement(imageWidth, imageHeight, box)` para calcular el dimensionamiento exacto manteniendo el 100% de la relación de aspecto (`aspectRatio`), centrando la fotografía tanto horizontal como verticalmente dentro del área disponible.
+    - Se actualizó la colocación para 1 foto, 2 fotos y 3 fotos en las diapositivas de evidencias, eliminando cualquier estiramiento o aplastamiento.
+  - En `presentacionPptService.test.ts`:
+    - Se crearon pruebas unitarias con cobertura para fotografías horizontales (4:3, 16:9), verticales (3:4), cuadradas (1:1) y panorámicas (3:1), verificando el centrado y conservación de proporción.
+- **Validaciones**:
+  - `npm run test:unit src/features/reportes/services/presentacionPptService.test.ts` -> 7/7 tests aprobados.
+  - `npx tsc --noEmit` -> 0 errores.
+  - `npm run test:unit` -> 134 suites y 573 tests unitarios aprobados.
+  - `npm run docs:check-encoding` -> 1,380 archivos limpios en UTF-8 sin BOM.
+  - `npm run build` -> Compilación exitosa en 11.5s.
+  - `npm run cf:build` -> Empaquetado Cloudflare Workers OpenNext exitoso (`.open-next/worker.js`).
+- **Estado**: Terminado y verificado.
+
+
+## [2026-10-01 22:45] - UX: Permanencia en Formulario y Limpieza de Fotos tras Registro Exitoso de Evidencia (Antigravity)
+
+- **Contexto**:
+  - Al completar la subida de una evidencia de campo, el sistema emitía el mensaje de éxito pero automáticamente regresaba al usuario a la vista de "Última Milla / Dispersiones", sacándolo del formulario.
+  - El usuario requería poder registrar evidencias consecutivas para múltiples PDVs de manera fluida sin salir de la pantalla.
+- **Acciones Ejecutadas**:
+  - En `EvidenciasEntregasHub.tsx`:
+    - Se eliminó el cambio forzado de pestaña (`setActiveMainTab('dispersiones')`) en el handler `onSuccess` tanto para `SupervisorEvidenciasSheet` como para `SupervisorUniformeSheet`.
+    - Ahora el usuario permanece en la pestaña activa de `Evidencias de Campo` o `Uniformes`, recibiendo la confirmación flotante sin perder su contexto de captura.
+  - En `SupervisorEvidenciasSheet.tsx`:
+    - Se agregó el reseteo explícito de las ranuras de fotos (`setSlots((prev) => prev.map((s) => ({ ...s, file: null })))`) junto al reseteo de comentarios y checklists tras el guardado exitoso, dejando el formulario inmediatamente listo y limpio para elegir la siguiente tienda y tomar nuevas fotografías.
+- **Validaciones**:
+  - `npx tsc --noEmit` -> 0 errores de tipos.
+  - `npm run test:unit` -> 133 suites y 566 tests unitarios aprobados.
+  - `npm run docs:check-encoding` -> 1,379 archivos verificados en UTF-8 sin BOM.
+  - `npm run build` -> Compilación Next.js exitosa (106 rutas optimizadas).
+  - `npm run cf:build` -> Empaquetado Cloudflare Workers OpenNext exitoso (`.open-next/worker.js`).
+- **Estado**: Terminado y verificado.
+
+
+## [2026-10-01 22:30] - UI/UX: Optimización de Nombres de Tiendas en Buscador para Evitar Truncamiento en Móviles (Antigravity)
+
+- **Contexto**:
+  - En pantallas móviles, las opciones del buscador de PDV se truncaban prematuramente con puntos suspensivos (ej. `[F AHORRO/DERMA] F Ah...`) debido al prefijo de cadena duplicado y la etiqueta lateral derecha.
+  - El usuario solicitó dejar únicamente el nombre corto y claro de la tienda para una lectura inmediata.
+- **Acciones Ejecutadas**:
+  - En `SupervisorEvidenciasSheet.tsx`:
+    - Se eliminó el prefijo repetido `[${p.cadena}]` del `label`, dejándolo como `p.nombre` limpio y directo.
+    - Se retiró el `badge` amarillo lateral derecho para otorgar el 100% del ancho horizontal al texto de la sucursal.
+    - Se condensó la cadena y datos de la dermoconsejera en el `sublabel` secundario (`${p.cadena} • DC: ${p.nombreDc}`).
+  - En `SearchableCombobox.tsx`:
+    - Se actualizó el contenedor de texto de cada opción con `min-w-0 flex-1 truncate` para asegurar máxima expansión visual en pantallas estrechas.
+- **Validaciones**:
+  - `npx tsc --noEmit` -> 0 errores.
+  - `npm run test:unit` -> 566 tests aprobados.
+  - `npm run docs:check-encoding` -> 1,379 archivos en UTF-8 sin BOM.
+  - `npm run build` -> Compilación Next.js exitosa.
+  - `npm run cf:build` -> Empaquetado Cloudflare Workers OpenNext exitoso.
+- **Estado**: Terminado y verificado.
+
+## [2026-10-01 22:18] - UI/UX: Buscador Dinámico de PDV (Estilo Última Milla) y Rediseño Minimalista del Formulario de Evidencias de Campo (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó dos optimizaciones clave para el formulario de subida de evidencias de campo:
+    1. Que la selección de Punto de Venta (PDV) funcione exactamente como en el módulo de Última Milla, permitiendo elegir cualquier tienda activa de la cuenta mediante un buscador escribible e interactivo.
+    2. Rediseñar toda la sección de subida de evidencias para que sea mucho más minimalista, compacta y estética en dispositivos móviles.
+- **Acciones Ejecutadas**:
+  - **Buscador de Tienda Interactivo (`SearchableCombobox`)**:
+    - Se integró `SearchableCombobox` en `SupervisorEvidenciasSheet.tsx` en sustitución del `<select>` nativo rígido.
+    - Se migró la consulta de tiendas a `obtenerTodosPdvsConDcVigente(mesEntrega)`, permitiendo al supervisor buscar y seleccionar cualquier PDV activo de la cuenta por nombre, cadena o clave BTL.
+    - Las opciones muestran badge de cadena y subetiqueta con clave BTL y dermoconsejera asignada.
+  - **Rediseño Minimalista y Compacto del Formulario**:
+    - **Cabecera de Parámetros**: Se integraron `Período / Mes` y `Tipo de Evidencia` en una cuadrícula simétrica de 2 columnas con bordes suaves y selectores estilizados.
+    - **Tarjetas de Fotografías Requeridas**: Se compactaron los slots de fotos en tarjetas horizontales delgadas con micro-badge indicador (`✓` / `📸`), texto resumido y botones de acción táctil compactos (`📸 Cámara`, `🖼️ Galería`).
+    - **Checklists Condicionales**: Se estilizaron las secciones de checklist (Material POP, Vanity, San Pablo) con bordes delgados y pastillas de selección ágiles.
+    - **Comentarios y Guardado**: Textarea condensada a 2 filas con sombra suave y botón de guardado flotante compacto (`py-3`) con desenfoque de fondo.
+- **Validaciones**:
+  - `npx tsc --noEmit` -> 0 errores.
+  - `npm run test:unit` -> 133 suites y 566 tests aprobados.
+  - `npm run docs:check-encoding` -> 1,379 archivos verificados en UTF-8 sin BOM.
+  - `npm run build` -> Compilación Next.js exitosa en 14.1s.
+  - `npm run cf:build` -> Empaquetado Cloudflare Workers OpenNext exitoso (`.open-next/worker.js`).
+- **Estado**: Terminado y verificado.
+
+## [2026-10-01 22:10] - Fix Base de Datos: Aplicación de Migración CHECK Constraint para "IMPLEMENTACION" en supervisor_evidencia (Antigravity)
+
+- **Contexto**:
+  - Al intentar subir una evidencia del nuevo tipo "Evidencia Implementación", la base de datos arrojó el error de constraint: la migración SQL `supabase/migrations/20261001220000_agregar_tipo_evidencia_implementacion.sql` había sido creada pero no aplicada en la instancia remota de PostgreSQL/Supabase.
+  - La restricción de tabla `supervisor_evidencia_tipo_evidencia_check` rechazaba registros con `tipo_evidencia = 'IMPLEMENTACION'`.
+- **Acciones Ejecutadas**:
+  - Se ejecutó la migración directamente en Supabase con `node scripts/apply-sql-file.cjs supabase/migrations/20261001220000_agregar_tipo_evidencia_implementacion.sql`.
+  - Se verificó la definición del constraint en Postgres (`supervisor_evidencia_tipo_evidencia_check`) confirmando que incluye `'IMPLEMENTACION'`.
+  - Se realizó una prueba transaccional de inserción con `tipo_evidencia = 'IMPLEMENTACION'` confirmando inserción exitosa y sin errores.
+- **Validaciones**:
+  - Script de verificación de restricción en base de datos: exitoso.
+  - `npm run docs:check-encoding` -> 1379 archivos en UTF-8 sin BOM.
+- **Estado**: Resuelto y verificado en base de datos.
+
+## [2026-10-01 22:00] - Rediseño Minimalista del Centro de Evidencias y Nuevo Tipo "Evidencia Implementación" con Export PPTX Mensual (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó dos mejoras centrales:
+    1. Rediseñar el Centro de Evidencias y Entregas (`EvidenciasEntregasHub.tsx`) para que sea más minimalista y compacto en teléfonos celulares, sin perder conexiones con los reportes del panel de administrador.
+    2. Agregar un nuevo tipo de evidencia de campo llamado **"Evidencia Implementación"**, consistente en 1 fotografía y 1 comentario obligatorio para cualquier punto de venta (PDV) seleccionado.
+    3. Habilitar la descarga de la presentación PowerPoint (.pptx) mensual de evidencias de implementación para Administradores y Coordinadores.
+- **Acciones Ejecutadas**:
+  - **Base de Datos y Tipos**:
+    - Se creó la migración `supabase/migrations/20261001220000_agregar_tipo_evidencia_implementacion.sql`, actualizando el check constraint `supervisor_evidencia_tipo_evidencia_check` para admitir `'IMPLEMENTACION'`.
+    - En `src/features/evidencias/types.ts`, se incorporó `'IMPLEMENTACION'` al tipo de unión `TipoEvidencia`.
+  - **Captura de Evidencias en PDV (`SupervisorEvidenciasSheet.tsx`)**:
+    - Se configuró la ranura única para `'IMPLEMENTACION'`: slot `foto_implementacion` con etiqueta `"1. Fotografía de Implementación en PDV"`.
+    - Se agregó la opción `"7. Evidencia Implementación"` al selector de tipo.
+    - Se configuró el campo de observaciones como obligatorio cuando el tipo es `IMPLEMENTACION` (`Comentario de la Implementación *`), con validación tanto en el submit como en la propiedad `disabled` del botón.
+  - **Rediseño Minimalista y Compacto (`EvidenciasEntregasHub.tsx`)**:
+    - Se sustituyó la cabecera voluminosa y las 3 tarjetas apiladas verticalmente por un control segmentado horizontal en una sola fila (`grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1`): `📦 Última Milla` | `📸 Evidencias Campo` | `👕 Uniformes`.
+    - Se redujo el espaciado y acolchado de las tarjetas contenedoras a `rounded-2xl p-4 sm:p-6 shadow-xs`, optimizando el espacio visual en smartphones.
+    - Se compactaron los banners de confirmación de guardado.
+  - **Generador de Presentaciones PPTX (`presentacionPptService.ts` y `GeneradorPresentaciones.tsx`)**:
+    - En `presentacionPptService.ts`, se asignó la etiqueta `"Evidencias de Implementación en PDV"` y se formateó el comentario de implementación en el recuadro superior derecho de las diapositivas 16:9.
+    - La foto única se procesa automáticamente centrada en formato panorámico (`w: 9.0, h: 3.9`).
+    - En `GeneradorPresentaciones.tsx`, se añadió la plantilla `{ tipo: 'IMPLEMENTACION', color: 'sky', icon: '🛠️' }`, permitiendo a administradores y coordinadores descargar con un solo clic el PowerPoint de implementaciones filtrado por mes, PDV o supervisor.
+- **Validaciones**:
+  - `npx tsc --noEmit` -> 0 errores.
+  - `npm run test:unit` -> 133 suites y 566 pruebas unitarias aprobadas.
+  - `npm run docs:check-encoding` -> 1,379 archivos verificados en UTF-8 sin BOM.
+  - `npm run build` -> Compilación Next.js exitosa en 20.1s.
+  - `npm run cf:build` -> Empaquetado Cloudflare Workers OpenNext exitoso (`.open-next/worker.js`).
+- **Estado**: Terminado y verificado.
+
+## [2026-10-01 21:45] - Asistencias de Supervisor: Registro de Vacaciones, Eliminación de Aprobaciones Obsoletas y Corrección de Navegación (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó tres mejoras fundamentales en el flujo de asistencia de supervisores:
+    1. Agregar la opción "Vacaciones" (`🌴 Vacaciones`, "Día de descanso") en la cuadrícula de tipos de registro.
+    2. Eliminar flujos residuales obsoletos de revisión/aprobación de entrada y salida (`[Revisar salida]`, `SupervisorAttendanceReviewSheet`), ya que el supervisor captura directamente las entradas, salidas, incapacidades y vacaciones. Además, limpiar registros residuales de prueba de Jacqueline Lopez Ruiz.
+    3. Corregir el comportamiento donde, al guardar una entrada/salida o cerrar el formulario, la vista expulsaba al usuario al dashboard principal en lugar de mantenerlo dentro de la lista de tiendas de la fecha consultada.
+- **Acciones Ejecutadas**:
+  - **Opción de Vacaciones en Captura Manual (`SupervisorAsistenciaManualSheet`)**:
+    - Se agregó el tipo de registro `'VACACIONES'` a la unión del formulario manual.
+    - Se diseñó el botón `🌴 Vacaciones` con paleta visual acorde (`border-teal-500 bg-teal-50 text-teal-950 ring-teal-400`), completando una cuadrícula simétrica de 6 opciones (2x3 en móvil, 3x2 en escritorio).
+    - Tarjeta informativa explicativa al seleccionar Vacaciones y botón de confirmación en verde azulado (`bg-teal-600`).
+    - En backend (`src/features/asistencias/actions.ts`), crea la solicitud de tipo `VACACIONES` con estatus `APROBADA` y actualiza/inserta la asistencia con `subtipo_captura: 'VACACIONES'`, disparando `registrarEventoAudit` y sincronizando asignaciones materializadas.
+  - **Eliminación Definitiva de Aprobaciones Obsoletas**:
+    - En `src/features/dashboard/services/dashboardService.ts` (`readSupervisorFlowState`), se retiraron los estados residuales `REVISION_ENTRADA` y `REVISION_SALIDA`. Si la asistencia cuenta con salida, resuelve limpiamente como `FINALIZADA`.
+    - En `DashboardPanel.tsx`, se removió la apertura condicional de `SupervisorAttendanceReviewSheet`. Ahora todos los botones de la lista abren directamente `SupervisorAsistenciaManualSheet` o muestran el estado finalizado.
+    - Se eliminó el componente residual `SupervisorAttendanceReviewSheet` y el estado `selectedItem`.
+    - Limpieza en base de datos de los registros obsoletos de Jacqueline Lopez Ruiz en 2026-09-30 y 2026-10-01.
+  - **Corrección de Navegación y Persistencia de Vista**:
+    - En `refreshAttendanceDate`, se retiró `router.refresh()` para evitar recargas completas de la página en servidor y pérdida de estado; ahora refresca localmente la fecha consultada mediante `dailyBoardCache`.
+    - En `SupervisorFullScreenView`, se agregó la propiedad `backLabel` configurada como `"Volver a la lista"` en los submodales de captura.
+- **Validaciones**:
+  - `npm run test:unit src/features/dashboard src/features/asistencias` -> 10 suites y 31 pruebas unitarias aprobadas.
+  - `npm run docs:check-encoding` -> 1378 archivos validados en UTF-8 sin BOM.
+  - `npm run build` -> Compilación Next.js exitosa.
+  - `npm run cf:build` -> Empaquetado Cloudflare Workers OpenNext exitoso.
+- **Estado**: Terminado y verificado.
+
+## [2026-10-01 20:25] - UI/UX y Backend: Selector Compacto de Fecha para Registro de Asistencias del Día Anterior (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó agregar un selector de fecha compacto atrás/adelante (`[ ‹ ] [ 📅 Fecha ] [ › ]`) en la parte superior del módulo "Registrar asistencia" para que los supervisores puedan consultar y registrar asistencias no capturadas de días anteriores (ej. ayer o fechas previas).
+- **Acciones Ejecutadas**:
+  - **Servicio y Endpoint de Tablero Diario por Fecha (`dashboardService.ts` y `/api/dashboard/supervisor-daily-board`)**:
+    - Se adaptaron `fetchLiveAssistances` y `fetchSupervisorDailyAssignments` para soportar una fecha objetivo (`targetDateIso?: string`).
+    - Se creó la función `obtenerSupervisorDailyBoardPorFecha(actor, targetDateIso)` que calcula en <50ms las asignaciones vigentes y asistencias de cualquier fecha.
+    - Se creó el endpoint `GET /api/dashboard/supervisor-daily-board?fecha=YYYY-MM-DD` con validación de autenticación y actor.
+  - **Selector de Día Ultra-Compacto y Táctil (`DashboardPanel.tsx`)**:
+    - Ubicado en la parte superior de la vista de registro de asistencia (`SupervisorFullScreenView`).
+    - Flecha izquierda `‹` para retroceder un día, etiqueta central con icono `📅`, formato amigable ("Hoy · Jue, 1 Oct 2026", "Ayer · Mié, 30 Sep 2026"), badge "Pasado" y selector de calendario nativo al tocarlo.
+    - Botón rápido "Hoy" y flecha derecha `›` (deshabilitada para fechas futuras para evitar registros inválidos).
+    - Memoria local (`dailyBoardCache`) para navegación instantánea entre días sin re-consultas innecesarias.
+    - Actualización en caliente tras registrar asistencia (`refreshAttendanceDate`) sin recargar toda la ventana, manteniendo la fecha y filtros activos.
+  - **Alineación con el Dashboard Principal**:
+    - La tarjeta "Asistencia de hoy" en el panel principal mantiene el seguimiento exclusivo de la fecha actual (`todayAttendanceProgress`), mientras que la vista detallada responde dinámicamente a la fecha seleccionada.
+- **Validaciones**:
+  - `npm run docs:check-encoding` -> 1378 archivos verificados en UTF-8 sin BOM.
+  - `npm run test:unit src/features/dashboard/lib/supervisorAttendanceSummary.test.ts src/features/asistencias/actions.test.ts` -> 6/6 tests pasando en verde.
+- **Estado**: Terminado y verificado.
+
+## [2026-10-01 20:10] - UI/UX: Rediseño Ultra-Compacto de KPIs de Avance Mensual y Asistencia de Hoy en Dashboard (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que el bloque superior del dashboard de supervisores (que agrupaba los 4 KPIs de "Avance general del mes" y la tarjeta de "Asistencia de hoy") era excesivamente alto y abarcaba más de la mitad de la pantalla de su celular, empujando la sección de "Reportes y Operación" fuera del área visible.
+  - Se acordó compactar ambos bloques para que ocupen una franja superior mínima y dejen a la vista el resto de las acciones operativas.
+- **Acciones Ejecutadas**:
+  - **Cinta Micro-Métrica de KPIs Mensuales (`src/features/dashboard/components/SupervisorKpiStrip.tsx`)**:
+    - Se transformó la cuadrícula 2x2 de tarjetas altas en una franja compacta de 4 micro-pastillas horizontales (`grid grid-cols-4 gap-1.5`):
+      - Canjes (`🎁`), Ventas (`🛍️`), Love ISDIN (`❤️`) y Faltas (`🚫`).
+      - Reducción de altura de ~220px a solo ~46px (reducción del ~78%).
+  - **Tarjeta Ultra-Compacta de Asistencia de Hoy (`src/features/dashboard/components/DashboardPanel.tsx`)**:
+    - Línea 1: Resumen en una sola línea `🏪 Asistencia de hoy: {completadas}/{total}` con barra de progreso estilizada de 6px y badge de porcentaje.
+    - Línea 2: 4 pastillas horizontales compactas (`Todas`, `Entrada`, `Salida`, `Listas`) en una fila con feedback visual de borde/fondo según pendientes.
+    - Reducción de altura de ~200px a ~60px (reducción del ~70%).
+  - **Espacio Total Ahorrado**: La cabecera combinada se redujo de ~420px a ~106px (75% de ahorro vertical), permitiendo que la cuadrícula operativa ("Reportes y Operación") quede visible por encima del pliegue (above the fold) en cualquier celular.
+- **Validaciones**:
+  - `npx tsc --noEmit` -> 0 errores.
+  - `npm run test:unit` -> 133 suites de prueba (565 tests aprobados).
+  - `npm run docs:check-encoding` -> 1378 archivos en UTF-8 sin BOM.
+  - `npm run build` -> Compilación Next.js exitosa.
+  - `npm run cf:build` -> Empaquetado Cloudflare Workers OpenNext exitoso.
+- **Estado**: Terminado y verificado.
+
+## [2026-10-01 19:55] - UI/UX: Subida de Tarjeta Informativa de Asistencia al Dashboard Principal y Limpieza de Botón (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó mover la tarjeta informativa con el progreso de asistencias del día ("Progreso del día" con barra y 4 contadores de filtro) directamente a la pantalla principal del supervisor, debajo de los KPIs de avance mensual.
+  - Además, solicitó retirar la etiqueta numérica ("18 ptes") que se mostraba sobre el botón "Registrar asistencia", dejándolo completamente limpio para evitar solapamientos en dispositivos móviles.
+- **Acciones Ejecutadas**:
+  - **Tarjeta Informativa en Dashboard Principal (`src/features/dashboard/components/DashboardPanel.tsx`)**:
+    - Se incorporó la tarjeta informativa "Asistencia de hoy" entre la franja de KPIs mensuales y la cuadrícula de Reportes y Operación.
+    - Muestra el progreso del día ({completadas} de {total} tiendas cerradas, {porcentaje}% listo) con barra de degradado suave.
+    - Los 4 contadores (`Todas`, `Falta Entrada`, `Falta Salida`, `Listas`) actúan como botones interactivos: al tocarlos, abren de inmediato el listado de asistencia filtrado según lo que se seleccionó.
+  - **Limpieza de Botón Operativo**:
+    - Se retiró la etiqueta numérica flotante del botón "Registrar asistencia", devolviéndolo a su diseño limpio, simétrico y accesible.
+- **Validaciones**:
+  - `npm run docs:check-encoding` -> 1378 archivos limpios.
+  - `npm run test:unit` -> 6/6 tests pasando en verde.
+  - `npm run build` -> Compilación Next.js exitosa (105 rutas).
+  - `npm run cf:build` -> Empaquetado Cloudflare Workers OpenNext exitoso.
+- **Estado**: Terminado y verificado.
+
+## [2026-10-01 19:45] - Flujo en 2 Pasos de Asistencia del Supervisor, Reloj Simple, Asignación Diaria y Contadores en Vivo (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó rediseñar el registro manual de asistencia del supervisor en 2 pasos secuenciales:
+    1. **Paso 1 (Entrada)**: Opciones Puntual, Retardo, Falta Justificada, Falta Injustificada e **INCAPACIDAD**, con un reloj simple (solo hora de llegada).
+    2. **Paso 2 (Salida)**: Cuando la colaboradora ya tiene entrada, el botón pasa automáticamente a "Registrar salida", solicitando únicamente la hora de salida con el mismo reloj simple.
+  - El usuario solicitó además:
+    1. Borrar todos los registros de prueba del día (2026-10-01) para iniciar desde 0.
+    2. Basarse estrictamente en la asignación diaria para identificar qué DC tienen tienda programada ese día y en qué PDV exacto se encuentran.
+    3. Llevar un contador en vivo de quiénes faltan de entrada, quiénes de salida y el progreso general del día.
+- **Acciones Ejecutadas**:
+  - **Soporte de Backend (`src/features/asistencias/actions.ts`)**:
+    - Se integró `tipo_registro === 'INCAPACIDAD'` creando la solicitud médica formal (`REGISTRADA`, `justifica_asistencia = true`), registrando auditoría y sincronizando asignaciones resueltas.
+    - Se integró `tipo_registro === 'SALIDA'` validando check-in previo, preservando `check_in_utc`, fijando `check_out_utc`, estatus `CERRADA`, metadata de supervisión y eventos de auditoría y UI.
+  - **Reloj Simple de Hora (`SimpleTimePicker`)**:
+    - Creado en `DashboardPanel.tsx` con botón de un toque "⚡ Poner hora actual", botones grandes táctiles `[-15m]` y `[+15m]`, selectores amigables de hora/minuto y botones rápidos con el turno de la tienda.
+  - **Limpieza de Base de Datos para el Día de Hoy (`2026-10-01`)**:
+    - Se eliminaron las asistencias existentes para la fecha `2026-10-01` en Supabase (junto con ventas y love_isdin vinculados). El conteo quedó en exactamente **0 asistencias**, dejando el tablero listo para registro desde cero.
+  - **Asignación Diaria Resuelta y Contadores en Vivo (`summarizeSupervisorDailyAttendanceProgress`)**:
+    - Se mapearon las 18 dermoconsejeras de Jacqueline López Ruiz con tienda programada los jueves (`2026-10-01`), cada una en su PDV respectivo con clave BTL, zona y horario.
+    - En `SupervisorFieldDashboard` (`DashboardPanel.tsx`), se agregó un encabezado con:
+      - Barra de progreso porcentual del día (`0%` a `100%`).
+      - 4 botones/tarjetas táctiles que funcionan simultáneamente como métricas y pestañas de filtro: `Todas`, `Falta Entrada`, `Falta Salida`, `Listas`.
+      - Botones de acción contextuales: azul llamativo para `Registrar entrada`, ámbar llamativo para `Registrar salida`, y botón `Ver / Editar` para jornadas concluidas o incapacidades.
+      - Badge dinámico en el botón "Registrar asistencia" del menú principal del supervisor.
+- **Validaciones**:
+  - Pruebas unitarias: `npm run test:unit src/features/dashboard/lib/supervisorAttendanceSummary.test.ts src/features/asistencias/actions.test.ts` -> 6/6 tests pasando en verde.
+  - Verificación UTF-8: `npm run docs:check-encoding` -> 1378 archivos limpios sin mojibake.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito (0 errores).
+  - Compilación Cloudflare Workers: `npm run cf:build` -> Empaquetado OpenNext exitoso (`worker.js`).
+- **Estado**: Terminado, verificado y validado al 100%.
+
+## [2026-10-01 19:00] - Rediseño Minimalista y Compacto del Módulo de Asistencia del Supervisor (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó rediseñar la sección de asistencia de supervisores ("Tiendas asignadas hoy" y el formulario de "Registrar asistencia manual") para que sea minimalista, compacta y cómoda de usar en dispositivos móviles sin desbordes ni desplazamientos excesivos.
+- **Acciones Ejecutadas**:
+  - **Fichas de "Tiendas asignadas hoy" (`src/features/dashboard/components/DashboardPanel.tsx`)**:
+    - Se redujo la altura de cada tarjeta en ~65% pasando de un diseño vertical apilado a una tarjeta ejecutiva de 2 filas compactas:
+      - Fila 1: Nombre de la tienda (con icono 🏪), clave BTL, zona y badge de estado dinámico a la derecha con minutos de retardo si aplican.
+      - Fila 2: Nombre del dermoconsejero (con icono 👤), horario (`🕒`), texto auxiliar de estado y botón de acción rápida a la derecha (`Revisar entrada/salida`, `Registrar asistencia/salida` o pastilla `Al día`).
+  - **Formulario de Registro Manual de Asistencia (`SupervisorAsistenciaManualSheet`)**:
+    - **Cabecera compacta**: Sustitución de los 4 bloques de texto por una mini-tarjeta ejecutiva con colaboradora, PDV, fecha y horario en solo 2 líneas limpias.
+    - **Selector compacto de 4 tipos de registro**: Reemplazo de los 4 bloques gigantes por un selector tipo tarjeta horizontal con insignias claras (`✓ Puntual`, `⏱️ Retardo`, `📄 Falta Justificada`, `✕ Falta Injustificada`) e indicadores visuales de foco con anillos de color.
+    - **Horarios lado a lado**: Entrada y salida en una sola fila compacta con campos de hora estilizados.
+    - **Comentarios y acciones optimizadas**: Área de notas optimizada con placeholder dinámico y botón de guardado destacado.
+- **Validaciones**:
+  - `npx tsc --noEmit` -> 0 errores.
+  - `npm run test:unit` -> 131 archivos de prueba pasados (559 pruebas exitosas).
+  - `npm run docs:check-encoding` -> 1,375 archivos en UTF-8 válido sin BOM.
+  - `npm run build` -> Compilación Next.js exitosa.
+  - `npm run cf:build` -> Empaquetado OpenNext para Cloudflare Workers exitoso.
+
+## [2026-10-01 18:45] - Rediseño Minimalista del Modal y Formulario de Visita en "Mi Ruta Hoy" (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó rediseñar la sección de "Mi ruta de hoy" y el formulario de ejecución de visita (`SupervisorVisitExecutionPanel` en `src/features/rutas/components/SupervisorTodayRouteSheet.tsx`) para que sea más minimalista, compacto, ordenado y orgánico.
+  - Requisito clave del usuario: *"que la selfie de salida sea lo último para que con eso se cierre la visita."*
+- **Acciones Ejecutadas**:
+  - **Cabecera Ejecutiva Compacta**:
+    - Se reemplazaron las 4 cajas verticales apiladas (que consumían más de 250px en pantallas móviles) por una sola tarjeta ejecutiva minimalista de ~80px con pin de dirección, badge de orden de visita (`#N`), clave BTL, zona y chip de estado dinámico (`Completada`, `En tienda`, `Por iniciar`).
+  - **Reorganización Orgánica en 3 Pasos**:
+    - **Paso 1 (Llegada a tienda)**: Registro de selfie de llegada con confirmación de hora de entrada y acceso directo a la cámara.
+    - **Paso 2 (Checklist de visita)**: Bloqueado de forma intuitiva hasta confirmar check-in, indicador visual de progreso (`N/Total (X%)`), items de checklist refinados y más compactos.
+    - **Paso 3 (Salida y Cierre de Visita)**: Reordenado secuencialmente cumpliendo la directriz operativa:
+      1. Registros LOVE ISDIN de la DC.
+      2. Evidencia fotográfica adicional opcional (productos dañados, anaqueles, anomalías).
+      3. Comentarios y hallazgos finales obligatorios antes del cierre.
+      4. **Paso final culminante**: Selfie de salida con la dermoconsejera (`endDraft`), ubicada al final con vista previa y botón destacado `Confirmar salida y finalizar visita` en un solo flujo natural y libre de fricción.
+- **Validaciones**:
+  - `npx tsc --noEmit` -> 0 errores.
+  - `npm run test:unit` -> 131 suites pasadas (559 pruebas exitosas).
+  - `npm run docs:check-encoding` -> 1,375 archivos en UTF-8 válido sin BOM.
+  - `npm run build` -> Compilación Next.js exitosa.
+  - `npm run cf:build` -> Empaquetado OpenNext para Cloudflare Workers exitoso.
+
+## [2026-10-01 07:55] - Corrección de Mes por Defecto en Tablero de Rutas y Fila de Filtros en Excel de Frecuencia por PDV (Antigravity)
+
+- **Contexto**:
+  - Al iniciar el 1 de octubre, el usuario reportó que el tablero principal de rutas de supervisores (`/operacion-supervisores`) abría en Septiembre 2026 en lugar de Octubre 2026.
+  - Además, en la descarga del Excel mensual, en la hoja "Frecuencia por PDV", las columnas de identificación tenían combinadas verticalmente las filas 1 a 3, impidiendo a los usuarios aplicar filtros continuos en la fila 3 a través de todas las columnas y días.
+- **Acciones Ejecutadas**:
+  - **Inicialización de Mes en Tablero (`src/features/rutas/components/RutaSemanalPanel.tsx`)**:
+    - Se corrigió la inicialización de `calendarMonth` cambiando `getPlanningMonthIso(coordinatorDefaultWeekStart)` por `getPlanningMonthIso()`. Previamente, al ser jueves 1 de octubre, tomaba el lunes de la semana en curso (28 de septiembre), desfasando la vista mensual al mes anterior. Ahora toma siempre el mes natural del día en curso en tiempo de México.
+  - **Estructura de Hoja Frecuencia por PDV en Excel (`src/features/rutas/services/rutasExportService.ts`)**:
+    - Se eliminó `mergeCells(1, col, 3, col)` en columnas fijas y en la columna de total de días.
+    - Se situaron todos los encabezados fijos (`CLAVE BTL`, `CADENA`, `ID PDV`, `SUCURSAL`, `SUPERVISOR`, `CORREO SUPERVISOR`, `TELÉFONO SUPERVISOR`, `MES`, días 1..31 y `# DÍAS`) en la fila 3 sin combinación vertical.
+    - Las filas 1 y 2 permanecen limpias y estilizadas arriba sin interferir con la fila 3.
+    - Se configuró `autoFilter` nativo en la fila 3 desde la columna 1 (`A3`) hasta la columna total de días (`# DÍAS`).
+  - **Pruebas y Blindaje (`src/features/rutas/services/rutasExportService.test.ts`)**:
+    - Se incorporó prueba unitaria que verifica que las celdas A1..A3 no estén combinadas, que los títulos estén en la fila 3, que la columna de `# DÍAS` esté en la fila 3 y que `autoFilter` esté habilitado.
+- **Validaciones**:
+    - `npx vitest run src/features/rutas` -> 18 suites pasadas, 84 pruebas exitosas.
+    - `npx tsc --noEmit` -> 0 errores.
+    - `npm run docs:check-encoding` -> 1,374 archivos verificados correctamente.
+    - `npm run build` -> Compilación Next.js exitosa.
+    - `npm run cf:build` -> Empaquetado OpenNext / Cloudflare Workers exitoso.
+
+## [2026-09-29 21:15] - Iconografía Unificada y Visual Identity: Estandarización de Iconos 3D y Creación de AppGlyph (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó homogeneizar toda la iconografía de la aplicación con la identidad visual del reporte público (`https://dermoconsejo.beteele-one.com/`) y del hub de entregas y evidencias de campo (`Evidencias y Entregas`).
+  - Solicitó un catálogo amplio que cubra todos los módulos de la aplicación, de tamaño responsivo, accesible y sin impactar la estética minimalista y limpia de la plataforma.
+- **Acciones Ejecutadas**:
+  - **Componente Central `AppGlyph` (`src/components/ui/AppGlyph.tsx`)**:
+    - Se creó un componente tipado, memoizado y con accesibilidad nativa (`role="img"`, `aria-label`).
+    - Catálogo visual integrado:
+      - Ventas: `🛍️` (Bolsas de compras 3D azul y naranja)
+      - Canjes: `🎁` (Caja de regalo 3D amarilla con lazo rojo)
+      - Desabastos: `🚫` (Círculo rojo de desabasto/falta)
+      - LOVE ISDIN: `❤️` (Corazón 3D rojo/rosa brillante)
+      - Evidencias de Campo / Entregas: `📸` (Cámara con destello)
+      - Dispersiones de Última Milla: `📦` (Caja de paquetería 3D)
+      - Entrega de Uniformes: `👕` (Playera polo)
+      - Formularios Enviados por DC: `📝` (Bloc de notas y lápiz)
+      - Mi ruta de hoy: `🚗` (Auto en ruta)
+      - Planeación mensual: `🗺️` (Mapa de ruta)
+      - Rol mensual: `🗓️` (Calendario espiral)
+      - Asistencia / Checador: `📍` (Pin de ubicación)
+      - Tiendas / Puntos de Venta (PDVs): `🏪` (Tienda de conveniencia)
+      - Operación de Supervisores: `🧭` (Brújula de navegación)
+      - Solicitudes: `📑` (Documentos organizados)
+      - Vacaciones: `🏖️` (Sombrilla de playa)
+      - Incapacidades: `🩺` (Estetoscopio médico)
+      - Día de cumpleaños: `🎂` (Pastel de cumpleaños con velas)
+      - Dashboard / Inicio: `🏠` (Casa)
+      - Empleados: `👥` (Grupo de colaboradores)
+      - Reclutamiento: `🎯` (Diana con flecha)
+      - Campañas: `📢` (Megáfono de difusión)
+      - Formaciones: `🎓` (Birrete académico)
+      - Asignaciones: `📋` (Portapapeles con checklist)
+      - Mensajes: `💬` (Globo de diálogo)
+      - Nómina: `💳` (Tarjeta bancaria)
+      - Gastos: `🧾` (Recibo de gastos)
+      - Clientes: `🏢` (Edificio corporativo)
+      - Inventarios: `📦` (Caja de inventario)
+      - Reportes: `📊` (Gráfica de barras)
+      - Offline: `📶` (Indicador de señal)
+      - Configuración: `⚙️` (Engranaje)
+      - Reglas de negocio: `⚖️` (Balanza de reglas)
+      - Usuarios: `👤` (Silueta de usuario)
+      - Cerrar sesión: `🚪` (Puerta de salida)
+    - Soporte completo para aliases en español e inglés y tamaños responsivos (`xs`, `sm`, `md`, `lg`, `xl`).
+  - **Dashboard de Supervisores (`src/features/dashboard/components/DashboardPanel.tsx`)**:
+    - Reemplazo de los 12 botones de acción rápida con `<AppGlyph size="lg" />`, conservando los acentos cromáticos individuales.
+  - **Métricas Compactas del Dashboard (`src/features/dashboard/components/SupervisorKpiStrip.tsx`)**:
+    - Vinculación de `canjes` (`🎁`), `ventas` (`🛍️`), `love` (`❤️`) y `desabasto` (`🚫`) mediante `AppGlyph`.
+  - **Barra de Navegación Lateral y Cajón Móvil (`src/components/layout/sidebar.tsx`)**:
+    - Conexión directa de `NavIcon` a `AppGlyph`.
+    - Actualización de todos los módulos principales y de gestión con su glifo temático.
+    - Actualización del botón "Cerrar sesión" con `AppGlyph` (`🚪`) tanto en escritorio como en móvil.
+  - **Panel de Ventas (`src/features/ventas/components/VentasPanel.tsx`)**:
+    - Actualización de las pestañas superiores unificadas para mostrar `🛍️ Ventas` y `❤️ LOVE ISDIN`.
+- **Validaciones**:
+  - `npx tsc --noEmit` -> 0 errores.
+  - `npm run test:unit` -> 131 suites pasadas, 556 pruebas exitosas.
+  - `npm run docs:check-encoding` -> 1,373 archivos limpios en UTF-8 sin BOM.
+  - `npm run build` -> 105 rutas generadas con éxito.
+  - `npm run cf:build` -> Empaquetado Cloudflare Workers / OpenNext exitoso.
+  - `graphify update .` -> Grafo de conocimiento actualizado (10,427 nodos, 21,716 aristas).
+- **Estado**: Terminado y verificado.
+
+## [2026-09-29 21:05] - Mobile-First & UI/UX: Corrección Integral de Responsividad en Vista Vertical de Ventas (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que en la vista vertical (`VentasVerticalDrillDown.tsx`), en dispositivos móviles el texto y las tarjetas se desbordaban horizontalmente, empujando los bordes rosados de las tarjetas y las insignias de piezas/canjes fuera del marco visible de la pantalla del celular (capturas `media_1790736651602.png` y `media_1790736691925.png`).
+  - Solicitó dejar toda la vista estrictamente responsiva dentro del contenedor, asegurando que ningún texto, tarjeta o insignia se salga de la pantalla en móviles.
+- **Causa Raíz Identificada**:
+  1. **Acumulación de padding anidado**: Se sumaban `p-4 sm:p-6` en `VentasPanel.tsx`, `p-4 sm:p-5` en la tarjeta de resumen, `p-4 sm:p-6` en la sección del calendario y `p-4 sm:p-5` en la tarjeta de detalle del día. En pantallas de 360-390px se perdían más de 96px únicamente en márgenes internos, asfixiando los elementos hijos.
+  2. **Contenedores flexibles sin `min-w-0` ni `flex-1`**: En las tarjetas de Canjes y Love ISDIN, el contenedor de texto carecía de `flex-1`, y el texto carecía de clases de quiebre de palabra (`break-words`), expandiendo la tarjeta más allá del 100% del ancho del viewport y expulsando las insignias (`1 canje`, `+1 reg`) hacia la derecha.
+  3. **Ausencia de restricciones de ancho en elementos padre**: Faltaban clases `w-full max-w-full min-w-0 overflow-hidden` en los contenedores superiores.
+- **Acciones Ejecutadas**:
+  - **Ajuste de Padding en `VentasPanel.tsx`**:
+    - Se modificó el wrapper de la vista vertical para usar `p-2 sm:p-6 w-full min-w-0 max-w-full overflow-hidden`.
+  - **Refactorización Mobile-First en `VentasVerticalDrillDown.tsx`**:
+    - Nivel 1 (Resumen DC + PDV): Padding adaptativo `p-3 sm:p-5 w-full min-w-0 max-w-full`, títulos con `break-words`, badges de piezas/love/canjes con padding táctil compacto (`px-2 sm:px-3 py-1 sm:py-1.5`) y botón de colapso con ancho completo en móviles (`w-full sm:w-auto`).
+    - Nivel 2 (Calendario de Piezas): Padding adaptativo `p-2 sm:p-6`, celdas de días con padding compacto `p-0.5 sm:p-1.5` que garantizan que las 7 columnas (Lun-Dom) se mantengan alineadas sin forzar scroll horizontal en teléfonos de 360px.
+    - Nivel 3 (Detalle del Día): Contenedor `p-2.5 sm:p-5 w-full min-w-0 max-w-full` con bordes estrictamente contenidos.
+    - Productos Vendidos: Filas con `flex-1 min-w-0 break-words line-clamp-2` en el nombre y badge de piezas con `shrink-0`.
+    - Canjes Realizados y Love ISDIN: Contenedor flex con `gap-2`, bloque de texto con `min-w-0 flex-1`, nombres con `break-words line-clamp-2`, y badge de cantidad con `shrink-0 ml-auto`.
+    - Observaciones e Incidencias: Texto con `w-full min-w-0 break-words`.
+- **Validaciones**:
+  - TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 131 suites pasadas, 556 pruebas exitosas.
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,373 archivos limpios.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> Empaquetado OpenNext finalizado sin errores.
+- **Estado**: Terminado y verificado.
+
+## [2026-09-29 20:30] - UI/UX & Mobile First: Unificación del Dashboard de Supervisores, Métricas Compactas y Módulo "Formularios Enviados por DC" (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó reorganizar la operación de campo de supervisores para evitar que tengan que salir del dashboard principal hacia una pantalla secundaria de `/reportes`:
+    1. Eliminar el botón "Reportes de campo" del menú de accesos del supervisor.
+    2. Trasladar las tarjetas de resumen (Avance de Canjes, Total Ventas, Love ISDIN, Desabastos) directamente al Dashboard principal de forma compacta y minimalista.
+    3. Trasladar la sección de avance del equipo al dashboard principal nombrándola "Formularios Enviados por DC".
+    4. Implementar un navegador de fechas con botones atrás/adelante (`◀ [Fecha] ▶`) para revisar los formularios enviados de cualquier día de forma ágil y cómoda en celulares.
+    5. Eliminar por completo los filtros complejos de tiendas y cadenas de esta vista, así como la sección pesada de "Bitácora de Registros de Campo".
+- **Acciones Ejecutadas**:
+  - **Componente de Métricas Compactas (`src/features/dashboard/components/SupervisorKpiStrip.tsx`)**:
+    - Se creó un componente strip ultracompacto en rejilla 2x2 / 4x1 que presenta:
+      - `Avance Canjes` con porcentaje, total entregado y total inventario inicial.
+      - `Total Ventas` con unidades acumuladas en el mes.
+      - `Love ISDIN` con total de registros de fidelización.
+      - `Desabastos` con total de reportes de falta de producto.
+    - Se incluyeron estados de carga mediante esqueletos animados elegantes.
+  - **Componente de Seguimiento Diario (`src/features/dashboard/components/FormulariosEnviadosPorDcView.tsx`)**:
+    - Navegador de fecha táctil con flechas `◀` y `▶`, visualizador en español (`Martes, 29 de sep. de 2026`) con picker nativo interactivo y botón de salto inmediato a "Hoy".
+    - Resumen dinámico del equipo con barra de progreso de envíos y porcentaje.
+    - Botón de "Copiar WhatsApp" con feedback visual de copiado y texto estructurado con colaboradoras cumplidas y pendientes.
+    - Pestañas de filtrado rápido: `[ Pendientes (X) ]`, `[ Al día (Y) ]`, `[ Todos (Z) ]`.
+    - Tarjetas individuales de colaboradoras con tienda, clave BTL, insignias de estado (`✓ Enviado (X ventas/love)`, `⚠️ Falta Ventas/Love`, `🚫 Sin reportes`) y total de registros.
+    - Se prescindió al 100% de la tabla de bitácora y filtros de tiendas/cadenas para mantener una experiencia enfocada y minimalista.
+  - **Integración en el Dashboard del Supervisor (`src/features/dashboard/components/DashboardPanel.tsx`)**:
+    - Se incorporó `SupervisorKpiStrip` directamente en la tarjeta principal del supervisor, consultando bajo demanda `/api/dashboard/cliente-panel` para no bloquear el renderizado inicial (Lazy Load).
+    - Se reemplazó el botón `Reportes campo` por el botón interactivo `Formularios Enviados por DC`.
+    - Se conectó la vista `FormulariosEnviadosPorDcView` mediante el modal de pantalla completa `SupervisorFullScreenView`.
+  - **Redirección Segura en Ruta Secundaria (`src/app/(main)/reportes/page.tsx`)**:
+    - Si un supervisor navega a `/reportes`, es redirigido automáticamente a `/dashboard` mediante `redirect('/dashboard')`, evitando pantallas obsoletas y ahorrando lecturas pesadas de servidor.
+- **Validaciones**:
+  - TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 131 suites pasadas, 556 pruebas exitosas.
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,372 archivos limpios.
+  - Compilación Next.js: `npm run build` -> Verificado con éxito (105 rutas generadas).
+- **Estado**: Terminado y verificado.
+
+## [2026-09-29 20:15] - Catalog & UI/UX: Poblamiento de Nombres Cortos Oficiales en Productos y Canjes Promocionales con Aislamiento Operativo (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que en la vista vertical del teléfono para supervisores (`VentasVerticalDrillDown.tsx`, capturas `media_1790733685626.png` y `media_1790733708789.png`), los productos vendidos y los canjes promocionales se truncaban prematuramente con puntos suspensivos (ej. `FOTOPROTECTOR ...`, `BEXIDENT DIENTES ...`, `GORRA ISDIN FOTOPROTECC...`), impidiendo identificar el producto o regalo específico.
+  - Solicitó:
+    1. Poblar el campo `nombre_corto` del catálogo de productos con los nombres oficiales del Excel `Catalogo_ISDIN_Nombres_Cortos.xlsx`.
+    2. Usar dicho nombre corto **exclusivamente** en la sección de productos vendidos de la tarjeta de supervisores (manteniendo el nombre largo oficial en Excel y tablas maestras).
+    3. Agregar la columna `nombre_corto` a la tabla `material_catalogo` de canjes promocionales y poblarla mediante un recortador inteligente.
+    4. Usar dicho nombre corto **exclusivamente** en la sección de canjes realizados de la tarjeta de supervisores (manteniendo el nombre largo oficial en reportes y exportaciones).
+- **Acciones Ejecutadas**:
+  - **Poblamiento de Nombres Cortos Oficiales en Productos (`scripts/actualizar-nombres-cortos-productos.cjs`)**:
+    - Se ejecutó script idempotente mapeando los 195 productos de `Catalogo_ISDIN_Nombres_Cortos.xlsx` por SKU y nombre a la tabla `producto` de Supabase.
+    - Para los productos restantes sin entrada en Excel se aplicó recortador inteligente para eliminar prefijos repetitivos (`FOTOPROTECTOR ISDIN` -> `FP `, `ISDINCEUTICS` -> vacío, `WOMAN ISDIN` -> `WOMAN `, `BEXIDENT` -> `BEX `).
+    - 192 productos en base de datos fueron actualizados con su nombre corto oficial.
+  - **Migración y Poblamiento de Canjes Promocionales (`supabase/migrations/20260929201500_material_catalogo_nombre_corto.sql` y `scripts/actualizar-nombres-cortos-materiales.cjs`)**:
+    - Se creó y aplicó migración agregando `nombre_corto text` a la tabla `material_catalogo`.
+    - Se pobló `nombre_corto` para los 67 materiales con un recortador inteligente especializado (ej. `GORRA ISDIN FOTOPROTECCIÓN` -> `GORRA FOTOPROT.`, `CANGURERAS NEGRAS ISDIN` -> `CANGURERAS NEGRAS`, `NECESER ISDINCEUTICS NEGRO 2025` -> `NECESER NEGRO 2025`, `TERMO T208 A 1 TINTA` -> `TERMO T208`).
+  - **Servicio y Enriquecimiento de Datos (`src/features/ventas/services/ventaService.ts`)**:
+    - Se agregó `materialNombreCorto?: string | null` a la interfaz `VentaCapturaDetalleItem`.
+    - Se enriqueció la consulta de capturas sumando el join relacional `material:material_catalogo_id(nombre, nombre_corto)`.
+  - **Agregación y Visualización Móvil (`src/features/ventas/lib/ventasVerticalAggregation.ts` y `src/features/ventas/components/VentasVerticalDrillDown.tsx`)**:
+    - En `ventasVerticalAggregation.ts`, se incorporó `recortarNombreMaterial` y se propagó `materialCorto` a cada registro de `canjesRegistros`.
+    - En `VentasVerticalDrillDown.tsx`, se renderiza `canje.materialCorto` en lugar del snapshot largo y se sustituyó `truncate` por `line-clamp-2` con `leading-snug` para productos y canjes, permitiendo una lectura completa en teléfonos sin desbordar ni cortarse con `...`.
+  - **Aislamiento Total de Reportes y Vistas Administrativas**:
+    - `ventaExport.ts`, `reporteExport.ts` y las tablas maestras de coordinación y administración (`VentasPanel.tsx`) consumen exclusivamente los nombres largos originales (`producto.nombre`, `material.nombre`).
+- **Validaciones**:
+  - `npx vitest run src/features/ventas/lib/ventasVerticalAggregation.test.ts` -> 7 pruebas pasadas (100% verde).
+  - `npm run test:unit` -> 131 suites pasadas, 556 pruebas exitosas.
+  - `npx tsc --noEmit` -> 0 errores de compilación TypeScript.
+  - `npm run docs:check-encoding` -> 1,370 archivos verificados en UTF-8 sin BOM.
+  - `npm run build` -> 105 rutas generadas con éxito.
+  - `npm run cf:build` -> Empaquetado OpenNext para Cloudflare Workers generado con éxito (`worker.js`).
+- **Estado**: Terminado, verificado y documentado.
+
+## [2026-09-29 19:40] - Bugfix & Refactor: Eliminación de Doble Conteo de Unidades en Vista Vertical de Ventas y Modularización (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó una discrepancia entre los totales de piezas (unidades vendidas) mostrados en la **Vista Vertical** (tarjetas drill-down) versus la **Vista Tablas** ("Dermo + Tienda" / "Por Tienda").
+  - Caso puntual evidenciado: En Farmacias San Pablo Camarones con la dermo Ana Lilia Hernández Castillo, la tabla horizontal mostraba **281 piezas** (el número oficial y correcto: Sem 1: 51, Sem 2: 94, Sem 3: 65, Sem 4: 52, Sem 5: 19 = 281), mientras que la tarjeta vertical mostraba **340 piezas** (+59 piezas de desfase).
+  - El usuario solicitó diagnosticar la causa raíz y hacer coincidir al 100% las piezas entre ambas vistas.
+- **Causa Raíz Diagnosticada**:
+  - En `VentasVerticalDrillDown.tsx`, el cálculo se ejecutaba en dos pasos secuenciales:
+    1. Paso 1: Recorría `dataset` (proveniente de la tabla oficial `venta`), acumulando `dayData.piezas += row.totalUnidades` y sumando los productos (`dayData.productos`). Esto arrojaba las 281 piezas exactas.
+    2. Paso 2: Recorría `capturasDetalle` (proveniente de `captura_publica_registro`). Cuando `c.tipoRegistro === 'VENTA'`, ejecutaba `dayData.piezas += piezasCaptura`.
+  - Dado que las ventas capturadas en `captura_publica_registro` son consolidadas automáticamente hacia la tabla `venta`, las transacciones de venta existían en ambas fuentes. Al iterar `capturasDetalle`, el sistema volvía a sumar las notas de venta del celular (+59 piezas), provocando una **duplicación de conteo** (281 + 59 = 340).
+  - `capturasDetalle` sólo debe ser fuente para eventos operativos que no forman parte de `venta`: registros de LOVE ISDIN, canjes de material promocional, reportes de desabasto e incidencias (vacaciones, incapacidad, faltas).
+- **Acciones Ejecutadas**:
+  - **Eliminación de Acumulación Redundante de Ventas (`src/features/ventas/components/VentasVerticalDrillDown.tsx`)**:
+    - Se removió el bloque `if (c.tipoRegistro === 'VENTA')` dentro del procesamiento de `capturasDetalle`.
+    - Las unidades vendidas, importes monetarios y lista de productos vendidos provienen exclusiva y canónicamente de `dataset` (`filteredDataset`), garantizando paridad matemática exacta (1:1) con la vista de tablas semanales.
+  - **Modularización y Biblioteca de Agregación (`src/features/ventas/lib/ventasVerticalAggregation.ts`)**:
+    - Se extrajo la lógica pura de agregación, mapeo de días del mes (`generateMonthDays`) y sanitización de nombres cortos de productos (`recortarNombreProducto`) a un módulo dedicado y desacoplado de la UI.
+    - Se redujo la complejidad del componente `VentasVerticalDrillDown.tsx` de 850 a ~500 líneas, mejorando la mantenibilidad y legibilidad.
+  - **Pruebas Unitarias de Regresión (`src/features/ventas/lib/ventasVerticalAggregation.test.ts`)**:
+    - Se crearon 5 pruebas automatizadas probando la sanitización de nombres de producto, generación de calendario mensual y la regla estricta de no-doble-conteo con datos de prueba reales (281 piezas de venta ignorando 59 de capturas redundantes).
+- **Validaciones**:
+  - `npx vitest run src/features/ventas/lib/ventasVerticalAggregation.test.ts` -> 5 pruebas pasadas (100% verde).
+  - `npm run test:unit` -> 131 suites pasadas, 554 pruebas exitosas.
+  - `npx tsc --noEmit` -> 0 errores de tipado.
+  - `npm run docs:check-encoding` -> 1,367 archivos limpios en UTF-8 sin BOM.
+  - `npm run build` -> 105 rutas generadas con éxito.
+  - `npm run cf:build` -> OpenNext Cloudflare bundle generado con éxito (`worker.js`).
+- **Estado**: Terminado, verificado y blindado contra regresiones.
+
+## [2026-09-29 17:15] - UI/UX & Data Consistency: Normalización de Nombres Cortos de Sucursal en Tablas LOVE ISDIN (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que en la sección de LOVE ISDIN (`/ventas?tab=love-isdin`, capturas `media_1790722948068.png` y `media_1790722966921.png`), la columna "SUCURSAL" mostraba la clave interna de la tienda (ej. `BTL-CIT-PLAZ-YI...`, `BTL-SAN-CORD-9...`) en lugar del nombre comercial amigable y recortado que se visualiza en la sección de Ventas (ej. `City Mkt Patria`, `Sanapiel Cordilleras`, `FA Juan Palomar`, `SP Ávila Camacho`).
+  - Solicitó que en ambas tablas de LOVE ISDIN ("Dermo + Tienda" y "Por Tienda") se visualice exactamente el mismo nombre corto de la sucursal que en Ventas.
+- **Causa Raíz Diagnosticada**:
+  - En `lovePorDcSemanal` y `lovePorPdvConsolidado`, se asignaba `item.pdvLabel` como `row.sucursal`. Dado que `pdvLabel` en el dataset de LOVE ISDIN se generaba con el formato `${clave_btl} - ${nombre}`, el valor empezaba con la clave BTL.
+  - La función `getSucursalCorta` esperaba el nombre directo de la sucursal y no limpiaba prefijos BTL, provocando que en móvil el texto se truncara mostrando únicamente el código BTL.
+- **Acciones Ejecutadas**:
+  - **Enriquecimiento del Dataset Backend (`src/features/love-isdin/lib/loveQuota.ts` y `src/features/love-isdin/services/loveIsdinService.ts`)**:
+    - Se agregaron los campos `pdvNombre?: string | null` y `pdvClaveBtl?: string | null` en `LoveQuotaTargetRow` y `LoveKpiDatasetItem`.
+    - Se poblaron directamente desde los datos de punto de venta (`pdv?.nombre` y `pdv?.clave_btl`).
+  - **Extracción Limpia y Sanitización (`src/features/ventas/components/VentasPanel.tsx`)**:
+    - En `lovePorDcSemanal` y `lovePorPdvConsolidado`, se prioriza `item.pdvNombre` y `item.pdvClaveBtl`.
+    - Como fallback defensivo, si solo existiese `item.pdvLabel`, se analiza y divide limpiamente por ` • ` o ` - ` para aislar el nombre de la tienda y la clave BTL.
+    - Se agregó una sanitización regex para remover cualquier residuo de prefijo BTL en el nombre.
+    - Se robusteció `getSucursalCorta(nombre)` para limpiar automáticamente prefijos de tipo `BTL-... - ` o `BTL-... • ` antes de aplicar las abreviaturas comerciales (`SP`, `FA`, `Ched.`, `City Mkt`, etc.).
+- **Validaciones**:
+  - `npx tsc --noEmit` -> 0 errores.
+  - `npm run docs:check-encoding` -> 1,365 archivos limpios en UTF-8.
+  - `npm run test:unit` -> 130 suites pasadas, 549 pruebas exitosas (100% verde).
+  - `npm run build` -> 105 rutas generadas con éxito.
+  - `npm run cf:build` -> OpenNext Cloudflare bundle generado con éxito (`worker.js`).
+- **Estado**: Terminado y verificado.
+
+## [2026-09-29 16:15] - UI/UX & Mobile First: Optimización de Espaciado Superior y Tarjeta Unificada "Un Solo Cuadrito" en Reporte de Ventas (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó en el Reporte de Ventas (`/ventas`, `media_1790719653089.png`) un espacio vacío blanco excesivo en la parte superior de la aplicación en dispositivos móviles (causado por el padding default de `.page-shell` sumado a un botón aislado de "Regresar al dashboard principal").
+  - Solicitó acomodar los controles superiores para que queden agrupados en "un solo cuadrito" ordenado, optimizando la visibilidad de los filtros y ganando espacio vertical para que la tabla y los datos sean inmediatamente visibles sin tener que scrollear.
+- **Causa Raíz Diagnosticada**:
+  - El contenedor principal de `/ventas` utilizaba la clase global `.page-shell`, que por defecto impone un `pt-28` (112px de padding superior en móvil).
+  - Encima de la interfaz existía un botón de enlace independiente (`<Link href="/dashboard" ...>`) ocupando una fila completa de más de 60px.
+  - El selector de pestañas (`Tablero de Ventas` / `Tablero LOVE ISDIN`) y la tarjeta de filtros estaban separados en bloques independientes, y la pestaña LOVE ISDIN tenía un bloque de filtros duplicado de ~140 líneas.
+  - La barra de herramientas del reporte (buscador, exportar, botones de agrupación y pantalla completa) se rompía en múltiples filas en teléfonos estándar (~390px).
+- **Acciones Ejecutadas**:
+  - **Remoción de Espacio Muerto (`src/app/(main)/ventas/page.tsx`)**:
+    - Se anuló el espaciado superior forzado con `!pt-3 sm:!pt-6 !px-2.5 sm:!px-6`, reduciendo el margen muerto superior de 112px a 12px en celulares.
+    - Se retiró el botón suelto de retorno y se delegó la navegación al prop `showBackButton` dentro del componente central `VentasPanel`.
+  - **Tarjeta Superior Unificada "Un Solo Cuadrito" (`src/features/ventas/components/VentasPanel.tsx`)**:
+    - Se integró el botón de regreso (`[ ← Volver ]` en móvil / `[ ← Regresar al dashboard ]` en escritorio) en la misma fila superior junto al selector de pestañas (`[ 📊 Ventas ] [ ❤️ LOVE ISDIN ]`).
+    - En la segunda fila dentro del mismo contenedor, se ubicó el resumen compacto del filtro activo (Mes, cadena comercial, contador de registros visibles) acompañado de los botones `[ Limpiar ]` y `[ ⚙️ Modificar / ▲ Ocultar ]`.
+    - Los paneles desplegables de filtros tanto para Ventas como para LOVE ISDIN abren y cierran fluidamente dentro de este único recuadro.
+    - Se eliminó el bloque de filtros duplicado en la sección LOVE ISDIN, garantizando consistencia visual absoluta entre ambas vistas.
+  - **Optimización de Barra de Herramientas y Botones de Agrupación (`VentasPanel.tsx`)**:
+    - Se compactaron los paddings de cabecera a `px-3.5 py-3 sm:px-6 sm:py-4` y se ocultaron subtítulos redundantes en móvil (`hidden sm:block`).
+    - El buscador y el botón de exportación a Excel se ajustaron a altura compacta (`min-h-[34px]`).
+    - Las opciones de agrupación (`[ 📋 Dermo + Tienda ] [ 👩‍💼 Por Dermo ] [ 🏪 Por Tienda ]`) se estilizaron con `px-2 sm:px-3 py-1 text-[11px] sm:text-xs shrink-0 flex-nowrap overflow-x-auto`, encajando en una sola fila sin saltos de línea.
+    - El botón `[ ⛶ Pantalla Completa ]` se ubicó al extremo derecho para acceso directo al modal expansivo.
+- **Validaciones**:
+  - TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 130 suites pasadas, 549 pruebas exitosas.
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,365 archivos limpios sin BOM.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle verificado.
+- **Estado**: Terminado, verificado y documentado.
+
+## [2026-09-29 15:20] - Fix & UI/UX: Corrección Integral de Atribución de Tiendas Septiembre (Jacqueline López) y Tablas Semanales con Modal Pantalla Completa (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó dos necesidades críticas en el Reporte de Ventas (`/ventas`):
+    1. **Atribución de Tiendas de Septiembre (Supervisora Jacqueline López Ruiz)**: A Jacqueline se le estaban adjudicando tiendas correspondientes a octubre (como *City Market Interlomas*, *La Comer Bosque Real*, *Fresko La Herradura*) con colaboradoras como Edith Teresa Contreras Calderón, cuando en septiembre esas tiendas y dermoconsejeras pertenecían a Zenaida Monroy y Xóchitl Carrillo según el padrón oficial (`ROL SEP 2026.xlsx`).
+    2. **Responsividad Móvil y Controles de Agrupación**: Las tablas semanales resultaban difíciles de navegar en teléfonos. El usuario solicitó extraer los botones de agrupación (*Dermo + Tienda*, *Por Dermo*, *Por Tienda*) fuera de la tabla en botones pequeños, acortar nombres de sucursales, nombres compactos de colaboradoras, y contar con una vista o ventana dedicada a pantalla completa para poder apreciar todas las semanas y totales sin recortes.
+- **Causa Raíz Diagnosticada**:
+  - *Causa Base*: Registros prematuros de octubre en `asignacion` y `supervisor_pdv` colisionaban con el periodo de septiembre.
+  - *Causa Oculta Crítica*: En `asignacion_diaria_resuelta`, el domingo de descanso `2026-09-27` (`SIN_ASIGNACION`, `pdv_id = null`), 12 dermoconsejeras de Zenaida y Xóchitl tenían asignada a Jacqueline como supervisora porque su ficha estática `empleado.supervisor_empleado_id` ya había sido cambiada a Jacqueline para octubre. Al no existir asignación estructural ese domingo, el resolvedor cayó en el fallback estático. Posteriormente, `ventaService.ts` agregaba a `teamDermoIds` a cualquier colaboradora que apareciera en `adrData` incluso en días sin tienda asignada (`SIN_ASIGNACION`), jalando a Jacqueline todas las ventas de septiembre de Edith Teresa y demás colaboradoras.
+- **Acciones Ejecutadas**:
+  - **Depuración y Migraciones de Base de Datos**:
+    - `supabase/migrations/20260929151500_restaurar_atribucion_septiembre_jacqueline.sql`: Restauró asignaciones de tiendas de septiembre a Zenaida Monroy y Xóchitl Carrillo; cerró vigencias de Jacqueline al `2026-08-31` y eliminó filas prematuras.
+    - `supabase/migrations/20260929152000_restaurar_dias_descanso_septiembre_supervisores.sql`: Reasignó los días de descanso de septiembre (`SIN_ASIGNACION`) a Zenaida y Xóchitl para las 12 dermoconsejeras afectadas.
+  - **Blindaje del Motor de Atribución y Servicio**:
+    - `src/features/ventas/lib/supervisorAttribution.ts`: Se ajustó `buildResolvedSupervisorLookup` para computar `empCounts` únicamente cuando el registro cuenta con tienda (`record.pdv_id`), evitando que un día de descanso sin tienda determine la supervisora del mes.
+    - `src/features/ventas/services/ventaService.ts`: Se condicionó `teamDermoIds` para que solo incluya colaboradoras con tienda u operación activa (`row.pdv_id` o `FORMACION`/`ASIGNADA_PDV`), excluyendo registros `SIN_ASIGNACION`. Se actualizó la clave de caché a `ventas-panel-v6`.
+  - **Componentes UI Creados**:
+    - `src/features/ventas/components/TablaSemanalReporte.tsx`: Componente modular y reutilizable para Ventas y LOVE ISDIN con columnas fijas a la izquierda (`sticky left-0 bg-white shadow-sm`), nombres cortos (`getSucursalCorta`, `formatNombreDcCorto`), tooltip con nombre completo al posar o tocar, anchos compactos y barra de aviso táctil en móvil.
+    - `src/features/ventas/components/ModalTablaSemanalFullscreen.tsx`: Modal flotante a pantalla completa con atajo de teclado Escape, bloqueo de scroll en el fondo, selector de botones pequeños fuera de la tabla, buscador integrado y tips para girar el celular.
+  - **Integración en VentasPanel (`src/features/ventas/components/VentasPanel.tsx`)**:
+    - Se sustituyeron los bloques monolíticos de tablas tanto en la sección de Ventas como en LOVE ISDIN, incorporando la barra superior con botones pequeños (`Dermo + Tienda`, `Por Dermo`, `Por Tienda`), el botón `[ ⛶ Ver Pantalla Completa ]` y el modal fullscreen en ambas secciones.
+- **Validaciones**:
+  - TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 130 suites pasadas, 549 pruebas exitosas.
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,365 archivos limpios sin mojibake.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Empaquetado Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+  - Grafo de conocimiento: `graphify update .` -> 10,395 nodos actualizados.
+- **Estado**: Terminado, verificado y desplegable a producción.
+
+## [2026-09-29 13:40] - UI/UX & Mobile First: Optimización Responsiva de Tablas Semanales de Ventas y LOVE ISDIN (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó en el Reporte de Ventas (`/ventas`, `media_1790710386908.png`) que al consultar las tablas semanales desde teléfonos móviles no aparecía la tabla completa ni las semanas finales debido a la excesiva anchura de las celdas, nombres de sucursales largos, nombres de colaboradores en mayúsculas y la presencia redundante de la clave BTL y la cadena comercial.
+  - El usuario solicitó:
+    1. Abreviar / dejar el nombre corto de la sucursal (ej. `SP`, `FA`, `Ched.`, `City Mkt`, etc.).
+    2. Quitar la cadena y la clave BTL en la visualización móvil.
+    3. Dejar el nombre de la persona en formato corto/legible y sus ventas por semana de forma compacta y responsiva.
+    4. Aplicar el diseño a las tablas semanales tanto de Ventas como de LOVE ISDIN.
+- **Acciones Ejecutadas**:
+  - **Funciones de Abreviación Inteligente (`src/features/ventas/components/VentasPanel.tsx`)**:
+    - `getSucursalCorta(nombre)`: Detecta y compacta cadenas y prefijos comunes farmacéuticos y departamentales (`S Pablo` -> `SP`, `F Ahorro` -> `FA`, `Chedraui Selecto` -> `Ched.`, `City Market` -> `City Mkt`, `F Guadalajara` -> `FG`, etc.).
+    - `formatNombreDcCorto(nombre)`: Transforma nombres extensos en mayúsculas sostenidas a Title Case abreviando el segundo apellido (ej. `BEATRIZ MENDEZ JUAREZ` -> `Beatriz Méndez J.`), reduciendo el ancho visual en más de un 40% en teléfonos sin perder identidad.
+  - **Adaptación Responsiva de Tablas (`VentasPanel.tsx`)**:
+    - Se redujeron los márgenes y paddings en móvil de `p-6` a `p-2 sm:p-6` y el selector de pestañas a `px-2 sm:px-6`, recuperando más de 40px de ancho útil de pantalla.
+    - Pestañas con títulos condensados en móvil (`Dermo + Tienda`, `Por Dermo`, `Por Tienda`).
+    - En móvil, se ocultan el BTL y la cadena (`hidden sm:block`) cumpliendo la petición del usuario.
+    - Encabezados de semanas abreviados en móvil (`S1` a `S5` en lugar de `SEM 1` a `SEM 5`) y total como `TOT` con ancho compacto de `w-9` (36px).
+    - Celdas con números tabulares compactos `text-[11px] sm:text-xs` y alineación centrada.
+    - Aplicado a las 3 pestañas de Ventas (`detalle`, `dermo`, `sucursal`) y a las 3 pestañas de LOVE ISDIN (`detalle`, `dermo`, `sucursal`).
+- **Validaciones**:
+  - TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 130 suites pasadas, 549 pruebas exitosas.
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,361 archivos limpios sin mojibake.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Empaquetado Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+- **Estado**: Funcionalidad implementada y validada integralmente.
+
+## [2026-09-29 12:30] - Lógica de Negocio & Performance: Aislamiento Histórico Mensual de Supervisión en Reportes de Ventas (Antigravity)
+
+- **Contexto**:
+  - El usuario detectó en el Reporte de Ventas (`/ventas?month=2026-09`, `media_1790705407892.png`) que a la supervisora **Jacqueline López Ruiz** se le estaban asignando tiendas pertenecientes al mes de **octubre** (`S Pablo Tecamachalco`, `City Market Interlomas`, `S Pablo Stim`, `S Pablo Castorena`), mientras que en septiembre ella tenía una ruta diferente con otras 32 tiendas (`S Pablo Camarones`, `S Pablo Homero`, `Sanborns Plaza Carso`, etc.).
+  - Además, se requirió garantizar que la información de cada supervisor y sus tiendas corresponda estrictamente con su asignación y ruta de ese mes específico, sin cruzarse entre meses ni entre supervisores.
+- **Causa Raíz**:
+  - En `src/features/ventas/services/ventaService.ts`, la consulta y etiquetado de ventas ligaba con la columna estática `empleado.supervisor_empleado_id` de la tabla `empleado` (que refleja únicamente el supervisor asignado *hoy/actualmente*), en lugar de consultar la verdad histórica mensual de la tabla materializada e indexada `asignacion_diaria_resuelta`.
+  - Al actualizarse en octubre el equipo o tiendas asignadas a los supervisores, las ventas de septiembre quedaban contaminadas por la ficha actual, mostrando a Jacqueline como supervisora de tiendas que no eran suyas en septiembre y ocultando tiendas que sí supervisó en septiembre pero cuyos colaboradores cambiaron en octubre.
+- **Solución Implementada**:
+  - **TDD y Motor de Atribución Histórica (`src/features/ventas/lib/supervisorAttribution.ts`)**:
+    - Se creó la función `buildResolvedSupervisorLookup(records)` que genera mapas de búsqueda en memoria O(1):
+      - `byDate`: `${empleado_id}_${pdv_id}_${fecha}` -> `supervisor_empleado_id`
+      - `byPair`: `${empleado_id}_${pdv_id}` -> `supervisor_empleado_id` (supervisor con mayor frecuencia en el mes)
+      - `byPdv`: `${pdv_id}` -> `supervisor_empleado_id`
+      - `byEmpleado`: `${empleado_id}` -> `supervisor_empleado_id`
+    - Se enriqueció `resolveEffectiveSupervisorId` con soporte de `resolvedMap` priorizando la asignación diaria resuelta del mes sobre la ficha estática.
+    - Se escribieron pruebas unitarias exhaustivas en `src/features/ventas/lib/supervisorAttribution.test.ts` (6 pruebas pasando al 100%).
+  - **Consulta Paginada y Sin Pérdida de Datos en `ventaService.ts`**:
+    - Se implementó `fetchAsignacionesDiariasResueltasMes` para descargar de forma paginada y controlada todas las asignaciones del mes sin verse truncado por el límite de 1,000 filas de PostgREST.
+    - En `obtenerPanelVentasUncached`:
+      - Se delimitó el equipo del supervisor (`teamDermoIds`) estrictamente a partir de `asignacion_diaria_resuelta` y asignaciones vigentes en el mes consultado, eliminando la dependencia de `emp.supervisor_empleado_id === actorEmpleadoId`.
+      - Se filtraron las filas de ventas por `supervisorId === actorEmpleadoId`, garantizando que ninguna venta o tienda fuera de la ruta de ese mes aparezca en el perfil del supervisor.
+      - Se incorporaron las combinaciones dermo-tienda sin ventas derivadas de `asignacion_diaria_resuelta` para reflejar la totalidad de las tiendas asignadas del mes.
+    - Se actualizó la clave de caché a `'ventas-panel-v4'` para forzar la invalidación inmediata de datos desfasados.
+- **Validaciones**:
+  - TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 130 suites pasadas, 549 pruebas exitosas (100% verde).
+  - Verificación con datos reales de la BD:
+    - Septiembre 2026: `Tecamachalco`, `City Market Interlomas`, `Stim` y `Castorena` **excluidas al 100%** de Jacqueline.
+    - Septiembre 2026: `S Pablo Camarones` y `S Pablo Homero` **atribuidas correctamente** a Jacqueline con 676 ventas efectivas.
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,361 archivos limpios.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+  - Grafo de conocimiento: `graphify update .` -> 10,379 nodos actualizados.
+- **Estado**: Terminado, probado y verificado.
+
+## [2026-09-29 11:00] - UI/UX, Performance & Golden Path: Rediseño Minimalista del Tablero de Rutas Mensuales de Supervisores (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que la sección de Rutas de Supervisores (`/operacion-supervisores`, pestaña "Tablero de rutas", según captura `media_1790700081656.png`) estaba obsoleta porque los supervisores actualmente envían la planeación de **todo el mes** y la pantalla mostraba un Kanban semanal fragmentado (`28 sep 2026 - 04 oct 2026`) junto a una tarjeta de aprobación semanal (`RouteWorkflowCard`).
+  - El usuario solicitó rediseñar la sección de forma **más minimalista**, con enfoque **100% mensual**, permitiendo:
+    1. Revisar la planeación mensual de todos los supervisores de un solo vistazo.
+    2. Aprobar la ruta mensual (individual o masiva).
+    3. Descargar el Excel de todo el mes de forma directa.
+- **Solución Implementada**:
+  - **Lógica de Estado y Agregación Mensual (`src/features/rutas/lib/monthlyRouteStatus.ts`)**:
+    - Se implementó `calculateSupervisorMonthlyStatus` y `summarizeMonthlyRouteStatuses` con tipado estricto (`SupervisorMonthlyStatus`, `SupervisorMonthlyEstado`):
+      - `FALTANTE`: Supervisor sin visitas planeadas para el mes.
+      - `ENVIADA`: Supervisor con ruta mensual enviada en espera de visto bueno de coordinación.
+      - `CAMBIOS_SOLICITADOS`: Ruta mensual con observaciones devuelta para ajuste.
+      - `APROBADA`: Ruta mensual autorizada para operación.
+    - Se añadieron pruebas unitarias completas bajo TDD en `src/features/rutas/lib/monthlyRouteStatus.test.ts` (5 pruebas pasando al 100%).
+  - **Componente Central Minimalista (`src/features/rutas/components/SupervisorMonthlyRouteBoard.tsx`)**:
+    - **Navegación Mensual Fluida**: Controles rápidos de mes `[ ‹ ] [ Mes Año ] [ › ]` y selector de mes nativo.
+    - **Exportación a Excel Directa**: Botón destacado `[ 📊 Descargar Excel del Mes ]` que consume `/api/rutas/export?semanaInicio=YYYY-MM` con spinner de carga.
+    - **KPIs Mensuales Limpios**: 4 tarjetas pastilla interactivas (`Por Revisar`, `Aprobadas`, `Con Cambios`, `Sin Ruta`) que actúan como filtros instantáneos.
+    - **Aprobación Masiva**: Botón `[ ⚡ Aprobar todas las enviadas ]` con modal de confirmación rápida para autorizar en lote todo el bloque mensual listo.
+    - **Directorio Minimalista de Supervisores**:
+      - Tarjetas compactas con avatar, nombre, zona y badge de estado.
+      - Métricas claras: Días programados, Visitas totales, Visitas completadas y barra de avance operativo.
+      - Acciones directas: `[ 👁️ Revisar ruta ]`, `[ ✓ Aprobar mes ]` (un clic), `[ ✏️ Solicitar cambios ]`.
+    - **Modal de Detalle Diario (`ModalPanel`)**:
+      - Desglose por días programados del mes (`numero` + `letra` + contador de tiendas).
+      - Inspección de tiendas programadas por día con orden, estatus, check-in, geocerca y fotografías.
+      - Pie de página con campo de notas y botones para aprobar o solicitar ajustes.
+    - **Conmutador de Vista**: Permite alternar entre `[ 📋 Tablero ]` (nuevo, predeterminado) y `[ 🗓️ Matriz 31 días ]` (`RutaMensualCalendar`) según la necesidad operativa.
+  - **Sustitución en Panel Principal (`src/features/rutas/components/RutaSemanalPanel.tsx`)**:
+    - Se eliminaron el `CoordinatorRouteKanban` semanal obsoleto y la tarjeta de revisión semanal `RouteWorkflowCard` del tab de rutas.
+    - Se integró `SupervisorMonthlyRouteBoard` como controlador unificado del mes.
+    - El botón de exportación superior se actualizó para descargar el mes activo (`handleExportarExcelMes`).
+- **Validaciones**:
+  - Pruebas unitarias: `npm run test:unit` -> 130 suites pasadas, 545 pruebas exitosas (100% verde).
+  - Verificación de tipos TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,358 archivos limpios.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+- **Estado**: Terminado, probado y verificado al 100%.
+
+## [2026-09-28 20:48] - UI/UX & Mobile-First: Compactación de Filtros del Tablero Comercial y Nombres Cortos de Productos en Detalle Diario (Antigravity)
+
+- **Contexto**:
+  - En base a la retroalimentación del usuario con capturas en dispositivo móvil (`media_1790649283678.png`, `media_1790649351465.png`, `media_1790649141582.png`):
+    1. La tarjeta superior de filtros ("Filtros del Tablero Comercial") abarcaba entre el 70% y el 90% de la pantalla del celular debido a los selectores e inputs apilados verticalmente, empujando los reportes fuera del campo visual.
+    2. En el Nivel 3 (Detalle del Día), la lista de productos mostraba nombres técnicos largos con prefijos de marca repetitivos y cadenas como `SKU: 842942...`, generando saturación y provocando que las insignias de piezas vendidas se desbordaran hacia la derecha.
+    3. El usuario requirió compactar ambos elementos: filtros colapsables de una sola línea y nombres cortos de productos con su cantidad en piezas, eliminando completamente el SKU y elementos gráficos ruidosos.
+- **Solución Implementada**:
+  - **Filtros Comerciales Compactos y Colapsables (`src/features/ventas/components/VentasPanel.tsx`)**:
+    - Se crearon los estados `isFiltrosOpen` e `isLoveFiltrosOpen` (cerrados por defecto).
+    - La tarjeta de filtros ahora se presenta como una barra minimalista de ~48px de altura con resumen del mes activo (`Enero-Diciembre YYYY`), cadena filtrada, contador de registros cargados y botón táctil `[ ⚙️ Modificar ]` / `[ ▲ Ocultar ]`.
+    - Al pulsar `Modificar`, se despliega suavemente la cuadrícula con fechas de inicio/fin, supervisor, cadena, botón de aplicación y exportación a Excel.
+    - Se replicó el mismo patrón compacto tanto para el Tablero de Ventas como para el Tablero de LOVE ISDIN.
+  - **Detalle de Productos Ultra-Limpio en Nivel 3 (`src/features/ventas/components/VentasVerticalDrillDown.tsx`)**:
+    - Se eliminaron por completo el texto del SKU (`prod.sku`) y el emoji `🧴`.
+    - Se reemplazó la cuadrícula por un listado vertical de filas completas (`space-y-1.5 w-full`):
+      - Izquierda: Nombre corto del producto (`producto_nombre_corto` desde BD o recortado con remoción de prefijos como `FOTOPROTECTOR ISDIN`, `ISDINCEUTICS`, etc.) con clase `truncate text-xs font-semibold text-slate-800`.
+      - Derecha: Píldora de cantidad con `shrink-0` (`text-xs font-black text-[#FF7FA5] bg-pink-50 border border-pink-200 px-2.5 py-0.5`), garantizando que siempre se mantenga 100% visible dentro del ancho del celular.
+- **Validaciones**:
+  - Verificación de tipos TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 129 suites pasadas, 540 pruebas exitosas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,346 archivos verificados limpios.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+- **Estado**: Terminado, probado y verificado.
+
+## [2026-09-28 20:30] - Performance & Mobile-First: Rediseño Vertical en 3 Niveles y Optimización SQL de "Reporte de Ventas" (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó problemas críticos en la sección de **REPORTE DE VENTAS** (`media_1790647174073.png` y `media_1790647234501.png`):
+    - Existían dos botones de regreso redundantes ("Regresar al dashboard principal" y "← Volver al Dashboard").
+    - La vista horizontal de 8 columnas (`SEM 1` a `SEM 5`) se desbordaba y cortaba en celulares, impidiendo una lectura ágil y vertical.
+    - Las consultas en Supabase eran extremadamente pesadas porque descargaban 4,450 registros de toda la empresa en memoria, paginando múltiples páginas innecesariamente.
+    - Se requería una arquitectura móvil vertical en 3 niveles de desglose (Drill-Down):
+      1. **Nivel Principal (DC + PDV)**: Totales acumulados de piezas vendidas, registros Love ISDIN, canjes realizados y días activos.
+      2. **Nivel Calendario Minimalista**: Cuadrícula/calendario mensual táctil con piezas vendidas por día e indicadores visuales de Love ISDIN (❤️), Canjes (🎁) e incidencias (V, I, F, 0).
+      3. **Nivel Detalle por Día**: Desglose completo al tocar un día específico: productos vendidos con sus cantidades y montos, capturas Love ISDIN, canjes entregados (con o sin ticket) y notas/incidencias operativas.
+- **Solución Implementada**:
+  - **Optimización SQL de Alto Rendimiento (`src/features/ventas/services/ventaService.ts`)**:
+    - **Aislamiento en Base de Datos**: Para perfiles `SUPERVISOR`, se filtran en paralelo primero las asignaciones y empleados del equipo; de ahí se obtienen los IDs de sus dermoconsejeras y se inyectan directamente en SQL tanto a `captura_publica_registro` (`.in('empleado_id', teamDermoIds)`) como a `venta` (`totalCountQuery` y `pQuery`).
+    - **Reducción de Carga masiva (>95%)**: En lugar de transferir 4,450 filas y ejecutar 5 llamadas paginadas, la consulta de supervisores resuelve de golpe en una sola página con apenas unas decenas de registros.
+    - **Capturas Detalladas**: `captura_publica_registro` ahora recupera todos los tipos de registros comerciales (`VENTA`, `LOVE_ISDIN`, `CANJE`, `DESABASTO`) con cantidades, nombres de snapshot de productos/materiales y observaciones, exponiéndolos como `capturasDetalle` en `VentasPanelData`.
+  - **Componente Modular Vertical en 3 Niveles (`src/features/ventas/components/VentasVerticalDrillDown.tsx`)**:
+    - **Nivel 1 (Tarjetas Verticales por Dermo + PDV)**: Tarjetas con bordes suaves, badges destacados de Piezas vendidas (🛍️), Love ISDIN (❤️) y Canjes (🎁), junto con métricas de días con venta y días activos. Incluye buscador reactivo en tiempo real por nombre, tienda, cadena, clave BTL, supervisor o nómina.
+    - **Nivel 2 (Calendario Mensual Minimalista)**: Cuadrícula de 7 columnas (Lunes a Domingo) adaptada al celular, con chips de días que muestran piezas vendidas, micro-íconos de Love y Canjes, y estados de incidencia (Vacaciones, Incapacidad, Falta, Sin ventas).
+    - **Nivel 3 (Detalle del Día Seleccionado)**: Panel interactivo desplegable con 4 bloques ordenados:
+      - 🛍️ **Productos Vendidos**: Lista de productos individuales con sus piezas exactas vendidas (ej. `Fusion Water 50ml: 3 pzas`) y montos.
+      - ❤️ **Love ISDIN**: Detalle de afiliaciones capturadas ese día (estado exitoso/fallido y notas).
+      - 🎁 **Canjes Realizados**: Materiales físicos entregados, cantidades y tipo de canje (con ticket o sin ticket).
+      - ⚠️ **Incidencias y Notas**: Reportes de desabasto, justificaciones de ausencia y observaciones de campo.
+  - **Integración y Limpieza de UI (`src/features/ventas/components/VentasPanel.tsx` & `src/app/(main)/ventas/page.tsx`)**:
+    - Se eliminó el botón duplicado "← Volver al Dashboard" en `VentasPanel.tsx`, unificando un único botón superior elegante con flecha en `page.tsx` para todos los visualizadores.
+    - Se añadió un conmutador de vista táctil: `[ 📱 Vista Vertical ]` (predeterminada) y `[ 📋 Tablas Semanales ]` para conservar la compatibilidad de reportes de escritorio y exportaciones a Excel.
+- **Validaciones**:
+  - Verificación de codificación UTF-8: `npm run docs:check-encoding` -> 1,346 archivos limpios.
+  - Verificación de tipos TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 129 archivos y 540 pruebas pasadas (100% verde).
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Empaquetado Cloudflare Workers / OpenNext: `npm run cf:build` -> `worker.js` generado exitosamente sin advertencias de rutas Windows.
+- **Estado**: Terminado, verificado y listo para producción.
+
+## [2026-09-28 20:05] - Performance & UI/UX: Optimización de Consultas y Rediseño de "Reportes de Campo" (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que la sección de "Reportes de Campo" (`media_1790646500355.png` y `media_1790646573812.png`) tenía una consulta pesada.
+  - Además, las pestañas de "Resumen general" y "Dermos pendientes" se sentían como texto plano y oculto en vez de botones claros y táctiles.
+  - En la vista del supervisor (ej. Jacqueline López Ruiz), aparecían tarjetas y datos de otros supervisores (como María Zenaida Monroy González) por cruces de tiendas compartidas.
+  - No existía una forma de ver rápidamente quién ya mandó su reporte y quién no lo ha mandado.
+  - El botón y formato para copiar a WhatsApp necesitaban un rediseño minimalista, y los filtros requerían verse más modernos ("más padres").
+- **Solución Implementada**:
+  - **Optimización de Consultas (Supabase / PostgreSQL) (`src/features/dashboard/services/clienteDashboardService.ts`)**:
+    - **Paginación acotada en SQL**: Antes, `captura_publica_registro` traía todas las capturas de todos los PDVs del mes y las filtraba en JavaScript. Ahora, cuando hay un supervisor activo (`filtros.supervisorId`), se envían directamente sus dermoconsejeras con `.in('empleado_id', Array.from(supervisorEquipoIds))` en SQL, reduciendo lecturas y tiempo en más de 80%.
+    - **Filtrado estricto de equipo**: Se eliminó la captura de dermoconsejeras externas por PDV compartido. Las asignaciones diarias y capturas se acotan estrictamente a `supervisor_empleado_id === filtros.supervisorId`.
+    - **Conteo de capturas del día**: `obtenerCapturasDiaCompleto` ahora acepta `empleadoIds` y filtra en base de datos.
+    - **Recopilación de cumplidas**: El servicio ahora calcula tanto `alertas` (vacíos e incompletos) como `cumplidas` (dermos que ya reportaron con ventas o Love ISDIN).
+  - **Barra de Filtros Moderna ("Más Padre") (`src/features/dashboard/components/ClienteDashboardPanel.tsx`)**:
+    - Contenedor con efecto vidrio y sombra suave (`bg-white/90 backdrop-blur-xs shadow-2xs rounded-2xl`).
+    - Selector de mes/periodo con icono `📅` integrado y diseño redondeado.
+    - Navegador de día integrado con botones de flecha elegantes (`◀`, `▶`), selector de fecha y botón para limpiar `✕` ("Ver todo el mes").
+    - Desplegables estilizados para cadenas (`🏢`) y tiendas (`🏪`) con flechas discretas.
+  - **Navegación por Botones Táctiles**:
+    - Se reemplazaron las pestañas de texto plano subrayado por un contenedor de botones pastilla táctiles: `[ 📊 Resumen General ]` y `[ 👥 Avance de mi Equipo ]` con insignia de estado.
+  - **Tarjeta de Equipo y Visualización de Cumplimiento**:
+    - Aislamiento estricto: En modo supervisor, **solamente se muestra el equipo del supervisor autenticado** (Jacqueline); jamás aparecen otros supervisores.
+    - Sub-pestañas de filtrado dentro de la tarjeta:
+      - `[ ⚠️ Pendientes ({n}) ]`: Muestra a quienes no han mandado reporte (`🚫 Sin reportes` o `⚠️ Falta Ventas/Love`).
+      - `[ ✅ Al día ({n}) ]`: Muestra a quienes ya mandaron su reporte (`✓ Enviado` con desglose de ventas y capturas).
+      - `[ 📋 Todos ({total}) ]`: Muestra a todo el equipo con su estado individual.
+  - **Copiado Minimalista para WhatsApp**:
+    - Botón compacto con icono de WhatsApp y feedback visual inmediato (`¡Copiado con éxito! ✓`).
+    - Formato de texto limpio, estructurado y ejecutivo para WhatsApp, detallando avance porcentual, reportes enviados y pendientes.
+- **Validaciones**:
+  - TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 129 suites pasadas, 540 pruebas exitosas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,345 archivos limpios.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+- **Estado**: Terminado, probado y verificado.
+
+## [2026-09-28 19:48] - UI/UX & Mobile-First: Rediseño Minimalista del Panel "Planear Día" en la Planeación Mensual (Antigravity)
+
+- **Contexto**:
+  - Al seleccionar una fecha del calendario mensual en dispositivos móviles (`media_1790646036729.png`), la ventana emergente (*BottomSheet*) se sentía muy saturada y comprimida:
+    - Botón "Atrás" redundante bajo el título (habiendo ya un botón de cerrar `(X)` arriba y `"Cancelar"` al pie).
+    - Subtítulo explicativo largo.
+    - Cuadro punteado enorme para el estado vacío de *"Orden del día"* (cuando aún no se han agregado tiendas).
+    - Buscador con etiqueta duplicada encima del input.
+    - Tarjetas de tiendas muy altas (`min-h-12 py-3 px-4`), permitiendo ver apenas 2 tiendas antes de que el pie de página las tape.
+- **Solución Implementada**:
+  - **Limpieza de Cabecera en BottomSheet (`src/features/rutas/components/RutaMensualPlanner.tsx`)**:
+    - Se desactivó el botón duplicado `"Atrás"` (`showBackButton={false}`).
+    - Se retiró el subtítulo largo; el título muestra directamente la fecha formateada de manera clara y limpia.
+  - **Compactación de "Orden del Día"**:
+    - Si no hay tiendas agregadas, se muestra una línea sutil y elegante en cursiva sin cajas punteadas pesadas.
+    - Si hay tiendas agregadas, las tarjetas se presentan estilizadas con badges numéricos de orden y botones de control compactos (↑, ↓, ×) cómodos y táctiles.
+  - **Buscador y Catálogo de Tiendas Ultraligero**:
+    - Buscador directo con icono `🔍` integrado y esquinas redondeadas modernas.
+    - Se optimizó el padding vertical de las tarjetas de tiendas (`p-2.5` en vez de `py-3`), permitiendo ver de 4 a 5 tiendas a la vez en la pantalla del celular sin necesidad de scroll excesivo.
+    - El botón de agregar se transformó en una pastilla sutil `[ + Agregar ]` con estados hover/active intuitivos.
+  - **Pie de Página Estilizado**:
+    - Botones de acción `"Cancelar"` y `"Guardar día"` más estilizados, modernos y proporcionales.
+- **Validaciones**:
+  - TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 129 suites pasadas, 540 pruebas exitosas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,345 archivos limpios.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+- **Estado**: Terminado, probado y verificado.
+
+## [2026-09-28 19:35] - UI/UX & Mobile-First: Rediseño Minimalista y Ultracompacto de la Planeación Mensual de Supervisores (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que la sección de Planeación Mensual abarcaba más del 50% de la pantalla en dispositivos móviles (`media_1790645227055.png`), ocultando el calendario interactivo.
+  - La vista presentaba una tarjeta superior voluminosa con títulos duplicados ("ENVÍO ÚNICO MENSUAL", "Ruta de Septiembre 2026"), un párrafo explicativo de tres líneas y cuatro tarjetas de métricas grandes apiladas en cuadrícula 2x2.
+  - El usuario solicitó rediseñar la sección con textos drásticamente reducidos y controles más minimalistas para que el calendario quede visible de inmediato.
+- **Solución Implementada**:
+  - **Cabecera y Métricas Ultracompactas (`src/features/rutas/components/RutaMensualPlanner.tsx`)**:
+    - Se eliminaron el banner azul voluminoso, el subtítulo redundante y el párrafo explicativo.
+    - Se integró una franja superior elegante y compacta (~75px de alto total en móvil):
+      - Selector desplegable de mes limpio y responsive (`Select` sin etiquetas altas redundantes).
+      - Insignia de estado discreta (`🔒 Protegida` / `Borrador mensual` / `En revisión` / etc.).
+      - Mini-pastillas horizontales para las métricas clave: `Visitas`, `Días` y `Tiendas` (en lugar de 4 tarjetas grandes).
+  - **Botón de Envío y Contenedor Inferior Minimalista**:
+    - Se redujo el texto de pie de página a un aviso conciso.
+    - El botón de envío se rediseñó a una variante compacta y estilizada: `"Enviar ruta mensual"`.
+  - **Optimización de Padding en Contenedor (`src/features/rutas/components/RutaSemanalPanel.tsx`)**:
+    - En `PlanificarRutaCard` se configuró `padding="none"` con clases responsive `p-2 sm:p-4`, eliminando márgenes innecesarios que reducían el área visible en móvil.
+- **Validaciones**:
+  - TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 129 suites pasadas, 540 pruebas exitosas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,345 archivos limpios.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+- **Estado**: Terminado, probado y verificado.
+
+## [2026-09-28 19:20] - UI/UX & Mobile-First: Optimización de Etiquetas y Eliminación de Truncamiento en Móvil (Antigravity)
+
+- **Contexto**:
+  - En la vista móvil del dashboard de supervisores (`media_1790644203170.png`), ciertos textos aparecían incompletos con puntos suspensivos ("Reportes d...", "Reporte de...") debido a la clase CSS `truncate`.
+  - Asimismo, botones como "Registrar solicitud equipo" se desbordaban en tres líneas verticales desbalanceando la cuadrícula, y en la cabecera el texto "Sin ruta cargada" se partía de manera apretada.
+  - El usuario requirió que ningún texto quede incompleto, solicitó propuestas de palabras alternativas más compactas y concisas para no saturar la pantalla, y autorizó la ejecución inmediata.
+- **Solución Implementada**:
+  - **Eliminación Total de `truncate` en Botones Operativos (`src/features/dashboard/components/DashboardPanel.tsx`)**:
+    - Se eliminó la clase `truncate` de las etiquetas de los enlaces de reportes.
+    - Se compactaron los nombres respetando el significado de negocio:
+      - `Reportes de campo` -> **`Reportes campo`** (100% visible, claro, 2 líneas max).
+      - `Reporte de ventas` -> **`Reporte ventas`** (100% visible, balanceado).
+      - `Registrar solicitud equipo` -> **`Solicitud equipo`** (elimina el salto a 3 líneas y equilibra la altura exacta con su botón compañero `Registrar asistencia`).
+  - **Optimización de Cabecera Móvil**:
+    - Se ajustó el badge de estado de ruta: de `"Sin ruta cargada"` a **`"Sin ruta"`** con `whitespace-nowrap shrink-0` para prevenir que la palabra se rompa en dos renglones.
+    - En `DashboardLogoutButton`: se añadió `shrink-0 whitespace-nowrap`, padding táctil responsive (`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm`) y acentuación en "Cerrar sesión".
+- **Validaciones**:
+  - TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 129 suites pasadas, 540 pruebas exitosas.
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,345 archivos limpios.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+- **Estado**: Terminado, probado y verificado.
+
+## [2026-09-28 19:05] - UI/UX & Mobile-First: Disposición Estricta de Botones 2x2 en el Dashboard de Supervisores (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó alinear absolutamente todos los botones del panel de supervisores de dos en dos (`grid-cols-2`), sin botones que abarquen el ancho completo (`col-span-2`) de forma aislada.
+  - Se adjuntó una imagen de referencia (`media_1790643363897.png`) mostrando la simetría deseada con pares de botones en cada fila.
+- **Solución Implementada**:
+  - **Alineación 2x2 en Reportes y Operación (`src/features/dashboard/components/DashboardPanel.tsx`)**:
+    - Se unificó la sección de Reportes y Operación en una cuadrícula simétrica de 2 columnas (`grid grid-cols-2 gap-2.5 sm:gap-3`), con 4 filas exactas de 2 botones cada una (8 botones en total):
+      1. *Fila 1 (Reportes)*: `[ Reportes de campo ]` y `[ Reporte de ventas ]`.
+      2. *Fila 2 (Acciones operativas directas)*: `[ Registrar asistencia ]` y `[ Registrar solicitud equipo ]`.
+      3. *Fila 3 (Planeación mensual)*: `[ Planeación mensual ]` y `[ Rol mensual ]`.
+      4. *Fila 4 (Ruta y Entregas)*: `[ Mi ruta de hoy ]` y `[ Evidencias y Entregas ]`.
+  - **Alineación 2x2 en Solicitudes y Gestión de Equipo**:
+    - Se configuró la cuadrícula en 2 columnas estrictas (`grid grid-cols-2 gap-2.5 sm:gap-3`), conteniendo 2 filas de 2 botones cada una (4 botones en total):
+      1. *Fila 5*: `[ Solicitudes ]` y `[ Vacaciones ]`.
+      2. *Fila 6*: `[ Incapacidades ]` y `[ Día cumple ]`.
+    - Resultado: 12 botones en 6 pares idénticos, sin espacios vacíos ni botones desproporcionados a lo ancho.
+- **Validaciones**:
+  - TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 129 suites pasadas, 540 pruebas exitosas.
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,345 archivos limpios.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+- **Estado**: Terminado, probado y verificado.
+
+## [2026-09-28 18:45] - UI/UX & Mobile-First: Optimización Máxima del Dashboard de Supervisores - Botón "Registrar Asistencia", Limpieza de Insignias y Eliminación de "Operación Diaria" (Antigravity)
+
+- **Contexto**:
+  - Tras la primera iteración de minimalismo, el usuario solicitó 4 ajustes específicos para eliminar saturación y solapamiento de textos en celular:
+    1. Eliminar los números pequeños sobre los botones de "Vacaciones", "Incapacidades" y "Día cumple" (en pantallas móviles de 360-390px se encimaban sobre los títulos, ej. "Vacaci 0 s", "Incapa 2 des").
+    2. Eliminar el texto/insignia "Unificado" del botón "Evidencias y Entregas".
+    3. Eliminar la sección superior "Operación diaria" y el botón de notificaciones, conservando únicamente el botón de cierre de sesión en una cabecera limpia.
+    4. En la sección "Operación del día" (donde aparecía la tabla desplegada de tiendas asignadas hoy): empaquetar las tiendas en un botón, subirlo al bloque de operaciones y nombrarlo **"Registrar asistencia"**. Al presionarlo, abre el tablero de tiendas y registro de asistencia en pantalla completa con botón para regresar al dashboard principal.
+- **Solución Implementada**:
+  - **Limpieza de Insignias y Tipografía Móvil (`src/features/dashboard/components/DashboardPanel.tsx`)**:
+    - Se eliminaron las insignias numéricas de "Vacaciones", "Incapacidades" y "Día cumple".
+    - Se eliminó la etiqueta "Unificado" de "Evidencias y Entregas" tanto en el botón como en el modal de pantalla completa.
+    - Se simplificó la distribución a `flex items-center gap-3` con `min-w-0 flex-1`, evitando cualquier truncamiento o salto indeseado en móviles estrechos.
+  - **Eliminación de "Operación Diaria" y Notificaciones**:
+    - Se removió la sección `<section>` que contenía "Operación diaria", las 4 métricas grandes y el botón de campana de notificaciones.
+    - El botón de cierre de sesión (`DashboardLogoutButton`) y el indicador de ruta se colocaron en una franja discreta y elegante en la cabecera de la tarjeta principal.
+  - **Botón y Vista a Pantalla Completa "Registrar Asistencia"**:
+    - Se agregó el botón **"Registrar asistencia"** en la parte superior de las acciones operativas con icono de check-in (`arrival`).
+    - Al tocar el botón, se abre `SupervisorFullScreenView` (`activeQuickAction === 'asistencia-diaria'`) mostrando el listado de tiendas asignadas hoy con sus horarios, dermoconsejeras, retardos y botones directos para registrar o revisar asistencia.
+    - Se migró también la hoja de revisión de asistencia (`selectedItem`) a `SupervisorFullScreenView` con `zIndexClassName="z-[60]"`, garantizando una experiencia fluida sin ventanas modales recortadas.
+- **Validaciones**:
+  - Verificación de tipos TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 129 suites pasadas, 540 pruebas exitosas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,345 archivos limpios.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+- **Estado**: Terminado, probado y verificado.
+
+## [2026-09-28 18:25] - UI/UX & Mobile-First: Rediseño Minimalista del Dashboard de Supervisores, Reordenamiento de Acciones y Vistas a Pantalla Completa (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó rediseñar la vista del dashboard de supervisores para optimizar el espacio en celular y hacerla mucho más minimalista:
+    1. La cabecera "Operación diaria" ocupaba casi la mitad de la pantalla en móviles debido a textos descriptivos largos y tarjetas métricas altas apiladas verticalmente.
+    2. En las acciones rápidas: renombrar "Definir ruta semanal" a "Planeación mensual"; mantener "Rol mensual", "Mi ruta de hoy", "Evidencias y Entregas"; colocar en la parte superior "Reportes de campo" y "Reporte de ventas", y "todo lo demás que se quede abajo".
+    3. Hacer los botones minimalistas, eliminando párrafos explicativos largos pero manteniendo iconos y títulos claros.
+    4. Eliminar las ventanas modales flotantes parciales (`BottomSheet` de 768px máx) que se abrían al picar a un botón, para que se abran en **pantalla completa** (100% viewport), incorporando en cada vista un botón visible para `Regresar al dashboard principal`.
+- **Solución Implementada**:
+  - **Cabecera Ultra-Minimalista (`src/features/dashboard/components/DashboardPanel.tsx`)**:
+    - Se sustituyó la estructura pesada `page-hero` por un encabezado limpio y compacto con badge de rol, título directo y botones de acción rápidos.
+    - Se agregaron estilos compactos a `SupervisorIntegratedMetricCard` (`compact?: boolean`), reduciendo la altura de las tarjetas en más del 50%.
+    - En móviles, las métricas ahora se organizan en cuadrícula de 2 columnas (`grid-cols-2 lg:grid-cols-4`), recortando la altura vertical del encabezado de ~500px a menos de 170px.
+  - **Reordenamiento y Minimalismo en Botones de Acción**:
+    - Grupo superior prioritario: *Reportes de campo* (`/reportes`) y *Reporte de ventas* (`/ventas`).
+    - Fila operativa: *Planeación mensual* (renombrado desde *Definir ruta semanal*), *Rol mensual*, *Mi ruta de hoy* y *Evidencias y Entregas* (con badge unificado).
+    - Sección inferior ("todo lo demás abajo"): *Solicitudes* (con badge de pendientes), *Vacaciones*, *Incapacidades*, *Día cumple* y *Registrar solicitud equipo*.
+    - Se eliminaron todas las descripciones redundantes de 2-3 líneas, resultando en botones táctiles rápidos, elegantes y accesibles (>= 44px).
+  - **Componente de Pantalla Completa (`src/features/dashboard/components/SupervisorFullScreenView.tsx`)**:
+    - Se implementó `SupervisorFullScreenView` (`fixed inset-0 z-50 bg-slate-50 flex flex-col overflow-hidden`), con bloqueo de scroll corporal (`lockBodyScroll`), soporte de tecla ESC y botón de cierre.
+    - Barra superior fija con el botón destacado `← Regresar al dashboard principal`.
+    - Se migraron todas las vistas del supervisor (`ruta-planning`, `rol-mensual`, `evidencias-entregas`, `hoy`, `solicitudes`, `vacaciones/incapacidades/cumpleaños`, `isTeamRequestSheetOpen` y asistencia manual) para abrirse a pantalla completa sin ventanas flotantes estrechas.
+  - **Navegación de Retorno en Módulos Enlazados (`src/app/(main)/reportes/page.tsx` y `src/app/(main)/ventas/page.tsx`)**:
+    - Se integró el botón `← Regresar al dashboard principal` en la parte superior para supervisores que navegan a Reportes y Ventas.
+- **Validaciones**:
+  - Verificación de tipos TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 129 suites pasadas, 540 pruebas exitosas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,345 archivos limpios sin BOM ni mojibake.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+- **Estado**: Terminado, probado y verificado.
+
+## [2026-09-28 17:35] - Feature & Operations: Inyección y Cableado Integral de Asignaciones Permanentes - Octubre 2026 (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó procesar el archivo maestro `ASIGNACIÓN A PARTIR DE OCTUBRE.xlsx` para inyectar formalmente las asignaciones de puntos de venta de forma permanente a partir del 1 de octubre de 2026.
+  - Se requería sincronizar de punta a punta: verificar que los PDVs coincidan con los supervisores asignados, cablear asignaciones, reportes, cuotas para supervisores, Love ISDIN, ventas, canjes y desabastos, cerrando el historial de septiembre sin afectar meses pasados.
+- **Solución Implementada**:
+  - **Auditoría e Inyección de Asignaciones (`scripts/apply-october-2026-assignments.cjs` y `scripts/prune-october-duplicates.cjs`)**:
+    - Se procesaron las 268 filas del archivo Excel: 231 asignaciones activas (165 fijas y 66 rotativas de 33 colaboradoras con factor 0.5) y 37 vacantes / por cubrir.
+    - Se cerraron limpiamente las 242 asignaciones anteriores con vigencia al `2026-09-30`.
+    - Se crearon las 231 asignaciones maestras con `fecha_inicio = '2026-10-01'` permanente (`fecha_fin = null`), estado `PUBLICADA`, horario de referencia y naturaleza `BASE`.
+  - **Reconciliación de Supervisores por PDV (`supervisor_pdv`)**:
+    - Se verificó que los 268 puntos de venta tengan a su supervisor asignado en octubre (incluyendo la actualización de Farmacia del Ahorro Polanco `BTL-FAH-POLA-HM` a Jacqueline López Ruiz).
+  - **Cadena de Mando en Perfil de Empleados (`empleado`)**:
+    - Se actualizó el campo `supervisor_empleado_id` en las colaboradoras activas asignadas para garantizar la atribución directa en la app.
+  - **Cuotas de Supervisores (`ruta_cuota_supervisor_pdv`)**:
+    - Se aseguraron y transfirieron las cuotas de visitas mensuales de los PDVs hacia los supervisores de octubre a partir del 1 de octubre.
+  - **Matriz de Rotación Maestra (`pdv_rotacion_maestra`)**:
+    - Se actualizaron las clasificaciones `ROTATIVO` / `FIJO` y slots de rotación (`A` / `B`) para los 268 PDVs.
+  - **Motor Diario Resuelto (`asignacion_diaria_resuelta`)**:
+    - Se materializaron los 31 días de octubre para cada colaboradora según su jornada (`LUN-SAB`, `LUN-MAR-MIE`, `JUE-VIE-SAB`, `JUE-MAR`) y día de descanso (`DOMINGO`, `MIÉRCOLES`, `SÁBADO`), alimentando aguas abajo los módulos de Ventas, Canjes, Desabastos y Love ISDIN.
+  - **Refresco de Planeación Mensual (`planeacion_mensual_snapshot`)**:
+    - Se ejecutó el RPC `refrescar_planeacion_mensual_snapshot` para `2026-10-01`, reflejando 270 filas (231 asignadas + 39 filas de vacantes operativas) y 18 supervisores en `/asignaciones?mes=2026-10`.
+  - **Documentación Arquitectónica (`docs/adr/0004-asignacion-permanente-octubre-2026.md`)**:
+    - Se redactó el ADR 0004 documentando el modelo de sustitución estructural permanente.
+- **Validaciones**:
+  - Verificación en base de datos: 231 asignaciones maestras publicadas permanentes, 0 huérfanas.
+  - Muestreo directo en Planeación Mensual: Benavides Galerías Mty y F Ahorro Calzada reflejan a Ana Cristina Animas; F Ahorro Polanco refleja a Jacqueline López Ruiz; S Pablo Cuitláhuac refleja a Miguel Ángel Montagner.
+  - Integridad UTF-8: `npm run docs:check-encoding` -> 1,344 archivos limpios sin errores.
+- **Estado**: Terminado, sincronizado y verificado al 100%.
+
+
+- **Contexto**:
+  - El usuario reportó que en la pestaña "Mapa Operacional de Supervisión" (`/pdvs`) no aparecía el mes de operación activo y que, al realizar cambios de supervisores para octubre, los puntos de venta no correspondían a los mismos supervisores en septiembre como en octubre.
+  - Al no haber selector de mes en el mapa, la vista siempre mostraba la fotografía de septiembre por defecto y no permitía alternar a octubre directamente desde el mapa.
+- **Solución Implementada**:
+  - **Selector y Botones Rápidos de Mes en el Mapa (`src/features/pdvs/components/PdvsOperationalMapTab.tsx`)**:
+    - Se agregaron controles de mes en dos lugares clave del mapa:
+      1. *En la barra superior*: Widget integrado con icono `📅 Mes:` y campo nativo `<input type="month">` con indicador de carga para seleccionar cualquier mes.
+      2. *En la barra de filtros rápidos*: Botones de un solo clic `[ Septiembre 2026 ]` y `[ Octubre 2026 ]` (con iluminación visual en morado/indigo según el mes activo).
+    - *Panel Lateral de Supervisores*: Se agregó badge que indica el mes activo (`Supervisores (Octubre de 2026)`) con las cantidades y colores reales que corresponden a ese mes.
+    - *Ficha Flotante de Tienda*: Se actualizó la etiqueta de supervisor a `Supervisor (octubre de 2026): [Nombre]` para evitar cualquier ambigüedad.
+    - *Fecha Efectiva Automática*: Al reasignar tiendas viendo octubre, la fecha sugerida por defecto se ajusta automáticamente al primer día de dicho mes (`2026-10-01`).
+  - **Sincronización de Pestaña y Navegación Reactiva (`src/features/pdvs/components/PdvsPanel.tsx`)**:
+    - Se enlazó el estado de `activeTab` con el parámetro de URL (`?tab=mapa`).
+    - Al alternar entre meses desde el mapa (`handleMonthChangeFromMap`), se preserva `tab=mapa` en la URL para que la página recargue sin sacar al usuario al catálogo.
+    - Se adaptaron `applyFilters` y `clearFilters` para conservar la pestaña activa.
+  - **Helper de Formato de Mes (`src/features/pdvs/lib/pdvPanelFilters.ts` y tests en `pdvPanelFilters.test.ts`)**:
+    - Se exportó la función `formatMonthLabel` para centralizar la presentación en español de etiquetas de mes (`septiembre de 2026`, `octubre de 2026`) usando UTC estricto.
+    - Se agregaron pruebas unitarias validando el comportamiento y casos edge.
+- **Validaciones**:
+  - Compilación TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 129 suites pasadas, 540 pruebas exitosas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,340 archivos verificados sin errores.
+  - Despliegue en Cloudflare Workers: `npm run deploy` exitoso (`beteele-one`, Version ID: `05611e81-6e12-4aa6-a823-3780c1536fc6`). En vivo en `https://beteele-one.com/pdvs`.
+- **Estado**: Desplegado en producción, probado y verificado.
+
+## [2026-09-27 15:35] - Feature & Export: Catálogo y Reporte Mensual Dinámico de Tiendas y Supervisores (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó poder descargar un reporte o catálogo de los puntos de venta cubiertos durante el mes de octubre (o cualquier mes filtrado como septiembre) y sus respectivos supervisores, directamente desde la sección `/pdvs` (Gestión de PDVs).
+  - El reporte debe adaptarse dinámicamente: si el usuario filtra septiembre, se descarga septiembre; si filtra octubre, se descarga octubre; y debe respetar cualquier filtro adicional activo (cadena, ciudad, estado, zona, supervisor, estado de cobertura, etc.).
+- **Solución Implementada**:
+  - **Servicio de Exportación (`src/features/pdvs/services/pdvExportService.ts`)**:
+    - `generarExcelPdvsCobertura(data)`: Genera un archivo `.xlsx` profesional con diseño corporativo en dos hojas:
+      1. *Catálogo y Cobertura*: Contiene las columnas clave (Mes, Clave BTL, ID Cadena, Cadena, PDV, Dirección, Ciudad, Estado, Zona, Formato, Estatus Tienda, Estado Cobertura con código de color [Verde: ASIGNADO, Amarillo: PARCIAL, Rojo: SIN_ASIGNACION], Días Cubiertos, % Cobertura, Detalle Cobertura, Supervisor Asignado, Supervisor Vigente Desde, Coordenadas, Geocerca y Horarios). Incluye fila de KPIs agregados y autofiltro en encabezados.
+      2. *Resumen Supervisión*: Tabla consolidada por supervisor que muestra el total de tiendas a su cargo, cuántas tienen dermoconsejera completa, cuántas parciales y cuántas vacantes para el mes.
+    - `generarCsvPdvsCobertura(data)`: Genera un archivo `.csv` con prefijo BOM UTF-8 (`\uFEFF`) para que abra en Excel en Windows con acentos y caracteres especiales limpios.
+  - **Endpoint de Exportación (`src/app/api/pdvs/export/route.ts`)**:
+    - Consume `obtenerPanelPdvsParaActor` respetando seguridad y roles (`ADMINISTRADOR`, `SUPERVISOR`, `COORDINADOR`, `LOGISTICA`, `LOVE_IS`, `VENTAS`, `CLIENTE`).
+    - Normaliza filtros con `normalizePdvsPanelFilters` para procesar mes, búsqueda, cadena, ciudad, estado, zona, supervisor y estado de cobertura.
+  - **Interfaz de Usuario (`src/features/pdvs/components/PdvsPanel.tsx`)**:
+    - Se agregaron botones de exportación directos en la cabecera del panel:
+      - `📊 Descargar Excel (${nombreDelMes})`
+      - `CSV`
+    - Los botones construyen la URL de forma reactiva considerando el mes seleccionado y todos los filtros activos en tiempo real.
+  - **Pruebas Unitarias (`src/features/pdvs/services/pdvExportService.test.ts`)**:
+    - 3 pruebas unitarias exhaustivas validando nombres de archivo con el mes correcto, contenido CSV, estructura Excel y comportamiento ante cambio de mes (septiembre vs octubre).
+- **Validaciones**:
+  - Compilación TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 129 suites pasadas, 539 pruebas exitosas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,340 archivos verificados sin errores.
+  - Despliegue en Cloudflare Workers: `npm run deploy` exitoso (`beteele-one`, Version ID: `1c21f816-7f50-44e7-b50e-d8bf496b38e2`). En vivo en `https://beteele-one.com/pdvs`.
+- **Estado**: Desplegado en producción, probado y verificado.
+
+## [2026-09-27 15:00] - Feature & Business Logic: Fecha Efectiva de Reasignación de Supervisores y Conciliación Operativa de Octubre (Antigravity)
+
+- **Contexto**:
+  - El usuario indicó que las reasignaciones realizadas a finales de mes deben programarse para entrar en vigor a partir del 1 de octubre de 2026 (o la fecha que se decida), evitando que se corte el mes en curso (septiembre) y permitiendo que los supervisores actuales cierren su mes completo con sus visitas y metas intactas.
+- **Solución Implementada**:
+  - **Conciliación de Datos Históricos (`scripts/reconcile-october-supervisor-reassignments.cjs`)**:
+    - Se identificaron y ajustaron las 31 tiendas modificadas recientemente en la sesión de pruebas:
+      - En `supervisor_pdv`: El supervisor anterior se reactivó con vigencia hasta el 30 de septiembre (`2026-09-30`), y el nuevo supervisor quedó programado a partir del 1 de octubre (`2026-10-01`).
+      - En `asignacion`: Se restableció el `supervisor_empleado_id` al supervisor correspondiente a septiembre para que el rol y las metas de este mes no se alteren.
+      - En `ruta_cuota_supervisor_pdv`: Las cuotas de septiembre permanecen con el supervisor anterior y las cuotas de octubre se crearon/transfirieron para el nuevo supervisor.
+      - En `asignacion_diaria_resuelta`: Se actualizaron las fechas manteniendo septiembre con el supervisor anterior y octubre con el nuevo.
+  - **Motor de Reasignación en Cascada (`src/features/asignaciones/services/operationalLifecycleService.ts`)**:
+    - `sincronizarReasignacionSupervisorCascada` ahora soporta fechas efectivas futuras (`fechaEfectiva > today`):
+      - Si la fecha es futura, el supervisor actual permanece `activo: true` hasta la víspera (`previousDay`).
+      - Las asignaciones de dermoconsejeras del mes en curso se preservan intactas, transfiriéndose únicamente las asignaciones que arranquen en o después de la fecha efectiva.
+      - Se refrescan los snapshots de planeación mensual y cuotas tanto para el mes en curso como para el mes de la fecha efectiva.
+  - **Acciones del Servidor (`src/features/pdvs/actions.ts` y tests en `actions.test.ts`)**:
+    - `reasignarSupervisoresMasivoDesdeMapa` y `actualizarSupervisorPdv` aceptan `fechaEfectiva`.
+    - Se canaliza toda reasignación de forma atómica a través de `sincronizarReasignacionSupervisorCascada`.
+    - Pruebas unitarias actualizadas y pasando (100%).
+  - **Interfaz de Usuario (`src/features/pdvs/components/PdvsOperationalMapTab.tsx` y `PdvsPanel.tsx`)**:
+    - En la barra flotante de asignación masiva en mapa: Se agregó selector de fecha con etiqueta *"Aplica a partir de"*, que sugiere inteligentemente el día 1º del mes siguiente (ej. `2026-10-01`) cuando estamos después del día 20.
+    - En la tarjeta flotante de pin individual: Se integró el selector de fecha efectiva.
+    - En el modal de edición del catálogo (`SupervisorForm` en `PdvsPanel.tsx`): Se agregó el campo *"Aplica a partir de"* con la misma sugerencia por defecto.
+- **Validaciones**:
+  - Compilación TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 128 suites, 536 pruebas pasadas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,338 archivos verificados.
+  - **Despliegue a Producción**: `npm run deploy` ejecutado exitosamente en Cloudflare Workers (`beteele-one`, Version ID: `c8d86715-046f-4245-be44-2eb9027da939`). En vivo en `https://beteele-one.com/pdvs`.
+- **Estado**: Desplegado en producción, probado y verificado.
+
+## [2026-09-27 14:25] - Feature & Architecture: Selección Interactiva de Pines en Mapa y Reasignación de Supervisores en Cascada (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó la capacidad de seleccionar pines de PDVs directamente en el mapa operacional (`/pdvs`) para asignarlos a un supervisor (tanto individualmente como en lote).
+  - Requisito explícito irrompible: Este cambio no debe alterar ni degradar las opciones existentes de asignación/movimiento de PDVs (Catálogo administrativo, `/asignaciones`, modales previos), y cualquier reasignación hecha desde el mapa debe impactar de forma completa tanto aguas arriba como aguas abajo.
+- **Solución Implementada**:
+  - **Acción del Servidor (`src/features/pdvs/actions.ts` y test en `actions.test.ts`)**:
+    - Se creó la Server Action `reasignarSupervisoresMasivoDesdeMapa({ pdvIds, nuevoSupervisorId })`.
+    - Conecta directamente con el motor transaccional `sincronizarReasignacionSupervisorCascada`, garantizando impacto end-to-end:
+      1. *Aguas arriba*: Cierra vigencia de supervisores anteriores en `supervisor_pdv` e inserta/activa la nueva relación con fecha efectiva. Registra eventos en `audit_log` y emite notificaciones de UI con `publishPdvUiChanges`.
+      2. *Nivel central*: Reasigna el `supervisor_empleado_id` en las asignaciones de dermoconsejeras en `asignacion`, actualiza la ficha del `empleado` y la tabla `asignacion_diaria_resuelta`.
+      3. *Aguas abajo*: Cierra las cuotas del supervisor anterior y crea/actualiza la cuota mensual en `ruta_cuota_supervisor_pdv`, actualiza las rutas semanales/mensuales del supervisor y regenera el snapshot de planeación mensual (`planeacion_mensual_snapshot`).
+    - Se agregaron 3 pruebas unitarias en `src/features/pdvs/actions.test.ts` (100% pasando).
+  - **Componente Cartográfico (`src/components/maps/LeafletMexicoMap.tsx`)**:
+    - Se extendieron los props con `selectedPointIds?: string[]`.
+    - Los pines seleccionados en lote se destacan visualmente con un aro brillante color celeste (`#38bdf8`), mayor grosor de borde (5px) y radio ampliado (r=13) para distinguirlos con claridad sobre el mapa.
+  - **Interfaz de Usuario (`src/features/pdvs/components/PdvsOperationalMapTab.tsx`)**:
+    - **Modo Selección en Mapa**: Botón `[ 📌 Seleccionar pines en mapa ]` en la barra superior. Al activarlo, el usuario puede ir haciendo clic en los pines que desea reasignar.
+    - **Barra Flotante de Asignación en Lote**: Anclada en la parte inferior del mapa, muestra el contador de tiendas seleccionadas, un selector de supervisor destino, botón de asignación masiva con estado de carga, botón de limpiar y botón de salir.
+    - **Asignación Individual Directa**: En la ficha flotante que se abre al tocar un pin individual, los administradores cuentan con un selector rápido para cambiar el supervisor de esa tienda directamente sin salir del mapa.
+    - **Actualización Optimista Inmediata**: Los pines seleccionados cambian inmediatamente al color y datos del nuevo supervisor en memoria y disparan `router.refresh()` en segundo plano para una experiencia fluida e instantánea.
+- **Validaciones**:
+  - Compilación TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 128 suites, 536 pruebas pasadas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,337 archivos verificados sin BOM ni caracteres corruptos.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+  - **Despliegue a Producción**: `npm run deploy` ejecutado exitosamente en Cloudflare Workers (`beteele-one`, Version ID: `1a1e75be-b422-40bf-b2e0-7efbd52bb025`). En vivo en `https://beteele-one.com/pdvs`.
+- **Estado**: Desplegado en producción, probado y verificado.
+
+## [2026-09-26 12:05] - Feature & UI/UX: Filtros de Supervisores Específicos, Estatus (Activos/Inactivos), Cobertura (Con DC/Vacantes) y Mapa Ampliado en Mapa Operacional de PDVs (Antigravity)
+
+
+- **Contexto**:
+  - El usuario solicitó mejoras críticas para el "Mapa Operacional de Supervisión" en `/pdvs`:
+    1. Filtro para ver en el mapa los PDVs de supervisores específicos (selección múltiple / individual).
+    2. Filtro por estatus de tienda: Activos vs Inactivos.
+    3. Filtro por asignación de dermoconsejera: Con DC Asignada vs Vacantes / Sin cobertura.
+    4. El mapa mucho más grande, aprovechando la pantalla.
+- **Solución Implementada**:
+  - **Módulo y Helpers de Filtrado (`src/features/pdvs/lib/pdvMapFilters.ts` y test)**:
+    - Se implementó la función pura `filterPdvsForOperationalMap(pdvs, options)` con tipado TypeScript estricto.
+    - Soporta filtrado por territorio (`ALL`, `CDMX`, `FORANEO`), conjunto de supervisores específicos (`selectedSupervisorIds: Set<string>`), estatus (`ALL`, `ACTIVO`, `INACTIVO`) y cobertura DC (`ALL`, `CON_DC`, `VACANTE`).
+    - Se crearon 6 pruebas unitarias completas en `src/features/pdvs/lib/pdvMapFilters.test.ts` (100% pasando).
+  - **Componente de Interfaz (`src/features/pdvs/components/PdvsOperationalMapTab.tsx`)**:
+    - **Barra de Filtros Operativos Rápidos**: Agregada en la parte superior con botones tipo cápsula y contadores en tiempo real para Estatus (`Todos`, `🟢 Activos`, `⚠️ Inactivos`) y Cobertura (`Todas`, `👤 Con DC`, `📋 Vacantes`), más botón de reinicio global.
+    - **Selección Múltiple de Supervisores**: Cada fila de supervisor en el panel lateral ahora cuenta con casilla de verificación (checkbox) para combinar múltiples supervisores en el mapa simultáneamente, botón rápido "Solo" en hover/touch para enfocar a un solo supervisor con un clic, y botón "Ver todos".
+    - **Mapa Mucho Más Grande**:
+      - Altura base aumentada de 620px a 840px (`h-[800px] lg:h-[840px]`), ganando un 35% más de área visible en escritorios y laptops.
+      - **Panel Lateral Colapsable**: Botón `[ ◀ Ocultar panel lateral ]` / `[ 👥 Mostrar panel lateral ]` que permite expandir el mapa al 100% del ancho de la pantalla cuando se desea máxima amplitud.
+      - **Modo Pantalla Completa**: Botón `[ ⛶ Pantalla completa ]` para explorar el mapa de forma inmersiva ocupando toda la ventana del navegador.
+    - **Ficha Flotante y Tooltips Enriquecidos**: Cada marcador y la ficha rápida de detalle inferior ahora exhiben claramente el estatus de la tienda y si cuenta con dermoconsejera asignada o se encuentra vacante.
+- **Validaciones**:
+  - Compilación TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 127 suites, 533 pruebas pasadas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,336 archivos verificados sin BOM ni mojibake.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito (`worker.js`).
+- **Estado**: Terminado, probado y verificado.
+
+## [2026-09-21 12:15] - Bugfix & UI/UX: Corrección de Día de Descanso Único, Selector Desplegable de 7 Días y Auditoría de Vacantes en Planeación Mensual (Antigravity)
+
+
+- **Contexto**:
+  - El usuario reportó tres comportamientos en la planeación mensual (`/asignaciones`):
+    1. Al asignar una dermoconsejera con día de descanso entre semana (ej. miércoles `MIE`), el sistema marcaba miércoles como descanso pero también marcaba domingo (`DOM`), resultando en dos días de descanso en vez de uno.
+    2. El campo para capturar el día de descanso era un campo de texto libre (`<input>`) propenso a errores tipográficos, en lugar de un menú desplegable (`<select>`) con los 7 días de la semana.
+    3. Para `Palacio de Hierro León`, tras asignar a Jennifer Carranza a partir del lunes 21 de septiembre, el sábado 19 de septiembre seguía mostrando la fila `VACANTE / POR CUBRIR` con código `PC`. Se solicitó auditar la sección completa para determinar la causa y funcionamiento exacto.
+- **Causa Raíz Diagnosticada**:
+  1. **Conflicto `dias_laborales` vs `dia_descanso`**: Tanto el frontend (`buildOperation` en `PlaneacionMensualPanel.tsx`) como los procedimientos almacenados de PostgreSQL (`aplicar_planeacion_mensual` y `planeacion_versionar_asignaciones_pdv`) asignaban por defecto `dias_laborales = 'LUN-SAB'`. Al definir `dia_descanso = 'MIE'`, el resolvedor de asistencias y snapshot excluía el domingo por `dias_laborales` y el miércoles por `dia_descanso`, generando dos descansos (`D`) y solo 5 días laborales por semana.
+  2. **Inputs no estructurados**: En los modales de `ASIGNAR_DC`/`MOVER_DC` y `CAMBIAR_DESCANSO`, los controles eran inputs de texto (`<input value={editor.diaDescanso} />`) en vez de componentes `<select>` con opciones tipadas (`DOM`, `LUN`, `MAR`, `MIE`, `JUE`, `VIE`, `SAB`).
+  3. **Gap de 1 día en Palacio León**: Se auditó el historial de asignaciones en la base de datos: Karla Vilchiz tuvo su último día laborado el viernes 18 de septiembre (dada de baja el 18-sep). Jennifer Carranza fue asignada con fecha de inicio el lunes 21 de septiembre (`2026-09-21`). El sábado 19 de septiembre fue un día operativo real descubierto entre la salida de Karla y la entrada de Jennifer, por lo que la fila de vacante `PC` reflejaba con total precisión operativa esa brecha de 1 día. Del 21 al 30 de septiembre, la vacante desaparece completamente (`—`).
+- **Solución Implementada**:
+  - **Módulo y Helpers de Planeación (`src/features/asignaciones/lib/assignmentPlanning.ts` y test)**:
+    - Se implementó la función pura `buildLaborDaysFromRestDay(restDay)` que calcula dinámicamente los 6 días laborables a partir del día de descanso seleccionado (ej. `MIE` -> `'LUN,MAR,JUE,VIE,SAB,DOM'`).
+    - Se agregaron 4 pruebas unitarias en `src/features/asignaciones/lib/assignmentPlanning.test.ts` (100% pasando).
+  - **Componente de Interfaz (`src/features/asignaciones/components/PlaneacionMensualPanel.tsx`)**:
+    - Se integró `buildLaborDaysFromRestDay` en `buildOperation` para enviar siempre los `diasLaborales` coherentes al backend.
+    - Se reemplazaron los inputs de texto de día de descanso por elementos `<select>` estilizados con los 7 días de la semana (Domingo, Lunes, Martes, Miércoles, Jueves, Viernes, Sábado) tanto en asignación/movimiento de DC como en cambio de descanso.
+  - **Base de Datos y Procedimientos Almacenados (`supabase/migrations/20260921120000_corregir_dias_laborales_descanso_planeacion.sql`)**:
+    - Se actualizaron `planeacion_versionar_asignaciones_pdv` y `aplicar_planeacion_mensual` para calcular `dias_laborales` a partir de `dia_descanso` de forma automática al insertar o actualizar asignaciones en PostgreSQL.
+    - Se corrigieron asignaciones existentes con descansos entre semana y `dias_laborales = 'LUN-SAB'`.
+    - Se ajustó la asignación de Jennifer Carranza en Palacio León y se saneó `cuenta_cliente_id` en `asignacion_diaria_resuelta`.
+    - Se regeneró el snapshot mensual de septiembre 2026.
+- **Validaciones**:
+  - Base de datos (`scratch/rematerialize-all-jennifer.cjs` y `scratch/check-palacio-leon.cjs`):
+    - Jennifer Carranza en Palacio León: Días 23 y 30 (miércoles) en `D`; Día 27 (domingo) en `1` (laborando normal).
+    - Fila de vacante: Días 21 al 30 en `—` (completamente cubierto); Sábado 19 en `PC` (gap exacto de 1 día pre-inicio).
+  - Compilación TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 126 suites, 527 pruebas pasadas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,330 archivos verificados sin BOM ni mojibake.
+- **Estado**: Terminado, verificado y desplegado en base de datos.
+
+## [2026-09-21 11:25] - UI/UX & Feature: Restauración del Calendario Mensual de Supervisores y Asignación Masiva de Cuotas en Formato Minimalista (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que se había quitado la pestaña donde venía la operación mensual de todos los supervisores (con el mes completo, todos los días y las tiendas visitadas) y la sección de cuotas donde se asignaba una cuota general para todos los puntos de venta.
+  - Solicitó restaurar ambas funcionalidades exactamente como estaban y mantener la parte superior de planeación en formato compacto y minimalista.
+- **Solución Implementada**:
+  - **Restauración y Compatibilidad (`src/features/rutas/components/RutaSemanalPanel.tsx`)**:
+    - Se restauró la versión completa que incluye el componente `<RutaMensualCalendar />` en la pestaña `Tablero de rutas` y el editor completo con asignación masiva de cuotas en la pestaña `Cuotas`.
+    - Se corrigieron tipados de compatibilidad TypeScript (`selectedRoute.monthlySubmissionId` y `supervisor.quotaEffectiveMonth ?? ''`).
+    - Se re-exportó `aprobarRutasMesCompleto` en `src/features/rutas/actions.ts` para retrocompatibilidad con las acciones del mes.
+  - **Rediseño y Compactación Minimalista**:
+    - Se compactó el encabezado principal de `CoordinatorWarRoom`, reduciendo alturas de botones a `h-8` y eliminando párrafos y márgenes redundantes.
+    - Se ajustaron las pestañas de navegación (`WarRoomTabButton`) a un formato limpio de 32px de alto (`min-h-8 text-xs rounded-lg`).
+    - En la pestaña de Cuotas, se compactaron los selectores de filtro y la barra de asignación masiva ("Cuota para tiendas visibles" y botón "Aplicar a visibles"), manteniendo los steppers individuales (`-` y `+`) y los inputs para cumplir con los objetivos táctiles móviles (>=44px) requeridos en pruebas Playwright.
+- **Validaciones**:
+  - Compilación TypeScript: `npx tsc --noEmit` -> 0 errores.
+  - Pruebas unitarias: `npm run test:unit` -> 125 suites, 523 pruebas pasadas (100% verde).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,314 archivos limpios.
+- **Estado**: Terminado y verificado.
+
+## [2026-09-18 21:30] - UI/UX: Unificación de Campos de Coordenadas de Domicilio en Empleados (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó unificar los dos campos de captura ("Latitud domicilio" y "Longitud domicilio") ubicados en la pestaña "Laboral" -> "Datos administrativos" -> "Ubicación y Domicilio" de la ficha de empleados (`/empleados`) en un único cuadro de texto, permitiendo pegar o escribir ambas coordenadas juntas (ej. `19.28512, -98.85526`), evitando la incomodidad de partirlas a mano o que se trunque la longitud.
+- **Solución Implementada**:
+  - **Módulo de Coordenadas (`src/features/empleados/lib/coordenadas.ts` y `coordenadas.test.ts`)**:
+    - Se creó la función `parseCombinedCoordinates`:
+      - Soporta separadores comunes como coma (`,`), espacios (` `), diagonal (`/`), punto y coma (`;`), pleca (`|`).
+      - Maneja valores nulos y vacíos (limpieza de coordenadas en base de datos).
+      - Auto-corrección inteligente si el usuario invierte el orden (si ingresa primero longitud negativa y luego latitud positiva, lo detecta y reordena automáticamente).
+      - Valida rangos terrestres válidos (-90 a 90 para latitud, -180 a 180 para longitud).
+    - Se creó la función `formatCombinedCoordinates`:
+      - Formatea pares de números para presentarlos de forma limpia en el input.
+    - Se agregaron 11 pruebas unitarias cubriendo todos los casos de uso, delimitadores y corrección automática.
+  - **Acciones del Servidor (`src/features/empleados/actions.ts`)**:
+    - Se actualizaron `actualizarDatosAdministrativosEmpleado` y `crearEmpleado` para aceptar el campo unificado `coordenadas_domicilio`.
+    - Mantiene retrocompatibilidad con `latitud_domicilio` y `longitud_domicilio` individuales.
+  - **Interfaz de Usuario (`src/features/empleados/components/EmpleadosPanel.tsx`)**:
+    - Se sustituyó el bloque de dos columnas apretadas por un único campo `Input` ("Coordenadas domicilio", placeholder `"Ej. 19.28512, -98.85526"`, hint aclaratorio) tanto en el formulario de edición administrativa como en el modal de nuevo empleado.
+- **Validaciones**:
+  - Pruebas unitarias: `npx vitest run src/features/empleados/lib/coordenadas.test.ts` (11 pruebas pasadas).
+  - Pruebas unitarias globales: `npm run test:unit` (125 suites, 523 pruebas pasadas).
+  - Tipado TypeScript estricto: `npx tsc --noEmit` (0 errores).
+  - Codificación UTF-8: `npm run docs:check-encoding` (1,314 archivos limpios).
+  - Compilación Next.js: `npm run build` (105 rutas generadas con éxito).
+  - Compilación Cloudflare Workers: `npm run cf:build` (OpenNext bundle generado con éxito sin errores).
+- **Estado**: Terminado y verificado.
+
+## [2026-09-18 17:10] - Feature: Exclusión Automática de Puntos de Venta Inactivos en Planeación Mensual y Limpieza de Cadenas Desactivadas (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que tras inactivar tiendas en el catálogo de puntos de venta (específicamente la cadena `HEB` en Monterrey con 7 tiendas: Cumbres, Gonzalitos, Lomas, Puerta Hierro, San Nicolás, San Pedro y Sendero), estas continuaban apareciendo dentro de la planeación mensual (`/asignaciones`) como vacantes desatendidas con la leyenda `POR CUBRIR` y código `PC` en todos los días laborables del mes.
+  - Al estar inactivas, nunca se van a cubrir comercialmente y no deben generar vacantes operativas ni figurar en el calendario mensual ni en el filtro de cadenas disponibles.
+- **Causa Raíz Diagnosticada**:
+  - En la función base `refrescar_planeacion_mensual_snapshot_base`, la subconsulta `pdv_scope` incluía indiscriminadamente todas las tiendas vinculadas a la cuenta cliente en `public.cuenta_cliente_pdv` sin validar si `pdv.estatus = 'INACTIVO'`.
+  - Como las tiendas inactivas no tienen dermoconsejera asignada, `vacancy_rows` las trataba erróneamente como tiendas activas descubiertas y les creaba una fila completa de `VACANTE / POR CUBRIR` con 26 días `PC`.
+  - La función envolvente `refrescar_planeacion_mensual_snapshot` (que aplica vigencia programada) buscaba registros en `pdv_estado_vigencia` con la condición `state.vigente_desde <= v_mes` (donde `v_mes` es el día 1 del mes, `2026-09-01`). Al inactivar una tienda a mitad de mes (ej. 18 de septiembre), `2026-09-18 <= 2026-09-01` fallaba, por lo que el sistema ignoraba la inactivación y tomaba el registro histórico anterior (`ACTIVO`).
+  - Como la lista de opciones del filtro desplegable de cadenas en `/asignaciones` se deriva dinámicamente de las filas del snapshot, la presencia de estas 7 filas provocaba que "HEB" continuara figurando en la lista desplegable de cadenas.
+- **Solución Implementada**:
+  - **Base de Datos (`supabase/migrations/20260918160000_excluir_pdvs_inactivos_planeacion.sql`)**:
+    - Se actualizó `refrescar_planeacion_mensual_snapshot_base`:
+      - `pdv_scope`: Excluye puntos de venta en `INACTIVO` a menos que cuenten con asignaciones publicadas de dermoconsejeras vigentes en el mes consultado (para preservar el historial si laboraron antes del cierre).
+      - `vacancy_rows`: Se añadió la condición estricta `where scope.pdv_estatus <> 'INACTIVO'`. Una tienda inactiva **NUNCA** puede generar una fila de vacante (`POR CUBRIR`).
+    - Se actualizó `refrescar_planeacion_mensual_snapshot` (wrapper):
+      - En `effective_state`, si `pdv.estatus = 'INACTIVO'`, se reconoce de inmediato el estatus inactivo maestro.
+      - Se amplió la ventana de búsqueda en `pdv_estado_vigencia` a `state.vigente_desde <= v_mes_fin`, reconociendo cualquier inactivación administrativa ocurrida en cualquier día del mes corriente.
+      - Se desactivan (`es_vigente = false`) y purgan físicamente del snapshot las filas de tiendas inactivas.
+    - Se ejecutó el refresco del snapshot de septiembre 2026 en todas las cuentas de clientes activas.
+- **Validaciones**:
+  - Base de datos (`scratch/verify-inactivation-results.cjs`):
+    - Filas de HEB en `planeacion_mensual_snapshot_fila` para septiembre 2026: **0 filas**.
+    - Filas de HEB en la respuesta del RPC `obtener_planeacion_mensual_resumen`: **0 filas**.
+    - La cadena "HEB" ya **NO** aparece en el catálogo de cadenas disponibles (`chains.includes('HEB') === false`).
+    - Las vacantes legítimas de tiendas activas (ej. `Palacio Monterrey` con 26 días `PC` y `Palacio León` con 10 días `PC` tras la baja de Karla) se preservan intactas al 100%.
+    - Filas totales del snapshot pasaron de 285 a 277 (descontando exactamente las 7 tiendas inactivadas de HEB y 1 inactiva adicional sin cobertura).
+  - Pruebas unitarias: `npm run test:unit` -> 124 suites, 512 pruebas pasadas (100% verde).
+  - Estándar UTF-8: `npm run docs:check-encoding` -> 1,312 archivos verificados limpios sin BOM.
+  - Compilación Next.js: `npm run build` -> 105 páginas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito sin imports absolutos.
+- **Estado**: Terminado, verificado y desplegado en base de datos.
+
+## [2026-09-18 12:35] - Fix: Corrección de Falsas Vacantes en Días de Descanso (Miércoles/Jueves) en Planeación Mensual (Antigravity)
+
+- **Contexto**:
+  - Tras implementar la migración previa de sincronización de bajas en 3 niveles, el usuario detectó que en la matriz de planeación mensual (`/asignaciones`) para septiembre de 2026 se estaban duplicando tiendas asignadas, agregando una fila extra con la leyenda `POR CUBRIR` exclusivamente en los días de descanso contractual (miércoles para colaboradoras como Guadalupe Rodriguez en Palacio Cancún u Olga Rodriguez en Palacio Durango; jueves para Itzel Aquino en Palacio Acoxpa) con código `PC`.
+  - El descanso contractual de la dermoconsejera asignada es un día programado de reposo (`D`), nunca una vacante desatendida ni una falta de cobertura que amerite una fila adicional.
+- **Causa Raíz Diagnosticada**:
+  - En la función `refrescar_planeacion_mensual_snapshot_base` (migración `20260918140000`), la subconsulta CTE `vacancy_cells` calculaba `tiene_cobertura` verificando `resolved.estado_operativo = 'ASIGNADA_PDV'`.
+  - En el día de descanso (miércoles), el calendario operativo no registra `ASIGNADA_PDV` sino `null`/`DESCANSO`, por lo que `tiene_cobertura` resultaba en `false`.
+  - En `vacancy_rows`, la condición `when not cells.tiene_cobertura and extract(isodow from cells.fecha) between 1 and 6 then 'PC'` evaluaba los miércoles (isodow = 3, lunes a sábado) como no cubiertos (`PC`), y `having bool_or(...)` disparaba la creación de una fila completa de `VACANTE / POR CUBRIR` para cualquier tienda cuya titular descansara entre semana.
+- **Solución Implementada**:
+  - **Base de Datos (`supabase/migrations/20260918150000_corregir_vacantes_descanso_planeacion.sql`)**:
+    - Se reemplazó `tiene_cobertura` por `tiene_asignacion_vigente`, comprobando si existe una asignación publicada para la tienda en esa fecha donde el empleado esté activo (o si es baja, antes o en su fecha efectiva de baja).
+    - En `vacancy_rows`, si `tiene_asignacion_vigente` es verdadera, el código evalúa a `'—'` (cubierto) y el estado a `CUBIERTO`. Solo evalúa a `'PC'` si `not cells.tiene_asignacion_vigente and extract(isodow from cells.fecha) between 1 and 6`.
+    - La cláusula `having bool_or(not cells.tiene_asignacion_vigente and extract(isodow from cells.fecha) between 1 and 6)` garantiza que una tienda con DC asignada durante todo el mes produzca CERO filas de vacante.
+    - Se agregó el borrado físico `delete from public.planeacion_mensual_snapshot_fila where not es_vigente` para purgar de inmediato cualquier fila obsoleta previa generada erróneamente.
+    - Se ejecutó el refresco transaccional del snapshot para septiembre de 2026 en todas las cuentas de clientes activas.
+- **Validaciones**:
+  - Comprobación en base de datos (`scratch/check-all-vacancies.cjs` y `scratch/verify-db-snapshots.cjs`):
+    - `Palacio Acoxpa`: 1 sola fila (`ITZEL AQUINO ALLENDE`, 21 días programados, descansos en `D`). 0 filas de vacante.
+    - `Palacio Cancún`: 1 sola fila (`GUADALUPE RODRIGUEZ GARCIA`, 25 días programados, descansos en `D`). 0 filas de vacante.
+    - `Palacio Durango`: 1 sola fila (`OLGA ELIZABETH RODRIGUEZ BAILON`, 25 días programados, descansos en `D`). 0 filas de vacante.
+    - `Palacio Monterrey`: 1 sola fila (`VACANTE / POR CUBRIR`, 26 días `PC` por no tener DC asignada en todo el mes).
+    - Únicas tiendas con fila dual legítima en todo el sistema:
+      - `Palacio Interlomas`: Sarahi Vera inició el 15-sep (13 días lab); días 01-14 tienen 12 días vacantes `PC`. A partir del día 15, cero `PC` (miércoles son descanso de Sarahi).
+      - `Palacio León`: Karla Vilchiz laboró hasta el 18-sep (15 días lab); días 19-30 tienen 10 días vacantes `PC`. Del 01 al 18, cero `PC`.
+  - Endpoint / RPC `obtener_planeacion_mensual_resumen`: Verificado con 285 filas exactas.
+  - Pruebas unitarias: `npm run test:unit` -> 124 suites, 512 pruebas pasadas (100%).
+  - Codificación UTF-8: `npm run docs:check-encoding` -> 1,303 archivos verificados limpios sin BOM.
+  - Compilación Next.js: `npm run build` -> 105 rutas generadas con éxito.
+  - Compilación Cloudflare Workers: `npm run cf:build` -> OpenNext bundle generado con éxito sin imports absolutos.
+- **Estado**: Terminado, verificado y desplegado en base de datos.
+
+## [2026-09-18 12:20] - Feature: Sincronización Integral de 3 Niveles (Catálogo, Tiendas, Planeación) y Flujo Inverso de Bajas y Vacantes Operativas (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que la dermoconsejera `Karla Ximena Vilchiz Galván`, a pesar de haber sido dada de baja el 18 de septiembre de 2026, aún aparecía en `/asignaciones` como cubriendo todo el mes en `Palacio León` (del 01 al 30 de septiembre con 25 días laborados, días 19 y 20 en verde `1` y el contador KPI superior `POR CUBRIR: 0`).
+  - Solicitud: Conectar perfectamente los 3 niveles del sistema (Nivel 1: Empleados, Nivel 2: Asignaciones y Tiendas, Nivel 3: Planeación Mensual y Calendario Diario) hacia adelante y hacia atrás (bidireccional).
+- **Causa Raíz Diagnosticada**:
+  1. **Snapshot de Planeación Desactualizado**: El snapshot pre-generado `planeacion_mensual_snapshot_fila` para septiembre 2026 no se invalidaba ni regeneraba automáticamente cuando ocurría una baja directa o por nómina.
+  2. **Registros Huérfanos en ADR**: 727 registros en `asignacion_diaria_resuelta` tenían fechas fuera del rango de vigencia de sus asignaciones (ej. Jennifer Carranza con 104 registros de septiembre tras vencer su asignación en agosto), engañando al RPC `refrescar_planeacion_mensual_snapshot` haciéndole creer que la tienda estaba cubierta y suprimiendo la fila de vacante.
+  3. **Lógica SQL de Vacantes**: En `refrescar_planeacion_mensual_snapshot_base`, los días posteriores a la baja en la fila de DC evaluaban a `'D'` en vez de `'—'`; y en la celda de vacante la condición `tiene_segmentos and tiene_programacion` provocaba que tiendas con asignación terminada a mitad de mes cayeran en `else 'D'`, impidiendo la marca `'PC'` (Por cubrir).
+  4. **Restricción ON CONFLICT en `pdv_cobertura_operativa`**: `bajaAsignacionImpactService.ts` y `actions.ts` utilizaban `{ onConflict: 'pdv_id' }`, lo que provocaba un error de PostgreSQL (`42P10: there is no unique or exclusion constraint matching the ON CONFLICT specification`), ya que la restricción única en la base de datos es compuesta `(cuenta_cliente_id, pdv_id)`. Como consecuencia, nunca se persistía la vacante operativa en `pdv_cobertura_operativa`.
+  5. **Filtro de Cobertura en `pdvCoberturaService.ts`**: Al evaluar qué PDVs están cubiertos, `activeAssignments` no verificaba si el empleado asignado estaba en estatus `BAJA`, manteniendo erróneamente el estado derivado en `CUBIERTO`.
+- **Solución Implementada**:
+  - **Base de Datos (`supabase/migrations/20260918140000_sincronizacion_3_niveles_baja_planeacion.sql`)**:
+    - Purga de 727 registros huérfanos y 28 asignaciones inconsistentes en `asignacion_diaria_resuelta`.
+    - Actualización de `refrescar_planeacion_mensual_snapshot_base`:
+      - `dc_cells`: Días con `fecha > employee.fecha_baja` o fuera de rango evalúan a código `'—'` y `trabaja_en_pdv = false`.
+      - `vacancy_cells`: `tiene_cobertura` valida asignaciones vigentes y empleados no dados de baja. Días operativos descubiertos (Lunes a Sábado) se marcan con código `'PC'` y estado `POR_CUBRIR`.
+      - `vacancy_rows`: Genera automáticamente la fila `VACANTE / POR CUBRIR` para cualquier tienda que tenga al menos un día no cubierto en el mes.
+    - Trigger `fn_limpiar_impacto_baja_empleado`: Dispara automáticamente `refrescar_planeacion_mensual_snapshot` para los PDVs afectados cada vez que un empleado pasa a `BAJA`.
+  - **Acciones y Servicios de Empleados**:
+    - `src/features/empleados/actions.ts` (`darDeBajaEmpleadoDirecto`):
+      - Integrado con `procesarImpactoBajaEnAsignaciones`, `publishAsignacionesVacantesChange` y `refreshPlaneacionAfterEmployeeLifecycle`.
+      - Corregido `onConflict: 'cuenta_cliente_id,pdv_id'`.
+      - Invalidados los tags de Next.js `planeacion-mensual:${accountId}:${mes}` y `planeacion-mensual-resumen-v2`.
+    - `src/features/empleados/services/bajaAsignacionImpactService.ts`:
+      - Corregido `onConflict: 'cuenta_cliente_id,pdv_id'` para `pdv_cobertura_operativa`.
+      - Ajustada la clasificación de asignaciones vigentes vs futuras (`fecha_inicio <= fechaBaja` y `fecha_inicio > fechaBaja`).
+    - `src/features/empleados/services/pdvCoberturaService.ts`:
+      - Agregado campo `fecha_baja` a la consulta de empleados.
+      - Filtrado en `activeAssignments` para descartar empleados en `BAJA` cuya fecha de baja sea anterior o igual a hoy.
+      - Corregido `motivoOperativo` para que devuelva `null` cuando la asignación está activa y `SIN_DC` cuando está vacante.
+  - **Flujo Inverso / Cobertura de Vacantes (`src/features/asignaciones/actions.ts`)**:
+    - Al publicar una nueva asignación para un PDV (`actualizarEstadoPublicacionAsignacion` con `PUBLICADA`):
+      - Actualiza las vacantes operativas de ese PDV en `vacante_operativa_futura` a estado `CUBIERTA`.
+      - Actualiza `pdv_cobertura_operativa` a `CUBIERTO` con `motivo_operativo: null`.
+      - Al refrescarse el snapshot, la fila de vacante desaparece de la matriz mensual y el contador `POR CUBRIR` disminuye automáticamente.
+- **Validaciones**:
+  - Snapshot de Palacio León en septiembre 2026 verificado en BD:
+    - Fila 1: `KARLA XIMENA VILCHIZ GALVAN`: 15 días laborados, 17 y 18 en `1`, 19 al 30 en `'—'`.
+    - Fila 2: `VACANTE / POR CUBRIR`: 17 y 18 en `'—'`, 19 al 30 en `'PC'` (naranja) y `'D'` (domingos).
+  - Cobertura Operativa: `pdv_cobertura_operativa` para Palacio León persiste en `VACANTE` (`SIN_DC`) y `vacante_operativa_futura` en `NUEVA`.
+  - `npm run test:unit`: 124 suites, 512 pruebas unitarias aprobadas al 100%.
+  - `npm run docs:check-encoding`: 1,298 archivos UTF-8 sin BOM verificados.
+  - `npx tsc --noEmit`: 0 errores de compilación de tipos TypeScript.
+  - `npm run build`: Compilación Next.js de producción exitosa (105 páginas estáticas/dinámicas).
+  - `npm run cf:build`: Compilación OpenNext para Cloudflare Workers completada con éxito.
+- **Estado**: Terminado, verificado y blindado end-to-end.
+
+## [2026-09-18 10:45] - Feature: Exclusión Automática de Empleados Dados de Baja en Reportes (Ventas, LOVE ISDIN, Operaciones) con Preservación Histórica (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó que al procesar la baja de un empleado en la base de datos, el sistema lo remueva automáticamente de los reportes de ventas, LOVE ISDIN y demás reportes operativos a partir de su fecha de egreso.
+  - Su historial de registros pasados debe conservarse 100% intacto, pero a partir del mes siguiente (o a partir de su fecha de egreso) no debe figurar en las métricas activas para no distorsionar los porcentajes de cumplimiento ni inflar metas en cero.
+  - Caso testigo: si una persona dejó de laborar en el mes anterior (ej. 31 de agosto) y se registra su baja posteriormente con fecha efectiva 31 de agosto (sin registros en septiembre), debe desaparecer de las métricas de septiembre de inmediato y conservar intacto su historial de agosto.
+- **Causa Raíz Diagnosticada**:
+  - En la base de datos, las pre-materializaciones mensuales poblaban `asignacion_diaria_resuelta` con `trabaja_en_tienda = true` para todo el mes, persistiendo incluso después de procesada una baja.
+  - `asignacion` contenía registros no recortados o con fechas invertidas (`fecha_inicio > fecha_fin`).
+  - `loveQuota.ts` calculaba metas y cuotas a partir de `asignacion_diaria_resuelta` sin verificar `fecha > fecha_baja`.
+  - `ventaService.ts` inyectaba asignaciones activas con 0 ventas para dermoconsejeras en tienda sin filtrar por `estatus_laboral = 'BAJA'` ni por `fecha_baja < monthStartIso`.
+- **Solución Implementada**:
+  - **Base de Datos (`supabase/migrations/20260918130000_limpieza_automatica_baja_empleado.sql`)**:
+    - Se creó la función `public.fn_limpiar_impacto_baja_empleado()` y el trigger `trg_limpiar_impacto_baja_empleado` sobre `public.empleado` (`after insert or update of estatus_laboral, fecha_baja`).
+    - Al detectar `estatus_laboral = 'BAJA'`, cancela a `BORRADOR` asignaciones futuras (`fecha_inicio > fecha_baja` o invertidas), recorta `fecha_fin = fecha_baja` en asignaciones vigentes, y elimina físicamente de `asignacion_diaria_resuelta`, `cuota_asignacion_diaria_dc` y `cuota_mensual_resumen_dc` los registros posteriores a la fecha de egreso.
+    - Se ejecutó un bloque anónimo retroactivo que saneó a todos los colaboradores en estatus `BAJA` existentes en la BD.
+  - **Módulo LOVE ISDIN (`src/features/love-isdin/lib/loveQuota.ts`)**:
+    - Incorporada validación estricta descartando cuotas/metas para colaboradores con `estatus_laboral === 'BAJA'` donde `assignment.fecha > employee.fecha_baja`.
+    - Pruebas unitarias TDD añadidas en `src/features/love-isdin/lib/loveQuota.test.ts` (3/3 pasadas).
+  - **Módulo de Ventas (`src/features/ventas/services/ventaService.ts`)**:
+    - Agregados `estatus_laboral` y `fecha_baja` a `assignmentsQuery`.
+    - En el merge de asignaciones con 0 ventas, se omiten colaboradores dados de baja con anterioridad al mes consultado y asignaciones con fechas inconsistentes o posteriores a la baja.
+  - **Servicios y Acciones de Empleados**:
+    - Reforzado `darDeBajaEmpleadoDirecto` (`src/features/empleados/actions.ts`) y `procesarImpactoBajaEnAsignaciones` (`src/features/empleados/services/bajaAsignacionImpactService.ts`) con purga defensiva de días resueltos posteriores a la baja.
+- **Validaciones**:
+  - Base de datos: Comprobación directa certificando que todos los colaboradores dados de baja tienen 0 días resueltos y 0 cuotas posteriores a su baja.
+  - `npm run test:unit`: 124 suites y 511 pruebas unitarias aprobadas al 100%.
+  - `npm run docs:check-encoding`: 1,297 archivos UTF-8 sin BOM verificados.
+  - `npm run build`: Compilación de producción exitosa.
+- **Estado**: Terminado, verificado y documentado.
+
+## [2026-09-18 10:15] - Feature: Filtro de Puestos, Alta/Baja Directa de Empleados, Coordenadas de Domicilio y Casa del Supervisor (🏠) en Mapa Nacional (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó una serie de mejoras integrales en el módulo de Empleados (`/empleados`) y el Mapa Operativo Nacional de Puntos de Venta (`/puntos-de-venta` -> pestaña Mapa Operativo):
+    1. **Filtro por Puesto**: Dividir y filtrar la base de empleados por puesto tanto con botones superiores (chips con contadores) como con una lista desplegable en la barra de filtros.
+    2. **Alta Directa de Empleados con Conexión a Usuarios**: Permitir el alta directa desde la sección de empleados sin requerir el flujo previo de reclutamiento o CV en PDF. Si el empleado es Supervisor (o según el selector), crearle automáticamente su usuario en la app (`auth.users` + `public.usuario`) con credenciales provisionales generadas y botón para copiar credenciales.
+    3. **Baja Directa de Empleados**: Permitir la baja directa inmediata desde el modal de detalle del empleado ("Ver"), solicitando únicamente la fecha efectiva de baja y el motivo, sin obligar a subir un expediente PDF ni depender de aprobaciones de Nómina.
+    4. **Coordenadas de Domicilio**: Agregar campos de `latitud_domicilio` y `longitud_domicilio` en la ficha del colaborador, visualizables en la tabla y detalle, y editables por administradores.
+    5. **Casa del Supervisor (🏠) en el Mapa Operativo**: Ubicar las coordenadas del domicilio del supervisor en el mapa nacional de tiendas coloreadas por supervisor (`PdvsOperationalMapTab.tsx`), renderizando un icono distintivo de casita (🏠) con el color y z-index del supervisor para que el coordinador pueda optimizar los traslados y diseñar rutas eficientes.
+- **Solución Implementada**:
+  - **Base de Datos (`supabase/migrations/20260918110000_empleado_coordenadas_domicilio.sql`)**:
+    - Agregadas las columnas `latitud_domicilio numeric(10,7)` y `longitud_domicilio numeric(10,7)` a `public.empleado` con comentarios en español latino e índice compuesto `idx_empleado_coordenadas_puesto`. Aplicado a PostgreSQL en Supabase.
+  - **Servicios del Backend (`src/features/empleados/services/empleadoService.ts` & `src/features/pdvs/services/pdvService.ts`)**:
+    - Mapeo de `latitud_domicilio`, `longitud_domicilio` y `domicilio_completo` en los contratos de datos del listado de empleados y de los supervisores en los PDVs.
+  - **Acciones del Servidor (`src/features/empleados/actions.ts`)**:
+    - `darDeAltaEmpleadoDirecto`: Alta inmediata en `empleado`, provisión opcional de cuenta en `auth.admin.createUser` y `usuario`, generación de contraseña temporal de primer acceso, registro en auditoría e invalidación en tiempo real.
+    - `darDeBajaEmpleadoDirecto`: Baja inmediata cambiando `estatus_laboral = 'BAJA'`, desactivación de usuario, reasignación de tiendas a supervisor sucesor si aplica, y auditoría.
+    - `actualizarDatosAdministrativosEmpleado`: Actualización de domicilio, código postal y coordenadas geográficas.
+  - **Componentes de Mapa (`src/components/maps/LeafletMexicoMap.tsx` & `PdvsOperationalMapTab.tsx`)**:
+    - Soporte para `iconType: 'house'` en `LeafletMexicoMap` con función `createHouseIcon` que dibuja un pin con borde del color del supervisor, icono 🏠, z-index prioritario (1200-2500) y tooltip informativo ("Casa de [Nombre]").
+    - Incorporación de marcadores de casa en `mapPoints` para los supervisores que cuentan con coordenadas registradas.
+  - **Interfaz de Empleados (`src/features/empleados/components/EmpleadosPanel.tsx`)**:
+    - Filtros por puesto: chips superiores con contadores numéricos y selector `Select` sincronizado en la rejilla de filtros.
+    - Botón `+ Alta de empleado` en la cabecera del panel que despliega `AltaEmpleadoModal` con formulario completo, switch de creación de cuenta y panel con credenciales listas para copiar.
+    - `BajaDirectaForm` en la pestaña Laboral del modal de detalle con confirmación interactiva.
+    - Campos de edición de domicilio y coordenadas en `AdminEmployeeFieldsForm`.
+    - Indicador visual `📍 Lat, Lng` en la columna de zona/supervisor de `EmpleadoRow`.
+- **Validaciones**:
+  - `npx tsc --noEmit`: 0 errores de compilación de TypeScript.
+  - `npm run docs:check-encoding`: 1,296 archivos UTF-8 sin BOM verificados.
+  - `npm run test:unit`: 124 archivos de pruebas pasados (510 tests aprobados al 100%).
+  - `npm run build`: Compilación de producción con 105 páginas estáticas/dinámicas generadas con éxito.
+- **Estado**: Terminado y verificado.
+
+## [2026-09-18 09:45] - Corrección de Flujo 'Pedir Cambios' en Rutas, Estado Amarillo en Calendario y Notificación al Supervisor (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que al revisar la ruta de un supervisor en "Rutas por día y mapa" y pulsar el botón "Pedir cambios", el calendario mensual seguía mostrando la ruta en morado (como si siguiera pendiente de revisión inicial `P`), en lugar de cambiar a color amarillo (que indica que ya fue revisada, devuelta y que el supervisor debe corregir).
+  - Asimismo, se solicitó que al pedir cambios, al supervisor le llegue la notificación y mensaje interno a su aplicación con las observaciones ingresadas por el coordinador para que realice la corrección y reenvíe su ruta.
+- **Causa Raíz Diagnosticada (`systematic-debugging`)**:
+  - En `solicitarCambiosRutaSupervisorMesDirecto` (`actions.ts`), se intentaba ejecutar `rpc_gestionar_rutas_mes('LIBERAR')`, pero dicho RPC en base de datos únicamente operaba sobre registros con `estado = 'APROBADA'`. Cuando el supervisor envía la ruta mensual por primera vez, `ruta_mensual_envio.estado` es `PENDIENTE_COORDINACION`, por lo que el RPC no encontraba registros elegibles (`0`) y no modificaba `ruta_mensual_envio`.
+  - Aunque se actualizaba `ruta_semanal.metadata`, el RPC del calendario (`rpc_ruta_calendario_mensual_resumen`) sobreescribe `approval.state` con `envio.estado`. Al quedar el envío en `PENDIENTE_COORDINACION`, el calendario forzaba el estado a morado (`violet`) con etiqueta `P`.
+  - Adicionalmente, al no dispararse la lógica de liberación mensual, nunca se enviaba la notificación ni el mensaje interno al supervisor.
+- **Solución Implementada**:
+  - **Acción del Servidor (`src/features/rutas/actions.ts`)**:
+    - Se refactorizó `solicitarCambiosRutaSupervisorMesDirecto` para actualizar directamente `ruta_mensual_envio` a `estado = 'CAMBIOS_SOLICITADOS'`, guardando `revisado_en`, `revisado_por_usuario_id`, y en `metadata` la nota del coordinador.
+    - Se actualizan todas las `ruta_semanal` del mes a `BORRADOR` con `approval.state = 'CAMBIOS_SOLICITADOS'`.
+    - Se registra el evento en `audit_log` y se emite la actualización en tiempo real con `publishRutaMensualUiChanges`.
+    - Se envía notificación y mensaje interno al supervisor mediante `notificarRutaMensualCambiosSolicitados`.
+  - **Sistema de Notificaciones (`src/lib/notifications/workflows/`)**:
+    - En `workflowCatalog.ts`, se creó `buildRutaMensualCambiosSolicitadosNotification`.
+    - En `rutaSemanalEmail.ts`, se creó `notificarRutaMensualCambiosSolicitados`, la cual inserta el mensaje en `mensaje_interno` y `mensaje_receptor`, y emite la notificación push/email con el enlace directo para corregir la ruta en `/ruta-semanal`.
+  - **Cálculo de Tonos del Calendario (`src/features/rutas/services/rutaCalendarioMensualService.ts`)**:
+    - Se modificó `getCellTone`: cuando `approvalState === 'CAMBIOS_SOLICITADOS'`, devuelve `'amber'` (color amarillo).
+    - Mantiene `violet` (morado) para `PENDIENTE_COORDINACION`.
+  - **Componente de Calendario (`src/features/rutas/components/RutaMensualCalendar.tsx`)**:
+    - Se actualizó el estilo de `amber` en `cellToneClass` a `border-amber-300 bg-amber-100 text-amber-900 font-bold`.
+    - Se actualizó la leyenda inferior para diferenciar claramente:
+      - 🟣 `P · En revisión (1ª vez)` (morado)
+      - 🟡 `! · Cambios solicitados (Regresada)` (amarillo)
+  - **Pruebas Automatizadas TDD (`rutaCalendarioMensualService.test.ts`)**:
+    - Se agregó prueba unitaria certificando que `CAMBIOS_SOLICITADOS` genera tono `'amber'` y etiqueta `'!{n}'`.
+    - 78/78 pruebas unitarias de rutas pasaron al 100%.
+- **Validaciones**:
+  - `npm run test:unit -- src/features/rutas src/lib/notifications`: 22 suites, 89 pruebas pasadas al 100%.
+  - `npx tsc --noEmit`: 0 errores de compilación TypeScript.
+  - `npm run docs:check-encoding`: 1,295 archivos UTF-8 sin BOM verificados.
+  - `npm run build` y `npm run cf:build`: Compilación y empaquetado 100% exitosos para OpenNext / Cloudflare Workers.
+  - `npm run deploy`: Despliegue exitoso a producción en `beteele-one.com` con Version ID `0c704992-3046-4c6a-9bc0-43eff3137c68`.
+- **Estado**: Resuelto, probado y desplegado en vivo.
+
+## [2026-09-17 23:10] - Corrección de Silvia Berenice (GDL), Ficha Flotante Interactiva con Deselección y Visualización de Tiendas Inactivas con Supervisor (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó tres requerimientos clave para el mapa operacional de supervisores (`/pdvs`):
+    1. **Corregir clasificación territorial de Silvia Berenice López Estrada**: Estaba apareciendo erróneamente en el filtro de CDMX cuando su plaza real es Guadalajara (Jalisco). CDMX debe contener exclusivamente a sus 8 supervisores locales (0 tiendas en Jalisco).
+    2. **Burbuja flotante interactiva**: La tarjeta informativa inferior no debe aparecer fija al cargar la página; debe mostrarse únicamente cuando el usuario hace clic sobre una tienda y ocultarse de inmediato al hacer clic de nuevo en la misma tienda, al hacer clic sobre el mapa vacío o al pulsar el botón de cerrar (✕).
+    3. **Puntos de venta inactivos pero con supervisor**: Visibilizar en el mapa los puntos de venta con estatus `INACTIVO` que tienen un supervisor activo asignado (ej. tiendas en Monterrey bajo Ana Cristina Ánimas), marcados con diferenciación visual (borde punteado ámbar y distintivo `⚠️ INACTIVO`) para que el coordinador pueda identificarlos e incorporarlos a la ruta aun sin dermoconsejera.
+- **Solución Implementada**:
+  - **Calibración de Supervisor en CDMX (`src/features/pdvs/lib/supervisorColors.ts` & test)**:
+    - Se ajustó el matcher `matchCdmxSupervisorKey` sustituyendo `norm.includes('estrada')` por `norm.includes('miriam')` para Miriam Rocío Estrada, evitando que el apellido secundario de Silvia Berenice López Estrada fuera capturado en CDMX.
+    - Se agregaron pruebas unitarias en `supervisorColors.test.ts` certificando que Berenice pertenece a Foráneos con su propio color y que CDMX cuenta exactamente con 8 supervisores locales.
+  - **Carga de Tiendas Inactivas con Supervisor (`src/features/pdvs/services/pdvService.ts`)**:
+    - En `obtenerPanelPdvs`, se resolvió primero `currentSupervisor` para el mes y se flexibilizó la condición `cuentaClienteVisible`: si la relación cuenta-cliente está inactiva o el PDV está inactivo pero cuenta con supervisor asignado en dicha cuenta para el mes, el PDV pasa al panel y al mapa operacional (recuperando 14 tiendas en Monterrey y otras plazas, elevando el total procesado de 279 a 293 tiendas).
+  - **Comportamiento Táctil de Selección y Burbuja Flotante (`src/features/pdvs/components/PdvsPanel.tsx` & `PdvsOperationalMapTab.tsx` & `LeafletMexicoMap.tsx`)**:
+    - En `PdvsPanel.tsx`, `selectedPdvId` se inicializa en `null` (en lugar de `data.pdvs[0]?.id`), garantizando que la ficha flotante nazca oculta.
+    - En `LeafletMexicoMap.tsx`, se implementó `onDeselect` vía `MapBackgroundEvents` al hacer clic sobre el fondo del mapa, y se configuró toggle de deselección al pulsar el mismo marcador.
+    - En `PdvsOperationalMapTab.tsx`, la ficha flotante integra un botón de cierre `✕`, distintivo de tienda inactiva `⚠️ Tienda Inactiva · Asignable a Ruta` cuando aplica, y el contador superior muestra en vivo las tiendas inactivas detectadas en la vista.
+- **Validaciones**:
+  - `npm run test:unit -- src/features/pdvs src/components/maps`: 14/14 tests pasados (100%).
+  - `npx tsc --noEmit`: 0 errores de compilación TypeScript.
+  - `npm run docs:check-encoding`: 1,277 archivos verificados UTF-8 sin BOM.
+  - `npm run build` y `npm run cf:build`: Compilación y empaquetado 100% exitosos para OpenNext / Cloudflare Workers.
+  - `npm run deploy`: Despliegue exitoso a producción en `beteele-one.com` con Version ID `65df1401-4a92-4ec1-9f44-47d90fdf5316`.
+- **Estado**: Resuelto, probado y desplegado en vivo.
+
+- **Contexto**:
+  - El usuario reportó que al hacer clic en cualquier punto de venta en el mapa operacional para seleccionarlo, el mapa se regresaba y se comprimía para mostrar el mapa completo de México, perdiendo el acercamiento que el usuario había hecho sobre la zona o calle, obligándolo a hacer zoom de nuevo.
+  - Se solicitó corregir este comportamiento para que al seleccionar un punto no se comprima ni se aleje el mapa, sino que se mantenga el encuadre exacto y únicamente se marque la tienda seleccionada.
+- **Causa Raíz Diagnosticada (`systematic-debugging`)**:
+  - En `LeafletMexicoMap.tsx`, el componente `FitMapToPoints` tenía un `useEffect` escuchando `[map, points]`.
+  - En `PdvsOperationalMapTab.tsx`, el cálculo memoizado `mapPoints` incluía `selectedPdvId` en sus dependencias para asignar `inRoute: isSelected`. Al hacer clic en un marcador, `selectedPdvId` cambiaba, regenerando el array `mapPoints` con una nueva referencia de memoria.
+  - Al recibir un nuevo array `points`, `FitMapToPoints` ejecutaba incondicionalmente `map.fitBounds(bounds)` sobre la totalidad de los 278 puntos de la República, forzando a la cámara de Leaflet a alejarse de golpe hasta los límites nacionales.
+- **Solución Implementada**:
+  - **Detección Determinista de Firma Geográfica (`src/components/maps/mapSanitization.ts`)**:
+    - Se creó la función `getMapPointsSignature(points)` con TDD. Genera una cadena determinista basada en los IDs y coordenadas geográficas (`lat`, `lng`) de los puntos.
+    - Si las coordenadas y tiendas son idénticas (aunque cambien propiedades de selección o el array se vuelva a instanciar), la firma permanece idéntica.
+  - **Blindaje de Cámara en Leaflet (`src/components/maps/LeafletMexicoMap.tsx`)**:
+    - En `FitMapToPoints`, se agregó `lastSignatureRef`. Si la firma de puntos no ha cambiado, el efecto retorna inmediatamente sin tocar la cámara del mapa (`map.fitBounds` no se ejecuta).
+    - Se añadió `stopPropagation` a los eventos `click` de `Circle` y `CircleMarker` para evitar propagaciones no deseadas hacia el contenedor del mapa.
+  - **Desacoplamiento de Estado en Componente (`src/features/pdvs/components/PdvsOperationalMapTab.tsx`)**:
+    - Se retiró `selectedPdvId` de las dependencias de `mapPoints`, ya que `selectedPointId` se pasa como propiedad nativa independiente a `<MexicoMap selectedPointId={selectedPdvId} />`, garantizando estabilidad referencial.
+  - **Pruebas Automatizadas TDD (`src/components/maps/mapSanitization.test.ts`)**:
+    - Se escribieron pruebas unitarias para `getMapPointsSignature`, validando que cambios cosméticos o de selección preservan la firma y que adiciones o movimientos geográficos sí la alteran. Todas las pruebas (14 tests) pasaron al 100%.
+  - **Despliegue a Producción**:
+    - Build Next.js y OpenNext limpios. Desplegado a Cloudflare Workers con ID de versión `0baf89f9-c07e-48e8-bf98-f7dc585c7a49` activo en `beteele-one.com`.
+- **Validaciones**:
+  - `npm run test:unit -- src/components/maps src/features/pdvs`: 14/14 tests pasados.
+  - `npx tsc --noEmit`: 0 errores.
+  - `npm run docs:check-encoding`: 1,277 archivos UTF-8 verificados.
+  - `npm run build` y `npm run cf:build`: 0 errores.
+- **Estado**: Resuelto, verificado y desplegado en vivo.
+
+## [2026-09-17 22:45] - Paleta de Alto Contraste para 8 Supervisores de CDMX en Mapa Operacional (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó que en la Ciudad de México y su Zona Metropolitana conviven 8 supervisores con puntos de venta muy cercanos geográficamente. Al compartir tonalidades similares de azul, morado o verde azulado, resultaba confuso diferenciarlos en el mapa a simple vista.
+  - Se solicitó generar una paleta especializada de alto contraste para los 8 supervisores de CDMX para identificarlos y diferenciarlos inmediatamente sin ambigüedad.
+- **Causa Raíz Diagnosticada**:
+  - Anteriormente se usaba una paleta general indexada con operación módulo que asignaba colores basados en la posición del array. Al haber supervisores vecinos creados en orden similar, varios de ellos recibían gamas contiguas de azul, violeta y turquesa.
+- **Solución Implementada**:
+  - **Identificación Geográfica y Asignación Cromática de CDMX (`src/features/pdvs/lib/supervisorColors.ts`)**:
+    - Se auditaron las 145 tiendas y centroides de los 8 supervisores del Valle de México:
+      1. **Xóchitl Carrillo Xochihua** (Norte / Satélite): **Naranja Fuego** (`#ea580c`)
+      2. **Liliana Reyes Aybar** (Nororiente / Lindavista): **Azul Rey Zafiro** (`#2563eb`)
+      3. **Jacqueline López Ruiz** (Polanco / Reforma): **Verde Esmeralda** (`#059669`)
+      4. **María Zenaida Monroy González** (Santa Fe / Interlomas): **Púrpura / Morado Intenso** (`#9333ea`)
+      5. **Miguel Ángel Montagner Olivares** (Centro / Del Valle): **Rojo Carmesí** (`#dc2626`)
+      6. **Atzin Susana Aguirre Camacho** (Sur / Coyoacán): **Cian Océano / Turquesa** (`#0891b2`)
+      7. **Jonatan Raymundo Chávez Ramos** (Sur Poniente / Pedregal): **Amarillo Ámbar Dorado** (`#d97706`)
+      8. **Miriam Rocío Estrada Nava** (Oriente / Iztapalapa): **Rosa Mexicano / Fucsia** (`#db2777`)
+    - Cada par de supervisores con zonas colindantes (ej. Jacqueline vs Zenaida vs Montagner vs Atzin) cuenta con separación angular cromática complementaria (~45° o triádica), eliminando toda posibilidad de confusión.
+    - Los supervisores foráneos (Monterrey, Guadalajara, etc.) reciben colores exclusivos de una paleta secundaria sin colisionar con los 8 de CDMX.
+  - **Filtro Rápido Territorial en UI (`src/features/pdvs/components/PdvsOperationalMapTab.tsx`)**:
+    - Se incorporó un control segmentado `[ Todos | 🏙️ CDMX (8) | Foráneos ]` en la barra lateral.
+    - Al hacer clic en `🏙️ CDMX (8)`, el mapa enfoca y centra automáticamente las 145 tiendas de la Ciudad de México y Área Metropolitana, y la lista lateral muestra los 8 supervisores con su etiqueta de color y zona.
+  - **Pruebas Unitarias TDD (`src/features/pdvs/lib/supervisorColors.test.ts`)**:
+    - 6 pruebas unitarias pasadas al 100%, validando unicidad cromática de los 8 tonos de CDMX, resolución por ID y por nombre, y separación de paletas foráneas.
+  - **Despliegue a Producción**:
+    - Build Next.js y OpenNext limpios. Desplegado a Cloudflare Workers con ID de versión `7da9f1ba-cdc9-4128-af7f-107e873c90c4` activo en `beteele-one.com`.
+- **Validaciones**:
+  - `npm run test:unit -- src/features/pdvs/lib/supervisorColors.test.ts`: 6/6 tests pasados.
+  - `npx tsc --noEmit`: 0 errores.
+  - `npm run docs:check-encoding`: 1,277 archivos UTF-8 verificados.
+  - `npm run build` y `npm run cf:build`: 0 errores.
+- **Estado**: Resuelto, verificado y desplegado en vivo.
+
+## [2026-09-17 22:30] - Optimización Minimalista de Catálogo de PDVs y Mapa Operacional de Supervisores (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó optimizar la pantalla `/pdvs` para evitar la carga masiva y pesada de todos los puntos de venta de un jalón en el navegador. Asimismo, solicitó que el mapa operacional se mueva a una segunda pestaña dedicada donde cada tienda se coloree según su supervisor asignado, permitiendo auditar rutas completas y detectar de un solo vistazo tiendas desfasadas o fuera de territorio.
+- **Causa Raíz Diagnosticada**:
+  - La pantalla anterior intentaba renderizar en una sola vista 4 tarjetas de métricas, el gestor de PDVs, un bloque extenso de filtros en la columna izquierda, un mapa comprimido y apretado en la columna derecha, y una tabla monolítica con los 278 registros simultáneos en el DOM. Esto provocaba pesadez al interactuar, renderizado lento y dificultad para examinar las rutas y territorios de los supervisores en el mapa.
+- **Solución Implementada**:
+  - **Navegación Ejecutiva en Dos Pestañas**:
+    1. **📋 Catálogo de Tiendas**: Vista limpia y minimalista. Se implementó paginación inteligente en la tabla (25 tiendas por página por defecto, con selector para 50 o 100), controles de navegación `< Anterior`, páginas numeradas con salto y `Siguiente >`, reduciendo el peso del DOM en más del 90%.
+    2. **🗺️ Mapa Operacional de Supervisión**: Lienzo panorámico de alta resolución (altura de 620px) que ocupa el ancho completo.
+  - **Paleta de Colores por Supervisor (`src/features/pdvs/lib/supervisorColors.ts`)**:
+    - Se diseñó e implementó una paleta determinista de 20 colores vibrantes de alto contraste (`SUPERVISOR_PALETTE`) para asignar un color distintivo único a cada supervisor activo, más un color específico (`#64748b`) para tiendas sin supervisor.
+    - Se desarrollaron pruebas unitarias con Vitest (`supervisorColors.test.ts`) pasando al 100%.
+  - **Soporte de Colores Personalizados en Cartografía (`src/components/maps/LeafletMexicoMap.tsx`)**:
+    - Se extendió `MexicoMapPoint` para soportar `customColor?: string`, permitiendo a `CircleMarker` y `Circle` pintar los puntos con el color exacto del supervisor manteniendo el halo perimetral blanco de alto contraste.
+  - **Componente de Auditoría Territorial (`src/features/pdvs/components/PdvsOperationalMapTab.tsx`)**:
+    - Panel lateral de supervisores con buscador en vivo, conteo de tiendas asignadas, botón "Ver todos" para mapa global y filtro individual por supervisor para aislar su territorio y detectar de inmediato tiendas asignadas fuera de su zona geográfica o desfasadas.
+    - Ficha flotante inferior con detalle rápido al hacer clic en cualquier tienda y botón directo para abrir su modal de edición/reasignación.
+  - **Despliegue a Producción**:
+    - Compilado con Next.js (`npm run build`) y OpenNext (`npm run cf:build`), desplegando a Cloudflare Workers con versión `c1afbb5a-4e0f-4c46-af33-359107ba9ac6` activa en `beteele-one.com`.
+- **Validaciones**:
+  - `npx tsc --noEmit`: 0 errores de TypeScript.
+  - Pruebas unitarias en `src/components/maps` y `src/features/pdvs`: 11 pruebas pasadas al 100%.
+  - `npm run docs:check-encoding`: 1,277 archivos UTF-8 sin BOM verificados.
+  - Despliegue en vivo en Cloudflare Workers exitoso.
+- **Estado**: Resuelto, verificado y desplegado en vivo.
+
+## [2026-09-17 22:05] - Reconciliación Integral de Supervisores en Catálogo, Asignación y Rutas (Antigravity)
+
+- **Contexto**:
+  - El usuario reportó una inconsistencia entre el Catálogo de PDVs y las Rutas de Planeación: la tienda **F Ahorro Luis Barragán** (`BTL-FAH-LUIS-9S`) figuraba en el catálogo asignada a **María Zenaida Monroy González**, pero en las rutas de planeación y en el mapa diario aparecía asignada a **Jacqueline López Ruiz** (identificada en el mensaje por el selector con iniciales J.L.R.). Asimismo, solicitó asegurar la coincidencia bidireccional entre catálogos, asignaciones y rutas para todo el territorio.
+- **Causa Raíz Diagnosticada (`systematic-debugging`)**:
+  1. *Desfase de Cuotas en Base de Datos*: Cuando Luis Barragán se reasignó a Zenaida el 14 de septiembre en el catálogo administrativo, se actualizaron `supervisor_pdv` y `asignacion`, pero `ruta_cuota_supervisor_pdv` conservó la cuota huérfana de Jacqueline abierta (`vigente_hasta: null`) y la de Zenaida cerrada al 31 de agosto.
+  2. *Caso Inverso en Prado Norte*: En **S Pablo Prado Norte** (`BTL-SAN-PRAD-Q0`), `supervisor_pdv` tenía a Jacqueline como supervisora activa desde el 31 de agosto, pero `ruta_cuota_supervisor_pdv` seguía apuntando a Zenaida.
+  3. *Filtro Temporal de Territorio en Servicio de Rutas*: En `src/features/rutas/services/rutaCalendarioMensualService.ts`, `obtenerDetalleRutaCalendarioDia` evaluaba las cuotas y relaciones de supervisión con una ventana del mes completo (`monthStart` a `monthEnd`) en lugar de acotarlo a la fecha específica consultada (`options.fecha`), arrastrando tiendas cuya vigencia con el supervisor ya había expirado a mitad de mes.
+  4. *Falta de Sincronización Atómica en RPC*: La función de base de datos `sincronizar_supervisor_pdv_operativo` no actualizaba `ruta_cuota_supervisor_pdv`, permitiendo que cambios futuros volvieran a desfasarse.
+- **Solución Implementada**:
+  - **Migración de Base de Datos (`supabase/migrations/20260918120000_sincronizar_supervisor_cuota_cascada.sql`)**:
+    - Se corrigieron las cuotas en `ruta_cuota_supervisor_pdv` para `BTL-FAH-LUIS-9S` (asignando la cuota activa a Zenaida con 6 visitas y cerrando/eliminando la cuota de Jacqueline en septiembre).
+    - Se corrigieron las cuotas para `BTL-SAN-PRAD-Q0` (asignando la cuota activa a Jacqueline con 6 visitas y removiendo a Zenaida en septiembre).
+    - Se reconciliaron y crearon cuotas activas para los 7 PDVs que carecían de registro en cuotas para su supervisor en funciones.
+    - Se actualizó la función RPC `sincronizar_supervisor_pdv_operativo` para que al reasignar un supervisor en el catálogo, cierre atómicamente la cuota anterior en `ruta_cuota_supervisor_pdv` e inserte o reactive la cuota del nuevo supervisor desde el primer día del mes.
+  - **Servicio de Rutas por Día (`src/features/rutas/services/rutaCalendarioMensualService.ts`)**:
+    - Se ajustaron `quotaPdvsQuery`, `supervisorRelQuery` y `assignmentsQuery` para filtrar explícitamente por `options.fecha`, garantizando que en el mapa y la secuencia diaria sólo figuren como territorio las tiendas que efectivamente pertenecen a ese supervisor en la fecha consultada.
+  - **Servicio de Ciclo de Vida (`operationalLifecycleService.ts`)**:
+    - Se normalizó `vigente_desde` en `sincronizarReasignacionSupervisorCascada` al primer día del mes (`mesInicioIso`) para respetar la restricción `CHECK ((EXTRACT(day FROM vigente_desde) = 1))` de PostgreSQL.
+  - **Pruebas Automatizadas TDD (`src/features/rutas/services/rutaCalendarioMensualService.test.ts`)**:
+    - Se agregó prueba unitaria validando que un cambio de supervisor a mitad de mes muestre la tienda en el territorio del supervisor correcto según la fecha consultada.
+  - **Despliegue a Producción**:
+    - Desplegado exitosamente a Cloudflare Workers con versión `aff0f34a-bd2f-484f-9579-8ea391ad2679` activa en `beteele-one.com`.
+- **Validaciones**:
+  - Auditoría global de 293 PDVs activos: 0 discrepancias entre `supervisor_pdv` y `ruta_cuota_supervisor_pdv`.
+  - Auditoría de asignaciones de DC: 0 discrepancias con el supervisor del catálogo.
+  - 141 pruebas unitarias pasadas al 100% (36 suites).
+  - `npx tsc --noEmit`: 0 errores de TypeScript.
+  - `npm run docs:check-encoding`: 1,283 archivos UTF-8 verificados.
+  - `npm run build` y `npm run cf:build` limpios.
+- **Estado**: Resuelto, verificado y desplegado en vivo.
+
+## [2026-09-17 21:15] - Cartografía Monocromática de Alto Contraste y Despliegue en Producción (Antigravity)
+
+- **Contexto**:
+  - El usuario solicitó que el mapa base completo se visualice en un solo color neutro/monocromático uniforme y que los puntos de venta y la línea de ruta tengan colores contrastantes vibrantes para que resalten con total claridad y no se confundan con la orografía, calles o elementos del terreno.
+- **Solución Implementada**:
+  - **Lienzo Monocromático Neutral (`src/components/maps/LeafletMexicoMap.tsx`)**:
+    - Se configuró el proveedor `esri-canvas` (`World_Light_Gray_Base`) como capa base por defecto #0.
+    - Se aplicó un filtro CSS específico sobre la capa de mosaicos del mapa (`.leaflet-monochrome-canvas .leaflet-tile-pane { filter: grayscale(100%) brightness(102%) contrast(88%); }`), asegurando un fondo uniforme en escala de grises limpio sin alterar la saturación al 100% de los marcadores ni del trazo.
+  - **Puntos de Tiendas con Contraste Vibrante**:
+    - 🔵/🟢 **Visitas agendadas**: Azul cielo / esmeralda brillante con aro blanco puro (`r=9`, borde blanco de 3.5px, opacidad 100%).
+    - 🟠 **Tiendas del territorio sin visita**: Naranja encendido con aro blanco (`r=7`, opacidad 100%).
+    - ⚪ **Tiendas vacantes**: Gris pizarra sólido con aro blanco (`r=7`, opacidad 100%).
+  - **Línea de Ruta de Doble Capa**:
+    - Se implementó un trazo compuesto: una línea base de halo blanco puro (`weight: 8, opacity: 0.95`) y sobre ella la línea punteada azul cielo (`weight: 4, dashArray: '8 8'`), logrando contraste máximo sobre cualquier tipo de fondo o carretera.
+  - **Selector Táctil Flotante**:
+    - Se integró un selector táctil en la esquina superior derecha del mapa: `[ 🎨 Fondo Neutro | 🗺️ Calles ]` que permite al usuario alternar entre el lienzo monocromático y el mapa tradicional de calles a color cuando lo requiera.
+  - **Despliegue a Producción (`npm run deploy`)**:
+    - Se compiló con Next.js (`npm run build`) y OpenNext (`npm run cf:build`), desplegando a Cloudflare Workers con versión `bdfc5a09-2bb3-47a3-b950-298a3f66b1c7` activa en `beteele-one.com`.
+- **Validaciones**:
+  - `npx tsc --noEmit`: 0 errores de TypeScript.
+  - `npm run test:unit -- src/components/maps src/features/rutas`: 18 suites, 79 pruebas pasadas al 100%.
+  - `npm run docs:check-encoding`: 1,273 archivos verificados UTF-8 sin BOM.
+  - Despliegue completado con éxito a producción.
+- **Estado**: Implementado, verificado y desplegado en vivo.
+
+## [2026-09-17 19:15] - Corrección de Leaflet TileLayer Subdomains y Despliegue de Mapa Operativo (Antigravity)
+
+- **Contexto**:
+  - Tras desplegar la versión blindada, el mapa en `/operacion-supervisores` mostraba la tarjeta de contingencia: *"No fue posible cargar el mapa en este momento"*.
+  - Causa raíz diagnosticada mediante análisis sistemático:
+    - En `MAP_TILE_PROVIDERS`, los proveedores `osm-standard` y `esri-street` no definían la propiedad `subdomains` (`undefined`).
+    - Al pasar `subdomains={tileProvider.subdomains}` a `<TileLayer>`, React-Leaflet sobreescribía la opción por defecto de Leaflet (`'abc'`) con `undefined`.
+    - Al cargar los mosaicos en cliente, la función interna de Leaflet `_getSubdomain: function(tilePoint) { return this.options.subdomains[Math.abs(tilePoint.x + tilePoint.y) % this.options.subdomains.length]; }` arrojaba `TypeError: Cannot read properties of undefined (reading 'length')`.
+- **Solución Implementada**:
+  - **Función `getSafeSubdomains` (`src/components/maps/mapSanitization.ts` & test)**:
+    - Se agregó `getSafeSubdomains` con test unitario en `mapSanitization.test.ts` para asegurar que nunca se entregue un valor nulo, vacío o indefinido a Leaflet.
+  - **Asignación en `MAP_TILE_PROVIDERS` y `TileLayer` (`src/components/maps/LeafletMexicoMap.tsx`)**:
+    - Se asignó explícitamente `subdomains: 'abc'` en los proveedores y se pasó `subdomains={getSafeSubdomains(tileProvider.subdomains)}` a `<TileLayer>`.
+  - **Diagnóstico Mejorado en `SafeMapBoundary.tsx`**:
+    - Se integró visualización de texto de error sutil para acelerar diagnósticos futuros.
+  - **Despliegue a Producción (`npm run deploy`)**:
+    - Se recompiló (`npm run build` + `npm run cf:build`) y se desplegó a Cloudflare Workers con versión `27d8e541-a3b3-4567-a0e9-4c3e25e8fe33`.
+- **Validaciones**:
+  - `npx tsc --noEmit`: 0 errores.
+  - `npm run test:unit`: 18 suites, 79 tests pasados (100%).
+  - `npm run docs:check-encoding`: 1,254 archivos verificados UTF-8 sin BOM.
+  - Despliegue completado con éxito a producción.
+- **Estado**: Resuelto y verificado.
+
+## [2026-09-17 19:00] - Blindaje y Resolución de Error de Carga en Pantalla de Rutas y Mapa (Antigravity)
+
+- **Contexto**:
+  - Al acceder a `/operacion-supervisores` (sub-pestaña "Rutas por Día y Mapa"), la aplicación desplegaba la pantalla de `RootError` ("Hubo un problema al cargar la pantalla").
+  - Causas raíz aisladas con `systematic-debugging`:
+    1. Desfase de assets en la nube: la versión publicada en Cloudflare carecía de los nuevos chunks estáticos sincronizados tras la adición de la funcionalidad panorámica.
+    2. React Leaflet DOM reconciliation: dentro de `<MapContainer>`, los marcadores estaban envueltos en un elemento HTML `<div>` nativo, lo que rompía la reconciliación del DOM de Leaflet en cliente.
+    3. Validación de coordenadas numéricas finitas: si una tienda tenía coordenadas `NaN` o no finitas, `Leaflet` arrojaba `Invalid LatLng object`, provocando un fallo en cascada hasta el boundary raíz.
+    4. Falta de aislamiento de errores en el mapa: cualquier contingencia del visor de mapas tiraba toda la pantalla.
+- **Solución Implementada**:
+  - **Módulo de Sanitización de Coordenadas (`src/components/maps/mapSanitization.ts` & test)**:
+    - Se implementó `sanitizeMapPoints` y `isValidCoordinate` con cobertura TDD completa para garantizar que sólo pasen números finitos dentro del rango terrestre (-90 a 90, -180 a 180).
+  - **Blindaje de Leaflet (`src/components/maps/LeafletMexicoMap.tsx`)**:
+    - Se reemplazó el contenedor `<div>` interno de cada punto por `<Fragment key={point.id}>`.
+    - Se aplica `sanitizeMapPoints` a todos los puntos antes de calcular límites o renderizar marcadores.
+  - **Componente Aislador de Errores (`src/components/maps/SafeMapBoundary.tsx`)**:
+    - Se creó un Error Boundary dedicado para el mapa. Si por alguna razón externa el motor de mapas falla, muestra un mensaje amigable y un botón de reintento sin tirar la pantalla ni los listados de supervisores y visitas.
+  - **Validación Estricta en Componente (`src/features/rutas/components/RutaMensualRevisionDia.tsx`)**:
+    - Se agregaron validaciones con `Number.isFinite` tanto para visitas agendadas como para tiendas del territorio, y se envolvió el mapa con `<SafeMapBoundary>`.
+  - **Despliegue y Sincronización en la Nube (`npm run deploy`)**:
+    - Se subieron los 10 assets estáticos actualizados a Cloudflare Workers (`opennextjs-cloudflare deploy`), sincronizando la versión en producción (`10548a94-5131-4641-bd70-8fdc21525097`).
+- **Validaciones**:
+  - `npx tsc --noEmit`: 0 errores de TypeScript.
+  - `npm run test:unit -- src/components/maps src/features/rutas`: 18 suites, 78 tests pasados (100%).
+  - `npm run docs:check-encoding`: 1,254 archivos verificados UTF-8 sin BOM.
+  - Despliegue exitoso a producción en `beteele-one.com`.
+- **Estado**: Resuelto y desplegado en vivo.
+
+## [2026-09-17 18:35] - Territorio Completo en Mapa con 3 Tipos de Puntos, Eliminación de Watermark y Layout Panorámico (Antigravity)
+
+- **Contexto**:
+  - En `/operacion-supervisores` (`RutaMensualRevisionDia`), el usuario solicitó:
+    1. Mostrar en el mapa **todos** los puntos de venta asignados al supervisor en el mes, no sólo los que visita ese día.
+    2. Clasificación visual de 3 colores con tooltips al pasar el mouse (*hover*):
+       - 🔵/🟢 **Puntos verdes/azules**: Tiendas con visita agendada ese día (unidas por el trazo de la ruta).
+       - 🟠/🔴 **Puntos naranjas/ámbar**: Tiendas asignadas al supervisor que **no** tienen visita ese día (puntos aislados).
+       - ⚪ **Puntos grises**: Tiendas asignadas que están **vacantes** (sin dermoconsejera asignada) y sin visita hoy.
+    3. Eliminar el letrero/watermark de *"API KEY REQUIRED"* que aparecía sobre el mapa.
+    4. Agrandar el mapa a pantalla ancha panorámica y compactar la columna de secuencia de visitas.
+- **Solución Implementada**:
+  - **Servicio de Mapas (`src/components/maps/LeafletMexicoMap.tsx`)**:
+    - Se sustituyó el proveedor de mosaicos por defecto por OpenStreetMap estándar (`tile.openstreetmap.org`) y Esri Street Map, eliminando al 100% la marca de agua de Carto sin requerir API keys.
+    - Se agregó soporte para `inRoute?: boolean` en `MexicoMapPoint`. La línea punteada de ruta ahora enlaza **exclusivamente** las tiendas con visita programada (`inRoute: true`), manteniendo los puntos sin visita y vacantes como marcadores independientes sin saturar el trazo.
+  - **Capa de Backend (`src/features/rutas/services/rutaCalendarioMensualService.ts`)**:
+    - Se agregó `territoryPdvs?: RutaCalendarioTerritoryPdv[]` en `RutaCalendarioDiaDetail`.
+    - En `obtenerDetalleRutaCalendarioDiaParaActor`, se consultan todos los PDVs asignados al supervisor en el mes (vía `ruta_cuota_supervisor_pdv` / `supervisor_pdv`), se cruzan con `asignacion` publicada vigente para identificar vacantes (`isVacante`), y se extraen sus coordenadas de `geocerca_pdv`.
+  - **Capa de Componente (`src/features/rutas/components/RutaMensualRevisionDia.tsx`)**:
+    - Se mapearon los 3 tonos en `mapPoints`: `emerald`/`sky` para visitas agendadas, `amber` para asignadas sin visita, y `slate` para vacantes.
+    - Se agregó una barra de leyenda visual interactiva con conteos en vivo: `Visita agendada (X)`, `Sin visita hoy (Y)` y `Tienda vacante (Z)`.
+    - Rediseño de layout en grid de 12 columnas: secuencia de visitas en 4 columnas (`max-h-[580px]` con scroll suave) y mapa panorámico en 8 columnas (`h-[560px]`).
+- **Validaciones**:
+  - `npx tsc --noEmit`: 0 errores.
+  - `npm run test:unit -- src/features/rutas`: 17 suites, 76 pruebas pasadas al 100%.
+  - `npm run docs:check-encoding`: 1,251 archivos UTF-8 sin BOM verificados.
+  - `npm run build` y `npm run cf:build`: Compilación y empaquetado exitoso para Cloudflare Workers.
+- **Estado**: Implementado y verificado integralmente.
+
+
+- **Contexto**:
+  - En `/operacion-supervisores`, el usuario solicitó sustituir la antigua sub-pestaña semanal de kanban por una interfaz minimalista conectada directamente al calendario mensual.
+  - Requisitos del usuario:
+    1. Selector desplegable (`<select>`) para elegir y revisar a cada supervisor de forma rápida y limpia.
+    2. Navegador día a día con botones `< Anterior` y `Siguiente >` y pastillas interactivas para revisar la secuencia ordenada de tiendas (1, 2, 3...) y el mapa por día.
+    3. Sustituir el menú desplegable de estados por botones directos de acción: 🟢 "Aprobar Ruta" (un solo clic) y 🟡 "Reabrir / Pedir cambios".
+    4. Sincronización inmediata: al aprobar la ruta, se refleja de inmediato en el Calendario Mensual (`RutaMensualCalendar`) marcando los días en verde como `APROBADA`.
+- **Solución Implementada**:
+  - **Acciones del Servidor (`src/features/rutas/actions.ts`)**:
+    - Se crearon `aprobarRutaSupervisorMesDirecto(supervisorEmpleadoId, monthIso, approvalNote?)` y `solicitarCambiosRutaSupervisorMesDirecto(...)`.
+    - Realizan la aprobación o solicitud de cambios en base de datos ejecutando `rpc_gestionar_rutas_mes` y actualizando todos los registros de `ruta_semanal` de ese supervisor en el mes a `PUBLICADA` / `APROBADA` o `BORRADOR` / `CAMBIOS_SOLICITADOS`. Revalidan las rutas de Next.js.
+  - **Capa de Georreferenciación (`src/features/rutas/services/rutaCalendarioMensualService.ts`)**:
+    - Se agregaron campos `latitud` y `longitud` en `RutaCalendarioVisitDetail` para que la consulta del día alimente directamente las coordenadas de las tiendas al componente de mapa.
+  - **Componente Minimalista (`src/features/rutas/components/RutaMensualRevisionDia.tsx`)**:
+    - Selector desplegable de supervisor con su zona.
+    - Insignia de estado del mes (`Aprobada`, `Pendiente de coordinación`, `Cambios solicitados`, `Sin ruta`).
+    - Botones de acción directa: 🟢 `Aprobar Ruta` y 🟡 `Reabrir / Pedir cambios` con feedback optimista.
+    - Navegador de días del mes (`< Anterior` / `Siguiente >`) con botones de pastilla por día con conteo de tiendas.
+    - Secuencia visual de tiendas (`1, 2, 3...`) con nombre de PDV, formato, estatus y observaciones.
+    - Mapa de México (`MexicoMap`) interactivo centrado en las tiendas del día seleccionado.
+  - **Integración en Panel Principal (`src/features/rutas/components/RutaSemanalPanel.tsx`)**:
+    - Se renombró la sub-pestaña a `🗺️ Rutas por Día y Mapa`.
+    - Se sustituyó el kanban semanal complejo y la tarjeta de flujo por `<RutaMensualRevisionDia />`.
+    - Se enlazó el callback `onRouteApproved` con refresco de estado y `router.refresh()` para sincronizar en vivo el `RutaMensualCalendar`.
+- **Validaciones**:
+  - `npx tsc --noEmit`: 0 errores de TypeScript.
+  - `npm run test:unit -- src/features/rutas`: 17 suites, 76 pruebas unitarias pasadas al 100%.
+  - `npm run docs:check-encoding`: 1,251 archivos UTF-8 sin BOM verificados.
+  - `npm run build`: Next.js production build exitoso (105 páginas estáticas).
+  - `npm run cf:build`: OpenNext Cloudflare Workers build completado con éxito (`.open-next/worker.js`).
+- **Estado**: Completado y listo para uso operativo.
+
+## [2026-09-17 18:00] - Blindaje de Límite Mensual Estricto y Exclusión de Bajas sin Actividad en Calendario de Supervisión (Antigravity)
+
+- **Contexto**:
+  - En `/operacion-supervisores` (septiembre de 2026), la supervisora **Vanesa Palacios** aún aparecía como una fila vacía con `--` en todos los días del mes en el Calendario Mensual de Supervisión, a pesar de haber sido dada de baja el 31 de agosto de 2026.
+  - El usuario solicitó asegurar que la planeación y visualización de rutas esté estrictamente delimitada al mes calendario completo (del día 1 al fin de mes), para que semanas puente limítrofes entre dos meses no arrastren personal inactivo de meses anteriores.
+- **Causa Raíz Diagnosticada**:
+  1. En `ruta_semanal` existía un registro residual para Vanesa con `semana_inicio: '2026-08-31'` (0 visitas).
+  2. Debido a que `semana_inicio + 6 = 2026-09-06 >= 2026-09-01`, la función RPC de agregación mensual `rpc_ruta_calendario_mensual_resumen` incluía dicha ruta en `scoped_routes` mediante un `inner join public.empleado supervisor` que no evaluaba si el supervisor estaba en `estatus_laboral = 'BAJA'` ni si tenía visitas efectivas en el mes.
+  3. En `src/features/rutas/components/RutaMensualCalendar.tsx`, la función `mergeSupervisorRows` reinsertaba en la cuadrícula cualquier supervisor presente en `data.supervisors` aun cuando no figurase en `supervisorOptions` y careciese de visitas o eventos en el mes.
+- **Solución Implementada**:
+  - **Base de Datos y RPC (`supabase/migrations/20260917180000_ruta_calendario_mensual_estricto.sql`)**:
+    - Se actualizó `rpc_ruta_calendario_mensual_resumen` para requerir que un supervisor con `estatus_laboral = 'BAJA'` y `fecha_baja <= p_month_start` sólo sea incluido en `scoped_routes` si cuenta con visitas en `ruta_semanal_visita` o eventos en `ruta_agenda_evento` dentro del rango del mes (`[p_month_start, p_month_end]`).
+    - Se agregaron las columnas `supervisor_estatus_laboral` y `supervisor_fecha_baja` a `summary_routes`.
+    - Se aplicó la migración a la base de datos remota con `scripts/apply-sql-file.cjs`.
+  - **Capa de Servicio (`src/features/rutas/services/rutaCalendarioMensualService.ts`)**:
+    - Se extendió `MonthlySummaryRouteRow` con `supervisor_estatus_laboral` y `supervisor_fecha_baja`.
+    - En `obtenerCalendarioMensualRuta`, se mapeó el estatus laboral de los supervisores y se filtraron las filas resultantes para descartar a supervisores en `BAJA` con 0 actividad mensual, garantizando a su vez la conservación de historial para bajas a mitad de mes con visitas registradas.
+  - **Capa de Componente (`src/features/rutas/components/RutaMensualCalendar.tsx`)**:
+    - En `mergeSupervisorRows`, se blindó la inclusión de supervisores fuera de `supervisorOptions` para que sólo se añadan si tienen actividad real en el mes (`plannedCount > 0 || completedCount > 0 || eventCount > 0 || replacementPendingCount > 0`).
+  - **Limpieza de Datos**:
+    - Se eliminó el registro residual vacío de semana puente de Vanesa en `ruta_semanal`.
+- **Validaciones**:
+  - `npm run test:unit -- src/features/rutas`: 17 archivos de prueba, 76 tests pasados al 100% (+2 tests nuevos específicos para exclusión de bajas).
+  - `npx tsc --noEmit`: 0 errores de TypeScript.
+  - `npm run docs:check-encoding`: Verificación UTF-8 exitosa en 1250 archivos.
+  - `npm run build`: Compilación Next.js exitosa (105/105 páginas estáticas generadas).
+  - `npm run cf:build`: Empaquetado exitoso para Cloudflare Workers en `.open-next/worker.js`.
+  - Prueba en vivo de RPC en septiembre 2026: 0 rutas para Vanesa Palacios, 17 supervisores activos listados correctamente.
+- **Estado**: Resuelto y verificado integralmente.
+
+## [2026-09-17 15:25] - Resolución Mensual de Asignaciones de Dermoconsejo para Cuotas y Tiendas Vacantes (Antigravity)
+
+- **Contexto**:
+  - En `/operacion-supervisores?tab=quotas` para septiembre de 2026, la supervisora ATZIN SUSANA AGUIRRE CAMACHO ("ACIEN") aparecía con sus tiendas asignadas marcadas erróneamente como *"Tienda apagada (Vacante)"* y con 0 visitas/mes de cuota.
+  - El usuario especificó que para calcular la cuota y determinar si un punto de venta está vacante o tiene equipo de dermoconsejo, el sistema debe basarse en la **asignación mensual** (`asignacion mensual`).
+- **Causa Raíz Diagnosticada**:
+  1. En `src/features/rutas/lib/weeklyRoute.ts`, la función `rangesOverlapIso` evaluaba asignaciones abiertas (`fecha_fin: null`) asumiendo `leftEnd ?? leftStart`. Si la asignación inició el `2026-09-01`, se consideraba expirada el mismo día `2026-09-01`, provocando que para semanas posteriores del mes se considerara vencida.
+  2. En `src/features/rutas/services/rutaSemanalService.ts`, `buildAsignacionesQuery` consultaba `asignacion` con `.order('created_at', { ascending: false }).limit(400)` sin filtros de fecha ni estado de publicación. En bases con miles de asignaciones históricas, el límite de 400 se saturaba y recortaba asignaciones vigentes del mes.
+  3. En `obtenerResumenAlcanceVisitas` y `obtenerPanelRutaSemanal`, el War Room evaluaba `activeAssignments` usando una ventana de 7 días (`isAssignmentActiveForWeek`) en lugar del mes completo de cuota (`isAssignmentActiveForMonth`).
+- **Solución Implementada**:
+  - `src/features/rutas/lib/weeklyRoute.ts`: Se corrigió `rangesOverlapIso` asignando `'9999-12-31'` por defecto a asignaciones de vigencia abierta, y se implementó y exportó `isAssignmentActiveForMonth(item, monthIso)`.
+  - `src/features/rutas/services/rutaSemanalService.ts`:
+    - `buildAsignacionesQuery`: Ahora filtra por `estado_publicacion = 'PUBLICADA'`, valida el rango mensual (`fecha_inicio <= rangeEnd AND (fecha_fin IS NULL OR fecha_fin >= rangeStart)`), ordena por `fecha_inicio` y amplía el límite a 2000 registros para garantizar cobertura completa.
+    - Se integró la consulta y mapeo de cuotas recurrentes (`ruta_cuota_supervisor_pdv`) con versionado mensual en `obtenerResumenAlcanceVisitas` y `obtenerPanelRutaSemanal`.
+    - En el War Room, se alimenta `buildWarRoomData` con `activeAssignmentsMonth` evaluado mediante `isAssignmentActiveForMonth`, resolviendo para Atzin 17 tiendas activas con dermoconsejera (con cuota mensual de 6 visitas y meta de 102 visitas) y únicamente 2 tiendas vacantes reales (*Benavides Félix Cuevas* y *Liverpool Mitikah*).
+    - `buildWarRoomData` ahora computa y acredita visitas adicionales de agenda completadas hacia la tienda y descuenta de sus visitas pendientes del mes.
+- **Validaciones**:
+  - `npm run test:unit -- src/features/rutas`: 17 archivos de prueba, 74 tests unitarios pasados (100%).
+  - `npx tsc --noEmit`: 0 errores de TypeScript.
+  - `npm run docs:check-encoding`: Verificación UTF-8 exitosa en 1238 archivos.
+  - `npm run build`: Compilación Next.js exitosa (105/105 páginas generadas).
+  - `npm run cf:build`: Empaquetado exitoso para Cloudflare Workers en `.open-next/worker.js`.
+- **Estado**: Funcionalidad implementada y validada integralmente.
+
+## [2026-09-17 14:20] - Columna de Selección de Supervisores (Checkboxes) en la Tabla del Calendario Mensual (Antigravity)
+
+- **Contexto**: El usuario solicitó que la selección de supervisores para acciones mensuales (como aprobar o liberar rutas del mes) aparezca directamente en la tabla del calendario en una columna de casillas de verificación (*checkboxes*) para cada supervisor, permitiendo marcarlos directamente mientras se inspecciona la cuadrícula mensual sin necesidad de recurrir a una ventana modal separada.
+- **Acciones Ejecutadas**:
+  - **Componente de Calendario (`src/features/rutas/components/RutaMensualCalendar.tsx`)**:
+    - Se agregó una columna fija (*sticky*) de ancho táctil (`w-11`, 44px) a la izquierda de la columna de supervisores, exclusiva para roles de gestión (`ADMINISTRADOR` y `COORDINADOR`).
+    - En el encabezado (`thead`), se implementó la casilla maestra (*master checkbox*) para marcar o desmarcar todos los supervisores visibles de forma instantánea, con soporte para estado indeterminado (*indeterminate*).
+    - En cada fila de supervisor (`tbody`), se integró una casilla accesible con contenedor táctil de 44x44px (`tailwind-mobile-first`), resaltando la fila en tono azul suave (`bg-sky-50`) cuando se encuentra seleccionada.
+    - Se ajustaron las clases de inmovilización: la columna de casillas queda fija en `left-0` y la columna de nombres de supervisor en `left-11`, manteniéndose ambas perfectamente visibles y alineadas al hacer scroll horizontal sobre los días del mes.
+    - Se sincronizó la selección en la barra de herramientas superior: al marcar supervisores, el alcance conmuta automáticamente a `☑️ Seleccionados (X)`, se muestra el conteo exacto y se habilitó un botón para limpiar la selección.
+  - **Pruebas y Blindaje (`src/features/rutas/lib/monthlyRouteManagement.test.ts`)**:
+    - Se añadió prueba unitaria para validar la normalización de resúmenes mensuales con múltiples supervisores seleccionados en lote.
+- **Validaciones**:
+  - `npm run test:unit -- src/features/rutas`: 17 archivos de prueba, 71 tests pasados al 100%.
+  - `npx tsc --noEmit`: 0 errores de TypeScript.
+  - `npm run docs:check-encoding`: 1,318 archivos UTF-8 correctos.
+  - `npm run build`: Compilación exitosa de producción Next.js (105 páginas generadas).
+  - `npm run cf:build`: Empaquetado exitoso para Cloudflare Workers en `.open-next/worker.js`.
+- **Estado**: Funcionalidad implementada y validada integralmente.
+
+## [2026-09-17 14:00] - Tiendas Vacantes Apagadas, Cuotas Dinámicas y Avance Mensual de Supervisión (Antigravity)
+
+- **Contexto**: El usuario solicitó tres reglas fundamentales para la gestión de cuotas de supervisores:
+  1. Si una tienda asignada no cuenta con dermoconsejera activa (está vacante), no debe calcularse cuota de visitas para ella y debe marcarse como "tienda apagada" (sin cuota obligatoria).
+  2. La tienda vacante debe seguir siendo visitable libremente por el supervisor, pudiendo programarla o agregar una visita adicional en cualquier momento.
+  3. El supervisor debe tener visibles sus cuotas del mes (cuántas tiendas y visitas debe hacer en total, cuántas ya realizó y cuántas le faltan).
+  4. Si el supervisor realiza una visita completa a cualquier tienda (incluyendo visitas extraordinarias o adicionales de agenda con checklist y geocerca), esa visita debe acreditarse a la tienda y descontarse de sus visitas pendientes del mes.
+- **Acciones Ejecutadas**:
+  - **Servicio y Motor de Cuotas (`src/features/rutas/services/rutaSemanalService.ts`)**:
+    - Se extendió `RutaQuotaProgressItem` con `esVacante: boolean`.
+    - Se extendió `RutaSupervisorWarRoomItem` con `totalPdvsConCuota`, `totalPdvsVacantes` y `storesWithoutVisitMonth`.
+    - Se exportó `buildWarRoomData` para facilitar pruebas unitarias TDD y reutilización.
+    - Se implementó la detección de tiendas vacantes mediante la verificación de asignaciones activas de dermoconsejo (`activeAssignments`).
+    - Si el PDV no tiene dermoconsejera activa, se asigna `esVacante = true`, `quotaMensual = 0`, `visitasPendientes = 0` y `prioridad = 'BAJA'`, excluyéndolo de la sumatoria de `expectedMonthlyVisits`.
+    - Se integraron los eventos adicionales de agenda completados (`VISITA_ADICIONAL`, `VISITA_EMERGENCIA`, etc. con `checkOutAt` o estado `COMPLETADO`): ahora se suman a `visitasRealizadas` del PDV, descuentan de `visitasPendientes` y suman a `monthlyVisitsCompleted` del supervisor.
+  - **Panel de Supervisión (`src/features/rutas/components/RutaSemanalPanel.tsx`)**:
+    - Se creó un banner ejecutivo con 6 métricas clave: Meta mensual, Realizadas, Faltantes, Tiendas con cuota, Tiendas apagadas y Tiendas por visitar, junto a la barra de porcentaje de cumplimiento.
+    - En la lista de cuotas de tiendas (`QuotaProgressList`), las tiendas vacantes se diferencian con badge `Tienda apagada (Vacante)` y estado `0 visitas (Sin cuota) · Visitable libremente`.
+    - La acción de asignación masiva de cuota omite automáticamente las tiendas vacantes.
+  - **Hoja Diaria de Campo (`src/features/rutas/components/SupervisorTodayRouteSheet.tsx`)**:
+    - Se incorporó un visor compacto de avance mensual en la cabecera informando el avance hacia la meta del mes y recordando que cada visita completada descuenta de la cuota.
+  - **Pruebas Automatizadas TDD (`src/features/rutas/services/rutaSemanalService.test.ts`)**:
+    - Se crearon pruebas automatizadas verificando: (1) cálculo de cuota 0 y bandera `esVacante = true` para tiendas sin DC, (2) descuento automático de visitas pendientes y suma a metas mensuales al completar visitas adicionales de agenda.
+- **Validaciones**:
+  - `npm run test:unit -- src/features/rutas`: 17 archivos de prueba, 70 tests pasados al 100%.
+  - `npx tsc --noEmit`: 0 errores de TypeScript.
+  - `npm run docs:check-encoding`: 1,318 archivos UTF-8 correctos.
+  - `npm run build`: Compilación exitosa de producción Next.js (105 páginas generadas).
+  - `npm run cf:build`: Empaquetado exitoso para Cloudflare Workers en `.open-next/worker.js`.
+- **Estado**: Funcionalidad implementada y validada integralmente.
+
+## [2026-09-17 12:30] - Aprobación Flexible de Rutas y Rediseño Minimalista del Tablero de Supervisión (Antigravity)
+
+- **Contexto**: El usuario (Administrador) reportó que no podía aprobar ninguna de las rutas de supervisión en el panel, mostrándose el mensaje bloqueante *"La revision y aprobacion de esta ruta se resuelve desde coordinacion"* sin controles de aprobación. Asimismo, solicitó un seleccionador de supervisores para poder liberar o aprobar rutas del mes de forma global, por supervisor individual o marcando varios supervisores específicos, manteniendo la capacidad de revisar día por día y semana por semana, y limpiando la pantalla para evitar que todo se vea amontonado.
+- **Causa Raíz Diagnosticada**:
+  1. En `src/features/rutas/components/RutaSemanalPanel.tsx`, la tarjeta de revisión semanal `RouteWorkflowCard` forzaba `canReview = false` mediante la cláusula `!selectedRoute.monthlySubmissionId`. Debido a que los supervisores ahora envían sus rutas a través de envíos mensuales, las rutas semanales tenían asociado el ID mensual, lo que apagaba los controles de aprobación individual para Coordinadores y Administradores.
+  2. En base de datos, `rpc_gestionar_rutas_mes` y las acciones `gestionarRutasMes` operaban exclusivamente de manera monolítica sobre todos los supervisores del mes sin opción de parametrizar supervisores específicos.
+  3. En la pestaña de rutas, se encontraban apilados verticalmente en un solo flujo continuo el calendario mensual gigante, el kanban de 5 columnas, la tarjeta de revisión, el mapa interactivo y la reposición de agenda, saturando visualmente la pantalla.
+- **Acciones Ejecutadas**:
+  - **Base de Datos y RPC (`supabase/migrations/20260917130000_ruta_gestion_mensual_supervisores_filtro.sql`)**:
+    - Se actualizó `rpc_gestionar_rutas_mes` con el parámetro `p_supervisor_empleado_ids uuid[] default null`.
+    - Si se especifican supervisores, la función filtra `totalRutas`, objetivos `for update`, conteo de protegidas y elegibles exclusivamente para dichos supervisores, manteniendo la retrocompatibilidad completa cuando el parámetro es nulo.
+    - Se aplicó la migración a la base de datos de Supabase de forma exitosa.
+  - **Lógica de Servidor y Acciones (`src/features/rutas/actions.ts`)**:
+    - Se extendieron `gestionarRutasMes`, `previsualizarGestionRutasMes` y `ejecutarGestionRutasMes` con el parámetro opcional `supervisorIds?: string[] | null`.
+    - En `actualizarControlRutaSemanal`, se añadió sincronización bidireccional con `ruta_mensual_envio`: si se solicitan cambios en una semana, el envío mensual padre se actualiza a `CAMBIOS_SOLICITADOS`; si se aprueba una semana y todas las semanas del envío mensual quedan aprobadas, el envío mensual padre se actualiza a `APROBADA`.
+  - **Componente de Calendario Mensual (`src/features/rutas/components/RutaMensualCalendar.tsx`)**:
+    - Se incorporó un selector de alcance minimalista para las acciones mensuales:
+      - 🌐 **Todos los supervisores** del mes.
+      - 👤 **Supervisor activo** (filtrado en el selector superior).
+      - ☑️ **Seleccionar supervisores** (modal con checkboxes para seleccionar 1 o varios supervisores específicos).
+    - Se integró el modal de previsualización para detallar la lista de supervisores a procesar antes de confirmar la ejecución.
+  - **Reorganización Minimalista del Panel (`src/features/rutas/components/RutaSemanalPanel.tsx`)**:
+    - Se eliminó el candado `!selectedRoute.monthlySubmissionId` de `canReview`, permitiendo la revisión y aprobación semanal sin restricciones.
+    - Se estructuró la sección de rutas con un control segmentado minimalista entre:
+      - 📅 **Planeación Mensual**: Enfoque completo en la matriz del mes, consulta por día y acciones globales/individuales de gestión.
+      - 📋 **Revisión Semanal y Mapa**: Enfoque en el kanban de la semana, tarjeta de resolución de aprobación y mapa interactivo.
+  - **Pruebas y Blindaje**:
+    - Se agregaron pruebas unitarias en `src/features/rutas/lib/routeWorkflow.test.ts` (validando permisos de revisión en rutas mensuales) y `src/features/rutas/lib/monthlyRouteManagement.test.ts` (validando normalización con supervisores específicos).
+- **Validaciones Ejecutadas**:
+  - `npx tsc --noEmit`: 0 errores de tipado.
+  - `npm run test:unit`: 121 archivos de prueba aprobados (486 tests pasados).
+  - `npm run docs:check-encoding`: Verificación UTF-8 en 1318 archivos correcta.
+  - `npm run build`: Compilación Next.js producción exitosa (105 rutas generadas).
+  - `npm run cf:build`: Compilación OpenNext para Cloudflare Workers completada con éxito.
+- **Estado**: Funcionalidad implementada y validada integralmente.
+
+## [2026-09-14 19:15] - Configuración Central: Vistas por Pestañas, Paginación Bajo Demanda y Verificación Integral de Conexiones (Antigravity)
+
+- **Contexto**: En `/configuracion`, todos los catálogos y parámetros (~400 formularios interactivos, 199 productos, 140 misiones, 29 ciudades, 19 cadenas y múltiples parámetros globales) se renderizaban simultáneamente en una sola vista de dos columnas, saturando el DOM y dificultando la navegación administrativa.
+- **Acciones Ejecutadas**:
+  - **Estructuración por Pestañas (`src/features/configuracion/components/ConfiguracionPanel.tsx`)**:
+    - Se reorganizó la vista en 6 pestañas temáticas accesibles:
+      1. `Productos` (catálogo, alta, importador XLSX, buscador y paginación).
+      2. `Cadenas y Ciudades` (sub-tabs para alternar entre Cadenas y Ciudades, con buscadores dedicados y paginación).
+      3. `Horarios y Turnos` (alta, listado y eliminación de turnos para modo CADENA).
+      4. `Misiones del Día` (buscador, alta y paginación de las 140 misiones).
+      5. `Parámetros del Sistema` (agrupación limpia de parámetros globales, nómina y retención documental).
+      6. `Integraciones` (diagnóstico en tiempo real y configuración de OCR documental y compresión PDF).
+    - Se convirtieron las tarjetas de métricas superiores en botones interactivos que conmutan de forma directa a la pestaña respectiva al hacer clic.
+  - **Paginación Bajo Demanda (`PaginationControls`)**:
+    - Se creó un control de paginación reutilizable con opciones de 10, 25 o 50 registros por página, indicador de rango visible y botones Anterior/Siguiente.
+    - Se integró en Productos, Cadenas, Ciudades y Misiones, reduciendo los nodos del DOM de >15,000 a <800 nodos en cualquier momento de la sesión.
+  - **Verificación de Conexiones Aguas Arriba y Aguas Abajo**:
+    - *Aguas Arriba*: Se mantuvieron intactos los contratos y campos de formulario con las Server Actions (`guardarProducto`, `importarCatalogoProductos`, `guardarCadena`, `guardarCiudad`, `guardarTurnoCatalogo`, `guardarMisionDia`, `guardarParametroConfiguracion`, etc.), preservando la persistencia en Supabase, el registro en `audit_log` y los eventos `publishUiChanges`.
+    - *Aguas Abajo*: Se constató que los modelos de datos alimentan correctamente a Ventas, Campañas, PDVs, Rutas, Asistencias, Expedientes y Nómina sin ninguna alteración de esquemas ni tipos.
+- **Validaciones**:
+  - `npx tsc --noEmit`: 0 errores de TypeScript.
+  - `npm run docs:check-encoding`: Verificación UTF-8 en 1,314 archivos sin mojibake.
+  - `npx vitest run src/features/configuracion`: 1/1 pruebas aprobadas (20ms).
+
+
+- **Contexto y causa raíz**: El formulario resolvía y mostraba la DC publicada para `PDV + fecha`, pero el servidor rechazaba cualquier DC distinta. Esto impedía registrar una jornada real cuando la asignación estructural aún no reflejaba la operación.
+- **Sustitución controlada**: La asignación publicada continúa como predeterminada y no se modifica desde captura. Se agregó una excepción explícita: la DC activa del mismo cliente puede abrir “Registrar con mi nombre”, elegir su nombre y declarar la jornada real. El registro conserva la DC publicada, la DC declarada, PDV, fecha y origen en `metadata`; no transforma la excepción en una asignación estructural ni altera cuotas/planeación.
+- **Propagación**: La migración `20260914183000_captura_publica_atribucion_manual_dc.sql` hace que `fn_captura_publica_atribucion_efectiva` preserve `asignacion_id = null` para la excepción y resuelva el supervisor efectivo del PDV/fecha. La captura consolidada mantiene `empleado_id` declarado para Ventas/LOVE y el trigger posterior sincroniza el supervisor a asistencia, ventas y LOVE.
+- **Seguridad y rendimiento**: La alternativa sólo admite DCs activas de la misma cuenta y respeta `empleado_ids_permitidos` del enlace. El padrón alterno se carga sólo al abrir la excepción, una vez por pantalla; no se agregaron polling, refreshes, consultas iniciales ni cambios de asignación masivos.
+- **Validaciones**: Vitest focalizado 21/21, `npx tsc --noEmit`, `npm run build`, `npm run cf:build` y `npm run docs:check-encoding` correctos. La migración se validó con rollback, se aplicó de forma directa y la función remota confirma la rama `DECLARACION_MANUAL_DC`.
+- **Despliegue**: No se publicó el Worker porque el worktree contiene cambios preexistentes no relacionados; desplegarlo incluiría código fuera de este corte. La base de datos queda preparada de forma retrocompatible para el despliegue selectivo del frontend/Server Action.
+
+## [2026-09-14 14:05] - Exportación Excel: Pestaña de Detalle Diario con Fecha de Venta y Fecha de Registro (Antigravity)
+
+- **Contexto**: El usuario solicitó distinguir y mostrar en el reporte de Excel dos tipos de fecha: la fecha en la que se realizó el registro (captura) y la fecha a la que se asignó la venta (la que puso la dermoconsejera), permitiendo saber qué vendió la DC de cada producto y cuándo se subió la información.
+- **Acciones Ejecutadas**:
+  - **Servicio de Ventas (`src/features/ventas/services/ventaService.ts`)**:
+    - Se incorporó `created_at` en `selectFields` de la consulta mensual de ventas.
+    - Se agregó `fechaRegistro?: string` a la interfaz `VentaDatasetItem`.
+    - Se mapeó `created_at` a la zona horaria de México (`America/Mexico_City`) mediante `getMexicoDateIso`.
+  - **Generación de Hoja Excel (`src/features/ventas/lib/ventaExport.ts`)**:
+    - Se configuró la hoja `Ventas por Día, PDV y Prod` con inmovilización de paneles (*freeze panes*) en las primeras 3 filas y las 2 primeras columnas de fecha.
+    - 14 columnas formateadas: `FECHA VENTA`, `FECHA REGISTRO`, `CLAVE BTL`, `CADENA`, `ID PDV`, `SUCURSAL`, `SUPERVISOR`, `ID NÓMINA`, `DERMOCONSEJERA`, `SKU`, `PRODUCTO`, `NOMBRE CORTO`, `PIEZAS VENDIDAS`, `MONTO TOTAL ($)`.
+    - Agrupación por clave única: `Fecha Venta + Fecha Registro + BTL + Cadena + ID PDV + Sucursal + Nómina + Dermo + SKU + Producto`.
+    - Fila de `TOTAL GENERAL` con fórmulas automáticas `=SUM(M4:M...)` para piezas y `=SUM(N4:N...)` para monto.
+  - **Pruebas Unitarias Automatizadas (`src/features/ventas/lib/ventaExport.test.ts`)**:
+    - Test unitario con Vitest validando la existencia de ambas fechas, el orden de las 14 columnas, agrupación y cálculos.
+- **Rendimiento y Costos**: Cero lecturas adicionales a Supabase.
+- **Validaciones**:
+  - `npm run test:unit -- src/features/ventas/lib/ventaExport.test.ts`: 1/1 prueba aprobada (44ms).
+  - `npx tsc --noEmit`: 0 errores de TypeScript.
+  - `npm run docs:check-encoding`: Verificación UTF-8 en 1,314 archivos sin mojibake.
+
+
+## [2026-09-14] - Auditoría y refactorización transversal (Codex)
+
+- Eliminación verificada mediante AST, referencias, tipado y pruebas: 99 declaraciones privadas, 93 imports, el wrapper `obtenerCatalogoPdvsRutaSupervisorMesParaActor`, el ejemplo `tmp-type-check.ts` y la página privada duplicada `formularios/_slug_/page.tsx`.
+- Middleware: bloques de portales unificados manteniendo precedencia, redirects, query strings y delegación a `updateSession`; retirado el dump por request.
+- PWA: retirados JSX comentado, estados y listeners del aviso eliminado. Se conservan registro diferido, cancelación al desmontar y supresión del prompt. Los fallos de registro dejan contexto.
+- Captura y offline: retirados logs de FormData, duplicados y sincronización exitosa. Se mantienen errores, resultados de idempotencia, cursor y auditoría persistida.
+- Pruebas: dos verificaciones históricas dependientes de credenciales locales archivadas como texto; la importación de julio podía modificar datos reales. Fixtures actualizados para tipos, hashes asíncronos, cuenta/vigencia de PDVs y mocks. Caché validada por comportamiento; R2 prueba el respaldo del servidor tras 45 segundos.
+- Validaciones: TypeScript, 481/481 unitarias, 13/13 pruebas de servicios con Playwright bajo condición `react-server`, build, cf:build y encoding correctos. Hook versionado instalado.
+- Costo: cero queries, joins, suscripciones o refreshes nuevos. Mismas consultas productivas; menos estado/listeners PWA y logging. Sin importaciones, migraciones ni despliegues.
+- Reconciliación: canon anotado antes de actualizar derivados; 351/352 checkboxes conservados. Compresión de servidor aún deshabilitada, no se considera restaurado 7.1. Lint: 356 errores/295 advertencias antes, 349/143 después; pendiente de resolución.
+- Skills: UTF-8, revisión, tipado estricto, App Router, performance, debugging, PWA/offline, Playwright, mobile-first y arquitectura. Se priorizó la especificación canónica sobre ejemplos heredados de PocketBase/Pages en skills; `architectural_audit_alignment.md` se trató como derivado.
+- Entrega: `docs/auditoria-refactor-2026-09-14.md` y `artifacts/auditoria-refactor-2026-09-14/codigo-refactorizado.zip`. La comparación se realizó contra el workspace al inicio del corte para preservar cambios previos.
+
+## [2026-09-11 14:10] - Feature/UI/Excel: Filtro por Cadena y Exportación Exclusiva en Módulo de Canjes (Antigravity)
+
+- **Contexto**: El usuario solicitó un filtro adicional en la sección `/canjes` para poder consultar los canjes exclusivamente por cadena y que la exportación a Excel se descargue filtrada de esta misma manera.
+- **Acciones Ejecutadas**:
+  - **Lógica Pura y Tipos (`src/features/canjes/lib/canjesCalculation.ts`)**: Se creó el módulo puro para abstraer el cálculo de métricas por subtipo y piezas por cadena seleccionada, manteniendo tipado estricto y sin violaciones de Server Action boundary.
+  - **Servicio Backend (`src/features/canjes/services/canjesService.ts`)**:
+    - `obtenerDatosCanjes` ahora consulta el catálogo de cadenas activas (`cadena`) y acepta `cadenaFilter?: string`.
+    - Retorna `cadenasDisponibles: string[]` ordenadas alfabéticamente para alimentar el selector de la UI.
+  - **Exportación Excel (`src/features/canjes/services/canjesExportService.ts`)**:
+    - `generarExcelCanjes` recibe `cadenaFilter` y, cuando está activo, genera la hoja nombrada como `Canjes [CADENA]` y el archivo descargable como `Reporte_Canjes_[CADENA]_[fechas].xlsx`.
+  - **Componente Visual (`src/features/canjes/components/CanjesPanel.tsx`)**:
+    - Se adaptó la cuadrícula de filtros a 5 columnas responsivas (`sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5`) con diseño Mobile-First.
+    - Se integró el selector desplegable **Cadena** con opción `"Todas las Cadenas"` y el catálogo dinámico de cadenas disponibles.
+    - Se actualizó el título de la barra de exportación, el encabezado de la bitácora y el estado vacío para reflejar claramente la cadena seleccionada.
+    - Al hacer clic en `"Descargar Excel (XLSX)"`, el backend entrega únicamente los registros de la cadena elegida.
+  - **Exportación PowerPoint (`pptExportService.ts` y `/api/reportes/canjes-ppt-data/route.ts`)**:
+    - Se agregó soporte para el parámetro `cadena`, sincronizando las descargas de PPT con la cadena filtrada.
+  - **Pruebas Automatizadas (`src/features/canjes/services/canjesService.test.ts`)**:
+    - 5 pruebas unitarias cubriendo filtro `TODAS`, filtro específico por cadena, combinación con subtipos, búsqueda de texto y cadenas de catálogo base. (5/5 pruebas pasadas).
+- **Rendimiento y Costos**: 0 queries pesadas adicionales en Supabase. Cero overhead en la app.
+- **Validaciones**:
+  - `npm run test:unit src/features/canjes/services/canjesService.test.ts`: 5/5 pruebas aprobadas.
+  - `npm run build`: Compilación Next.js 100% limpia.
+  - `npm run cf:build`: Empaquetado para Cloudflare Workers 100% exitoso.
+  - `npm run docs:check-encoding`: Verificación UTF-8 en 1,310 archivos sin mojibake.
+
+## [2026-09-11 11:10] - Catálogo: alta controlada de Transparent Spray en canjes públicos ISDIN (Codex)
+
+- **Contexto**: Se solicitó ampliar la lista de canjes de la captura pública de Dermoconsejo sin duplicar materiales equivalentes ya existentes.
+- **Reconciliación**:
+  - Se conservaron `FP PROTECTOR LABIAL HV ISDIN 46` y `PROM FP FUSION WATER MAGIC REPAIR SPF50 10 ML` como variantes canónicas existentes.
+  - Se conservó `PORTATOTTLE STICK 2024` y no se creó la variante 2025.
+  - `PORTATOTTLE FWM ALCARAZ 2025` y `PORTATOTTLE STICK PEDIATRICS 2025` ya existían y no se duplicaron.
+- **Implementación**:
+  - Se agregó `FP TRANSPARENT SPRAY WS SPF50 250ML` a `LISTA_ORDEN_CANJES_ISDIN`.
+  - Se creó y aplicó la migración idempotente `20260911111500_agregar_transparent_spray_canjes_isdin.sql`, dejando una sola fila activa de tipo `PROMOCIONAL` para `isdin_mexico`.
+  - Se agregó una prueba de regresión que protege tanto el alta como la ausencia de las variantes descartadas.
+- **Costo y performance**: La carga conserva la consulta existente de materiales; no agrega lecturas, joins, suscripciones ni refreshes.
+- **Validaciones**: prueba focalizada 12/12, `npm run build`, `npm run cf:build`, verificación remota del catálogo y `npm run docs:check-encoding` correctos. Hooks versionados instalados con `core.hooksPath=.githooks`.
+
+## [2026-08-28 19:58] - Feature/Backend/UI: Resolución de Dermoconsejera por Mes de Operación Seleccionado en Última Milla (Antigravity)
+
+- **Contexto**: El usuario reportó que al cambiar el mes de operación (ej. septiembre 2026) y seleccionar un punto de venta (ej. _Benavides Masaryk y Seneca_), el sistema seguía auto-llenando la colaboradora de agosto (día actual) en lugar de consultar la asignación vigente para el mes de operación seleccionado.
+- **Causa Raíz Identificada**: Las funciones `obtenerTodosPdvsConDcVigente()` y `obtenerReceptoresPdv()` consultaban la fecha actual del sistema (`new Date().toISOString()`) en lugar de tomar como parámetro el `mesOperacion` activo del panel (`selectedMonth`).
+- **Acciones Ejecutadas**:
+  - `src/features/evidencias/actions.ts`:
+    - `obtenerTodosPdvsConDcVigente(mesOperacion?: string)`: Ahora calcula el rango mensual (`monthStart` a `monthEnd`) y resuelve la asignación vigente para ese mes en `asignacion_diaria_resuelta` y en `asignacion`.
+    - `obtenerReceptoresPdv(pdvId: string, mesOperacion?: string)`: Consulta la asignación correspondiente al mes de operación solicitado.
+  - `src/features/materiales/components/SupervisorLastMileForm.tsx`:
+    - Se enlazó `selectedMonth` en los efectos de carga de PDVs y cambio de tienda, actualizando la Dermoconsejera asignada inmediatamente según el mes elegido en el encabezado.
+- **Validaciones**:
+  - `npm run build`: Compilación 100% limpia sin errores.
+  - `npm run docs:check-encoding`: 1,295 archivos UTF-8 verificados.
+
+- **Contexto**: El usuario solicitó que las distancias de geocerca se gradúen automáticamente en metros (`m`) y kilómetros (`km`) conforme a las unidades internacionales del SI para que la lectura sea mucho más fácil y legible tanto para distancias cortas como largas.
+- **Acciones Ejecutadas**:
+  - **Utilidad Central (`src/lib/geo/distanceFormat.ts`)**: Se implementaron las funciones `formatearDistanciaMetrica` y `formatearDistanciaGeocercaSufijo`:
+    - Distancias menores a 1,000 m: se expresan en metros enteros con símbolo `m` (ej: `14 m`, `350 m`, `850 m`).
+    - Distancias a partir de 1,000 m: se gradúan automáticamente a kilómetros con símbolo `km` (ej: `1.2 km`, `3.5 km`, `25.4 km`, `100 km`).
+  - **Servicios y UI**:
+    - `rutaCalendarioMensualService.ts`: Actualizado para generar resúmenes de geocerca con distancias graduales (`Dentro de geocerca (a 14 m)`, `Fuera de geocerca (a 2.5 km)`).
+    - `RutaMensualCalendar.tsx`: Modales de inspección de visita y eventos actualizados con `formatearDistanciaMetrica`.
+    - `attendanceAdminService.ts` y `geofencePushAlert.ts`: Formato estándar aplicado a alertas y reportes de asistencia.
+  - **Pruebas y Validaciones**:
+    - Pruebas unitarias de formateo: `src/lib/geo/distanceFormat.test.ts` (5/5 pruebas pasadas).
+    - Pruebas de rutas: `src/features/rutas/` (14 suites, 49/49 pruebas pasadas).
+    - Pruebas de asistencias: `src/features/asistencias/` (6 suites, 16/16 pruebas pasadas).
+    - Integridad UTF-8: `npm run docs:check-encoding` (1,234 archivos limpios sin mojibake).
+
+## [2026-08-21 21:22] - Feature/UI/Service: Ordenamiento Cronológico de Visitas por Hora Real de Llegada en Calendario de Supervisores (Antigravity)
+
+- **Contexto**: El usuario solicitó organizar las visitas en el modal diario del reporte por la hora real de llegada (`checkInAt` / hora de entrada) de cada una, de modo que se identifique fácilmente la secuencia exacta y cronológica en la que el supervisor recorrió las tiendas del día.
+- **Acciones Ejecutadas**:
+  - **Función Comparadora (`rutaCalendarioMensualService.ts`)**: Se implementó `sortVisitsByArrivalOrOrder` para ordenar cronológicamente las visitas del día con base en `checkInAt` (o `completadaEn`), posicionando primero las tiendas visitadas más temprano y dejando al final las tiendas pendientes sin check-in aún por su orden de planeación.
+  - **Tarjetas y Numeración (`RutaMensualCalendar.tsx`)**: Se actualizó `VisitDetailCard` para mostrar la numeración secuencial `#1, #2, #3...` correspondiente al orden de llegada de las tiendas.
+  - **Validaciones**:
+    - Pruebas unitarias actualizadas y aprobadas: `npm run test:unit src/features/rutas/` (14 suites, 49/49 pruebas aprobadas).
+    - `npm run docs:check-encoding`: 1,232 archivos UTF-8 limpios sin mojibake.
+
+## [2026-08-21 18:50] - Feature/Backend/UI: Recolección Automática de Coordenadas GPS, Entrada/Salida y Geocercas en Tiendas Adicionales y Eventos de Supervisores (Antigravity)
+
+- **Contexto**: El usuario solicitó que al registrar una tienda adicional o evento en la ruta (que se sume o desplace la ruta del día), se capturen automáticamente la hora de entrada y salida, las coordenadas GPS del sitio, y en caso de ser tienda/PDV, se valide la geocerca y distancia exacta en metros, reflejando todo esto en el modal de detalle del calendario sin modificar los formularios ni la operativa del supervisor.
+- **Acciones Ejecutadas**:
+  - **Recolección en Server Actions (`actions.ts`)**:
+    - `registrarEventoAgendaRutaSemanal`: Captura silenciosa de `latitud` y `longitud`, consulta `geocerca_pdv` para el PDV seleccionado, calcula la distancia exacta en metros con fórmula Haversine (`calcularDistanciaMetros`) y evalúa `DENTRO_GEOCERCA` vs `FUERA_GEOCERCA`. Guarda la hora de entrada (`check_in_en`) e inicializa el `checkIn` metadata tanto del evento como de la `ruta_semanal_visita` vinculada.
+    - `registrarEvidenciaEventoAgendaRutaSemanal` y `registrarSalidaEventoAgendaRutaSemanal`: Calculan la geocerca real y sincronizan bidireccionalmente la visita vinculada (`ruta_semanal_visita_id`).
+    - `registrarInicioVisitaSupervisorRutaSemanal` y `registrarFinVisitaSupervisorRutaSemanal`: Sincronizan de vuelta al evento `ruta_agenda_evento` si la visita proviene de la agenda.
+  - **Servicio de Consulta (`rutaCalendarioMensualService.ts`)**:
+    - Enriqueció `RutaCalendarioEventDetail` con `checkInLatitud`, `checkInLongitud`, `checkInDistanciaMetros`, `checkInGpsState`, `checkInResumen`, `checkOutLatitud`, `checkOutLongitud`, `checkOutDistanciaMetros`, `checkOutGpsState`, `checkOutResumen`, `pdvLatitud`, `pdvLongitud`, `pdvRadioMetros`.
+    - Consulta `geocerca_pdv` para todos los PDVs involucrados y consolida horarios y fotos de visitas vinculadas.
+  - **UI / Modal de Inspección (`RutaMensualCalendar.tsx`)**:
+    - `EventInspectionModal`: Diseñado con bloque de **Horarios Registrados de Jornada** (Hora de Entrada y Hora de Salida), bloque de **Validación de Geocerca y Coordenadas GPS** (con badges de estado, coordenadas geográficas exactas y distancia al PDV), bloque de **Tiendas Desplazadas** y galería de fotos con visor **Lightbox**.
+  - **Validaciones**:
+    - Pruebas unitarias de rutas: `npm run test:unit src/features/rutas/` (14 suites, 49/49 pruebas aprobadas).
+    - `npm run docs:check-encoding`: 1,232 archivos UTF-8 limpios sin mojibake.
+
+## [2026-08-20 13:58] - Workflow/Fix: Habilitación de Revisión, Corrección y Re-Aprobación de Rutas para Administrador General en Tablero Kanban (Antigravity)
+
+- **Contexto**: El usuario reportó que en el Tablero Kanban (`/operacion-supervisores`), al estar una ruta en estado Aprobada, el rol Administrador General no podía solicitar correcciones ni volver a aprobarla para que las tiendas aparecieran nuevamente, mostrando un aviso bloqueante de coordinación.
+- **Acciones Ejecutadas**:
+  - **Autorización de Roles (`actions.ts`)**: Se actualizó `requerirCoordinadorRuta()` para permitir la ejecución de revisiones, cambios solicitados (`CAMBIOS_SOLICITADOS`) y reaprobaciones (`APROBADA` / `PUBLICADA`) tanto a `COORDINADOR` como a `ADMINISTRADOR`.
+  - **Componente Visual (`RutaSemanalPanel.tsx`)**: Se habilitó `canReview` y `onAprobarMes` para el puesto `ADMINISTRADOR` (además de `COORDINADOR`), permitiendo acceder al formulario de estado de aprobación, notas de revisión y resolución de cambios en la tarjeta de workflow.
+  - **Validación Automatizada (`routeWorkflow.test.ts`)**: Se añadieron pruebas unitarias validando la transición `APROBADA -> CAMBIOS_SOLICITADOS -> APROBADA` y la matriz de autorización por puesto (14 archivos / 48 pruebas de rutas pasadas).
+  - **Codificación**: `npm run docs:check-encoding` (1,232 archivos UTF-8 válidos).
+
+## [2026-08-17 10:05] - Data/Backend: Eliminación Total de Adriana Yulisma Álvarez García de BD y Tablero de Rutas (Antigravity)
+
+- **Contexto**: El usuario solicitó eliminar por completo a `ADRIANA YULISMA ALVAREZ GARCIA` (ID Nómina 584) de la base de datos y de la matriz del tablero de rutas en calendario donde aparecía con guiones vacíos.
+- **Acciones Ejecutadas**:
+  - **Depuración Atómica en PostgreSQL**: Se eliminaron en cascada todos sus registros vinculados: `ruta_semanal`, `ruta_semanal_visita`, `ruta_cuota_supervisor_pdv`, `supervisor_pdv`, `asignacion_diaria_resuelta`, `ui_change_version`, `empleado_documento`, `usuario`, `auth.users` y su registro en `empleado` (`52167884-17f5-4432-b0c2-d20dc4ed1671`).
+  - **Limpieza del Tablero de Rutas**: Al removerse todas sus rutas y registros de empleado, la función de resumen y el tablero mensual de rutas quedan 100% libres de su fila en el calendario.
+  - **Validaciones**: Se ejecutaron pruebas unitarias completas de `src/features/rutas` (13 archivos / 46 pruebas pasadas) y `npm run docs:check-encoding` (1,231 archivos UTF-8 válidos).
+
+## [2026-08-15 17:42] - Data/Backend: Eliminación de Supervisores de Prueba de BD y Filtrado Operativo de Test Supervisor 01 (Antigravity)
+
+- **Contexto**: El usuario solicitó eliminar por completo de la base de datos a los supervisores de prueba (`Test SUPERVISOR 02` y `Test SUPERVISOR 03`) junto con todas sus relaciones, dejando únicamente a `Test SUPERVISOR 01` en la BD para posibles pruebas internas, pero ocultándolo de la operación normal (listas, selectores, War Room y reportes).
+- **Acciones Ejecutadas**:
+  - **Depuración Atómica en PostgreSQL**: Se eliminaron en cascada de forma íntegra todos los registros asociados a `Test SUPERVISOR 02` (`f80b01db-ee94-4704-a912-d0a0f3c86ce3`) y `Test SUPERVISOR 03` (`23e6f53f-7fed-40be-8a75-db89d99158f1`), incluyendo rutas semanales, visitas, evidencias, cuotas, distribuciones, entregas de última milla, versiones UI, asignaciones, usuarios y sus cuentas de autenticación (`auth.users`).
+  - **Filtro de Exclusión Operativa**: Se actualizaron los servicios [`rutaSemanalService.ts`](file:///d:/IA/Retail/src/features/rutas/services/rutaSemanalService.ts), [`clienteDashboardService.ts`](file:///d:/IA/Retail/src/features/dashboard/services/clienteDashboardService.ts), [`pdvService.ts`](file:///d:/IA/Retail/src/features/pdvs/services/pdvService.ts), [`asignacionService.ts`](file:///d:/IA/Retail/src/features/asignaciones/services/asignacionService.ts) y [`empleadoService.ts`](file:///d:/IA/Retail/src/features/empleados/services/empleadoService.ts) para excluir automáticamente de los catálogos y selectores operativos cualquier registro con prefijo `Test ` o `TST-`.
+  - **Pruebas y Validación**: Se añadió prueba unitaria en `rutaSemanalService.test.ts` (8/8 pruebas pasadas) y se validó la codificación con `npm run docs:check-encoding` (1,228 archivos UTF-8 válidos).
+
+## [2026-08-15 17:25] - UX/UI: Reubicación de Botón de Guardado en Editor de Cuotas de Supervisión (Antigravity)
+
+- **Contexto**: El usuario solicitó cambiar de posición el botón `"Sin cambios"` / `"Guardar Cambios"` en el panel de cuotas de visitas mensuales por supervisor para que esté en la parte superior, al lado del botón `"Aplicar a visibles"`.
+- **Acciones Ejecutadas**:
+  - **Reubicación de Botón (`RutaSemanalPanel.tsx`)**: Se integró `<SubmitButton />` en la barra superior junto al control de cuota masiva e input, adaptándose responsivamente en pantallas móviles y de escritorio.
+  - **Mensajes de Retroalimentación**: Se mantuvieron los mensajes de estado y avisos operativos en la barra superior para visibilidad inmediata al guardar, simplificando el pie de lista a una nota limpia.
+  - **Componente SubmitButton**: Se añadió soporte para `className` opcional manteniendo los estados de envío (`useFormStatus`).
+- **Validaciones**: Se ejecutó `npm run docs:check-encoding` (1,214 archivos UTF-8 válidos) y pruebas unitarias de `src/features/rutas` (13 archivos / 45 pruebas pasadas).
+
+## [2026-08-13 20:42] - Fix: Corrección Integral del Conteo de Dermoconsejeras por Supervisora y Rematerialización de Asignaciones (Antigravity)
+
+- **Contexto**: El usuario reportó que al consultar el avance de capturas de Ventas / Love ISDIN por supervisora en los Reportes de Campo, no aparecía el total completo de dermoconsejeras asignadas según sus tiendas (por ejemplo, la supervisora Jacqueline López Ruiz mostraba únicamente 5 dermos en lugar de las 17 asignadas a su equipo).
+- **Causa Raíz / Diagnóstico**:
+  1. **Filtro restrictivo de estado de cuenta**: En `clienteDashboardService.ts`, el join con `usuario.estado_cuenta = 'ACTIVA'` descartaba a las más de 200 dermoconsejeras activas de ISDIN cuyas cuentas se encuentran en estado `PROVISIONAL`.
+  2. **Resolución de tiendas**: No se unificaban las tiendas registradas en `supervisor_pdv` con las asignaciones directas publicadas en `asignacion`.
+  3. **Desactualización de materialización en `asignacion_diaria_resuelta`**: La tabla de asignación proyectada diaria conservaba registros obsoletos del 2 de agosto con `SIN_ASIGNACION` para días con horario laboral (`LUN-SAB`), provocando que solo 5 dermos fueran marcadas como laborables en tienda para fechas de agosto.
+- **Acciones Ejecutadas**:
+  - **Servicio Analítico (`clienteDashboardService.ts`)**: Eliminamos el filtro `usuario.estado_cuenta = 'ACTIVA'` y unificamos la resolución de tiendas combinando `supervisor_pdv` y `asignacion`. Sincronizamos los conteos de `supervisoresProgress` y `alertas` para concordar al 100%.
+  - **Rematerialización de Asignaciones Diarias**: Ejecutamos la recalculación de las 6,727 proyecciones diarias de Agosto 2026 para todos los 217 empleados activos de ISDIN México a través de `recalculateMaterializedAssignmentsRange`.
+  - **Pruebas y Verificación Automatizada**: Diseñamos la suite unitaria en `clienteDashboardService.test.ts` que valida que Jacqueline y todos los supervisores reflejen su equipo completo (17 dermos programadas para Jacqueline con 100% de coherencia en avance y lista de pendientes).
+  - **Codificación**: Ejecutado `npm run docs:check-encoding` verificando 1,200 archivos UTF-8 válidos.
+
+## [2026-08-11 13:22] - Feat: Pestaña de Frecuencia por PDV en Excel Mensual (Antigravity)
+
+- **Contexto**: El usuario solicitó agregar una pestaña adicional en el Excel de exportación de rutas mensuales para visualizar la frecuencia de visita por PDV y Supervisor en el mes, incluyendo los días de visita concatenados en una columna.
+- **Implementación**:
+  - Se añadió la lógica a `generarExcelRutasAprobadas` en `rutasExportService.ts` para agrupar todas las visitas por PDV y Supervisor y extraer los días de visita.
+  - Se agregó una tercera hoja "Frecuencia por PDV" en el Excel con las columnas requeridas por la imagen de ejemplo.
+
 ## [2026-08-08 23:55] - Feat: Aprobación y Exportación Mensual de Rutas (Antigravity)
 
 - **Contexto**: El usuario solicitó poder aprobar y exportar las rutas de todo el mes desde el módulo "Operación de supervisores", sin tener que revisar semana por semana.
 - **Implementación**:
-  - Se añadió la UI "Acciones del Mes" en el componente `RutaSemanalPanel.tsx`. 
+  - Se añadió la UI "Acciones del Mes" en el componente `RutaSemanalPanel.tsx`.
   - Se vinculó a los actions `aprobarRutasMesCompleto(mesIso)` (preexistente en código y optimizado) y al endpoint `/api/rutas/export?semanaInicio=YYYY-MM` (el cual soporta filtros parciales de fecha vía LIKE nativamente).
 - **Auto-blindaje (Lecciones)**: El servicio de rutas fue diseñado con visión, por lo que la búsqueda `like('semana_inicio', '2026-08-%')` evitó reconstruir APIs para exportaciones masivas.
 
@@ -22,7 +2289,7 @@
 - **Contexto**: El usuario solicitó simplificar la sección de reportes para que el proceso sea más resumido: primero se aplican los filtros seleccionados (`🔍 Aplicar Filtros`) y posteriormente se descarga la información correspondiente con contadores visibles de evidencias por categoría.
 - **Acciones Ejecutadas**:
   - **Rediseño en 2 Pasos (`GeneradorPresentaciones.tsx`)**:
-    - **Paso 1 (Filtros Compactos)**: Agrupamos la selección de *Mes de Operación*, *PDV* y *Supervisor* en un panel limpio con botón primario **`🔍 Aplicar Filtros`** (y opción para alternar a rango de fechas personalizadas).
+    - **Paso 1 (Filtros Compactos)**: Agrupamos la selección de _Mes de Operación_, _PDV_ y _Supervisor_ en un panel limpio con botón primario **`🔍 Aplicar Filtros`** (y opción para alternar a rango de fechas personalizadas).
     - **Paso 2 (Descarga de Información)**: Al aplicar los filtros, el sistema realiza la consulta y muestra una etiqueta con el filtro activo y contadores dinámicos por cada tarjeta de categoría (ej. `3 evidencias`).
     - **Botones Dinámicos de Descarga**: Los botones de `Descargar PPTX (N)` y `Incidencias XLSX` se actualizan con la cantidad de evidencias consultadas.
 - **Resultado**: La sección es más rápida, ordenada e intuitiva, asegurando que el usuario vea exactamente cuántas evidencias existen antes de descargar.
@@ -39,7 +2306,7 @@
 
 ## [2026-07-28 12:37] - Fix: Respaldo Automático Servidor (/api/storage/r2) para Subida de Evidencias (Antigravity)
 
-- **Contexto**: El usuario reportó el error `"Error técnico al subir las imágenes a la nube. Por favor reintenta."` al presionar *Guardar y Subir Evidencias* en el modal de evidencias de campo. Esto ocurría porque la subida directa con URL presignada (`PUT` directo a Cloudflare R2 desde el navegador móvil) fallaba en ciertos dispositivos debido a restricciones de CORS o bloqueos de red móvil.
+- **Contexto**: El usuario reportó el error `"Error técnico al subir las imágenes a la nube. Por favor reintenta."` al presionar _Guardar y Subir Evidencias_ en el modal de evidencias de campo. Esto ocurría porque la subida directa con URL presignada (`PUT` directo a Cloudflare R2 desde el navegador móvil) fallaba en ciertos dispositivos debido a restricciones de CORS o bloqueos de red móvil.
 - **Acciones Ejecutadas**:
   - **Mecanismo de Respaldo Dual (`directR2Client.ts`)**: Modificamos `uploadFileDirectToR2` para implementar un patrón de tolerancia a fallos. Si la subida directa a R2 por URL presignada es rechazada o falla por CORS/Red, el cliente ejecuta automáticamente un respaldo por la API proxy del servidor (`POST /api/storage/r2`) con 3 reintentos automáticos.
   - **Manejo de Errores Descriptivos (`SupervisorEvidenciasSheet.tsx`)**: Actualizamos la llamada en el formulario para asegurar la pre-compresión rápida de la imagen y propagar mensajes claros (`err?.message`).
@@ -98,7 +2365,7 @@
 ## [2026-07-18 13:30] - Fix: Corrección de Carga de Archivos en Captura Pública (Antigravity)
 
 - **Contexto**: El usuario reportó que las fotos de evidencia no se guardaban en la presentación de PowerPoint (se mostraba "Sin evidencia disponible").
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - En React, las actualizaciones de estado (como agregar miniaturas o cambiar campos) provocan que los componentes se vuelvan a dibujar. Al re-renderizarse el `<input type="file">`, el navegador limpia por defecto el listado programático de archivos (`input.files`), haciendo que se envíe vacío en la petición final de Server Actions.
 - **Acciones Ejecutadas**:
   - **Sincronización Pre-Envío**: Implementamos la función `syncAllFilesBeforeSubmit` en `CapturaPublicaForm.tsx` y la invocamos dentro de `handleSubmit` y `handleConfirmSubmit`. Esto garantiza que los archivos en memoria del estado de React se vuelvan a sincronizar de forma síncrona en el elemento del DOM en el milisegundo exacto antes del submit de Next.js, previniendo la pérdida por re-renders.
@@ -109,7 +2376,7 @@
 ## [2026-07-18 11:15] - Feature: Captura de Evidencia Fotográfica en Canjes con Ticket y Exportación PPTX (Antigravity)
 
 - **Contexto**: El usuario solicitó cambiar la forma en que funciona la subida de evidencia para "Canjes con Ticket" en el portal público de capturas, separando las fotos específicamente para este subtipo de registro (similar a como se realiza en Love ISDIN). Asimismo, requirió poder generar y descargar una presentación de PowerPoint directamente desde la zona de Reportes basada en estas evidencias asociadas a los puntos de venta.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La lógica original para Canjes agrupaba los adjuntos en un único campo genérico por renglón sin distinguir si pertenecían a canjes con o sin ticket, lo que generaba redundancia e inconsistencias al separar los registros en base de datos.
   - La exportación a PowerPoint requería consultar los registros consolidados del mes que tuvieran evidencia y renderizar las diapositivas de manera dinámica e inteligente en base a la cantidad de imágenes subidas (1 foto centrada o 2 fotos lado a lado).
 - **Acciones Ejecutadas**:
@@ -123,7 +2390,7 @@
 ## [2026-07-16 02:22] - Fix: Depuración y Resolución de Error de Generación en Exportación a Excel (Antigravity)
 
 - **Contexto**: Al intentar exportar el reporte de Love ISDIN a Excel por mes o por rango de fechas, la aplicación arrojaba el error genérico "Hubo un error al generar el archivo de Excel" y bloqueaba la descarga.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La verificación de las columnas de porcentaje semanales utilizaba una condición fija (`c === 7 || c === 10 || c === 13 || c === 16 || c === 19`).
   - Para periodos de exactamente 4 semanas, la columna de porcentaje acumulada mensual (`% MES`) corresponde a la columna indexada como `19`.
   - El código detectaba la columna 19 como si fuera la de porcentaje de la semana 5. Al intentar acceder a la meta de la semana 5 en el arreglo (`sup.semanasData[4]` o `fila.semanas[4]`), se lanzaba un `TypeError: Cannot read properties of undefined (reading 'meta')` debido a que el arreglo solo tiene 4 elementos.
@@ -136,7 +2403,7 @@
 ## [2026-07-15 20:15] - Feature: Rediseño Premium del Reporte de Excel de Love ISDIN (Antigravity)
 
 - **Contexto**: El usuario solicitó cambiar el formato del reporte de Excel descargado de Love ISDIN para que coincida exactamente con las referencias visuales (imágenes de consolidación por supervisor y detalle semanal individual), y que permita filtrar y exportar por un rango de fechas personalizado.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La lógica de semanas original estaba hardcodeada al mes calendario, y no se adaptaba dinámicamente a rangos personalizados de fechas arbitrarias.
   - La hoja de consolidación por supervisor ("Por Supervisor") no agrupaba el censo de exclusiones detalladamente por categorías (Bajas, Incapacidades, Vacaciones, No permiten, 0 sin justificación) ni presentaba la fila superior de totales del grupo.
   - Las hojas individuales por supervisor no contaban con la cabecera rosa resumen con KPIs, la numeración secuencial de dermoconsejeras, ni el sombreado de filas en color amarillo (#FFF2CC) ante justificaciones u observaciones.
@@ -152,7 +2419,7 @@
 ## [2026-07-15 01:05] - Feature: Registro Detallado de Fechas de Incapacidad y Conteo Solapado de Exclusiones en Excel (Antigravity)
 
 - **Contexto**: El usuario solicitó registrar de forma específica en las observaciones qué días estuvo de incapacidad o vacaciones cada persona (agrupando rangos de fechas consecutivas) y alinear la consolidación de exclusiones en el consolidado general para permitir conteos solapados manteniendo la fidelidad del total general.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La visualización de observaciones en el reporte detallado por supervisor mostraba un texto genérico (`INCAPACIDAD` o `VACACIONES`) sin detallar las fechas ni agrupar días consecutivos.
   - La lógica de categorización de exclusiones utilizaba una cadena `else if` que impedía que una dermoconsejera solapada (por ejemplo, marcada como Baja y que también tuvo Incapacidad en el periodo) se contabilizara en ambas columnas a la vez.
   - La columna `TOTAL` de exclusiones sumaba aritméticamente las subcolumnas, duplicando a las dermoconsejeras solapadas en lugar de mostrar el valor de personas únicas de la columna C (`EXCLUIDAS`).
@@ -165,7 +2432,7 @@
 ## [2026-07-08 01:31] - Feature: Rediseño Premium del Reporte de Excel de Love ISDIN y Filtro por Rango de Fechas (Antigravity)
 
 - **Contexto**: El usuario solicitó cambiar el formato del reporte de Excel descargado de Love ISDIN para que coincida exactamente con las referencias visuales (imágenes de consolidación por supervisor y detalle semanal individual), y que permita filtrar y exportar por un rango de fechas personalizado.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La lógica de semanas original estaba hardcodeada al mes calendario, y no se adaptaba dinámicamente a rangos personalizados de fechas arbitrarias.
   - La hoja de consolidación por supervisor ("Por Supervisor") no agrupaba el censo de exclusiones detalladamente por categorías (Bajas, Incapacidades, Vacaciones, No permiten, 0 sin justificación) ni presentaba la fila superior de totales del grupo.
   - Las hojas individuales por supervisor no contaban con la cabecera rosa resumen con KPIs, la numeración secuencial de dermoconsejeras, ni el sombreado de filas en color amarillo (#FFF2CC) ante justificaciones u observaciones.
@@ -179,7 +2446,7 @@
 ## [2026-06-17 14:15] - Feature: Optimización de Base de Datos y Simplificación Integral del Panel de Ventas (Antigravity)
 
 - **Contexto**: El usuario reportó que al presionar F5 seguía viendo la pantalla completa con toda la información administrativa (métricas, transacciones, etc.) y que la carga era sumamente lenta. Esto ocurría porque su rol es de Administrador (y también afectaba a Coordinadores) y el sistema cargaba secuencialmente más de 23,000 registros para procesarlos en memoria del cliente.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La lógica de visibilidad en `VentasPanel.tsx` solo ocultaba componentes para el rol específico de `SUPERVISOR`, dejando la pantalla completa expuesta a Administradores y Coordinadores.
   - La consulta mensual recorría recursivamente la tabla `venta` haciendo múltiples requests consecutivos de 1,000 registros para construir el dataset completo, provocando tiempos de carga de varios segundos.
 - **Acciones Ejecutadas**:
@@ -191,7 +2458,7 @@
 ## [2026-06-17 11:05] - Feature: Botón de Reporte de Ventas y Simplificación del Panel para Supervisores (Antigravity)
 
 - **Contexto**: El usuario solicitó agregar un nuevo botón de **Reporte de ventas** en las **Acciones rápidas** del tablero principal de supervisores. Posteriormente, reportó que el botón redirigía a una pantalla general con demasiados reportes, métricas y listados detallados, requiriendo simplificar el panel para que el supervisor visualice exclusivamente el reporte de ventas semanal con desglose de semanas.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La página `/ventas` servía la misma vista densa a todos los visualizadores, incluyendo tarjetas de métricas del mes, desgloses acumulados (agregados Top 8), tabla histórica transaccional y cola de registros extemporáneos.
   - Para el supervisor, toda esa información extra resultaba redundante y ruidosa, necesitando un foco exclusivo en la matriz semanal de su equipo.
 - **Acciones Ejecutadas**:
@@ -199,6 +2466,20 @@
   - **Filtro de Interfaz (UI/UX)**: Modificamos [VentasPanel.tsx](file:///d:/IA/Retail/src/features/ventas/components/VentasPanel.tsx) para condicionar las secciones del panel. Si el usuario es un `SUPERVISOR`, se ocultan por completo las métricas del mes, las 4 tarjetas de agregados de alcance, la cola de ventas tardías y la lista de transacciones recientes junto con su paginador.
   - **Conservación de Funciones de Control**: Se mantuvo visible la barra de filtros del mes para permitir cambiar de periodo y descargar el reporte acumulado en Excel, y se desplegó únicamente la tarjeta interactiva de **"Reporte de Ventas Semanal"**.
   - **Calidad y Despliegue**: Verificamos compilación Next.js, typecheck y realizamos el deploy a producción de forma exitosa en Cloudflare Workers con la versión `e7dfbead-eb7e-4f42-8dfa-a279393419cb`.
+
+## [2026-08-13 14:42] - Fix: Corrección de Error NEXT_REDIRECT y Gestión de Sesión Expirada en Ruta Operativa (Antigravity)
+
+- **Contexto**: El usuario reportó que al intentar registrar la llegada de su visita en _"Mi ruta hoy"_, apareció una barra roja flotante con el texto técnico en inglés `NEXT_REDIRECT`.
+- **Causa Raíz / Retos Técnicos**:
+  - Al caducar el token/cookie de sesión del supervisor mientras permanecía en la pantalla, la Server Action ejecutó `redirect('/login')` a través de `requerirActorActivo()`.
+  - Next.js lanza internamente la excepción `{ digest: 'NEXT_REDIRECT' }` o `Error('NEXT_REDIRECT')`.
+  - El componente cliente `SupervisorTodayRouteSheet.tsx` capturaba dicha excepción en su bloque `try/catch` y pasaba `error.message` (`"NEXT_REDIRECT"`) a `onError`, mostrándola en la barra de toast.
+  - La utilidad `humanizeErrorMessage` (`humanizeError.ts`) no tenía excluida la palabra `NEXT_REDIRECT` en la heurística `looksAlreadyFriendly`, imprimiendo el texto crudo.
+- **Acciones Ejecutadas**:
+  - **Traductor de Errores**: Agregamos reglas a `humanizeError.ts` para capturar `next_redirect` y `redirect`, traduciéndolos a _"Tu sesión expiró o se requiere autenticación. Redirigiendo a la pantalla de acceso..."_. Excluimos `redirect` de `looksAlreadyFriendly`.
+  - **Pruebas Unitarias TDD**: Añadimos pruebas unitarias en `humanizeError.test.ts` para verificar la traducción correcta de excepciones `NEXT_REDIRECT`.
+  - **Manejador de Errores en UI**: Implementamos la función `handleActionError` en `SupervisorTodayRouteSheet.tsx` para interceptar errores `NEXT_REDIRECT`, notificar amigablemente en español y redirigir automáticamente al usuario a `/login` mediante `window.location.href`.
+  - **Verificación**: Verificamos compilación TypeScript (`0 errores` en componentes modificados) y validamos el build de producción Next.js.
 
 ## [2026-08-02 17:15] - Feature: Integración de LOVE ISDIN en Tablero Comercial, Navegación por Pestañas y Botón Volver (Antigravity)
 
@@ -233,12 +2514,10 @@
   - **Despliegue a Producción**: Ejecutamos la checklist de pre-producción (verificación RLS, encoding UTF-8, etc.) y realizamos el despliegue final exitoso en Cloudflare Workers (`npm run deploy`) bajo el Version ID `737abab5-a70f-4ace-98d2-650d7ec7edf7`, publicando los cambios en los dominios `mecanicas.beteele-one.com` y asociados.
   - **Resolución de Error de Esquema Cache**: Creamos y ejecutamos el script transaccional `scripts/apply-levantamiento-uniforme.cjs` para aplicar la migración SQL directamente en la base de datos de producción de Supabase y forzar el refresco de caché de PostgREST (`NOTIFY pgrst, 'reload schema'`), resolviendo el error de tabla faltante en caliente de forma inmediata.
 
-
-
 ## [2026-06-16 18:57] - Feature: Reporte Semanal de Ventas Interactivo y Scoping por Supervisor en la UI (Antigravity)
 
 - **Contexto**: El usuario solicitó ver el reporte de ventas semanales por dermoconsejera directamente en la plataforma web de sus supervisores para que puedan auditar los registros de su equipo (sus "niñas") y corregir lo que esté mal. Pidió que la tabla principal muestre exactamente los campos: `SUCURSAL`, `NOMBRE DC`, `SEM 1`, `SEM 2`, `SEM 3`, `SEM 4` y `VENTA POR SUCURSAL`, con colores gris/peach idénticos al Excel, y que calcule la suma total por sucursal y por dermo de manera consolidada.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La pantalla de ventas de supervisor (`VentasPanel.tsx`) no mostraba las herramientas comerciales, filtros de búsqueda, ni KPIs mensuales, ya que estaban protegidos bajo el rol de `ADMINISTRADOR`.
   - La interfaz de captura de ventas (PWA offline) no es relevante para el supervisor, mientras que la analítica y el detalle semanal sí lo son.
   - Para evitar fugas de información, las opciones de filtrado y el dataset debían restringirse automáticamente al equipo y tiendas del supervisor activo.
@@ -246,16 +2525,16 @@
   - **Ampliación de Permisos de Visualización**: Creamos un helper `esVisualizador` para habilitar el panel comercial, filtros y métricas a los supervisores, coordinadores y administradores, ocultando a la vez el formulario de captura móvil que solo usan las dermoconsejeras.
   - **Asegurar Scoping por Supervisor**: Si el rol del usuario es `SUPERVISOR`, inyectamos automáticamente su `empleadoId` para filtrar el dataset del cliente. Restringimos los dropdowns de "Dermoconsejera" y "Punto de Venta" para desplegar únicamente al personal y tiendas que registren ventas bajo su cargo.
   - **Matriz Semanal Interactiva**: Implementamos un componente Card con sistema de pestañas (Tabs):
-    1. *Detalle Dermo + Sucursal*: Con las columnas idénticas al croquis (`SUCURSAL`, `NOMBRE DC`, `SEM 1` a `SEM 4`, y `VENTA POR SUCURSAL`) pintadas con colores de fondo de celda a juego con el Excel (`#AEAAAA` para nombres/sucursales, `#FCE4D6` para semanas y `#F8CBAD` para el total de la fila).
-    2. *Consolidado por Dermo*: Sumando todas las piezas vendidas de cada dermoconsejera.
-    3. *Consolidado por Sucursal*: Sumando todas las piezas vendidas por tienda.
+    1. _Detalle Dermo + Sucursal_: Con las columnas idénticas al croquis (`SUCURSAL`, `NOMBRE DC`, `SEM 1` a `SEM 4`, y `VENTA POR SUCURSAL`) pintadas con colores de fondo de celda a juego con el Excel (`#AEAAAA` para nombres/sucursales, `#FCE4D6` para semanas y `#F8CBAD` para el total de la fila).
+    2. _Consolidado por Dermo_: Sumando todas las piezas vendidas de cada dermoconsejera.
+    3. _Consolidado por Sucursal_: Sumando todas las piezas vendidas por tienda.
   - **Fila de Totales y Buscador Reactivo**: Agregamos filas de totalización general reactiva en la parte inferior de cada pestaña (los totales consolidados cuadran matemáticamente al 100%). Añadimos un buscador de texto local en la cabecera para filtrar instantáneamente por coincidencia de caracteres.
   - **Calidad y Despliegue**: Verificamos que la compilación de OpenNext no tenga fallos y realizamos el deploy exitoso a Cloudflare Workers (`npm run deploy`) en la versión `c35915f0-29d8-4ebc-8260-fc0149fe30f1`.
 
 ## [2026-06-16 15:06] - Feature: Reestructuración de Reporte de Ventas Excel y Aumento de Límite a 100k (Antigravity)
 
 - **Contexto**: El usuario solicitó aumentar el límite de visualización de ventas mensuales en el portal de supervisores de 15,000 a 100,000 registros para ver el volumen real reportado. También pidió reestructurar el reporte Excel de ventas mensuales de modo que agrupe las unidades vendidas por semana (Semana 1 a 4) y por Sucursal + Dermoconsejera, siguiendo un diseño visual en gris y peach con fórmulas de suma.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La consulta mensual en `ventaService.ts` tenía una barrera de seguridad de `15000` registros.
   - Los datos agregados exportados anteriormente no estaban distribuidos por semanas (Días 1-7, 8-14, 15-21, 22-31) ni tenían el diseño específico solicitado.
 - **Acciones Ejecutadas**:
@@ -266,7 +2545,7 @@
 ## [2026-06-15 19:00] - Feature: Reconstrucción y Alineación de PowerPoint de Dispersión de Mayo 2026 (Antigravity)
 
 - **Contexto**: El usuario solicitó alinear la presentación de PowerPoint de dispersión de mayo de 2026 (`Recepciones_Ultima_Milla_2026-05 (13).pptx`) con la hoja de cálculo de Excel (`Dispersión Mayo 2026.xlsx`) para que contenga exactamente las 269 entregas válidas en el orden estricto del Excel, resuelva duplicados, elimine diapositivas de prueba y asigne los receptores oficiales.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La presentación de referencia incluía diapositivas de prueba (`HECT TES 1`), duplicados e imágenes de campañas independientes (como la del 1 de Junio de Palacio Santa Fe).
   - Entregas mensuales clave correspondientes a mayo (como María del Rocío en Santa Fe el 2 de junio y Olga Elizabeth en Polanco el 3 de junio) se realizaron en fechas tempranas de junio, por lo que debieron ser identificadas de forma cruzada.
   - La tienda `S Pablo Cafetales` (Renglón 226 de Excel) no tenía diapositiva ni evidencias en la base de datos, requiriendo su creación desde cero con marcador de "Sin evidencia disponible".
@@ -279,7 +2558,7 @@
 ## [2026-06-13 10:05] - Feature: Actualización Integral del Catálogo de Productos ISDIN y Corrección en Portal de Captura (Antigravity)
 
 - **Contexto**: El usuario reportó que el equipo de campo no encontraba algunos productos en el portal público de dermoconsejo, ni por nombre ni por código, debido a discrepancias ortográficas, SKUs obsoletos/corruptos y nombres excesivamente abreviados en la base de datos (e.g. `nombre_corto` vs `nombre`). Solicitó alinear el catálogo al 100% de acuerdo con el documento de referencia `CATALOGO POR CATEGORÍA.docx`.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La base de datos contenía abreviaturas operativas en el campo `nombre_corto` que el portal público priorizaba sobre el nombre completo (e.g., `ERY AK-NMSC CRM 50ML` en lugar de `ERYFOTONA AK-NMSC CREMA 50ML`).
   - La base de datos tenía 4 SKUs obsoletos/duplicados o mal formados que ya no existen en el catálogo final (incluyendo `842942017532723232323`).
 - **Acciones Ejecutadas**:
@@ -290,8 +2569,8 @@
     3. Desactivar (`activo = false`) los 4 productos obsoletos ausentes del catálogo final.
   - **Ajuste en Portal Público**: Modificamos `capturaPublicaService.ts`, `capturaPublicaActions.ts` y `mecanicasService.ts` para que siempre muestren el campo `nombre` completo del producto en los selectores y respuestas de captura del portal simplificado, en lugar de recurrir a abreviaciones de `nombre_corto`.
   - **Pruebas y Despliegue**:
-    * Verificación exitosa de compilación Next.js (`npm run build`).
-    * Despliegue exitoso a producción en Cloudflare Workers (`npm run deploy`).
+    - Verificación exitosa de compilación Next.js (`npm run build`).
+    - Despliegue exitoso a producción en Cloudflare Workers (`npm run deploy`).
 
 ## [2026-06-09 09:35] - Feature: Exclusión de Incentivos D.I (Dosis Individual) del Listado de Canjes (Antigravity)
 
@@ -301,9 +2580,9 @@
   - **Lógica de Filtros**: Modificamos `ordenarYFiltrarMateriales` en `capturaPublicaService.ts` para verificar y excluir de forma robusta las cadenas que comiencen con `"D.I "` o `"D.I. "`.
   - **Pruebas y Verificación (TDD)**: Agregamos una prueba unitaria en `capturaPublicaService.test.ts` para corroborar el correcto descarte de materiales que comiencen con `"D.I "`. Las pruebas unitarias pasaron con éxito (5 de 5).
   - **Despliegue y Compilación**:
-    * Verificamos compilación completa con `npx tsc --noEmit` y ejecutamos `npm run docs:check-encoding` (con éxito).
-    * Compilamos la aplicación de Cloudflare Workers (`npm run cf:build`).
-    * Desplegamos la nueva versión a producción en Cloudflare con éxito (`npm run deploy`).
+    - Verificamos compilación completa con `npx tsc --noEmit` y ejecutamos `npm run docs:check-encoding` (con éxito).
+    - Compilamos la aplicación de Cloudflare Workers (`npm run cf:build`).
+    - Desplegamos la nueva versión a producción en Cloudflare con éxito (`npm run deploy`).
 
 ## [2026-06-08 19:30] - Feature: Dashboard Ejecutivo de Cliente Adaptado a Supervisores con Navegación Diaria (Antigravity)
 
@@ -313,38 +2592,38 @@
   - No existía control de botones para cambiar la fecha de día en día en la interfaz móvil.
 - **Acciones Ejecutadas**:
   - **Componentes de Interfaz (UI/UX)**:
-    * Agregamos la propiedad `isSupervisorMode` a `ClienteDashboardPanel`. Si es verdadera, cambia el título a "Reportes de Campo" y oculta la selección manual de supervisores.
-    * Implementamos los botones `←` y `→` al lado del input de fecha. Programamos la función `handleDayOffset` en `FilterBar` para desplazarse día a día validando los límites de fecha del mes.
-    * Ocultamos la tarjeta global de "Avance Diario por Supervisor" del tab de resumen general para supervisores.
+    - Agregamos la propiedad `isSupervisorMode` a `ClienteDashboardPanel`. Si es verdadera, cambia el título a "Reportes de Campo" y oculta la selección manual de supervisores.
+    - Implementamos los botones `←` y `→` al lado del input de fecha. Programamos la función `handleDayOffset` en `FilterBar` para desplazarse día a día validando los límites de fecha del mes.
+    - Ocultamos la tarjeta global de "Avance Diario por Supervisor" del tab de resumen general para supervisores.
   - **API y Seguridad**:
-    * Modificamos la API `/api/dashboard/cliente-panel` para forzar que el parámetro `supervisorId` sea siempre `actor.empleadoId` si el puesto es `SUPERVISOR`, bloqueando accesos cruzados entre equipos.
+    - Modificamos la API `/api/dashboard/cliente-panel` para forzar que el parámetro `supervisorId` sea siempre `actor.empleadoId` si el puesto es `SUPERVISOR`, bloqueando accesos cruzados entre equipos.
   - **Página de Reportes (SSR)**:
-    * Actualizamos la ruta `/reportes/page.tsx` para cargar el servicio `obtenerDashboardCliente` en el servidor acotado al supervisor logueado, y renderizar el panel completo `ClienteDashboardPanel` junto con la bitácora detallada de capturas `CapturaPublicaReportSection` al final.
+    - Actualizamos la ruta `/reportes/page.tsx` para cargar el servicio `obtenerDashboardCliente` en el servidor acotado al supervisor logueado, y renderizar el panel completo `ClienteDashboardPanel` junto con la bitácora detallada de capturas `CapturaPublicaReportSection` al final.
   - **Despliegue y Calidad**:
-    * Validamos la compilación completa de TypeScript (`npx tsc --noEmit`) y la codificación UTF-8 en el proyecto.
-    * Realizamos el deploy exitoso a Cloudflare Workers (`npm run deploy`) en la versión `160eaddc`.
+    - Validamos la compilación completa de TypeScript (`npx tsc --noEmit`) y la codificación UTF-8 en el proyecto.
+    - Realizamos el deploy exitoso a Cloudflare Workers (`npm run deploy`) en la versión `160eaddc`.
 
 ## [2026-06-08 19:18] - Feature: Integración de Reportes de Capturas de Campo para Supervisores (Antigravity)
 
 - **Contexto**: El usuario solicitó agregar los reportes de captura de campo de las dermoconsejeras (que se muestran en el dashboard de cliente `reportes.beteele-one.com`) a la aplicación de los supervisores, garantizando que cada supervisor pueda ver únicamente la información perteneciente a su propio equipo (scoping por supervisor).
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La ruta `/reportes` estaba restringida exclusivamente a `ADMINISTRADOR` y `COORDINADOR`.
   - Las consultas del servicio `obtenerReporteCapturaPublica` no soportaban filtros por supervisor, trayendo los registros globales de la cuenta de cliente.
 - **Acciones Ejecutadas**:
   - **Servicios y API Backend**:
-    * Agregamos el parámetro `supervisorEmpleadoId?: string` a la firma del servicio `obtenerReporteCapturaPublica`.
-    * Implementamos un inner join dinámico en PostgREST (`empleado:empleado_id!inner(...)`) para filtrar registros por `empleado.supervisor_empleado_id = supervisorEmpleadoId`.
-    * Refactorizamos las consultas agregadas paralelas de KPIs usando un helper unificado `buildCountQuery` para aplicar el mismo filtro de supervisor.
-    * Actualizamos la ruta de la API `/api/reportes/captura-publica` para inyectar automáticamente el `actor.empleadoId` si el usuario es `SUPERVISOR`.
+    - Agregamos el parámetro `supervisorEmpleadoId?: string` a la firma del servicio `obtenerReporteCapturaPublica`.
+    - Implementamos un inner join dinámico en PostgREST (`empleado:empleado_id!inner(...)`) para filtrar registros por `empleado.supervisor_empleado_id = supervisorEmpleadoId`.
+    - Refactorizamos las consultas agregadas paralelas de KPIs usando un helper unificado `buildCountQuery` para aplicar el mismo filtro de supervisor.
+    - Actualizamos la ruta de la API `/api/reportes/captura-publica` para inyectar automáticamente el `actor.empleadoId` si el usuario es `SUPERVISOR`.
   - **Enrutamiento y Vistas simplificadas (UI/UX)**:
-    * Permitimos el acceso de `SUPERVISOR` a la ruta `/reportes` en el middleware.
-    * Adaptamos `/reportes/page.tsx` para detectar si el usuario es supervisor, en cuyo caso se omiten las consultas consolidadas pesadas de administración y se sirve únicamente el componente `<CapturaPublicaReportSection />` con cabeceras personalizadas de "Reportes de campo" y KPIs acotados.
-    * Habilitamos el enlace de "Reportes" en el menú de navegación lateral `sidebar.tsx` para supervisores.
+    - Permitimos el acceso de `SUPERVISOR` a la ruta `/reportes` en el middleware.
+    - Adaptamos `/reportes/page.tsx` para detectar si el usuario es supervisor, en cuyo caso se omiten las consultas consolidadas pesadas de administración y se sirve únicamente el componente `<CapturaPublicaReportSection />` con cabeceras personalizadas de "Reportes de campo" y KPIs acotados.
+    - Habilitamos el enlace de "Reportes" en el menú de navegación lateral `sidebar.tsx` para supervisores.
   - **Acceso Directo (Dashboard)**:
-    * Añadimos la tarjeta de acceso rápido "Reportes de campo" en el panel del supervisor (`DashboardPanel.tsx` dentro de `SupervisorFieldDashboard`) bajo el grid de "Acciones rápidas", utilizando el icono `reports` en color azul/celeste.
+    - Añadimos la tarjeta de acceso rápido "Reportes de campo" en el panel del supervisor (`DashboardPanel.tsx` dentro de `SupervisorFieldDashboard`) bajo el grid de "Acciones rápidas", utilizando el icono `reports` en color azul/celeste.
   - **Validación de Calidad**:
-    * Verificamos la suite de tipos con `npx tsc --noEmit` y el build local de producción con `npm run cf:build` con éxito.
-    * Comprobamos la codificación con `npm run docs:check-encoding`.
+    - Verificamos la suite de tipos con `npx tsc --noEmit` y el build local de producción con `npm run cf:build` con éxito.
+    - Comprobamos la codificación con `npm run docs:check-encoding`.
 
 ## [2026-06-08 18:46] - Fix: Depuración Histórica de Registros Duplicados en Producción (Antigravity)
 
@@ -354,10 +2633,10 @@
   - **Auditoría e Identificación**: Desarrollamos y ejecutamos `scratch/audit_duplicates.cjs` para escanear de forma paginada los 16,689 registros de la tabla `captura_publica_registro`. Identificamos registros con contenido 100% idéntico y diferencia de creación menor a 60 segundos. Encontramos 3,797 duplicados.
   - **Limpieza Transaccional**: Desarrollamos y corrimos `scratch/delete_duplicates.cjs` con el parámetro `--confirm` para realizar la limpieza atómica en producción por lotes de 100 IDs.
   - **Resultados del Borrado**:
-    * **3,797** capturas borradas de `captura_publica_registro`.
-    * **2,866** ventas consolidadas duplicadas borradas de `venta`.
-    * **737** afiliaciones Love ISDIN duplicadas borradas de `love_isdin`.
-    * **164** salidas de inventario duplicadas borradas de `material_inventario_movimiento`.
+    - **3,797** capturas borradas de `captura_publica_registro`.
+    - **2,866** ventas consolidadas duplicadas borradas de `venta`.
+    - **737** afiliaciones Love ISDIN duplicadas borradas de `love_isdin`.
+    - **164** salidas de inventario duplicadas borradas de `material_inventario_movimiento`.
 - **Resultado**: Los reportes acumulados, KPIs del dashboard ejecutivo y el inventario de canjes quedaron 100% limpios y corregidos, eliminando todas las discrepancias de datos históricos.
 
 ## [2026-06-08 18:32] - Fix: Prevención de Capturas Duplicadas en el Portal de Campo (Antigravity)
@@ -368,14 +2647,14 @@
   - En el backend (`capturaPublicaActions.ts`), no existía validación de duplicidad ni control de debounce temporal para ignorar llamadas consecutivas idénticas.
 - **Acciones Ejecutadas**:
   - **Servidor y Backend**:
-    * Implementamos una consulta previa en `registrarCapturaPublica` para buscar capturas del mismo empleado, tienda, tipo de actividad y fecha operativa dentro de una ventana de **15 segundos**.
-    * Agregamos la función `checkDuplicateSubmission` para comparar detalladamente que los ítems del lote enviado (producto/material, cantidad, subtipo y observaciones) coincidan exactamente con la base de datos y, en tal caso, omitir la inserción devolviendo un estado exitoso (`DUPLICATE_OMITTED`).
+    - Implementamos una consulta previa en `registrarCapturaPublica` para buscar capturas del mismo empleado, tienda, tipo de actividad y fecha operativa dentro de una ventana de **15 segundos**.
+    - Agregamos la función `checkDuplicateSubmission` para comparar detalladamente que los ítems del lote enviado (producto/material, cantidad, subtipo y observaciones) coincidan exactamente con la base de datos y, en tal caso, omitir la inserción devolviendo un estado exitoso (`DUPLICATE_OMITTED`).
   - **Interfaz de Usuario (UI/UX)**:
-    * Añadimos el estado `showSuccess` y un componente de pantalla de éxito con confirmación y resumen visual premium.
-    * Incorporamos la función `handleResetForm` que limpia los campos de captura locales y los archivos del DOM, facilitando un nuevo registro al presionar el botón "Registrar otra captura" mientras conserva el PDV y dermoconsejera seleccionados.
+    - Añadimos el estado `showSuccess` y un componente de pantalla de éxito con confirmación y resumen visual premium.
+    - Incorporamos la función `handleResetForm` que limpia los campos de captura locales y los archivos del DOM, facilitando un nuevo registro al presionar el botón "Registrar otra captura" mientras conserva el PDV y dermoconsejera seleccionados.
   - **Calidad y Validación (TDD)**:
-    * Escribimos pruebas unitarias en `capturaPublicaActions.test.ts` para verificar la lógica de debounce de 15 segundos (las cuales pasaron con éxito).
-    * Validamos la compilación completa con `npm run cf:build` y la codificación UTF-8 con `npm run docs:check-encoding` (926 archivos correctos).
+    - Escribimos pruebas unitarias en `capturaPublicaActions.test.ts` para verificar la lógica de debounce de 15 segundos (las cuales pasaron con éxito).
+    - Validamos la compilación completa con `npm run cf:build` y la codificación UTF-8 con `npm run docs:check-encoding` (926 archivos correctos).
 - **Resultado**: Se eliminaron por completo las inserciones duplicadas causadas por dobles clics o reenvíos accidentales, garantizando reportes de campo limpios y una experiencia de usuario optimizada en dispositivos móviles.
 
 ## [2026-06-08 17:10] - Feature: Ordenamiento Estricto y Completitud de Catálogo de Canjes ISDIN (Antigravity)
@@ -387,15 +2666,15 @@
   - El dropdown del portal de campo no ordenaba según una lista personalizada, sino de forma alfabética simple en SQL.
 - **Acciones Ejecutadas**:
   - **Base de Datos (SaaS)**:
-    * Escribimos y ejecutamos el script transaccional `scratch/insert_missing_materiales.cjs` para insertar los 6 materiales faltantes en la tabla `material_catalogo` bajo la cuenta de ISDIN (`92f26bb8-3d4b-4c24-a47d-c607cf6ad7ba`) como activos y de tipo `PROMOCIONAL`.
+    - Escribimos y ejecutamos el script transaccional `scratch/insert_missing_materiales.cjs` para insertar los 6 materiales faltantes en la tabla `material_catalogo` bajo la cuenta de ISDIN (`92f26bb8-3d4b-4c24-a47d-c607cf6ad7ba`) como activos y de tipo `PROMOCIONAL`.
   - **Servicios y Reglas de Negocio**:
-    * Modificamos la consulta SQL en [capturaPublicaService.ts](file:///d:/IA/Retail/src/features/captura-publica/services/capturaPublicaService.ts) para incluir el tipo `'DOSIS'` además de `'PROMOCIONAL'` y `'CANJE_PROMOCIONAL'`.
-    * Definimos la lista estricta ordenada de canjes `LISTA_ORDEN_CANJES_ISDIN` con el orden exacto del usuario.
-    * Implementamos la función `ordenarYFiltrarMateriales`, la cual salta los filtros estándar de exclusión (como el de `10 ML`) si el material está listado explícitamente por el usuario, y ordena el listado resultante según los índices de coincidencia de dicha lista.
+    - Modificamos la consulta SQL en [capturaPublicaService.ts](file:///d:/IA/Retail/src/features/captura-publica/services/capturaPublicaService.ts) para incluir el tipo `'DOSIS'` además de `'PROMOCIONAL'` y `'CANJE_PROMOCIONAL'`.
+    - Definimos la lista estricta ordenada de canjes `LISTA_ORDEN_CANJES_ISDIN` con el orden exacto del usuario.
+    - Implementamos la función `ordenarYFiltrarMateriales`, la cual salta los filtros estándar de exclusión (como el de `10 ML`) si el material está listado explícitamente por el usuario, y ordena el listado resultante según los índices de coincidencia de dicha lista.
   - **Pruebas y Verificación (TDD)**:
-    * Escribimos y agregamos 2 pruebas unitarias robustas en [capturaPublicaService.test.ts](file:///d:/IA/Retail/src/features/captura-publica/services/capturaPublicaService.test.ts) para validar el ordenamiento exacto de los canjes y el bypass de las exclusiones estándar para los canjes de 10ml permitidos.
-    * Ejecutamos `npm run test:unit` para correr las pruebas locales (exitosas, 4 de 4 pasaron).
-    * Validamos la codificación UTF-8 en todo el repositorio con `npm run docs:check-encoding` (925 archivos correctos).
+    - Escribimos y agregamos 2 pruebas unitarias robustas en [capturaPublicaService.test.ts](file:///d:/IA/Retail/src/features/captura-publica/services/capturaPublicaService.test.ts) para validar el ordenamiento exacto de los canjes y el bypass de las exclusiones estándar para los canjes de 10ml permitidos.
+    - Ejecutamos `npm run test:unit` para correr las pruebas locales (exitosas, 4 de 4 pasaron).
+    - Validamos la codificación UTF-8 en todo el repositorio con `npm run docs:check-encoding` (925 archivos correctos).
 - **Resultado**: El formulario de registro de Dermoconsejo ahora cuenta con el catálogo de canjes 100% completo, permite el registro de los promocionales de 10ml requeridos, y despliega las opciones a las dermoconsejeras en el orden exacto especificado por el cliente.
 
 ## [2026-06-08 07:58] - Feature: Carga Bajo Demanda de Reporte de Mecánicas de Canje (Antigravity)
@@ -406,28 +2685,28 @@
   - Al renderizarse estáticamente por defecto en `ReportesPanel.tsx`, se disparaban lecturas y consultas a la base de datos de Supabase en cada carga de la página de reportes, independientemente de si el usuario quería consultar esa información.
 - **Acciones Ejecutadas**:
   - **Componentes y Estado (UI/UX)**:
-    * Agregamos el estado local `showMecanicas` (booleano, por defecto `false`) en [ReportesPanel.tsx](file:///d:/IA/Retail/src/features/reportes/components/ReportesPanel.tsx).
-    * Creamos una tarjeta colapsada responsiva y adaptada a móviles (mobile-first) que muestra el título y propósito del reporte con un botón elegante: `🔍 Cargar reporte bajo demanda`.
-    * Implementamos la visualización condicional: al dar clic en el botón de carga, el estado `showMecanicas` cambia a `true`, montando `<MecanicasReportSection />` y disparando la consulta en el cliente únicamente cuando es necesario.
-    * Añadimos un botón de control `🙈 Ocultar reporte` en la vista expandida para colapsar el reporte nuevamente cuando el usuario termine de usarlo.
+    - Agregamos el estado local `showMecanicas` (booleano, por defecto `false`) en [ReportesPanel.tsx](file:///d:/IA/Retail/src/features/reportes/components/ReportesPanel.tsx).
+    - Creamos una tarjeta colapsada responsiva y adaptada a móviles (mobile-first) que muestra el título y propósito del reporte con un botón elegante: `🔍 Cargar reporte bajo demanda`.
+    - Implementamos la visualización condicional: al dar clic en el botón de carga, el estado `showMecanicas` cambia a `true`, montando `<MecanicasReportSection />` y disparando la consulta en el cliente únicamente cuando es necesario.
+    - Añadimos un botón de control `🙈 Ocultar reporte` en la vista expandida para colapsar el reporte nuevamente cuando el usuario termine de usarlo.
   - **Verificación**:
-    * Iniciamos el build de producción con `npm run build` para asegurar la compilación completa de Next.js.
+    - Iniciamos el build de producción con `npm run build` para asegurar la compilación completa de Next.js.
 - **Resultado**: La pantalla de reportes ahora carga de forma instantánea sin disparar consultas automáticas del reporte de mecánicas a la base de datos, cumpliendo la regla de optimización de costos y rendimiento, y limpiando la interfaz visual del usuario.
 
 ## [2026-06-08 07:53] - Fix: Diagnóstico Detallado de Errores de Tienda en Validación de Ruta Semanal (Antigravity)
 
-- **Contexto**: El usuario reportó que la supervisora Silvia Estrada no podía enviar su ruta semanal de la semana del 8 de junio de 2026 debido a un error de validación genérico: *"Uno de los PDVs del canvas ya no pertenece al supervisor para esa semana."* Se solicitó investigar cuál es la tienda en conflicto.
+- **Contexto**: El usuario reportó que la supervisora Silvia Estrada no podía enviar su ruta semanal de la semana del 8 de junio de 2026 debido a un error de validación genérico: _"Uno de los PDVs del canvas ya no pertenece al supervisor para esa semana."_ Se solicitó investigar cuál es la tienda en conflicto.
 - **Causa Raíz / Retos Técnicos**:
   - Al fallar la validación y realizarse un rollback completo en la base de datos, el canvas inválido de Silvia Estrada (de 32 visitas) solo vivía localmente en la memoria de su navegador (LocalStorage / estado React de la aplicación). No existían registros históricos ni log del PDV exacto en la base de datos que permitieran aislarlo remotamente.
   - La Server Action `guardarPlaneacionRutaSemanalCanvas` en `actions.ts` arrojaba un mensaje genérico que no identificaba cuál de los `pdvIds` enviados era el responsable del fallo, imposibilitando el autodiagnóstico del supervisor.
 - **Acciones Ejecutadas**:
   - **Diagnóstico Transaccional**: Ejecutamos el script de consulta y cruce de datos `scratch/diagnose_silvia_route.cjs` para cruzar sus 15 tiendas visitadas históricamente y sus asignaciones actuales vigentes para la semana del 2026-06-08. Confirmamos que todas sus tiendas pasadas siguen siendo válidas, lo que indica que Silvia agregó una nueva tienda que fue dada de baja o transferida de su supervisión.
   - **Lógica de Negocio y Server Action**:
-    * Modificamos la validación en [actions.ts](file:///d:/IA/Retail/src/features/rutas/actions.ts). En lugar de retornar un error estático, si el sistema detecta que un `pdvId` del canvas no pertenece a la supervisión para esa semana, realiza una consulta rápida a la tabla `pdv` para extraer su nombre y clave BTL.
-    * Personalizamos el mensaje de retorno de la Server Action: `El punto de venta "[Nombre]" ([Clave]) ya no pertenece al supervisor para esta semana. Por favor, retíralo de tu borrador e intenta de nuevo.`
+    - Modificamos la validación en [actions.ts](file:///d:/IA/Retail/src/features/rutas/actions.ts). En lugar de retornar un error estático, si el sistema detecta que un `pdvId` del canvas no pertenece a la supervisión para esa semana, realiza una consulta rápida a la tabla `pdv` para extraer su nombre y clave BTL.
+    - Personalizamos el mensaje de retorno de la Server Action: `El punto de venta "[Nombre]" ([Clave]) ya no pertenece al supervisor para esta semana. Por favor, retíralo de tu borrador e intenta de nuevo.`
   - **Verificación y Seguridad**:
-    * Ejecutamos `npm run build` para asegurar la compilación perfecta de producción (exitosa en 13.7s).
-    * Validamos la codificación UTF-8 en todo el repositorio con `npm run docs:check-encoding` (924 archivos limpios).
+    - Ejecutamos `npm run build` para asegurar la compilación perfecta de producción (exitosa en 13.7s).
+    - Validamos la codificación UTF-8 en todo el repositorio con `npm run docs:check-encoding` (924 archivos limpios).
 - **Resultado**: La próxima vez que Silvia intente presionar el botón para enviar su ruta semanal a coordinación, la interfaz de su celular le informará exactamente cuál es el punto de venta problemático por su nombre y clave. Esto le permitirá remover la tienda del borrador local y completar el envío de su ruta de forma autónoma.
 
 ## [2026-06-04 09:00] - Feature: Integración de SKU y Optimización de Texto en Selector de Productos de Portal Público (Antigravity)
@@ -438,32 +2717,32 @@
   - La interfaz de `SearchableSelect` en `CapturaPublicaForm.tsx` utilizaba la clase de Tailwind `truncate` que cortaba los nombres largos en dispositivos móviles de pantalla pequeña.
 - **Acciones Ejecutadas**:
   - **Servicios y Datos (SaaS)**:
-    * Modificamos la consulta de productos en [capturaPublicaService.ts](file:///d:/IA/Retail/src/features/captura-publica/services/capturaPublicaService.ts) para seleccionar la columna `sku`.
-    * Formateamos el nombre del producto inyectando el SKU al principio: `[SKU] Nombre`. Esto también habilitó de forma automática que las dermoconsejeras puedan buscar productos tecleando directamente el código SKU en el cuadro de búsqueda.
+    - Modificamos la consulta de productos en [capturaPublicaService.ts](file:///d:/IA/Retail/src/features/captura-publica/services/capturaPublicaService.ts) para seleccionar la columna `sku`.
+    - Formateamos el nombre del producto inyectando el SKU al principio: `[SKU] Nombre`. Esto también habilitó de forma automática que las dermoconsejeras puedan buscar productos tecleando directamente el código SKU en el cuadro de búsqueda.
   - **Componentes Visuales (UI/UX)**:
-    * Rediseñamos los estilos de `SearchableSelect` en [CapturaPublicaForm.tsx](file:///d:/IA/Retail/src/features/captura-publica/components/CapturaPublicaForm.tsx) para cambiar el tamaño de letra de las opciones a `text-xs` (haciéndola más compacta y densa).
-    * Quitamos la propiedad `truncate` y agregamos `break-words leading-normal` en el botón y opciones, lo que permite saltos de línea automáticos para que los nombres de producto muy extensos se lean completos en teléfonos móviles de campo.
+    - Rediseñamos los estilos de `SearchableSelect` en [CapturaPublicaForm.tsx](file:///d:/IA/Retail/src/features/captura-publica/components/CapturaPublicaForm.tsx) para cambiar el tamaño de letra de las opciones a `text-xs` (haciéndola más compacta y densa).
+    - Quitamos la propiedad `truncate` y agregamos `break-words leading-normal` en el botón y opciones, lo que permite saltos de línea automáticos para que los nombres de producto muy extensos se lean completos en teléfonos móviles de campo.
   - **Verificación y Despliegue**:
-    * Validamos la compilación completa de Next.js/OpenNext mediante `npm run cf:build` (exitosa sin errores).
-    * Verificamos la codificación UTF-8 sin BOM y LF en todo el repositorio con `npm run docs:check-encoding` (906 archivos correctos).
-    * Desplegamos la nueva versión en la red de Cloudflare Workers (`npm run cf:deploy`), quedando activa al instante en producción (Current Version ID: `2bc92642-752e-4228-966e-f49357bd4f9d`).
+    - Validamos la compilación completa de Next.js/OpenNext mediante `npm run cf:build` (exitosa sin errores).
+    - Verificamos la codificación UTF-8 sin BOM y LF en todo el repositorio con `npm run docs:check-encoding` (906 archivos correctos).
+    - Desplegamos la nueva versión en la red de Cloudflare Workers (`npm run cf:deploy`), quedando activa al instante en producción (Current Version ID: `2bc92642-752e-4228-966e-f49357bd4f9d`).
 - **Resultado**: Las dermoconsejeras en campo ahora visualizan el código SKU de cada artículo, pueden buscar tecleando los números del SKU directamente y leen los nombres completos sin recortes en cualquier celular.
 
 ## [2026-06-03 19:15] - Feature: Visualización Diferenciada de Dermoconsejeras Pendientes en Dashboard y WhatsApp (Antigravity)
 
 - **Contexto**: El usuario solicitó separar y distinguir visualmente a las dermoconsejeras en la pestaña de **"Dermos Pendientes"** en dos categorías: aquellas que no han enviado ningún reporte (en ceros) de aquellas que enviaron canjes o desabastos, pero les falta registrar Ventas o Love ISDIN. También solicitó que el copiado para WhatsApp refleje esta misma división para que los supervisores puedan dar un seguimiento preciso.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La interfaz de `ClienteDashboardPanel.tsx` agrupaba todas las alertas de omisión en una sola lista genérica de "Dermos Pendientes" y aplicaba el mismo estilo rojo de peligro para todos los registros, sin diferenciar las dermos incompletas.
   - La función `handleCopiarPendientes` en `ClienteDashboardPanel.tsx` formateaba a todos los pendientes bajo una lista única de WhatsApp.
 - **Acciones Ejecutadas**:
   - **Modificación de Interfaz Visual (SaaS)**:
-    * Actualizamos la lista de Dermos Pendientes en [ClienteDashboardPanel.tsx](file:///d:/IA/Retail/src/features/dashboard/components/ClienteDashboardPanel.tsx) para renderizar dinámicamente tarjetas y etiquetas de color rojo para las dermoconsejeras de tipo `vacio` (mostrando el badge "Sin reportes") y de color ámbar/amarillo para las de tipo `incompleto` (mostrando el badge "Falta Ventas/Love").
+    - Actualizamos la lista de Dermos Pendientes en [ClienteDashboardPanel.tsx](file:///d:/IA/Retail/src/features/dashboard/components/ClienteDashboardPanel.tsx) para renderizar dinámicamente tarjetas y etiquetas de color rojo para las dermoconsejeras de tipo `vacio` (mostrando el badge "Sin reportes") y de color ámbar/amarillo para las de tipo `incompleto` (mostrando el badge "Falta Ventas/Love").
   - **Modificación en el Copiado de WhatsApp**:
-    * Reestructuramos `handleCopiarPendientes` para filtrar las alertas en `vacios` e `incompletos`. El portapapeles ahora divide el texto automáticamente en `🚫 Sin reportes hoy (En ceros)` y `⚠️ Tienen reportes pero sin Ventas ni Love ISDIN`, omitiendo secciones vacías.
+    - Reestructuramos `handleCopiarPendientes` para filtrar las alertas en `vacios` e `incompletos`. El portapapeles ahora divide el texto automáticamente en `🚫 Sin reportes hoy (En ceros)` y `⚠️ Tienen reportes pero sin Ventas ni Love ISDIN`, omitiendo secciones vacías.
   - **Compilación, Verificación y Despliegue**:
-    * Validamos la compilación completa de Next.js y OpenNext con `npm run cf:build` (exitosa sin errores).
-    * Corrimos el formateo y auditoría de encoding UTF-8 en todo el proyecto (`npm run docs:check-encoding` reportando 908 archivos en orden).
-    * Desplegamos la nueva versión en Cloudflare Workers (`npm run cf:deploy`), quedando activa en producción (Current Version ID: `89cab13c-9be0-45fa-8474-ca53af595563`).
+    - Validamos la compilación completa de Next.js y OpenNext con `npm run cf:build` (exitosa sin errores).
+    - Corrimos el formateo y auditoría de encoding UTF-8 en todo el proyecto (`npm run docs:check-encoding` reportando 908 archivos en orden).
+    - Desplegamos la nueva versión en Cloudflare Workers (`npm run cf:deploy`), quedando activa en producción (Current Version ID: `89cab13c-9be0-45fa-8474-ca53af595563`).
 - **Resultado**: Los coordinadores y supervisores ahora visualizan con total claridad en pantalla qué dermoconsejeras no han reportado nada y cuáles tienen reportes incompletos, y pueden copiar un mensaje categorizado y profesional listo para WhatsApp con un solo clic.
 
 ## [2026-06-03 14:30] - Feature: Consolidación Automática en Tiempo Real, Remoción de Límites y Excel Total de Periodo (Antigravity)
@@ -475,25 +2754,25 @@
   - El descargador de Excel de capturas del administrador utilizaba `data.items` (que correspondía a la paginación visible de 50 filas) en lugar de consultar la totalidad de la información del mes.
 - **Acciones Ejecutadas**:
   - **Base de Datos - Triggers y Backfill Completo**:
-    * Creamos e implementamos la migración `20260603210000_captura_publica_consolidacion_automatica.sql` en producción.
-    * Agregamos el trigger `BEFORE INSERT` en `captura_publica_registro` que crea o actualiza de forma automática asistencias validadas (`VALIDA` con horario default de 08:00 a 17:00 en huso horario de México), consolidando transaccionalmente las ventas (`public.venta`) y desempaquetando individualmente las afiliaciones Love (`public.love_isdin` con estatus `VALIDA`), marcando las capturas como `CONSOLIDADO`.
-    * Corrimos un script de backfill masivo que consolidó con éxito rotundo los **4,154 registros de Junio de 2026** estancados en `RECIBIDO`.
+    - Creamos e implementamos la migración `20260603210000_captura_publica_consolidacion_automatica.sql` en producción.
+    - Agregamos el trigger `BEFORE INSERT` en `captura_publica_registro` que crea o actualiza de forma automática asistencias validadas (`VALIDA` con horario default de 08:00 a 17:00 en huso horario de México), consolidando transaccionalmente las ventas (`public.venta`) y desempaquetando individualmente las afiliaciones Love (`public.love_isdin` con estatus `VALIDA`), marcando las capturas como `CONSOLIDADO`.
+    - Corrimos un script de backfill masivo que consolidó con éxito rotundo los **4,154 registros de Junio de 2026** estancados en `RECIBIDO`.
   - **SaaS - Remoción del Límite de PostgREST**:
-    * Modificamos [clienteDashboardService.ts](file:///d:/IA/Retail/src/features/dashboard/services/clienteDashboardService.ts) agregando filtros de rango `.range(0, 49999)` y `.range(0, 9999)` a todas las consultas de capturas operativas para procesar el set real completo.
-    * Editamos [capturaPublicaReporteService.ts](file:///d:/IA/Retail/src/features/reportes/services/capturaPublicaReporteService.ts) para aplicar un `.range(0, 49999)` al cálculo agregador de resúmenes del administrador.
+    - Modificamos [clienteDashboardService.ts](file:///d:/IA/Retail/src/features/dashboard/services/clienteDashboardService.ts) agregando filtros de rango `.range(0, 49999)` y `.range(0, 9999)` a todas las consultas de capturas operativas para procesar el set real completo.
+    - Editamos [capturaPublicaReporteService.ts](file:///d:/IA/Retail/src/features/reportes/services/capturaPublicaReporteService.ts) para aplicar un `.range(0, 49999)` al cálculo agregador de resúmenes del administrador.
   - **Visual - Descarga de Excel Completa**:
-    * Modificamos la API Route para recibir `pageSize = -1` (realiza una consulta bypass de rango `0` a `99999`).
-    * Refactorizamos los botones de descarga de Excel en [CapturaPublicaReportSection.tsx](file:///d:/IA/Retail/src/features/reportes/components/CapturaPublicaReportSection.tsx) para que muestren la cantidad total real mensual por tipo basándose en `data.resumen` (ej. 3,006 para ventas en Junio).
-    * Agregamos soporte para que al dar clic, el componente realice una descarga en caliente de todo el periodo, mostrando un spinner de carga (`⏳ Descargando...`) interactivo y exportando el XLSX con el 100% de los datos del mes de Junio de forma instantánea.
+    - Modificamos la API Route para recibir `pageSize = -1` (realiza una consulta bypass de rango `0` a `99999`).
+    - Refactorizamos los botones de descarga de Excel en [CapturaPublicaReportSection.tsx](file:///d:/IA/Retail/src/features/reportes/components/CapturaPublicaReportSection.tsx) para que muestren la cantidad total real mensual por tipo basándose en `data.resumen` (ej. 3,006 para ventas en Junio).
+    - Agregamos soporte para que al dar clic, el componente realice una descarga en caliente de todo el periodo, mostrando un spinner de carga (`⏳ Descargando...`) interactivo y exportando el XLSX con el 100% de los datos del mes de Junio de forma instantánea.
   - **Compilación & Despliegue**:
-    * Corregimos un error de tipo en `obtenerReporteCapturaPublica` de `capturaPublicaReporteService.ts` donde se utilizaba la variable indefinida `count` en lugar de `totalCount`.
-    * Solucionamos un bug de límite en la consulta de capturas diarias en `clienteDashboardService.ts` implementando la función helper `obtenerCapturasDiaCompleto` que realiza una consulta paginada en bloques de 1,000 para cargar el 100% de la información operativa del día sin cortes de PostgREST. Esto resolvió el problema por el cual el cumplimiento diario del equipo de la supervisora María Zenaida fluctuaba a la baja (subió de 12 a su valor exacto real de 15 / 18).
-    * Rediseñamos la UI de `ClienteDashboardPanel.tsx` integrando un sistema de dos pestañas: "Resumen General" y "Dermos Pendientes".
-    * Diseñamos e implementamos la pestaña de "Dermos Pendientes", que muestra el estatus y progreso de asistencia diario y agrupa en tarjetas a todas las dermoconsejeras programadas que no han reportado actividad el día de hoy, segmentadas por supervisor.
-    * Agregamos el botón "Copiar para WhatsApp" en la tarjeta de cada supervisor en la pestaña de pendientes. Al darle clic, copia al portapapeles un texto perfectamente formateado listo para pegarse en WhatsApp para dar seguimiento ágil con tooltip de éxito.
-    * Compilamos Next.js y OpenNext con éxito absoluto (`npm run cf:build` completado con éxito).
-    * Verificamos la consistencia de archivos UTF-8 sin BOM y LF en todo el repositorio con `npm run docs:check-encoding` (908 archivos correctos).
-    * Desplegamos exitosamente a producción sobre la red global de Cloudflare Workers (`npm run cf:deploy`) quedando en vivo el 100% de los cambios (Current Version ID: `4f08d2b6-7870-4438-8eec-2641414fbb66`).
+    - Corregimos un error de tipo en `obtenerReporteCapturaPublica` de `capturaPublicaReporteService.ts` donde se utilizaba la variable indefinida `count` en lugar de `totalCount`.
+    - Solucionamos un bug de límite en la consulta de capturas diarias en `clienteDashboardService.ts` implementando la función helper `obtenerCapturasDiaCompleto` que realiza una consulta paginada en bloques de 1,000 para cargar el 100% de la información operativa del día sin cortes de PostgREST. Esto resolvió el problema por el cual el cumplimiento diario del equipo de la supervisora María Zenaida fluctuaba a la baja (subió de 12 a su valor exacto real de 15 / 18).
+    - Rediseñamos la UI de `ClienteDashboardPanel.tsx` integrando un sistema de dos pestañas: "Resumen General" y "Dermos Pendientes".
+    - Diseñamos e implementamos la pestaña de "Dermos Pendientes", que muestra el estatus y progreso de asistencia diario y agrupa en tarjetas a todas las dermoconsejeras programadas que no han reportado actividad el día de hoy, segmentadas por supervisor.
+    - Agregamos el botón "Copiar para WhatsApp" en la tarjeta de cada supervisor en la pestaña de pendientes. Al darle clic, copia al portapapeles un texto perfectamente formateado listo para pegarse en WhatsApp para dar seguimiento ágil con tooltip de éxito.
+    - Compilamos Next.js y OpenNext con éxito absoluto (`npm run cf:build` completado con éxito).
+    - Verificamos la consistencia de archivos UTF-8 sin BOM y LF en todo el repositorio con `npm run docs:check-encoding` (908 archivos correctos).
+    - Desplegamos exitosamente a producción sobre la red global de Cloudflare Workers (`npm run cf:deploy`) quedando en vivo el 100% de los cambios (Current Version ID: `4f08d2b6-7870-4438-8eec-2641414fbb66`).
 - **Resultado**: Los dashboards ejecutivos de administrador y cliente se encuentran 100% sincronizados con los datos reales en tiempo real (mostrando los 4,154 registros de Junio), los Excel y reportes diarios se procesan completos sin topes, y la coordinación de campo cuenta con una pestaña dedicada y botón WhatsApp para dar seguimiento a los pendientes de reporte al instante.
 
 ## [2026-06-02 10:07] - Feature: Filtro Diario y Sección Premium de Avance por Supervisor en Dashboard Ejecutivo (Antigravity)
@@ -501,73 +2780,73 @@
 - **Contexto**: El usuario solicitó dos mejoras de usabilidad y visualización críticas en el panel ejecutivo (`https://reportes.beteele-one.com`):
   1. Habilitar un filtro diario de fecha (`fecha`) para poder segmentar todas las métricas de canjes, ventas, Love ISDIN y desabastos a un día específico.
   2. Implementar un espacio interactivo y premium de avance diario por supervisor, que renderice de forma responsiva a todos los supervisores globales de la cuenta con su progreso de dermoes registradas vs programadas hoy, destacando con brillo verde esmeralda y un badge con estrella (`✨ 100%`) a quienes ya cumplieron con la totalidad de su equipo, y permitiendo filtrar de forma interactiva el dashboard al dar clic.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La interfaz de `ClienteDashboardPanel.tsx` se encontraba rota debido a una truncación parcial en su declaración y estados en el turno anterior, lo que impedía compilar la aplicación.
   - El selector de fecha (`fecha` query param) debía sincronizarse reactivamente con las peticiones automáticas AJAX hacia el backend, actualizando todos los KPIs, alertas de omisión y desabastos, pero manteniendo el gráfico de tendencia histórico completo de fondo para contexto del mes.
 - **Acciones Ejecutadas**:
   - **Reconstrucción e Integración Total**:
-    * Restauramos la estructura íntegra de `ClienteDashboardPanel` con sus correspondientes estados de filtrado reactivos (`periodo`, `fecha`, `cadenaId`, `pdvId`, `supervisorId`) y disparadores HTTP a la API.
-    * Conectamos los inputs dinámicos en `<FilterBar />` habilitando el selector tipo `date` dinámicamente acotado entre el primer y último día del periodo de mes activo.
+    - Restauramos la estructura íntegra de `ClienteDashboardPanel` con sus correspondientes estados de filtrado reactivos (`periodo`, `fecha`, `cadenaId`, `pdvId`, `supervisorId`) y disparadores HTTP a la API.
+    - Conectamos los inputs dinámicos en `<FilterBar />` habilitando el selector tipo `date` dinámicamente acotado entre el primer y último día del periodo de mes activo.
   - **Creación del Espacio Premium de Supervisores**:
-    * Diseñamos un grid colocalizado ultra-limpio con tarjetas glassmorphism animadas para cada supervisor.
-    * Implementamos el realce interactivo: un sutil resplandor esmeralda y badge `"✨ 100%"` para los perfectos cumplimientos, y un fondo de contraste slate oscuro con barra de progreso blanca para la selección activa.
-    * Añadimos el disparador `onClick` interactivo de filtrado bidireccional y limpieza rápida.
+    - Diseñamos un grid colocalizado ultra-limpio con tarjetas glassmorphism animadas para cada supervisor.
+    - Implementamos el realce interactivo: un sutil resplandor esmeralda y badge `"✨ 100%"` para los perfectos cumplimientos, y un fondo de contraste slate oscuro con barra de progreso blanca para la selección activa.
+    - Añadimos el disparador `onClick` interactivo de filtrado bidireccional y limpieza rápida.
   - **Compilación & Despliegue Exitoso**:
-    * Compilamos con éxito rotundo Next.js y OpenNext (`npm run cf:build` completado con éxito con `✓ Compiled successfully in 16.5s`).
-    * Desplegamos exitosamente el Worker perimetral a producción en Cloudflare Workers (`npm run deploy`), quedando 100% activo en el dominio público del cliente (Current Version ID: `c12eda17-8250-4c54-8d13-51e981338761`).
+    - Compilamos con éxito rotundo Next.js y OpenNext (`npm run cf:build` completado con éxito con `✓ Compiled successfully in 16.5s`).
+    - Desplegamos exitosamente el Worker perimetral a producción en Cloudflare Workers (`npm run deploy`), quedando 100% activo en el dominio público del cliente (Current Version ID: `c12eda17-8250-4c54-8d13-51e981338761`).
 - **Resultado**: El dashboard público ejecutivo de cliente ofrece una trazabilidad diaria instantánea y una botonera ejecutiva premium para que Héctor Valle y los coordinadores supervisen el cumplimiento de campo con un toque de forma espectacular y ultra-rápida.
 
 ## [2026-06-02 09:50] - Fix: Resolución de Nombres de Canjes y Empleados Reales en Dashboard Ejecutivo (Antigravity)
 
 - **Contexto**: El usuario detectó mediante una captura de pantalla dos detalles críticos de visualización en el panel ejecutivo (`https://reportes.beteele-one.com`):
-  1. En la tarjeta "Avance por Material de Canje", los nombres de los incentivos aparecían como el texto genérico `"Material de Canje"` (en vez de *GORRA ISDIN*, *CANGURERAS NEGRAS*, etc.) para cualquier artículo sin movimientos iniciales registrados pero con entregas en junio.
+  1. En la tarjeta "Avance por Material de Canje", los nombres de los incentivos aparecían como el texto genérico `"Material de Canje"` (en vez de _GORRA ISDIN_, _CANGURERAS NEGRAS_, etc.) para cualquier artículo sin movimientos iniciales registrados pero con entregas en junio.
   2. En la sección "Alertas de Registro", todas las dermoconsejeras aparecían bajo la leyenda `"Dermoconsejera sin nombre"` y con supervisor `"Sin supervisor asignado"`.
 - **Causa Raíz / Retos Técnicos**:
   - En `clienteDashboardService.ts`, el motor acumulaba canjes desde las capturas de campo en memoria. Si un material no tenía movimientos previos de inventario en junio (`inventarioMovs`), su entrada en el mapa se creaba en ceros con un nombre fijo `'Material de Canje'` debido a que la consulta de capturas no seleccionaba la columna `material_nombre_snapshot` de la base de datos.
   - La consulta para construir el catálogo y mapa de todos los empleados activos de la cuenta (`employeeMap`) filtraba mediante `.eq('cuenta_cliente_id', actor.cuentaClienteId)` en la tabla `empleado`. Sin embargo, la tabla física `empleado` no tiene la columna `cuenta_cliente_id` (la relación se gestiona a través del perfil en `usuario`). Esto provocaba un error de columna inexistente y vaciaba silenciosamente el mapa de empleados (`data: []`), dejando todos los nombres de alertas y supervisores como indefinidos.
 - **Acciones Ejecutadas**:
-  - **Recuperación de Nombres de Canjes Reales**: 
-    * Modificamos la consulta `capturasResult` en [clienteDashboardService.ts](file:///d:/IA/Retail/src/features/dashboard/services/clienteDashboardService.ts) para seleccionar explícitamente `material_nombre_snapshot` de la tabla `captura_publica_registro`.
-    * Actualizamos la inicialización en memoria en el acumulador de canjes para que asigne `nombre: c.material_nombre_snapshot || 'Material de Canje'` si el material no tiene movimientos de stock inicial registrados.
+  - **Recuperación de Nombres de Canjes Reales**:
+    - Modificamos la consulta `capturasResult` en [clienteDashboardService.ts](file:///d:/IA/Retail/src/features/dashboard/services/clienteDashboardService.ts) para seleccionar explícitamente `material_nombre_snapshot` de la tabla `captura_publica_registro`.
+    - Actualizamos la inicialización en memoria en el acumulador de canjes para que asigne `nombre: c.material_nombre_snapshot || 'Material de Canje'` si el material no tiene movimientos de stock inicial registrados.
   - **Corrección de Mapeo de Empleados y Cuentas**:
-    * Reestructuramos la consulta de empleados activos en [clienteDashboardService.ts](file:///d:/IA/Retail/src/features/dashboard/services/clienteDashboardService.ts) para realizar un join interno hacia la tabla `usuario` (`usuario:usuario!usuario_empleado_id_fkey!inner(...)`), filtrando adecuadamente por `usuario.cuenta_cliente_id` y `usuario.estado_cuenta = 'ACTIVA'`. Esto resuelve con total seguridad la relación del cliente sin requerir columnas fantasmas en la tabla base.
+    - Reestructuramos la consulta de empleados activos en [clienteDashboardService.ts](file:///d:/IA/Retail/src/features/dashboard/services/clienteDashboardService.ts) para realizar un join interno hacia la tabla `usuario` (`usuario:usuario!usuario_empleado_id_fkey!inner(...)`), filtrando adecuadamente por `usuario.cuenta_cliente_id` y `usuario.estado_cuenta = 'ACTIVA'`. Esto resuelve con total seguridad la relación del cliente sin requerir columnas fantasmas en la tabla base.
   - **Compilación & Despliegue**:
-    * Verificamos la consistencia de tipado en TypeScript con `npx tsc --noEmit`.
-    * Compilamos Next.js y OpenNext con `npm run cf:build`.
-    * Desplegamos exitosamente a Cloudflare Workers (`npm run deploy`), quedando 100% activo en producción (Current Version ID: `78ce7827-92aa-4982-b8f3-fc336140c287`).
+    - Verificamos la consistencia de tipado en TypeScript con `npx tsc --noEmit`.
+    - Compilamos Next.js y OpenNext con `npm run cf:build`.
+    - Desplegamos exitosamente a Cloudflare Workers (`npm run deploy`), quedando 100% activo en producción (Current Version ID: `78ce7827-92aa-4982-b8f3-fc336140c287`).
 - **Resultado**: El panel de reportes del cliente renderiza de forma impecable y en tiempo real los nombres reales de todos los materiales canjeables e identifica con precisión los nombres completos de las dermoconsejeras y sus supervisores asociados.
 
 ## [2026-06-02 02:30] - Fix: Habilitación de Canjes sin Stock y Capping de Inventarios No Negativos (Antigravity)
 
 - **Contexto**: El usuario solicitó permitir el registro de canjes en el portal público de campo incluso si el sistema marca "Sin Stock" (0 unidades), evitando bloquear la operación del equipo de dermoconsejeras. Asimismo, solicitó que el inventario no se muestre como negativo en caso de sobredistribución o entregas sin stock inicial cargado (debe reportarse como 0 pero permitiendo acumular y sumar los registros).
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - En la interfaz del portal de campo (`CapturaPublicaForm.tsx`), el menú de selección de materiales (`SearchableSelect`) deshabilitaba y oscurecía (`disabled={isOutOfStock}`) cualquier material con stock <= 0, impidiendo físicamente su selección.
   - La consulta del cálculo de stock en tiempo real (`obtenerStockMaterialesPdv` en `capturaPublicaActions.ts`) sumaba los deltas de movimientos y devolvía el valor neto directo, lo cual podía dar números negativos (ej. `-3` si se registraban canjes sobre un stock en 0).
 - **Acciones Ejecutadas**:
   - **Habilitación de Selección en UI**: Modificamos `SearchableSelect` en [CapturaPublicaForm.tsx](file:///d:/IA/Retail/src/features/captura-publica/components/CapturaPublicaForm.tsx) para remover la restricción `disabled={isOutOfStock}`, permitiendo la selección y registro de cualquier material. Conservamos el indicador visual rojo de "Sin Stock" para conocimiento operativo pero haciéndolo 100% clickable.
   - **Corte de Inventario No Negativo**: Editamos la función `obtenerStockMaterialesPdv` en [capturaPublicaActions.ts](file:///d:/IA/Retail/src/features/captura-publica/services/capturaPublicaActions.ts) para iterar sobre el mapa de inventarios finales y aplicar un tope `Math.max(0, stock)`. Esto garantiza que el stock mostrado en el dropdown nunca sea negativo (capping a 0), mientras que las capturas de canjes se siguen guardando y sumando de manera acumulativa en Supabase, exactamente igual que las ventas y el programa Love ISDIN.
   - **Validación & Despliegue**:
-    * Ejecutamos la suite de pruebas unitarias (`npx vitest run src/features/captura-publica`) comprobando un **100% de éxito absoluto (13/13 pruebas unitarias aprobadas)**.
-    * Realizamos el build perimetral de Next.js y OpenNext (`npm run cf:build`).
-    * Desplegamos exitosamente el Worker en vivo a producción en Cloudflare Workers (`npm run deploy`), quedando 100% activo (Current Version ID: `afa667c6-bf99-4ee2-84c1-b835898ea2ca`).
+    - Ejecutamos la suite de pruebas unitarias (`npx vitest run src/features/captura-publica`) comprobando un **100% de éxito absoluto (13/13 pruebas unitarias aprobadas)**.
+    - Realizamos el build perimetral de Next.js y OpenNext (`npm run cf:build`).
+    - Desplegamos exitosamente el Worker en vivo a producción en Cloudflare Workers (`npm run deploy`), quedando 100% activo (Current Version ID: `afa667c6-bf99-4ee2-84c1-b835898ea2ca`).
 - **Resultado**: La interfaz móvil de las dermoconsejeras permite capturar canjes en ceros sin interrupciones operativas, y el stock en el portal nunca muestra números negativos, manteniendo una experiencia e inventario impecables.
 
 ## [2026-06-02 00:20] - Fix: Auditoría y Verificación del Reset de Inventario Global para Canjes en Culiacán (Antigravity)
 
 - **Contexto**: El usuario reportó una discrepancia de inventario donde la tienda Sears Culiacán Forum (`BTL-SEA-CULI-KP`) mostraba un stock activo de 20 gorras (`GORRA ISDIN FOTOPROTECCION`), a pesar de que el inventario físico consolidado de Junio (`CANJES PROMOCIONALES 2026 (3).xlsx`) declaraba 0 unidades para esta sucursal (mientras que Sanborns Culiacán sí conservaba sus 20 unidades legítimas).
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - Al auditar el ledger físico en Supabase, descubrimos que Sears Culiacán Forum poseía un movimiento histórico de tipo `RECEPCION_LOTE` por 20 gorras creado el `2026-05-06`. Al no reportar saldo inicial de gorras en el Excel de Junio 2026, el motor de stock de la aplicación caía de espaldas a buscar movimientos anteriores, acumulando erróneamente ese lote de mayo y arrojando un stock "fantasma" de 20 gorras en el dropdown público de capturas.
 - **Acciones Ejecutadas**:
   - **Implementación de Corte Global (`pdvCorteGlobal`)**: En las APIs del backend `capturaPublicaActions.ts` (`obtenerStockMaterialesPdv`) y del dashboard `clienteDashboardService.ts` (`obtenerDashboardCliente`), implementamos una regla robusta de "Borrón y Cuenta Nueva": si un PDV tiene al menos una carga inicial en el mes en curso (auditoría/corte físico), el sistema descarta atómicamente cualquier movimiento del pasado de cualquier material anterior a la fecha más reciente de esa carga inicial.
   - **Verificación Científica en Caliente**: Ejecutamos el script de inspección relacional `scratch/inspect_db_culiacan_movements.cjs` contra la base de datos de producción Supabase. Confirmamos que:
-    * Sears Culiacán Forum tiene su corte global de carga inicial de Junio el `2026-06-01T20:03:12.098Z`, por lo que el movimiento fantasma del 6 de mayo queda completamente descartado, resolviendo su stock de gorras a **exactamente 0**.
-    * Sanborns Culiacán tiene su corte global en Junio e inyectó una `CARGA_INICIAL` legítima de **20 gorras**, resolviendo su stock a **exactamente 20**.
+    - Sears Culiacán Forum tiene su corte global de carga inicial de Junio el `2026-06-01T20:03:12.098Z`, por lo que el movimiento fantasma del 6 de mayo queda completamente descartado, resolviendo su stock de gorras a **exactamente 0**.
+    - Sanborns Culiacán tiene su corte global en Junio e inyectó una `CARGA_INICIAL` legítima de **20 gorras**, resolviendo su stock a **exactamente 20**.
 - **Resultado**: La lógica de inventarios del portal público y del dashboard del cliente quedó perfectamente blindada contra datos residuales de meses anteriores, mostrando una coherencia absoluta con los inventarios físicos cargados.
 
 ## [2026-06-01 17:26] - Chore: Saneamiento de Datos de Prueba en Caliente de Captura Pública (Antigravity)
 
 - **Contexto**: El usuario solicitó eliminar todos los registros de capturas públicas realizados el día de hoy, 1 de Junio de 2026, antes de las 4:00 PM hora local, conservando intactos los registros de pruebas legítimas realizados con posterioridad a esa hora.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - Durante el proceso de desarrollo y pruebas de las mecánicas de canjes paralelos, se generaron múltiples inserciones de prueba y diagnóstico de inventario que ensuciaban las tarjetas del dashboard del cliente para el mes de Junio.
   - El borrado debía ser quirúrgico: calcular exactamente la equivalencia de la hora límite local (`16:00:00-06:00`) a UTC (`22:00:00Z`) y garantizar transaccionalmente que ninguna fila de las pruebas más recientes o legítimas de la tarde se viera afectada.
 - **Acciones**:
@@ -593,7 +2872,7 @@
 ## [2026-06-01 16:30] - Feature: Dashboard Ejecutivo de Cliente Público en Subdominio Independiente (Antigravity)
 
 - **Contexto**: El usuario solicitó habilitar un dashboard ejecutivo de cliente independiente, accesible de forma pública sin requerir inicio de sesión en un subdominio dedicado (`reportes.beteele-one.com`), para permitir una vista ejecutiva rápida en tiempo real para ISDIN México.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La arquitectura original de la aplicación requería que todos los tableros se renderizaran dentro de la sesión protegida del App Router (`src/app/(main)/dashboard/page.tsx`), lo que impedía el acceso público directo sin autenticación y bloqueaba al cliente en el subdominio.
   - Para evitar duplicidad de lógica, debíamos reutilizar el componente administrativo premium `<ClienteDashboardPanel />` asegurándonos de mockear un actor de solo lectura (`ActorActual`) y desactivar las políticas de caché de fetch de Next.js para que el cliente siempre visualice datos reales y actualizados de Junio 2026.
 - **Acciones**:
@@ -628,7 +2907,7 @@
 ## [2026-06-01 15:35] - Fix: Vinculación de Benavides San Bernardino y Depuración de Pitic (Antigravity)
 
 - **Contexto**: El usuario reportó que la tienda "Benavides San Bernardino" no aparecía en sus reportes ni en el catálogo de Junio de ISDIN México, y que "Benavides Pitic" seguía figurando activamente a pesar de no deber estar.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   - La tienda `Benavides San Bernardino` (`1c90c139-95c5-469e-942b-ffe53a11204c`) fue agregada físicamente a la tabla `pdv` y tiene asignaciones publicadas para Junio, pero **carecía de un registro de relación activo en la tabla `cuenta_cliente_pdv`** que la vinculara con la cuenta de ISDIN México. Por lo tanto, era invisible para las APIs, listados y reportes filtrados por la cuenta.
   - La tienda `Benavides Pitic` (`780bbeb0-f09a-40a7-aa08-a3dff29a4b17`) seguía marcada como `activo: true` en `cuenta_cliente_pdv` indefinidamente (sin `fecha_fin`), por lo que aparecía como sucursal operable para ISDIN.
 - **Acciones**:
@@ -640,7 +2919,7 @@
 ## [2026-06-01 15:23] - Fix: Materialización del Rol de Junio e Integración del Portal de Campo (Antigravity)
 
 - **Contexto**: El usuario reportó que el portal de campo (`dermoconsejo.beteele-one.com`) no mostraba las nuevas asignaciones de Junio ("📌 Con asignación hoy"), a pesar de que ya se habían cargado y publicado 281 asignaciones en la tabla `asignacion`.
-- **Causa Raíz / Retos Técnicos**: 
+- **Causa Raíz / Retos Técnicos**:
   1. El portal de campo y la lógica diaria del negocio dependen de la capa diaria materializada en `asignacion_diaria_resuelta`. Aunque las asignaciones base de Junio estaban `PUBLICADA` en la tabla `asignacion`, el proceso mensual de materialización para Junio de 2026 nunca se había ejecutado, dejando la tabla `asignacion_diaria_resuelta` con 0 registros para este mes.
   2. La ruta Next.js `src/app/captura/[slug]/page.tsx` no declaraba explícitamente la invalidación del cache del fetch del servidor, lo que podía causar que Next.js cacheara agresivamente los endpoints de Supabase.
 - **Acciones**:
@@ -8834,9 +11113,6 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - 100% de las 281 asignaciones de Junio en vivo y activas en producción.
   - Cero inconsistencias o filas de personal no mapeadas.
 
-
-
-
 ## 2026-06-01 17:40 – Filtro por Supervisor en Cliente Dashboard y Columnas Clave en Reportes Excel
 
 - **Intervención:** Implementación del filtro por supervisor en el Dashboard del Cliente e inyección de las columnas operativas "Clave PDV" y "Clave Usuario" en los reportes Excel.
@@ -9096,9 +11372,6 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `09-encoding/utf8-standard`
   - `02-testing-e2e/playwright-testing`
 
-
-
-
 ## 2026-06-10 10:55 — Reporte y Dashboard Premium de Ventas para Administrador y Exportación a ExcelJS (Antigravity)
 
 - **Intervención:** Creación de un Dashboard de Ventas interactivo para el Administrador, filtros por mes, rango y jerarquías, exportador a Excel premium usando `exceljs` y remoción de la sección de captura local para administradores.
@@ -9134,11 +11407,6 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `09-encoding/utf8-standard`
   - `02-testing-e2e/tailwind-mobile-first`
 
-
-
-
-
-
 ## 2026-06-12 11:27 — Flexibilidad de Acuses y Mejora de Usabilidad en Última Milla (Antigravity)
 
 - **Intervención:** Corrección de la validación estricta de acuses firmados para dermoconsejeras de fallback, alineación de metadata en correcciones y dropdown de receptores colapsable.
@@ -9156,13 +11424,13 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `02-testing-e2e/tailwind-mobile-first`
 
 ## 2026-06-12 12:00 — Flujo de Dispersiones en Resguardo por Vacante y Liberación de Materiales (Antigravity)
- 
- - **Intervención:** Inicio de la estructuración y planificación del flujo de dispersiones en resguardo para tiendas vacantes y posterior entrega a dermoconsejeras.
- - **Acciones Ejecutadas:**
-   1. **Inicio de Sesión:** Lectura del historial y reconciliación de la base.
-   2. **Planificación:** Elaboración del plan de diseño de datos (nuevas columnas `modo_entrega` y `estado_resguardo` en la tabla `material_entrega_ultima_milla`), el flujo operativo del supervisor para liberar resguardos y el desglose de KPIs en el panel administrador.
- - **Skills Aplicadas:**
-   - `09-encoding/utf8-standard`
+
+- **Intervención:** Inicio de la estructuración y planificación del flujo de dispersiones en resguardo para tiendas vacantes y posterior entrega a dermoconsejeras.
+- **Acciones Ejecutadas:**
+  1.  **Inicio de Sesión:** Lectura del historial y reconciliación de la base.
+  2.  **Planificación:** Elaboración del plan de diseño de datos (nuevas columnas `modo_entrega` y `estado_resguardo` en la tabla `material_entrega_ultima_milla`), el flujo operativo del supervisor para liberar resguardos y el desglose de KPIs en el panel administrador.
+- **Skills Aplicadas:**
+  - `09-encoding/utf8-standard`
 
 ## 2026-06-12 12:35 — Habilitación del mes de Mayo para registro de Última Milla (Antigravity)
 
@@ -9221,7 +11489,6 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - **Validaciones:**
   - Re-consulta del estado en base de datos constatando que las distribuciones de mayo para esos PDVs y supervisor ya no existen, quedando activas únicamente sus distribuciones de junio debidamente sincronizadas.
 
-
 ## 2026-06-15 15:43 - Análisis Tolerante por Sucursal Física y Corrección de IDs de Última Milla de Mayo 2026 (Antigravity)
 
 - **Intervención:** Ajustar el script de cruce de datos de última milla para incluir las 7 sucursales con ID vacío en el Excel de planificación (`Total Mayo`), resolverlas por coincidencia de nombre de tienda física, y excluir desvíos duplicados o correspondientes a tiendas ya cubiertas de la pestaña de diferencias (`NO COINCIDEN`).
@@ -9258,14 +11525,16 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 ## [2026-06-15] Búsqueda de Entregas Palacio de Hierro y Corrección del Límite de Supabase
 
 ### 1. Búsqueda en Base de Datos de Entregas
+
 - **Solicitud del usuario**: Buscar evidencias de las entregas de mayo de Tienda Polanco (Olga Elizabeth Rodríguez Bailón) y Tienda Santa Fe (María del Rocío Rodríguez García).
-- **Resultados**: 
+- **Resultados**:
   - Se confirmó que ambas entregas existen físicamente en la base de datos con estatus `SINCRONIZADA`.
   - **Olga Elizabeth Rodríguez Bailón** (Palacio Polanco): ID `2e155b14-0411-434a-8af8-bc94a8ed6f20`, capturada el 3 de junio de 2026. Contiene **23 renglones de materiales** y evidencias completas (acuse y foto).
   - **María del Rocío Rodríguez García** (Palacio Santa Fe): ID `d92bbe5d-70b6-41fd-b499-1a09f3e2583d`, capturada el 3 de junio de 2026. Contiene **12 renglones de materiales** y evidencias completas (acuse y foto).
   - Se descargaron las 4 fotos físicas al directorio de artefactos y se consolidó el informe de evidencias en [reporte_evidencias_palacio.md](file:///C:/Users/Thunderobot%20Zero/.gemini/antigravity/brain/143a85ce-e02f-47e2-a5d0-8f2db1755764/reporte_evidencias_palacio.md).
 
 ### 2. Hallazgo y Solución del Bug de Límite de Supabase (1000 Renglones)
+
 - **Bug**: El script de conciliación de Excel (`scratch/analyze_and_modify_new_excel_v3.cjs`) marcaba estas entregas en Excel como `ENTREGADO SIN DETALLES (VACÍO)` con 0 renglones de productos, a pesar de que en la base de datos sí tenían detalles.
 - **Causa raíz**: Supabase/PostgREST tiene un límite por defecto de 1000 registros devueltos por consulta. Al realizar consultas por lotes (`in('entrega_id', chunk)`) sobre grupos de 100 entregas, la cantidad de líneas de detalles superaba los 1000 registros, provocando que PostgREST truncara silenciosamente el resultado a exactamente 1000 líneas. Esto dejaba a las entregas al final de los bloques (incluyendo las de junio de Palacio de Hierro) sin sus detalles cargados en memoria.
 - **Solución**:
@@ -9277,6 +11546,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 ## [2026-06-15] Conciliación y Mapeo Completo de Doble Plantilla en Palacio de Hierro
 
 ### 1. Diagnóstico de Doble Plantilla
+
 - **Solicitud del usuario**: Verificar los 4 registros de la imagen (Polanco con Isabel Lucero y Olga Elizabeth; Santa Fe con Fernanda Estefania y María del Rocío). Saber si quien recibió fue una o dos personas, si los registros son independientes y asegurar que aparezcan en el PowerPoint sin exclusión.
 - **Investigación**:
   - Se confirmó en la base de datos que existen **6 entregas independientes en total** para estas tiendas: 3 en Polanco (dos para Isabel Lucero, una para Olga Elizabeth) y 3 en Santa Fe (dos para Fernanda Estefania, una para María del Rocío).
@@ -9284,6 +11554,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - Quienes recibieron fueron **dos personas diferentes por tienda** (Isabel/Olga en Polanco y Fernanda/María en Santa Fe), validando que las operaciones e identidades son independientes.
 
 ### 2. Cambios y Re-conciliación de Datos
+
 - **Ajustes en el Script de Excel (`scratch/analyze_and_modify_new_excel_v3.cjs`)**:
   - Se añadieron los 4 identificadores de entrega restantes a la lista de inyección manual de Mayo.
   - Al correr la conciliación sobre el Excel limpio, las filas correspondientes a Isabel Lucero (Fila 36) y Fernanda Estefania (Fila 38) pasaron de estar marcadas incorrectamente como Cobertura a **ENTREGADO BIEN (OK)** utilizando sus propias entregas físicas e independientes.
@@ -9320,8 +11591,8 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - Verificación de codificación UTF-8 en todo el proyecto (`npm run docs:check-encoding`).
   - **Robustez de Red:** Implementamos compresión automática de fotos en el navegador (JPEG 85% de calidad, dimensiones máximas de 1600px) y reintentos (hasta 3 intentos con delay). Adicionalmente, redirigimos la subida directa a través del proxy local seguro `POST /api/storage/r2` en el servidor, eliminando fallas por CORS/DNS del bucket en redes de datos móviles.
   - **Fixes de Usabilidad y PPT:**
-    *   **Remoción de Supervisores:** Eliminamos a los supervisores del listado de receptores elegibles para que la lista contenga únicamente a las dermoconsejeras (DC) del equipo.
-    *   **Imágenes del PPT:** Corregimos `/api/reportes/uniformes-ppt-data/route.ts` para usar la API del proxy de R2 `/api/storage/r2?key=...` en lugar del proxy de Supabase, resolviendo las fotos con éxito y eliminando los cuadros de error ("No se puede mostrar la imagen").
+    - **Remoción de Supervisores:** Eliminamos a los supervisores del listado de receptores elegibles para que la lista contenga únicamente a las dermoconsejeras (DC) del equipo.
+    - **Imágenes del PPT:** Corregimos `/api/reportes/uniformes-ppt-data/route.ts` para usar la API del proxy de R2 `/api/storage/r2?key=...` en lugar del proxy de Supabase, resolviendo las fotos con éxito y eliminando los cuadros de error ("No se puede mostrar la imagen").
 - **Skills Aplicadas:**
   - `05-code-review/typescript-strict-typing`
   - `02-testing-e2e/tailwind-mobile-first`
@@ -9335,7 +11606,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   1. **Servicio de Datos (`reporteVisitasSupervisoresService.ts`):** Extendimos `ObtenerVisitasSupervisoresOptions` con `fechaInicio` y `fechaFin`, agregamos la columna `metadata` al SELECT de `ruta_semanal_visita`, y extrajimos la hora exacta de check-in (`Entrada`) desde `metadata.checkIn.at` y `checkOutAt` de `completada_en` (Salida). Ajustamos el cálculo de la ventana de búsqueda de rutas semanales y el filtrado por rango de fechas de operación.
   2. **API de Vista Previa (`/api/reportes/visitas-supervisores/route.ts`):** Agregamos soporte para leer `fechaInicio` y `fechaFin` y pasarlos al resolvedor.
   3. **API de Exportación Excel (`/api/reportes/visitas-supervisores/export/route.ts`):** Renombramos la pestaña principal de "Resumen" a "Consolidado de Supervisores". Simplificamos la hoja "Detalle de Visitas" con 12 columnas enfocadas en Entrada, Salida y Fotos. Agregamos hipervínculos reales de Excel usando la propiedad `l` de SheetJS en las fotos clicleables y configuramos autofiltros activados por defecto (`!autofilter`) en las dos pestañas.
-  4. **Visor de Visitas UI (`VisitasSupervisoresDemandCard.tsx`):** Eliminamos la limitación de filas visibles en pantalla y forzamos el límite a 5000 registros para cargar el rango completo. Implementamos la precarga completa de los supervisores activos de la cuenta cliente en el selector para poder filtrar *antes* de generar o exportar. Rediseñamos el layout de filtros a un grid responsivo (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-[160px_160px_160px_1fr_auto]`) dando margen fluido al selector de supervisor y alineando uniformemente los botones de búsqueda y exportación. Implementamos filas expandibles que muestran en detalle la evidencia de fotos y el checklist de calidad con estado y observaciones.
+  4. **Visor de Visitas UI (`VisitasSupervisoresDemandCard.tsx`):** Eliminamos la limitación de filas visibles en pantalla y forzamos el límite a 5000 registros para cargar el rango completo. Implementamos la precarga completa de los supervisores activos de la cuenta cliente en el selector para poder filtrar _antes_ de generar o exportar. Rediseñamos el layout de filtros a un grid responsivo (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-[160px_160px_160px_1fr_auto]`) dando margen fluido al selector de supervisor y alineando uniformemente los botones de búsqueda y exportación. Implementamos filas expandibles que muestran en detalle la evidencia de fotos y el checklist de calidad con estado y observaciones.
   5. **Pruebas Unitarias (`reporteVisitasSupervisoresService.test.ts`):** Actualizamos las pruebas del servicio incorporando el campo de `metadata: {}` requerido en las estructuras mockeadas de visitas.
 - **Validaciones:**
   - Validación de compilación local y tipado de TypeScript confirmada con éxito a través de `npx tsc --noEmit`.
@@ -9369,7 +11640,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   2. **Nueva Ruta y Página (`/operacion-supervisores/page.tsx`):** Creamos la página contenedora que valida roles y renderiza `RutaSemanalPanel` inicializando la pestaña en `'routes'` (Tablero de rutas).
   3. **Controlador del Panel (`RutaSemanalPanel.tsx`):** Integramos las pestañas de `'ranking'` (Ranking de Visitas) y `'evidencias'` (Visitas y Evidencias) dentro del flujo principal, permitiendo consultar toda la operación con los mismos filtros y estados de supervisor y periodos activos.
   4. **Servicio Técnico (`reporteVisitasSupervisoresService.ts`):** Mapeamos los campos `checklistCalidad` y `checklistComments` (parseado desde la metadata de workflow) en cada ítem de visita para disponibilizar los detalles del checklist.
-  5. **Visor de Visitas UI (`VisitasSupervisoresDemandCard.tsx`):** Eliminamos la limitación de filas visibles en pantalla y forzamos el límite a 5000 registros para cargar el rango completo. Implementamos la precarga completa de los supervisores activos de la cuenta cliente en el selector para poder filtrar *antes* de generar o exportar. Rediseñamos el layout de filtros a un grid responsivo (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-[160px_160px_160px_1fr_auto]`) dando margen fluido al selector de supervisor y alineando uniformemente los botones de búsqueda y exportación. Implementamos filas expandibles que muestran en detalle la evidencia de fotos y el checklist de calidad con estado y observaciones.
+  5. **Visor de Visitas UI (`VisitasSupervisoresDemandCard.tsx`):** Eliminamos la limitación de filas visibles en pantalla y forzamos el límite a 5000 registros para cargar el rango completo. Implementamos la precarga completa de los supervisores activos de la cuenta cliente en el selector para poder filtrar _antes_ de generar o exportar. Rediseñamos el layout de filtros a un grid responsivo (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-[160px_160px_160px_1fr_auto]`) dando margen fluido al selector de supervisor y alineando uniformemente los botones de búsqueda y exportación. Implementamos filas expandibles que muestran en detalle la evidencia de fotos y el checklist de calidad con estado y observaciones.
   6. **Exportación a Excel (`export/route.ts`):** Modificamos el endpoint para inyectar dinámicamente columnas por cada pregunta y comentario específico del checklist de calidad, mapeando el estado de cumplimiento del supervisor en cada fila.
   7. **Módulo de Reportes (`reportes/page.tsx`):** Removimos los visores redundantes de visitas y ranking para evitar duplicidad de información.
 - **Validaciones:**
@@ -9415,7 +11686,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 - **Acciones Ejecutadas:**
   1. **Autenticación en Proxy de Imágenes (`pptExportService.ts`):** Reestructuramos la conversión cliente a Base64 JPEG usando `fetch(url, { credentials: 'same-origin' })`. Esto garantiza el envío de cookies de sesión a `/api/reportes/imagen-proxy`, eliminando las respuestas 401 y resolviendo de raíz la falla del tache rojo en PowerPoint.
   2. **Ítem en Menú Lateral (`sidebar.tsx`):** Agregamos la opción `/canjes` accesible exclusivamente para `ADMINISTRADOR` y `COORDINADOR`.
-  3. **Servicio y Métricas de Canjes (`canjesService.ts`):** Creamos una consulta de servidor que calcula en tiempo real los contadores y piezas para *Canjes Con Ticket*, *Canjes Sin Ticket*, *Canjes Fuera de Jornada* y *Total Global*.
+  3. **Servicio y Métricas de Canjes (`canjesService.ts`):** Creamos una consulta de servidor que calcula en tiempo real los contadores y piezas para _Canjes Con Ticket_, _Canjes Sin Ticket_, _Canjes Fuera de Jornada_ y _Total Global_.
   4. **Exportador Excel por Rango (`canjesExportService.ts`):** Creamos un generador de `.xlsx` con `exceljs` que aplica formato corporativo y enlaces directos a las evidencias.
   5. **Panel Interactivo de Canjes (`CanjesPanel.tsx`):** Diseñamos la pantalla con selectores de fechas libres, atajos semanales rápidos, grid de 4 KPIs, tabla de registros paginada y visor modal de fotos.
   6. **Endpoint PPTX con Rango de Fechas (`canjes-ppt-data/route.ts`):** Extendimos la API route para aceptar `fechaInicio` y `fechaFin` y filtrar los registros en Supabase.
@@ -9430,7 +11701,7 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 
 - **Intervención:** Auditoría profunda y corrección de la renderización de fotografías múltiples en capturas de campo. Anteriormente, si una captura tenía 3, 4 o más fotografías en la misma transacción, el generador de PowerPoint y la tabla web solo tomaban las primeras 2 o la primera foto, omitiendo el resto.
 - **Acciones Ejecutadas:**
-  1. **Generación Multicapa en PowerPoint (`pptExportService.ts`):** Reestructuramos `generateCanjesPpt` para dividir las fotos del arreglo en bloques de a 2 por diapositiva. Si una captura tiene 3, 4, 5 o más fotos, se crean automáticamente diapositivas adicionales etiquetadas (ej. *Fotos 3-4 de 4*), garantizando que **el 100% de las fotos aparezcan en la presentación**.
+  1. **Generación Multicapa en PowerPoint (`pptExportService.ts`):** Reestructuramos `generateCanjesPpt` para dividir las fotos del arreglo en bloques de a 2 por diapositiva. Si una captura tiene 3, 4, 5 o más fotos, se crean automáticamente diapositivas adicionales etiquetadas (ej. _Fotos 3-4 de 4_), garantizando que **el 100% de las fotos aparezcan en la presentación**.
   2. **Multi-Miniaturas en Tabla Web (`CanjesPanel.tsx`):** Actualizamos la celda de evidencias en la tabla del módulo de Canjes para mapear todas las URLs en `rec.fotos` y renderizar una fila de miniaturas independientes con visor modal de zoom.
   3. **Corrección de Enlaces en Bitácora General (`CapturaPublicaReportSection.tsx`):** Parseamos las URLs separadas por coma en `fotoEvidenciaUrl`, las convertimos a rutas proxy válidas (`/api/reportes/imagen-proxy?...`) y generamos botones individuales (`📸 Foto 1`, `📸 Foto 2`...), resolviendo de raíz los enlaces rotos 404.
   4. **Formateo Multi-foto en Excel (`canjesExportService.ts`):** Mapeamos todas las fotos a URLs proxy completas separadas por salto de línea en la celda de evidencias de la hoja de cálculo.
@@ -9443,12 +11714,12 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
 ## 2026-07-22 19:20 — Solución Definitiva de Redirección HTTP 307 en Proxy de Imágenes y Captura de Evidencias de Canjes (Antigravity)
 
 - **Intervención:** Diagnóstico con `03-debugging/systematic-debugging` de la falla observada en las capturas de pantalla del usuario, donde las miniaturas de imágenes en la aplicación aparecían como cuadros blancos vacíos y el PowerPoint mostraba "Sin evidencia disponible".
-- **Causa Raíz Identificada:** 
+- **Causa Raíz Identificada:**
   1. `imagen-proxy/route.ts` utilizaba `requerirPuestosActivos`, el cual al ejecutarse en un handler de API en lugar de una página web, lanzaba una excepción Next.js `redirect('/login')` devuelta como **HTTP 307 Temporary Redirect** a un documento HTML. Las etiquetas `<img>` y las peticiones `fetch` del generador de PowerPoint fallaban al intentar procesar texto HTML como si fuera un blob binario de imagen.
-  2. En `CapturaPublicaForm.tsx`, el campo para adjuntar evidencias fotográficas solo se mostraba si `cantidad_con_ticket > 0`. Para *Canjes Sin Ticket* o *Canjes Fuera de Jornada*, no había campo de subida de fotos, resultando en `foto_evidencia_url = null`.
+  2. En `CapturaPublicaForm.tsx`, el campo para adjuntar evidencias fotográficas solo se mostraba si `cantidad_con_ticket > 0`. Para _Canjes Sin Ticket_ o _Canjes Fuera de Jornada_, no había campo de subida de fotos, resultando en `foto_evidencia_url = null`.
 - **Acciones Ejecutadas:**
   1. **Proxy de Imágenes sin Redirecciones HTTP 307 (`imagen-proxy/route.ts`):** Reemplazamos `requerirPuestosActivos` por validación directa con `obtenerActorActual()` y `supabase.auth.getUser()`. Al eliminar los llamados a `redirect()`, la API responde siempre con los bytes binarios reales del archivo de imagen (`image/jpeg` o `image/png`) con un HTTP 200 OK limpio.
-  2. **Habilitación de Fotos en Formulario Público (`CapturaPublicaForm.tsx`):** Permitimos la subida opcional de fotos de evidencias para cualquier subtipo de Canje (*Con Ticket*, *Sin Ticket*, *Fuera de Jornada*) cuando la cantidad sea mayor a 0.
+  2. **Habilitación de Fotos en Formulario Público (`CapturaPublicaForm.tsx`):** Permitimos la subida opcional de fotos de evidencias para cualquier subtipo de Canje (_Con Ticket_, _Sin Ticket_, _Fuera de Jornada_) cuando la cantidad sea mayor a 0.
   3. **Ocultamiento de Contenedores Fallidos (`CanjesPanel.tsx`):** Agregamos lógica al evento `onError` de las miniaturas para ocultar también el contenedor blanco del botón en caso de imágenes no existentes en la base de datos.
 - **Validaciones:**
   - 0 errores de TypeScript confirmados con `npx tsc --noEmit`.
@@ -9508,13 +11779,11 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - 0 errores de TypeScript en `directR2Server.ts` y `rutas/actions.ts`.
 - **Skills Aplicadas:**
 
-
-
 ## 2026-07-31 — Reestructuración y Unificación del Centro de Evidencias y Entregas (Mobile-First)
 
 - **Intervención:** Reestructurar los accesos de entregas, evidencias de campo y uniformes para el supervisor.
 - **Acciones Ejecutadas:**
-  1. **Unificación en 1 Solo Botón en Dashboard (`src/features/dashboard/components/DashboardPanel.tsx`):** Se reemplazaron los 3 botones separados (*Entregas*, *Evidencias* y *Entrega de uniformes*) por **`📸 Evidencias y Entregas`**.
+  1. **Unificación en 1 Solo Botón en Dashboard (`src/features/dashboard/components/DashboardPanel.tsx`):** Se reemplazaron los 3 botones separados (_Entregas_, _Evidencias_ y _Entrega de uniformes_) por **`📸 Evidencias y Entregas`**.
   2. **Centro Unificado (`src/features/evidencias/components/EvidenciasEntregasHub.tsx`):** Creada la interfaz con 2 pestañas principales (`📸 Evidencias y Materiales` y `👕 Entrega de Uniformes`).
   3. **Sincronización Automática del Mes de Operación:** Estado reactivo compartido `selectedMonth` que alinea automáticamente la consulta de avance con el formulario de registro.
   4. **Historial de Entregas por Mes (`src/features/materiales/components/SupervisorDeliveryHistoryList.tsx`):** Componente Mobile-First con tarjetas responsivas para visualizar entregas de materiales realizadas por mes.
@@ -9553,3 +11822,574 @@ El sistema seguia atado al proveedor actual de email transaccional. El usuario n
   - `03-debugging/systematic-debugging`
   - `01-testing-tdd/test-driven-development`
   - `09-encoding/utf8-standard`
+
+### 2026-08-13: Remoción Global de Folio de Ticket (Completada)
+
+- **Estado:** Cierre de la feature.
+- **Cambios realizados:**
+  - Se eliminaron las referencias residuales de `folioTicket` en componentes de UI (`CanjesPanel`, `CapturaPublicaReportSection`) y servicios de exportación Excel/PPT (`canjesExportService`, `pptExportService`).
+  - Se actualizaron las interfaces de TypeScript (`CanjeRecordItem` y `CapturaPublicaReporteItem`) para alinearlas con la base de datos que ya no cuenta con esa columna.
+  - Se superó satisfactoriamente el typecheck para el entorno de Canjes/Reportes.
+- **Validación ejecutada:**
+  - Typecheck verificado sin errores referidos a `folioTicket`.
+  - Todas las referencias visuales de la aplicación y en exports referidas a Canjes (PPT, Excel) han sido limpiadas.
+
+### 2026-08-13: Fix Límite 1000 Canjes
+
+- **Problema:** El módulo de Canjes mostraba exactamente 1000 registros estancados.
+- **Causa:** La configuración de Supabase tiene un límite de 1000 filas por consulta (`max_rows`) y el servicio de Canjes solicitaba todos los registros en una sola consulta sin paginación.
+- **Solución:** Se implementó un bucle con `.range()` en `canjesService.ts` que pide los registros en lotes de 1000 hasta traer todos los canjes correspondientes al periodo seleccionado.
+
+### 2026-08-13: Aumento de límite de consultas para Canjes (Límite 1000)
+
+- **Estado:** Cierre de ticket de soporte.
+- **Problema:** El módulo de Canjes y el exportador de PPT dejaban de mostrar registros después del número 1000 porque Supabase impone un límite de seguridad en la respuesta de su API si no se especifica de otra manera.
+- **Solución:** Se agregó un explícito `.limit(50000)` a las consultas base en `canjesService.ts` y `api/reportes/canjes-ppt-data/route.ts` para anular el límite restrictivo por defecto de 1000 de Supabase.
+
+### 2026-08-13: Paginación en Bloques para Canjes y Reportes PPT (Superación Límite PostgREST 1000 Filas)
+
+- **Causa Raíz:** Supabase PostgREST aplica un límite estricto de 1000 filas por petición HTTP (`max-rows = 1000`). Peticiones con `.limit(50000)` seguían retornando 1000 filas exactamente porque PostgREST trunca la respuesta en cada request individual.
+- **Solución Implementada:**
+  - Se implementó bucle de paginación con `.range(fromOffset, toOffset)` en lotes de 1000 (`PAGE_CHUNK_SIZE = 1000`) hasta agotar todos los registros en `src/features/canjes/services/canjesService.ts`.
+  - Se implementó la misma paginación por lotes en `src/app/api/reportes/canjes-ppt-data/route.ts` y `src/app/api/reportes/love-isdin-ppt-data/route.ts`.
+  - Se incrementó el límite de descarga en Excel de Canjes a 100,000 en `CanjesPanel.tsx`.
+- **Validación:** Build de Next.js verificado y completado sin errores (código de salida 0).
+
+### 2026-08-13: Reclasificación y Normalización de Canjes Con Ticket sin Evidencia a Canjes Sin Ticket
+
+- **Motivo:** Asegurar que los canjes marcados como 'Con Ticket' tengan obligatoriamente evidencia fotográfica para ser presentados al cliente en las diapositivas de PowerPoint.
+- **Acciones Realizadas:**
+  - Se creó la migración SQL `supabase/migrations/20260813180000_normalizar_canjes_sin_evidencia.sql` para reclasificar en base de datos todos los canjes desde el 01/08/2026 sin foto a `CANJE_SIN_TICKET`.
+  - Se implementó salvaguarda en `src/features/captura-publica/services/capturaPublicaActions.ts` que normaliza automáticamente registros entrantes sin foto.
+  - Se agregaron y validaron pruebas unitarias en `capturaPublicaActions.test.ts` pasando al 100%.
+  - Build general de producción verificado con éxito (código 0).
+
+### 2026-08-13: Ejecución Exitosa en Supabase - Reclasificación de Canjes sin Foto
+
+- **Resultado:** Se conectó directamente a la base de datos PostgreSQL de Supabase y se ejecutó la instrucción SQL.
+- **Métricas:** 164 registros desde el 01/08/2026 fueron reclasificados exitosamente de `CANJE_CON_TICKET` a `CANJE_SIN_TICKET`.
+- **Verificación:** Consulta de comprobación confirmó 0 registros restantes con inconsistencia.
+
+### 2026-08-13: Auditoría Exhaustiva de Storage y Reclasificación de Canjes con Rutas Huérfanas
+
+- **Causa Raíz:** Varios registros tenían una ruta de texto en `foto_evidencia_url` pero el archivo binario físico no existía en el bucket de Storage (posiblemente por subidas interrumpidas o pruebas iniciales), lo que causaba que la UI ocultara la imagen rota y pareciera un canje con ticket sin foto.
+- **Solución Aplicada:** Se auditó registro por registro contra el API de Supabase Storage mediante `scripts/audit-canjes-storage.cjs`.
+- **Resultado:** 176 canjes confirmados con archivo fotográfico real en Storage. 458 registros huérfanos fueron reclasificados a `CANJE_SIN_TICKET` directamente en Supabase.
+
+### 2026-08-13: Restauración Completa de Fotos de Evidencias y Blindaje de Limpieza de Storage
+
+- **Causa Raíz:** La función de limpieza automática de Storage (supabase/functions/storage-orphans-cleanup) no tenía registrada en su whitelist a la tabla captura_publica_registro. Por ello, movió 3,251 evidencias a la carpeta de cuarentena \_orphans/.
+- **Acciones Ejecutadas:**
+  1. Se agregó captura_publica_registro (oto_evidencia_url y oto_evidencia_hash) a la lista de fuentes protegidas en storage-orphans-cleanup/index.ts.
+  2. Se ejecutó scripts/restore-all-captura-photos.cjs, restaurando exitosamente 3,251 objetos de \_orphans de vuelta a sus rutas originales en operacion-evidencias/captura-publica/... con 0 errores.
+  3. Se auditaron y re-clasificaron 636 canjes a CANJE_CON_TICKET con sus fotos binarias físicas 100% verificadas en Storage.
+- **Resultado:** Todas las fotografías de evidencias están visibles en la UI y listas para exportación a PPTX.
+
+### 2026-08-15 - Calendario mensual de rutas de supervisión
+
+- Se implementó la proyección mensual de `ruta_semanal` y `ruta_semanal_visita` en `src/features/rutas/services/rutaCalendarioMensualService.ts`, incluyendo semanas que cruzan el límite del mes y estados de aprobación, ejecución, eventos y reposición.
+- Se agregaron los endpoints `/api/ruta-semanal/calendario` y `/api/ruta-semanal/calendario/dia`; el resumen queda cacheado por cuenta/mes y el detalle se carga únicamente al abrir una celda.
+- Se integró `RutaMensualCalendar` dentro de la pestaña de rutas con columnas L/M/X/J/V/S/D, scroll horizontal, filas de supervisores, leyenda accesible y modal que conserva el contexto al cerrar.
+- La matriz quedó conectada al token `ui_change_version` del panel para refrescarse después de aprobaciones, check-outs o reposiciones sin polling permanente.
+- Se conectó la replicación mensual con `guardarPlaneacionRutaMensualCanvas`, se validan las semanas recibidas y ya no se ocultan fallos parciales. La aprobación mensual considera semanas solapadas y no autoaprueba rutas con cambios solicitados.
+- Se agregó `20260815090000_ruta_calendario_mensual_indexes.sql` y pruebas unitarias de fechas y límites de mes en `rutaCalendar.test.ts`.
+- Se agregó `tests/ruta-mensual-calendar.spec.ts`, que valida en viewport móvil la matriz, scroll horizontal, etiquetas accesibles, target táctil, modal, Escape y restauración del foco; la prueba pasó 1/1.
+- Se agregó `scripts/benchmark-ruta-calendario.mjs` y `npm run perf:ruta-calendario`. En producción, las muestras del resumen y detalle respondieron `200`; el primer acceso frío rondó 1.0–1.3 s, el resumen tuvo p50 cercano a 150 ms y el detalle p50 cercano a 180 ms, con p95 variable bajo carga (hasta ~767 ms) que queda registrado para seguimiento.
+- Permisos alineados con el canon: COORDINADOR aprueba/resuelve; ADMINISTRADOR consulta y audita.
+- Validaciones realizadas: pruebas unitarias dirigidas de rutas (20/20), `docs:check-encoding`, `hooks:install`, typecheck sin errores nuevos en la superficie de rutas, ESLint dirigido sin errores en los archivos nuevos, `npm run build` y `npm run cf:build` exitosos.
+- `npm run test:unit` ejecutó 358 pruebas: 349 pasaron y 9 fallaron en suites preexistentes no relacionadas (service worker, importador de julio, R2 y notificaciones sin variables Supabase).
+- La última ejecución E2E volvió a pasar 1/1 después de añadir la indicación móvil de desplazamiento horizontal; el item canónico 3.2.10 queda cerrado.
+- `npm run cf:build` terminó correctamente tras liberar el artefacto `.open-next` bloqueado temporalmente por Windows durante la validación.
+- Se unificó el estado del mes visible entre `RutaMensualCalendar` y las acciones mensuales de aprobar/exportar; navegar el calendario ahora actualiza también el alcance operativo del kanban.
+
+### 2026-08-15 - Shell auto-ocultable y calendario mensual compacto
+
+- Se sustituyó el sidebar fijo de escritorio por un panel superpuesto auto-ocultable que se abre desde el borde izquierdo mediante hover, clic o foco, sin reservar ancho ni provocar reflow del módulo activo.
+- `ModuleThemeLayer` normaliza el contenedor raíz de todos los módulos a ancho completo; el menú móvil conserva su comportamiento hamburguesa y objetivos táctiles.
+- La matriz mensual reparte el ancho disponible entre los 28 a 31 días en escritorio, compacta tipografía y celdas, abrevia `SIN_RUTA` como `—` y conserva la descripción completa mediante `aria-label` y leyenda.
+- En móvil se mantiene scroll horizontal para no reducir las celdas por debajo de un tamaño táctil legible.
+- Impacto de performance: sin nuevas consultas, joins, subscriptions, polling ni refreshes; solo estado local del shell y reglas de layout.
+- Skills aplicadas: `10-context/image-context`, `11-design/modern-saas-premium-redesign`, `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/accessibility-audit`, `02-testing-e2e/playwright-testing`, `06-performance/performance-optimization` y `09-encoding/utf8-standard`.
+- Validación: ESLint dirigido sin errores, pruebas unitarias 3/3, Playwright desktop/móvil 2/2, `npm run build`, `npm run cf:build` y `npm run docs:check-encoding` exitosos.
+- Reconciliación: se actualizaron el diseño canónico, Requirements 16/17 y las tareas `0.1.6` y `3.2.11` con respaldo verificable en código y pruebas.
+
+### 2026-08-15 - Corrección del truncamiento de rutas mensuales en Supabase
+
+- Se reprodujo el fallo de la matriz: PostgREST limitaba a 1,000 las filas de `ruta_semanal_visita`, aunque el servicio solicitaba 6,000; septiembre mostraba 869 de 1,767 visitas planeadas.
+- Se sustituyó la descarga mensual de visitas, eventos y reposiciones por `rpc_ruta_calendario_mensual_resumen`, que devuelve un JSON compacto con rutas únicas y contadores por día. El detalle de tiendas continúa cargándose únicamente al abrir una celda.
+- La RPC conserva el alcance por cuenta y supervisor, usa `security invoker` y sólo concede ejecución a `service_role` y `postgres`; `anon` y `authenticated` quedan sin permiso directo.
+- La migración `20260815130000_ruta_calendario_mensual_resumen_rpc.sql` se aplicó en Supabase sin modificar rutas ni visitas existentes. La verificación remota devolvió 1,868 planeadas en agosto y 1,767 en septiembre.
+- Se publicó el Worker de Cloudflare `3a304f8e-6f04-4504-9738-2a444ae74a5a`; la comprobación autenticada en `beteele-one.com` devolvió 1,868 planeadas para agosto y 1,767 para septiembre, ambas con estado HTTP 200.
+- Costo de lectura: el resumen pasó de 2,630/2,010 filas crudas a 551/540 celdas agregadas para agosto/septiembre, en una sola llamada cacheable; no se agregaron polling, realtime ni refreshes automáticos.
+- Se agregó una regresión unitaria con 1,550 visitas agregadas y una prueba de aislamiento del supervisor. Validaciones: 15/15 pruebas focalizadas, Playwright móvil/escritorio 2/2, ESLint dirigido, `npm run build`, `npm run cf:build` y `npm run docs:check-encoding` exitosos.
+- Reconciliación: los items canónicos `3.2.5` a `3.2.11` ya estaban respaldados y completos; no se modificaron checkboxes. El typecheck global conserva errores preexistentes en pruebas ajenas a rutas, sin errores nuevos en la superficie modificada.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `04-security-audit/api-security-audit`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy`, `06-performance/performance-optimization`, `02-testing-e2e/playwright-testing` y `09-encoding/utf8-standard`.
+
+### 2026-08-15 - Riel persistente de íconos para todos los módulos administrativos
+
+- Análisis previo: el shell anterior ocultaba por completo el sidebar y dejaba sólo una franja de activación; al intentar conservarlo estrecho, el menú completo podía quedar recortado y mostrar fragmentos de letras. La navegación real de los módulos administrativos se monta desde `src/app/(main)/layout.tsx`.
+- Sustitución aplicada: el sidebar de escritorio ahora tiene un estado compacto real de 72 px que mantiene botones de módulo de 48 x 48 px, íconos, color activo, `aria-label` y ayuda contextual, pero oculta totalmente marca, usuario, secciones y etiquetas. Por hover, clic o foco se expande a 288 px como overlay y vuelve al riel al salir puntero y foco.
+- El layout principal reserva únicamente los 72 px del riel para evitar que contenido o encabezados queden debajo de los íconos; la expansión no provoca reflow. Los roles de campo y la navegación móvil conservan sus shells existentes.
+- Impacto revisado: no cambia negocio, permisos, contratos, datos ni sincronización. No agrega lecturas, queries, joins, subscriptions, polling, refreshes ni escrituras; el costo de Supabase y los round-trips permanecen iguales.
+- Se amplió `tests/ruta-mensual-calendar.spec.ts` para comprobar estado compacto/expandido, anchos 72/288 px, botones visibles, etiquetas ocultas/visibles, módulo activo, separación del contenido y los 31 días sin scroll horizontal.
+- Skills aplicadas: `10-context/image-context`, `11-design/modern-saas-premium-redesign`, `02-testing-e2e/accessibility-audit`, `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/playwright-testing`, `06-performance/performance-optimization` y `09-encoding/utf8-standard`.
+- Validación: ESLint dirigido sin errores, Playwright móvil/escritorio 2/2, inspección visual del screenshot a 1920 x 1080, `npm run build`, `npm run cf:build`, `npm run docs:check-encoding` y `npm run hooks:install` exitosos. El typecheck global conserva errores preexistentes en pruebas ajenas a esta superficie; el build de producción valida correctamente el código entregado.
+- Reconciliación: Requirement 17, diseño de navegación y tarea `0.1.6` quedaron alineados con el riel persistente, sin marcar nuevo alcance incompleto como terminado.
+- Despliegue: Cloudflare Worker `a37aaf62-fa53-495f-af06-724aef1c7db7` publicado en `beteele-one.com`.
+
+### 2026-08-15 - Cuotas recurrentes de visitas por supervisor y PDV
+
+- Se sustituyeron las cuotas semanales incrustadas en `ruta_semanal.metadata` por `ruta_cuota_supervisor_pdv`, una fuente efectiva por mes con historial: la última versión continúa en los meses futuros hasta que se registre un cambio y los periodos anteriores permanecen inmutables.
+- La RPC transaccional `guardar_ruta_cuotas_supervisor` valida cuenta, supervisor, PDVs y valores enteros, serializa cambios concurrentes, cierra la vigencia previa y sólo permite escritura con `service_role`; ADMINISTRADOR y COORDINADOR pueden gestionar cuotas, mientras la aprobación de rutas sigue limitada a COORDINADOR.
+- La migración remota dejó 383 vigencias abiertas para 21 supervisores con tiendas, incluyendo 305 pares operativos activos y 0 pares activos faltantes. El backfill conservó los valores legados; no se inventaron cuotas positivas donde el dato existente era cero.
+- War Room, alcance mensual, cobertura y ranking consumen la misma versión vigente. La aprobación de rutas ya no puede sobrescribir cuotas accidentalmente y guardar cuotas no crea ni cambia rutas.
+- Se reemplazaron las tarjetas grandes por una lista compacta con filtros inmediatos, asignación masiva sobre filas visibles, ajuste individual, vigencia explícita y controles táctiles de 44 px. La pantalla de cuotas usa una proyección ligera y difiere rutas, visitas, agenda e historial hasta entrar a esas superficies.
+- Se eliminó el fallo de carga causado por URLs con cientos de UUIDs en consultas de agenda; ahora se filtra por cuenta y fecha. La respuesta administrativa de cuotas bajó de 15.49 MB a 153 KB y de aproximadamente 3.4 s a 0.8–1.3 s, sin polling, suscripciones ni consultas por fila.
+- Se documentó la decisión en `docs/adr/0002-recurring-supervisor-visit-quotas.md` y se reconciliaron Requirement 18 y tareas `3.2.12` a `3.2.15` con implementación verificable.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy`, `06-performance/performance-optimization`, `02-testing-e2e/playwright-testing`, `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/accessibility-audit`, `07-architecture-decision-records/adr-templates`, `09-encoding/utf8-standard`, `10-context/image-context`, `11-design/modern-saas-premium-redesign` y `00-meta/brainstorming`.
+- Validación: prueba transaccional de vigencias con rollback, Vitest focalizado 10/10, Playwright móvil/escritorio 4/4 local y 4/4 autenticado en producción, ESLint dirigido sin errores, `npm run build`, `npm run cf:build`, `npm run docs:check-encoding` y `npm run hooks:install` exitosos. El typecheck global conserva errores preexistentes fuera de rutas, sin errores nuevos en la superficie modificada.
+- Despliegue: migración aplicada en Supabase y Cloudflare Worker `a38ab413-d335-4907-aa66-6f3a9797b75b` publicado en `beteele-one.com`.
+
+### 2026-08-23 - Primer corte de Planeación Mensual e incapacidades I/IS
+
+- Se auditó el flujo activo de asignaciones, resolvedor diario, Solicitudes y Asistencias antes de diseñar la sustitución. La edición mensual se definió como comando temporal sobre fuentes estructurales con recalculo incremental de `asignacion_diaria_resuelta`, no como una edición huérfana de la tabla derivada.
+- Se agregó Requirement 19, el backlog detallado de Fase 8 y el ADR 0003. El contrato incluye liberar/asignar/mover DC, cambios efectivos hoy o a futuro, PDV `POR_CUBRIR`, rotaciones, turnos, descansos, baja de supervisor, propagación downstream y una consulta mensual general cacheada por versión sin polling.
+- Se sustituyó la regla de cuotas: la cuota mensual del PDV se desglosa por día y la cuota individual suma sólo días efectivamente laborados en ese PDV. Ausencias o vacantes dejan cuota no atribuida, salvo cobertura diaria efectiva; no existe redistribución ficticia.
+- Se creó la migración de fundación `20260823110000_planeacion_mensual_fundacion.sql` con lotes/operaciones, vigencias de PDV y rotación, catálogo de turnos, cargas y cuotas diarias, atribución diaria, snapshot mensual, outbox, índices y RLS. No fue aplicada: el repositorio no está vinculado a un proyecto Supabase y no hay Docker/local Postgres disponible para validar SQL.
+- Se redujo la nomenclatura de incapacidad a `I = INICIAL` e `IS = SUBSECUENTE`. Solicitudes exige la clasificación observada en el formato, registra actor/puesto/fecha/fuente, bloquea los handoffs documentales finales cuando falta y Asistencias deja de inferir códigos por duración o continuidad. La migración `20260823100000_incapacidad_clasificacion_simple.sql` refuerza el contrato en PostgreSQL y queda pendiente de aplicación.
+- Rendimiento: el corte no agrega consultas de runtime. La arquitectura prevista usa una consulta agregada cacheada por `cuenta + mes + filtros + ui_change_version`, invalidación por evento y detalle diferido. La materialización futura se limita a `empleados × fechas` afectados.
+- Skills aplicadas: `09-encoding/utf8-standard`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy`, `04-security-audit/api-security-audit` y `08-workflow/brainstorming-features`.
+- Validación: pruebas focalizadas 8/8, `npm run build`, `npm run cf:build`, `npm run docs:check-encoding`, `npm run hooks:install` y `git diff --check` exitosos. El typecheck global conserva errores preexistentes fuera del corte en pruebas de auth, dashboard, reportes, usuarios, offline y Playwright; no reporta errores en las superficies modificadas. `supabase db lint` no pudo ejecutarse por ausencia de Postgres local y `db push --dry-run` no pudo conectarse por falta de vínculo del proyecto.
+- Reconciliación conservadora: no se marcaron como completos los items nuevos de Fase 8 mientras las migraciones no estén aplicadas y validadas en una base desechable o vinculada.
+
+### 2026-08-23 - RPC transaccional y aplicación remota de la fundación mensual
+
+- Se detectó que el historial remoto de `supabase_migrations` no representa todas las estructuras ya operativas; `db push --include-all` habría intentado aplicar decenas de migraciones históricas. Se evitó esa ruta y se aplicaron exclusivamente `20260823100000`, `20260823110000` y `20260823120000`, registrándolas atómicamente en el historial remoto.
+- Antes de persistir, las migraciones de incapacidad y fundación se ejecutaron completas dentro de una transacción con `lock_timeout`, `statement_timeout` y `ROLLBACK`. La validación confirmó dependencias, 1,606 asignaciones `BASE`, 10 incapacidades ya clasificadas y cero formalizadas sin clase.
+- La RPC `previsualizar_planeacion_mensual` valida cuenta, mes, actor operativo, PDVs, rangos, motivo y naturaleza; simula asignaciones efectivas por día y rechaza empates de prioridad con `DC_DOBLE_ASIGNACION`.
+- La RPC `aplicar_planeacion_mensual` usa advisory lock por cuenta, idempotency key, versión optimista, lote/operaciones, cierre o creación de asignaciones, dirty queue incremental, `ui_change_version`, outbox y `audit_log` dentro de una sola transacción.
+- Las Server Actions nuevas limitan preview y aplicación a ADMINISTRADOR/COORDINADOR, validan el alcance de cuenta, usan `service_role`, procesan hasta 100 trabajos pendientes después del commit e invalidan únicamente la etiqueta `planeacion-mensual:cuenta:mes`.
+- Seguridad remota verificada: `authenticated` no tiene EXECUTE sobre preview ni aplicación; `service_role` sí. Las tablas nuevas conservan RLS y no conceden INSERT/UPDATE/DELETE directo al rol autenticado.
+- Pruebas remotas: preview PostgREST válido, rechazo origen=destino, rechazo de doble asignación en siete fechas laborables, conflicto de versión con cero lotes persistidos y aplicación completa bajo `ROLLBACK`. El preview de una operación midió 0.027 ms de planeación y 10.632 ms de ejecución con datos actuales.
+- Validación local: 12/12 pruebas focalizadas, ESLint dirigido sin hallazgos, `npm run build`, `npm run cf:build`, `npm run docs:check-encoding` y `npm run hooks:install` exitosos. Los archivos nuevos pasan revisión de whitespace; el chequeo que incluyó `AGENT_HISTORY.md` conserva dos espacios finales preexistentes en las líneas históricas 304 y 9675, fuera de este corte.
+- Reconciliación: quedan completos los bloques canónicos `8.1` y `8.5`. El siguiente corte es `8.2`: read model/RPC mensual general, caché por versión y detalle diferido antes de construir la matriz visual.
+
+### 2026-08-23 - Read model cacheado y detalle diferido de Planeación Mensual
+
+- Se implementó y aplicó `20260823140000_planeacion_mensual_read_model.sql`: índices de lectura, regeneración completa o selectiva de `planeacion_mensual_snapshot_fila`, RPC general por cuenta/mes/filtros y RPC diferida por PDV/fecha. El snapshot remoto de agosto contiene 339 filas vigentes: segmentos de DC y filas `POR CUBRIR`, cada una con 31 días.
+- La proyección diaria usa `I` o `IS` según la clasificación documental registrada, incluye códigos operativos, turnos/colores, cuota diaria y cuota individual, y conserva el detalle estructural/operativo completo para la apertura de una celda.
+- Se agregó `planeacionMensualReadService.ts` con contratos estrictos, validación de respuestas desconocidas, una sola RPC inicial envuelta en `unstable_cache` sin vencimiento temporal y etiqueta selectiva `planeacion-mensual:cuenta:mes`. No hay polling, refresco por foco, consulta por fila ni side effects de escritura durante lecturas.
+- La Server Action de publicación procesa la cola materializada, regenera sólo los PDVs origen/destino afectados e invalida la caché únicamente cuando se detecta un cambio. Una repetición idempotente sin trabajo pendiente conserva el snapshot y la caché actuales.
+- Se expusieron `/api/asignaciones/planeacion-mensual` y `/api/asignaciones/planeacion-mensual/dia` para ADMINISTRADOR/COORDINADOR, con validación de cuenta, alcance, UUIDs, mes, fecha, filtros y límites. Las RPC sólo conceden `EXECUTE` a `service_role`; `anon` y `authenticated` no pueden invocarlas directamente.
+- La primera medición remota devolvió 339 filas en ~1.05 s y 4.0 MB. Se aplicó `20260823150000_planeacion_mensual_resumen_compacto.sql`, que deja cada día como tupla `[fecha, código, turno, color, cuotaPDV, cuotaDC]`; el resultado bajó a ~670 KB (-83 %) y ~0.74 s en frío. El detalle de celda midió ~0.13 s.
+- Impacto de costo: una lectura cacheable por combinación de cuenta/mes/filtros; cero suscripciones, polling o refresh automático. La escritura agrega una regeneración selectiva de snapshot después del materializador y ninguna consulta pesada durante navegación.
+- Skills aplicadas: `09-encoding/utf8-standard`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy`, `06-performance/performance-optimization` y `04-security-audit/api-security-audit`.
+- Validación: SQL completo bajo transacción y `ROLLBACK`, permisos remotos, forma y peso del contrato, 20/20 pruebas focalizadas, ESLint dirigido, `npm run build` y `npm run cf:build` exitosos. El typecheck global conserva errores preexistentes en pruebas ajenas; el build de producción no reporta errores nuevos.
+- Reconciliación: `8.2.1` y `8.2.2` quedan completos. `8.2.3` y `8.2.4` permanecen pendientes hasta construir y validar la matriz visual desktop/móvil con su leyenda y detalle interactivo.
+
+### 2026-08-23 - Matriz visual y editor transaccional de Planeación Mensual
+
+- Se sustituyó la portada administrativa de `/asignaciones` por `PlaneacionMensualPanel` para ADMINISTRADOR y COORDINADOR. SUPERVISOR y LOGISTICA conservan el calendario anterior, evitando ampliar permisos o retirar una superficie operativa existente.
+- La matriz sigue la referencia visual entregada: columnas de Cadena, Tienda, Rol/factor, DC, vigencia, turno/descanso y supervisor; calendario diario central; días laborados y cuotas al final. En escritorio congela las cuatro columnas principales y en móvil conserva celdas táctiles de 44 px con scroll horizontal.
+- Los filtros de texto, cadena, supervisor y estado se ejecutan sobre el snapshot ya recibido. Cambiar filtros no crea lecturas ni navegaciones; sólo cambiar de mes solicita otra proyección cacheada. La recarga manual queda disponible como acción explícita.
+- Cada celda muestra el código operativo y, cuando existe, el turno resuelto con color. La leyenda incluye `1`, `D`, `COV`, `FOR`, `I`, `IS`, `VAC`, `JUS`, `SIN`, `PC` y los turnos `M`, `TCM`, `TC`, `TC_12`, `TCV`, `V1`, `V`, `ES1/ACT`, `CAP`, `VC` y rango directo.
+- El detalle PDV/fecha se solicita sólo al abrir una celda y muestra cuota diaria, personas resueltas, estado, origen, naturaleza, rol, factor, horario y mensaje operativo. Escape cierra el modal y devuelve el foco al disparador.
+- El editor permite `ASIGNAR_DC`, `LIBERAR_DC` y `MOVER_DC` con fecha efectiva, origen/destino, naturaleza, rol, factor, turno, descanso y motivo. La confirmación permanece deshabilitada hasta recibir preview válido; después usa versión optimista e idempotency key. Los meses anteriores quedan en consulta para no reescribir históricos.
+- Rendimiento observado con datos reales de agosto: 339 filas y 10,509 celdas; navegación SSR local ~1.4-2.3 s incluyendo middleware/compilación y detalle caliente ~0.30 s. No se agregaron polling, realtime, consultas por fila ni round-trips al filtrar.
+- Skills aplicadas: `10-context/image-context`, `11-design/modern-saas-premium-redesign`, `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/accessibility-audit`, `02-testing-e2e/playwright-testing`, `05-code-review/nextjs-app-router-patterns`, `05-code-review/typescript-strict-typing`, `06-performance/performance-optimization` y `09-encoding/utf8-standard`.
+- Validación: inspección visual de capturas reales desktop/móvil, preview remoto de liberación sin publicar cambios, Playwright 2/2, Vitest focalizado 9/9, ESLint dirigido y `npm run build` exitosos. Ninguna operación de asignación fue confirmada durante las pruebas.
+- Reconciliación: `8.2`, `8.2.3`, `8.2.4` y `8.3.1` quedan completos con respaldo en UI, Server Actions, RPC y E2E. Continúan pendientes los cambios de estado/rotación/descanso/horario, eventos, sustitución de supervisor y cuotas XLSX.
+
+### 2026-08-23 - Importador XLSX y atribución diaria de cuotas
+
+- Se agregó el importador mensual dentro de la matriz con plantilla autenticada, carga XLSX, vista previa obligatoria, resolución de BTL contra el alcance vigente de la cuenta, rechazo total ante mes, duplicado, PDV, peso o monto inválido y confirmación explícita del lote.
+- El contrato recibe una cuota por PDV/mes y pesos opcionales `LUN` a `DOM`. La distribución usa centavos enteros y mayor residuo para que la suma diaria coincida exactamente con la cuota mensual, incluso en febrero bisiesto; una cuota vacía omite el PDV y un peso cero excluye ese día.
+- Se aplicó remotamente `20260823160000_planeacion_mensual_cuotas_import.sql`. La RPC `aplicar_cuotas_mensuales` serializa por cuenta/mes, usa hash semántico idempotente, reemplaza sólo PDVs incluidos, bloquea cuotas cerradas, escribe `cuotas_diarias_pdv`, recalcula `cuota_asignacion_diaria_dc`, registra `audit_log`, publica outbox y toca la versión mensual.
+- La atribución consume exclusivamente `asignacion_diaria_resuelta` con `ASIGNADA_PDV` y `trabaja_en_tienda = true`. Días sin cobertura quedan no atribuidos; si existe cobertura simultánea excepcional, divide la cuota al centavo entre participantes para conservar el invariante del PDV.
+- El snapshot se regenera únicamente para los PDVs importados y se invalida la etiqueta de la cuenta/mes. No hay polling ni lecturas durante render; el catálogo se consulta una sola vez al descargar o validar. La consulta de 337 PDVs midió 0.555 ms de ejecución y la propagación genérica se redujo a cuatro cambios de versión por cuenta.
+- Seguridad remota: `anon` y `authenticated` no tienen `EXECUTE`; sólo `service_role`. Una prueba transaccional con `ROLLBACK` generó 30 días que sumaron exactamente $31,000 y confirmó idempotencia en la segunda llamada sin persistir datos de prueba.
+- La plantilla se verificó visualmente con Spreadsheets/artifact-tool: encabezado operativo, moneda, pesos editables resaltados, paneles congelados, validaciones y hoja de instrucciones. La ruta dinámica usa ExcelJS sólo al solicitar la descarga y quedó validada en OpenNext/Workers.
+- Skills aplicadas: `spreadsheets:Spreadsheets`, `01-testing-tdd/test-driven-development`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy`, `06-performance/performance-optimization`, `04-security-audit/api-security-audit`, `02-testing-e2e/playwright-testing` y `09-encoding/utf8-standard`.
+- Validación: Vitest focalizado 16/16 con 150 casos de propiedad, Playwright móvil/escritorio/importador 3/3, ESLint dirigido, `npm run build`, `npm run cf:build`, permisos y EXPLAIN remotos exitosos. Reconciliación: `8.4.1` y `8.4.2` quedan completos; `8.4.3` sigue pendiente hasta integrar dashboards y exportaciones agregadas.
+
+### 2026-08-23 - Cierre end-to-end de Planeación Mensual
+
+- Se extendió el contrato de la matriz a nueve comandos: `ASIGNAR_DC`, `LIBERAR_DC`, `MOVER_DC`, `CAMBIAR_ROTACION`, `CAMBIAR_DESCANSO`, `CAMBIAR_HORARIO`, `CAMBIAR_ESTADO_PDV`, `AGREGAR_EVENTO` y `REASIGNAR_SUPERVISOR`. Todos exigen preview, versión optimista, idempotencia, motivo y alcance de cuenta antes de publicar.
+- La rotación soporta grupos explícitos de dos o tres PDVs con posiciones `A/B/C`; los cambios temporales conservan y restauran la configuración anterior. Estados, turnos y descansos usan vigencias efectivas y alimentan la misma cola incremental de `asignacion_diaria_resuelta`.
+- Las altas y bajas de DC reutilizan el ciclo de vida real de empleados: una baja trunca la asignación en su fecha efectiva, crea la cobertura `POR CUBRIR`, cancela movimientos futuros incompatibles y recalcula únicamente PDVs/meses afectados. Las altas o reactivaciones invalidan el catálogo compacto para que la DC quede disponible sin una segunda consulta de matriz.
+- El ciclo de vida de PDV quedó centralizado en RPCs de servicio para sincronizar estado, supervisor y cola diaria. Una pausa se conserva como `TEMPORAL` en el campo legado, pero la frontera de lectura la normaliza a `PAUSADO`, habilitando filtro y distintivo correctos sin migrar históricos.
+- Los eventos independientes se persisten en la fuente activa de formaciones y llegan al resolvedor compartido. Asistencias conserva la prioridad exacta `FORMACION > INCAPACIDAD > VACACIONES > JUSTIFICACION > COBERTURA_TEMPORAL > COBERTURA_PERMANENTE > BASE > SIN_ASIGNACION`; una formación desplaza la tienda y nunca genera falta ordinaria.
+- La baja de un supervisor exige sucesor cuando existen PDVs vigentes. La sustitución versiona `supervisor_pdv`, asignaciones y jerarquía de DC, y publica cambios acotados para app móvil, Asistencias, formularios públicos, Ventas, LOVE ISDIN, productos/materiales, canjes, rutas, Dashboard y Reportes.
+- Se aplicaron remotamente `20260823170000_planeacion_mensual_operaciones_extensas.sql`, `20260823172000_planeacion_cuota_resumen_persistido.sql`, `20260823173000_planeacion_mensual_catalogos_compactos.sql` y `20260823174000_planeacion_ciclo_vida_pdv.sql`. Las RPC críticas sólo conceden `EXECUTE` a `service_role` y las tablas nuevas mantienen RLS.
+- Las cuotas agregadas de PDV y DC se materializan al importar, cambiar asignaciones o confirmar ventas. Dashboard, Reportes y el XLSX operativo leen esas tablas persistidas; no recorren `asignacion_diaria_resuelta` en cada navegación. La base remota todavía no tiene meses de cuotas diarias publicados, por lo que las tablas agregadas permanecen correctamente vacías hasta el primer lote.
+- Rendimiento y costo: la matriz mantiene una sola RPC general cacheada por cuenta/mes y versión, catálogos compactos dentro del mismo contrato, filtros locales, detalle diferido y cero polling/realtime/refresco por foco. `EXPLAIN ANALYZE` midió 0.546 ms para el snapshot limitado y 0.030 ms para el resumen persistido de cuotas.
+- La verificación real en PostgreSQL ejecutó preview, aplicación de horario, segunda aplicación idempotente, cambio visible en el snapshot, regla de un PDV por DC/día, cascadas de PDV/supervisor, rechazo cross-tenant, RLS y permisos; todo se revirtió y se confirmó que no quedó lote de prueba.
+- Skills aplicadas: `01-testing-tdd/test-driven-development`, `02-testing-e2e/playwright-testing`, `02-testing-e2e/tailwind-mobile-first`, `04-security-audit/api-security-audit`, `05-code-review/nextjs-app-router-patterns`, `05-code-review/typescript-strict-typing`, `06-performance/performance-optimization`, `06-performance/sql-indexing-strategy` y `09-encoding/utf8-standard`.
+- Validación final: Vitest focalizado 61/61, Playwright desktop/móvil 4/4, ESLint dirigido sin errores, prueba transaccional remota con rollback, `npm run build`, `npm run cf:build`, `npm run hooks:install` y `npm run docs:check-encoding` exitosos. Se reconciliaron `8.3`, `8.4` y `8.6`; la Fase 8 queda completa. La tarea `7.10` sigue abierta porque corresponde a configurar el Cron Trigger en el despliegue, no a la implementación de Planeación Mensual.
+
+### 2026-08-24 - Despliegue productivo y Cron Trigger de Planeación Mensual
+
+- Se auditó el worktree antes de desplegar: aunque el branch conserva deuda histórica no comprometida, únicamente 52 archivos de producto habían cambiado después de la última versión productiva y todos pertenecían al corte validado de Planeación Mensual e incapacidades.
+- Se agregó `cloudflare-worker.mjs` como entrypoint estable sobre el Worker generado por OpenNext. El handler `fetch` conserva el comportamiento web y `scheduled` invoca internamente `/api/asignaciones/scheduled-publication` mediante `waitUntil`, sin exponer la credencial en URL o logs.
+- `wrangler.jsonc` declara el cron `15 8 * * *`, equivalente a las 02:15 de Ciudad de México. La ejecución diaria recalcula únicamente mes actual y siguiente y reutiliza materialización, cuotas persistidas, snapshots e invalidación selectiva; no agrega polling ni lecturas por navegación.
+- Se creó el secreto productivo `ASIGNACIONES_CRON_SECRET`. La ruta exige el header `x-asignaciones-cron-secret`; el smoke test externo sin credencial devolvió HTTP 401.
+- TDD del handler: cuatro pruebas cubren request autenticado, ausencia de secreto, fallo HTTP y respuesta exitosa. La barrera completa quedó en 65/65 pruebas, ESLint dirigido, `npm run build`, `npm run cf:build`, dry-run Wrangler, verificación PostgreSQL con rollback y UTF-8 válido.
+- Cloudflare desplegó al 100 % la versión `746a217f-50e7-4315-b1fe-b4f6d318f41e`, con startup de 29 ms, handlers `fetch + scheduled`, cron confirmado y login productivo HTTP 200. La versión de rollback registrada es `0d65e195-0887-441d-99f1-f2238c90c9cf`.
+- Skills aplicadas: `01-testing-tdd/test-driven-development`, `04-security-audit/api-security-audit`, `05-code-review/nextjs-app-router-patterns`, `05-code-review/typescript-strict-typing`, `06-performance/performance-optimization` y `09-encoding/utf8-standard`.
+- Reconciliación: `7.10` y `7.10.1` quedan completos con implementación y despliegue verificables.
+
+### 2026-08-24 - Continuidad mensual y bajas futuras efectivas
+
+- La matriz ya permite abrir la edición maestra desde PDV, DC y supervisor. Una versión sin fecha final continúa hacia los meses posteriores hasta el siguiente cambio; la fecha final explícita mantiene el uso temporal.
+- Se corrigió la proyección inicial de septiembre: el proxy autenticaba por error el endpoint técnico antes de validar `x-asignaciones-cron-secret`, por lo que el cron recibía 401 y no generaba el siguiente mes. El endpoint conserva su secreto propio y ahora atraviesa únicamente esa frontera de sesión.
+- La puesta al día productiva generó agosto y septiembre para 162 asignaciones publicadas y 136 empleados. La prueba E2E autenticada confirmó que septiembre contiene filas heredadas y abre el editor maestro.
+- El cron dejó de reconstruir diariamente meses sin cambios: consulta la existencia de snapshots vigentes mediante índices y sólo materializa cuando falta la proyección o se aplicó un cambio efectivo. La primera generación tardó 3.2 minutos; la ejecución estable sin cambios bajó a 0.49-1.24 segundos con cero filas materializadas.
+- Las bajas futuras capturan último día laborado y derivan el primer día inactivo. Nómina puede preaprobar sin suspender acceso; la función `aplicar_bajas_empleado_vigentes` activa `BAJA` en empleado/usuario y la sesión bloquea desde medianoche aunque el cron aún no haya corrido.
+- Ruta semanal usa un catálogo compacto cacheado por supervisor y semana, con `diasDisponibles` exactos. La validación de guardado también opera por fecha de visita, evitando que una semana agosto-septiembre exponga PDVs al supervisor incorrecto.
+- Migración `20260824120000_empleado_baja_programada.sql` validada con rollback y aplicada en Supabase. Validaciones: 11/11 pruebas focalizadas, E2E local y productivo 1/1, ESLint dirigido sin errores nuevos, `npm run build`, `npm run cf:build`, UTF-8 y despliegue Cloudflare exitosos.
+- Despliegue: Worker `de7246c7-7f12-4abe-b7cc-3c88050b5cab` activo en `beteele-one.com` con cron `15 8 * * *`.
+
+### 2026-08-24 - Rotación maestra centrada en PDV
+
+- Se auditó `CAMBIAR_ROTACION`: la UI anterior sólo versionaba clasificación, factor y un código manual para un PDV; no capturaba la pareja, DC, días ni turno, por lo que no producía el calendario operativo solicitado.
+- El PDV queda formalizado como raíz de planeación. El editor muestra el supervisor efectivo heredado y configura, desde una sola ventana, dos o tres PDVs, DC por integrante, patrón `L-M-X / J-V-S`, patrón inverso o personalizado y turno estándar/rango directo.
+- La intención se expande en un lote atómico ordenado: cierre de asignaciones reemplazadas, versión de rotación de cada PDV y creación de asignaciones maestras `BASE`. La vigencia inicia en la fecha efectiva y continúa hasta el siguiente cambio; dejar una DC vacía mantiene el PDV `POR_CUBRIR`.
+- La validación local bloquea PDVs repetidos y evita usar la misma DC en días traslapados. Si la DC seleccionada proviene de un PDV ajeno al grupo, el editor muestra el origen y agrega su liberación al mismo lote; PostgreSQL conserva la validación transaccional definitiva de doble asignación y rollback total.
+- Rendimiento: no se agregaron tablas, índices ni lecturas iniciales. El editor reutiliza los catálogos y filas del snapshot mensual cacheado; sólo ejecuta una RPC de preview y una RPC de aplicación para el grupo, y la materialización permanece acotada a empleados, PDVs y vigencias afectados.
+- Skills aplicadas: `08-workflow/brainstorming-features`, `05-code-review/nextjs-app-router-patterns`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy`, `06-performance/performance-optimization`, `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/playwright-testing` y `09-encoding/utf8-standard`.
+- Validación: 12/12 pruebas unitarias focalizadas, Playwright de la matriz 5/5 más repetición focalizada local y productiva sobre el preview compuesto, preview real del lote rotativo sin confirmarlo, ESLint dirigido sin errores, `npm run build`, `npm run cf:build`, `npm run docs:check-encoding` y hook versionado correctos. El typecheck global aislado conserva errores preexistentes en pruebas ajenas, mientras el typecheck de producción de Next.js pasó.
+- Reconciliación: Requirement 19 criterios 21-23, diseño de rotación centrada en PDV y tarea `8.3.7` quedan completos. No se creó migración porque el contrato transaccional y las vigencias existentes ya soportan el lote compuesto.
+- Despliegue: Worker `a228bbee-4bfa-4270-ac7a-bc616fe58dc4` activo en `beteele-one.com`, con dominios y cron existentes conservados.
+
+### 2026-08-24 - Densidad compacta de Planeación Mensual
+
+- Se auditó la captura productiva de 1920 px: la cabecera consumía cerca de 370 px verticales y la tabla acumulaba aproximadamente 2,700 px por siete columnas maestras anchas, días de 48 px y resúmenes finales, obligando scroll horizontal.
+- En escritorio la matriz usa ahora `table-layout: fixed`: reserva 70/120/44/120 px para las cuatro columnas congeladas, compacta Vigencia, Turno y Supervisor, y distribuye el espacio restante entre los 28 a 31 días. Los offsets sticky fueron recalculados para la nueva geometría.
+- Las celdas diarias bajan a 28 px de alto en `xl`, con tipografía, punto de turno, bordes y radio proporcionales. En móvil conservan 44 px, ancho intrínseco y desplazamiento horizontal; los KPIs se organizan 2×2 para reducir altura sin reducir objetivos táctiles.
+- La cabecera, acciones, KPIs, selector mensual y filtros redujeron padding, gaps, tipografía y altura. La tabla comienza antes y su viewport vertical creció, sin quitar campos, leyendas, acciones ni nombres accesibles.
+- Rendimiento y costo: cambio exclusivamente CSS/JSX; cero queries, subscriptions, refreshes, estado o round-trips adicionales. Se mantiene `content-visibility` y se ajustó la altura intrínseca estimada de fila a 38 px.
+- Skills aplicadas: `10-context/image-context`, `11-design/modern-saas-premium-redesign`, `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/accessibility-audit`, `02-testing-e2e/playwright-testing`, `05-code-review/nextjs-app-router-patterns`, `06-performance/performance-optimization` y `09-encoding/utf8-standard`.
+- Validación visual y funcional: captura real local de 1920 px con agosto completo, columnas de resumen visibles y `scrollWidth <= clientWidth`; móvil conserva scroll y targets de 44 px. Playwright local 5/5 y smoke productivo 1/1, ESLint dirigido, `npm run build` y `npm run cf:build` correctos.
+- Reconciliación: Requirement 19.16, diseño de densidad visual y tarea `8.2.5` quedan completos.
+- Despliegue: Worker `931a11c3-8378-4dc1-b14a-f25a3dab66c0` activo en `beteele-one.com`, con cron y dominios existentes conservados.
+
+### 2026-08-24 - Cabecera operativa de Planeación Mensual en dos franjas
+
+- Se sustituyó la cabecera alta de tres bloques por una composición de dos franjas en escritorio: título, descripción y acciones en la primera; selector mensual, conteo, KPIs compactos y filtros en la segunda. La matriz comienza ahora cerca de 230 px en 1920 × 1080.
+- Los cuatro KPIs pasaron de tarjetas de ancho completo a chips de resumen; acciones, iconos, padding y tipografía usan densidad `xl` sin retirar información ni accesos. En móvil el contenido conserva reflujo vertical y objetivos táctiles de 44 px.
+- Rendimiento y costo: cambio exclusivamente JSX/CSS sobre los datos ya presentes; cero queries, joins, subscriptions, refreshes, estado cliente o round-trips adicionales. La consulta general cacheada y su invalidación por versión no cambian.
+- Skills aplicadas: `10-context/image-context`, `11-design/modern-saas-premium-redesign`, `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/accessibility-audit`, `02-testing-e2e/playwright-testing` y `09-encoding/utf8-standard`.
+- Validación: Playwright local 5/5 y smoke productivo 1/1; el contrato E2E exige tabla antes de 280 px y ausencia de overflow horizontal en 1920 px. ESLint dirigido, `npm run build`, `npm run cf:build`, `npm run docs:check-encoding`, `git diff --check` y hook versionado correctos.
+- Reconciliación: Requirement 19.24, diseño de densidad visual y tarea `8.2.6` quedan completos.
+- Despliegue: Worker `861a823c-cfd6-46e1-8f1d-2e4a0154c98c` activo en `beteele-one.com`, con cron y dominios existentes conservados.
+
+### 2026-08-26 - Selección masiva de PDVs en Planeación Mensual
+
+- Se auditó el editor vigente y se detectó que `REASIGNAR_SUPERVISOR`, aunque se abría desde una tienda, resolvía toda la cartera del supervisor. Se sustituyó el flujo de matriz por una selección explícita y única de `pdv_id`; la operación histórica de cartera completa permanece disponible fuera de este camino selectivo.
+- La columna Cadena integra casillas por PDV y “seleccionar visibles” sin ampliar el ancho mensual. Una barra contextual informa seleccionados totales/visibles y ofrece `Liberar DCs`, `Asignar supervisor` y `Limpiar`; la selección queda limitada a 100 PDVs y la validación bloquea lotes con más de 100 operaciones.
+- `Liberar DCs` expande una operación por asignación estructural vigente y deja cada PDV `POR_CUBRIR`. `Asignar supervisor` genera una operación por PDV, exige sucesor, fecha y motivo, y no permite dejar tiendas sin responsable ni publicar filas cuyo supervisor no cambiaría.
+- Se agregó la migración `20260826120000_planeacion_masiva_supervisor_pdvs.sql` con RPCs de preview/aplicación selectivas, idempotencia, versión optimista, lote, auditoría y outbox. La propagación programada de supervisor fue corregida para actualizar únicamente las DC con asignación en los `pdv_ids` del evento, no a todas las personas del supervisor origen.
+- La migración se validó primero con ejecución completa y rollback. La prueba transaccional dedicada reasignó un PDV, confirmó que otro PDV de la misma cartera quedó intacto, verificó idempotencia y revirtió todo; después se aplicó al Supabase remoto y se registró como versión `20260826120000` en `supabase_migrations.schema_migrations`.
+- Rendimiento y costo: cero lecturas iniciales nuevas, cero polling y cero consultas por fila. La selección usa el snapshot cacheado; cada lote agrega sólo una RPC de preview y una de confirmación. Las consultas se acotan a 100 IDs y reutilizan índices existentes de `supervisor_pdv`, `asignacion` y `cuenta_cliente_pdv`, por lo que no se agregó ningún índice.
+- Skills aplicadas: `08-workflow/brainstorming-features`, `05-code-review/nextjs-app-router-patterns`, `05-code-review/typescript-strict-typing`, `06-performance/performance-optimization`, `06-performance/sql-indexing-strategy`, `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/playwright-testing` y `09-encoding/utf8-standard`.
+- Validación: Vitest focalizado 15/15, Playwright local 6/6, smoke productivo del flujo masivo 1/1, prueba PostgreSQL selectiva con rollback, ESLint dirigido, `npm run build`, `npm run cf:build`, `npm run docs:check-encoding`, hook versionado y revisión visual correctos.
+- Reconciliación: Requirement 19.25, diseño de edición masiva por PDV y tarea `8.3.8` quedan completos.
+- Despliegue: Worker `a078548e-d823-43da-82b8-827bd717988a` activo en `beteele-one.com`, con cron y dominios existentes conservados.
+
+### 2026-08-26 - Ventana quincenal legible de Planeación Mensual
+
+- Se sustituyó el criterio anterior de comprimir los 28 a 31 días en escritorio. La matriz queda dividida en tres zonas: Cadena, Tienda, Rol, DERMOCONSEJERO, Vigencia, Turno/descanso y Supervisor fijos a la izquierda; calendario central desplazable; y Días laborados, Cuota PDV y Cuota DC fijos a la derecha.
+- La geometría de escritorio reserva anchos legibles para las columnas operativas, eleva su tipografía a 9–10 px y mantiene cada día en 44 px. A 1920 px se muestran 13–16 días completos, equivalentes a dos semanas, sin perder los totales ni la jerarquía del PDV.
+- Se agregaron controles accesibles para avanzar o retroceder 14 días. El mouse permite arrastrar sobre encabezados o celdas; un umbral de 5 px activa el desplazamiento y suprime el clic final, mientras un clic normal sigue abriendo el detalle y editor existentes. En táctil se conserva el scroll nativo y objetivos de 44 px.
+- Rendimiento y costo: cero lecturas, queries, joins, subscriptions o refreshes nuevos. La navegación opera exclusivamente sobre el DOM y reutiliza la única proyección mensual cacheada ya cargada; no cambia contratos, datos, permisos, Server Actions ni materialización.
+- Skills aplicadas: `10-context/image-context`, `11-design/modern-saas-premium-redesign`, `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/accessibility-audit`, `02-testing-e2e/playwright-testing`, `06-performance/performance-optimization` y `09-encoding/utf8-standard`.
+- Validación: ESLint dirigido sin errores, `npm run build`, `npm run cf:build`, Playwright local 6/6, smoke productivo 1/1, `npm run docs:check-encoding` y hook versionado correctos. La primera ejecución de `cf:build` encontró un bloqueo temporal de Windows sobre `.open-next` mientras el servidor local seguía activo; al cerrarlo, la misma barrera terminó correctamente.
+- Reconciliación: Requirement 19.16 fue sustituido de forma controlada, se agregó el criterio 19.26, se actualizó el diseño de densidad visual y la tarea `8.2.7` queda completa; `8.2.5` permanece como antecedente histórico explícitamente sustituido.
+- Despliegue: Worker `2a087c1f-a576-4e00-a1b9-03ccb69889f3` activo en `beteele-one.com`, con dominios y cron existentes conservados.
+
+### 2026-08-27 - Continuidad completa de la planeación maestra
+
+- Se identificó que la publicación programada leía el histórico completo de `asignacion` por REST y quedaba truncada por el límite de 1,000 filas: sólo proyectaba 162 asignaciones/136 DC aunque existían 259/217. Además, la presencia de cualquier fila de snapshot se interpretaba erróneamente como mes completo.
+- La carga quedó acotada al horizonte rodante de agosto a diciembre de 2026, reutiliza una sola lectura estructural, compara el conteo diario esperado y reconstruye meses incompletos en un intervalo consolidado con lotes de 25 empleados.
+- La reparación productiva dejó cada mes con 339 filas (259 asignaciones y 80 vacantes reales), 337 PDVs y 217 DC materializadas. Septiembre, octubre, noviembre y diciembre presentan cero diferencias estructurales frente a agosto mientras no exista un cambio efectivo.
+- Rendimiento: el estado estable revisa conteos indexados y omite materialización, cuotas y snapshots; la segunda ejecución terminó en aproximadamente 1.2 segundos. No se añadieron lecturas a la navegación, polling ni suscripciones.
+- Validación: 16 pruebas unitarias, Playwright 7/7, `npm run build`, `npm run cf:build` y UTF-8 correctos. Despliegue Cloudflare `d9f4c227-53f4-465b-8cc3-8234a6c575c5`.
+
+### 2026-08-27 - Token optimista correcto en reasignación masiva de supervisor
+
+- Se reprodujo `PLANEACION_VERSION_CONFLICT:1:0`: la matriz enviaba `planeacion_mensual_snapshot_fila.version_snapshot = 1`, pero PostgreSQL validaba el scope mensual de `ui_change_version = 0`. Ambos números eran válidos en sus dominios, pero el snapshot no era un token de escritura.
+- La migración `20260827110000_planeacion_preview_version_optimista.sql` agrega una RPC versionada que ejecuta la validación existente y devuelve `versionBase` desde `ui_change_version` en el mismo round-trip. La Server Action conserva ese token y los editores masivo e individual lo presentan al confirmar.
+- Se mantiene el control de concurrencia: si otro lote cambia la misma cuenta y mes después del preview, la confirmación aún falla y exige previsualizar de nuevo. No se fuerza ni consulta la versión al momento de aplicar.
+- Rendimiento y costo: siguen siendo exactamente una RPC de preview y una de confirmación; no se agregan queries iniciales, polling, refresh por foco, índices ni lecturas por PDV.
+- La prueba PostgreSQL reprodujo 21 PDVs con fecha efectiva 01/09/2026: `versionBase 0`, publicación `1`, 21 relaciones reasignadas y rollback completo, por lo que no alteró datos operativos.
+- La migración se validó con rollback, se aplicó al Supabase remoto y quedó registrada como `20260827110000` en `supabase_migrations.schema_migrations`.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `01-testing-tdd/test-driven-development`, `02-testing-e2e/playwright-testing`, `05-code-review/nextjs-app-router-patterns`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy`, `06-performance/performance-optimization` y `09-encoding/utf8-standard`.
+- Reconciliación: Requirement 19.28, diseño de edición masiva y tarea `8.3.10` quedan alineados con código, migración y prueba transaccional verificables.
+- Validación final: 60/60 pruebas unitarias del módulo, smoke Playwright productivo 1/1, `npm run build`, `npm run cf:build`, UTF-8 y hook versionado correctos. Worker `15249e2b-db51-4414-933d-a1065660c9ba` activo en `beteele-one.com`.
+
+### 2026-08-27 - Catálogo maestro de PDVs efectivo desde septiembre
+
+- Se analizó visual y estructuralmente `CATÁLOGO PDV ACT 2026.xlsx`: una hoja `PDV`, rango `A1:U340`, 339 filas sin claves BTL duplicadas. La comparación contra ISDIN México resolvió 332 PDVs existentes, 7 altas nuevas y 18 cadenas; los 12 PDVs de la base ausentes del archivo se conservaron sin cambios.
+- La importación quedó registrada en `pdv_catalogo_lote` y 339 snapshots de `pdv_detalle_vigencia`, todos con inicio `2026-09-01`, fin abierto y sin aplicación anticipada. Los campos vacíos preservan el valor vigente; las 7 altas permanecen inactivas hasta la fecha efectiva.
+- Se programaron 56 cambios de estado operativo, 76 cambios de supervisor sobre PDVs existentes más 7 asignaciones iniciales y 44 versiones de asignación de DC. Las relaciones de septiembre coinciden 339/339 con el catálogo fuente.
+- La cascada de supervisor cancela sólo visitas `PLANIFICADA` y eventos `PENDIENTE` desde la fecha efectiva, conserva el historial ejecutado y traslada las cuotas mensuales. La reconciliación final dejó 0 visitas futuras y 0 cuotas asociadas a supervisores distintos del catálogo de septiembre.
+- Las migraciones `20260827150000_pdv_catalogo_vigencia_y_cascada_rutas.sql` y `20260827160000_pdv_catalogo_integridad_rutas.sql` se validaron con rollback, se aplicaron a Supabase y se registraron en `supabase_migrations.schema_migrations`. El publicador diario aplica estado y jerarquía antes del detalle para preservar la naturaleza `TEMPORAL`.
+- Rendimiento y costo: la importación es una escritura administrativa única y transaccional; la publicación consulta sólo el índice parcial de snapshots pendientes. No se agregaron lecturas a la navegación, consultas por fila en UI, polling, realtime ni refrescos por foco.
+- Skills aplicadas: `spreadsheets:Spreadsheets`, `09-encoding/utf8-standard`, `06-performance/sql-indexing-strategy` y `05-code-review/typescript-strict-typing`.
+- Validación: inspección y render del XLSX, preview y aplicación transaccional, simulación completa del `2026-09-01` con rollback (`339` detalles, `56` estados y `0` diferencias), 16/16 pruebas focalizadas, ESLint dirigido sin errores, `npm run build`, `npm run cf:build`, UTF-8 y hook versionado correctos.
+- Reconciliación: Requirement 19.29, diseño de catálogo maestro efectivo y tarea `8.3.11` quedan respaldados por migraciones, importador, datos aplicados y verificaciones PostgreSQL.
+- Despliegue: Worker `7baffce9-1029-4db0-8c76-19e211c581d1` activo en `beteele-one.com`, con cron `15 8 * * *` conservado.
+
+### 2026-08-28 - Rol operativo de septiembre 2026 y baja explícita de PDVs ausentes
+
+- Se analizó `ROL SEP 2026.xlsx` como fuente de vigencia abierta desde el 01/09/2026: 266 PDVs del archivo, 245 asignaciones publicadas y 22 vacantes. El lote preserva agosto; no modifica registros efectivos antes del 01/09.
+- Se asignó la nómina `606` a PAULINA MITZY YARELY SOSA LOZANO. Se reactivaron desde septiembre las seis tiendas presentes en el archivo que estaban fuera del alcance activo y se versionaron asignación, cuenta-PDV, estado y detalle de catálogo.
+- La política explícita solicitada para ausencias dejó 77 PDVs adicionales como `INACTIVO` desde septiembre (78 inactivos totales al incluir uno que ya estaba inactivo). La reconciliación aguas abajo canceló 77 visitas `PLANIFICADA`, eliminó 15 cuotas futuras e hizo re-materializables 18 asignaciones liberadas; no había eventos de agenda pendientes.
+- Se corrigió el portal público de captura para filtrar `cuenta_cliente_pdv` por la vigencia del día tanto al cargar opciones como al validar el envío. Así un cambio futuro no puede aparecer ni aceptarse antes de su fecha efectiva.
+- Rendimiento: el cambio administrativo usa una transacción y staging temporal; no agrega polling, realtime ni lecturas por fila en las vistas. El filtro temporal del portal reutiliza la misma consulta de relación y sólo añade predicados indexables de vigencia.
+- Validación: preview transaccional y aplicación remota, comprobación posterior de 337 PDVs/259 asignaciones activos en agosto y 266 PDVs/245 asignaciones en septiembre, Vitest focalizado 13/13, Prettier, `npm run build`, `npm run cf:build` dentro del despliegue y UTF-8 correctos.
+- Reconciliación: no se modificaron checkboxes de `tasks.md` porque el corte aplica y verifica datos operativos sobre los contratos de planeación y catálogo ya implementados; los scripts `apply-rol-sep-2026.cjs` y `reconcile-rol-sep-2026-downstream.cjs` dejan el procedimiento repetible y auditable.
+- Despliegue: Worker `9ff7d3cf-bcbf-44fb-864d-edb8d506bc75` activo en `beteele-one.com`.
+
+### 2026-08-28 - Reconstrucción de la proyección mensual de septiembre
+
+- Se reprodujo la discrepancia de la matriz: la vigencia estructural de PAULINA MITZY YARELY SOSA LOZANO (nómina `606`) ya apuntaba a `BTL-FAH-PRGU-GU` desde el 01/09, mientras `asignacion_diaria_resuelta` aún la conservaba en `BTL-HEB-IRAP-TT` y el snapshot mensual seguía en la proyección anterior.
+- La migración `20260828160000_planeacion_snapshot_vigencia_programada.sql` conserva el generador compacto y lo envuelve para resolver `pdv_estado_vigencia` y `pdv_detalle_vigencia` en el primer día del mes consultado. Los PDVs efectivos `INACTIVO` quedan fuera del snapshot futuro y los reactivados aparecen activos, sin mutar `public.pdv` antes de su fecha efectiva.
+- El publicador programado acepta ahora `force=1` junto con el mes, protegido por el secreto existente. Este modo reconstruye sólo el mes solicitado, en lotes de 25 empleados, para corregir proyecciones administrativas sin aumentar lecturas de navegación ni ejecutar el horizonte completo.
+- Se reconstruyó septiembre: 210 empleados materializados y 339 filas generadas antes de aplicar el filtro efectivo; quedaron 261 PDVs visibles. La comprobación directa confirmó a Paulina/606 en F Ahorro Prol. Guerrero del 01 al 05 de septiembre, con origen `BASE`, y cero PDVs con vigencia `INACTIVO` dentro del snapshot visible.
+- Rendimiento: es una reparación explícita de una sola vez y una ruta administrativa acotada; el listado sigue consumiendo un snapshot cacheado y no se agregaron polling, consultas por fila ni refrescos automáticos.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `06-performance/sql-indexing-strategy`, `05-code-review/typescript-strict-typing` y `09-encoding/utf8-standard`.
+- Validación: ejecución de la migración en Supabase, Vitest focalizado 14/14, `npm run build`, `npm run cf:build`, verificación PostgreSQL de asignación y snapshot, y `npm run docs:check-encoding`.
+- Despliegue: Worker `17374fac-38d2-4ef1-b43c-50cd8b5809c6` activo en `beteele-one.com`.
+
+### 2026-08-28 - Catálogo de ruta semanal efectivo al cambiar de mes
+
+- Se reprodujo el caso de la primera semana de septiembre: el selector mensual incluye la semana `31/08–06/09` y, al abrir el lunes 31, resolvía correctamente pero de forma confusa la cartera vigente de agosto. Por ejemplo, los PDVs mostrados pertenecían al supervisor saliente hasta el 31/08 y cambiaban al sucesor desde el 01/09.
+- El canvas mensual ahora excluye explícitamente cualquier día fuera del mes elegido: se marca como “Fuera del mes”, no abre el selector de tiendas, no aparece en el borrador, no se replica y no se envía al guardar. El servidor aplica la misma regla y rechaza visitas fuera del periodo, por lo que no puede reintroducirse la cartera anterior mediante un cliente desactualizado.
+- El catálogo de rutas incorpora la versión de cambio de `ui_change_version` en su clave de caché. La importación de rol publica versiones para la cuenta y supervisores afectados; además se repararon 37 versiones para el lote de septiembre ya aplicado. Así cada cambio de catálogo/asignación invalida el catálogo de semanas del supervisor sin polling ni refrescos masivos.
+- Rendimiento: la consulta de versión es una lectura indexada y pequeña por apertura/cambio de semana; evita retener indefinidamente un catálogo con relaciones anteriores. Las consultas pesadas del catálogo siguen cacheadas por supervisor, semana y versión, sin lecturas por fila ni suscripciones.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy`, `02-testing-e2e/playwright-testing` y `09-encoding/utf8-standard`.
+- Validación: Vitest focalizado 10/10, Prettier, `npm run build`, `npm run cf:build`, UTF-8 correcto y verificación remota de 37 versiones de cambio. El descubrimiento de Playwright quedó bloqueado por una importación preexistente de `server-only` desde specs, antes de enumerar pruebas; no se modificó esa configuración ajena al corte.
+- Despliegue: Worker `f8893a9e-0976-40ac-8f88-84a6cfb881df` activo en `beteele-one.com`.
+
+### 2026-08-28 - Atribución histórica del portal público por supervisor efectivo
+
+- Se sustituyó la atribución basada en `empleado.supervisor_empleado_id` actual por un snapshot temporal en `captura_publica_registro`: cada captura conserva `asignacion_id` y `supervisor_empleado_id` resueltos por cuenta, dermoconsejera, PDV y `fecha_operativa`.
+- La consolidación automática quedó encadenada después de resolver la atribución. Asistencia, venta y LOVE ISDIN reciben el mismo supervisor efectivo y la fecha operativa; agosto conserva su responsable histórico y septiembre consume las asignaciones publicadas desde el 01/09.
+- El portal público carga vigencias de asignación en una sola consulta y reevalúa PDV/DC al cambiar la fecha. Los reportes de captura, ventas y LOVE filtran al supervisor en servidor mediante la atribución efectiva, evitando tanto la mezcla histórica como la serialización de datos de otros supervisores.
+- Se reconstruyeron por lotes las capturas existentes. La verificación productiva quedó en `0` capturas sin supervisor, `0` discrepancias sobre 15,633 asistencias, `0` sobre 133,900 ventas y `0` sobre 20,685 afiliaciones LOVE. Los 43 cambios de supervisor existentes entre 31/08 y 01/09 resolvieron correctamente en ambos días.
+- Rendimiento y costo: cada captura nueva agrega una resolución indexada y escrituras dirigidas sólo a sus derivados; no se incorporó polling, realtime ni refresh por foco. Los reportes de supervisor reducen lecturas al filtrar antes de paginar y la reparación histórica usa keyset, lotes de 2,000 y un corte máximo para no perseguir altas concurrentes.
+- Migración aplicada y registrada: `20260828203000_captura_publica_atribucion_supervisor_efectiva.sql`. El script repetible es `scripts/backfill-captura-publica-supervisor.cjs`.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `04-security-audit/api-security-audit`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy`, `09-encoding/utf8-standard` y `browser:control-in-app-browser`.
+- Validación: Vitest focalizado 15/15, prueba transaccional de migración con rollback, `npm run build`, `npm run cf:build`, comprobaciones PostgreSQL de integridad y smoke visual de producción del portal público. `tsc --noEmit` y ESLint global/dirigido mantienen hallazgos preexistentes en pruebas y archivos compartidos; el build productivo con TypeScript sí concluyó correctamente.
+- Reconciliación: no se modificaron checkboxes de `tasks.md`; el corte repara end-to-end la propagación ya exigida por Requirement 19.11 y preserva la vigencia diaria de Requirement 19.20.
+- Despliegue: Worker `528e62a2-e35d-42ae-9dfd-123218fc044f` activo en `beteele-one.com`, con cron y dominios existentes conservados.
+
+### 2026-08-30 - Autoselección pública de DC por PDV y asignación vigente
+
+- Se reprodujo el problema del formulario público: la UI filtraba filas crudas de `asignacion` en el navegador y sólo autoseleccionaba cuando encontraba exactamente una fila, por lo que versiones solapadas o duplicadas podían dejar la dermoconsejera vacía aunque la asignación publicada fuera inequívoca.
+- La carga ahora consulta únicamente asignaciones `PUBLICADA` vigentes para la fecha, cuenta y restricciones del link, resuelve prioridades estructurales, consolida versiones de la misma DC y separa conflictos reales entre personas distintas. La asignación se conserva aunque la fecha sea descanso, porque el formulario también registra vacaciones, incapacidad o falta sobre la relación estructural del PDV.
+- El selector manual de dermoconsejera se sustituyó por un campo de estado de solo lectura. Al elegir PDV muestra automáticamente nombre y vigencia; si falta asignación o existe empate de prioridad, informa el problema y no inventa una DC.
+- El servidor revalida `fecha + PDV + empleado` antes de insertar, por lo que un cliente manipulado no puede atribuir la captura a otra persona. Al cambiar la fecha se hace una sola consulta dirigida; no se agregaron polling, realtime, consultas por render ni migraciones.
+- Verificación real: `Sephora Antara` resolvió a `SAMANTHA YAEL LOPEZ ABAD` para `2026-08-30`; smoke visual desktop/móvil correcto. Validación: Vitest focalizado 17/17, `npm run build`, `npm run cf:build` y consulta Supabase real correctos. ESLint dirigido conserva hallazgos preexistentes del formulario y sus pruebas, ajenos a este corte.
+- Skills aplicadas: `01-testing-tdd/test-driven-development`, `02-testing-e2e/playwright-testing`, `02-testing-e2e/tailwind-mobile-first`, `04-security-audit/api-security-audit`, `05-code-review/nextjs-app-router-patterns`, `05-code-review/typescript-strict-typing`, `06-performance/performance-optimization`, `09-encoding/utf8-standard`, `10-context/image-context` y `browser:control-in-app-browser`.
+- Reconciliación: no se modificaron checkboxes de `tasks.md`; el corte corrige y verifica la propagación a formularios públicos ya cubierta por la tarea `8.3.4`, sin declarar funcionalidad nueva ni cerrar placeholders.
+
+### 2026-08-30 - Vigencia efectiva de septiembre en captura pública y Sanborns Metepec
+
+- Se reprodujo la discrepancia de septiembre con datos reales: `FELISA JUDITH RODRIGUEZ SALINAS` tiene asignación `PUBLICADA` desde `2026-09-01` al PDV `BTL-SAN-GALM-ME`, y el catálogo versionado de septiembre lo marca `ACTIVO`; el registro maestro del PDV aún estaba `INACTIVO`, por lo que el portal lo descartaba al leer sólo `pdv`.
+- La carga pública ahora recibe `fechaOperativa` para PDVs y resuelve en bloque `cuenta_cliente_pdv` más `pdv_detalle_vigencia`. La versión del catálogo vigente para la fecha aporta nombre y estado, permitiendo visualizar cambios programados de septiembre sin aplicar anticipadamente el catálogo maestro. La validación de envío usa la misma excepción versionada cuando el maestro aún está inactivo.
+- Se aplicó la migración `20260830130000_corregir_sanborns_galerias_metepec.sql`: el PDV `79200d1b-310a-4e20-a24f-4bb82bdfcf1e` y su detalle del 01/09 quedaron con nombre `Sanborns Galerías Metepec`, con evento de auditoría; `Sanborns Galerías` de Guadalajara (`BTL-SAN-GUAD-EC`) permaneció separado.
+- Rendimiento y costo: el cambio de fecha ejecuta dos lecturas acotadas en paralelo (relaciones vigentes y detalles versionados), ambas filtradas por cuenta, fecha e índices existentes; no agrega polling, realtime ni consultas por PDV. La ruta de envío evita la lectura de detalle cuando el maestro ya está activo.
+- Validación: 17/17 pruebas focalizadas y sin errores TypeScript en captura pública. La consulta PostgreSQL posterior confirmó relación de septiembre activa, detalle activo y asignación pública a Felisa; smoke visual local confirmó el catálogo de septiembre cargado (la automatización del selector nativo de fecha del navegador no expone el cambio de evento, por lo que no se generó captura falsa).
+- Skills aplicadas: `03-debugging/systematic-debugging`, `01-testing-tdd/test-driven-development`, `02-testing-e2e/playwright-testing`, `02-testing-e2e/tailwind-mobile-first`, `04-security-audit/api-security-audit`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy`, `06-performance/performance-optimization`, `09-encoding/utf8-standard`, `10-context/image-context` y `browser:control-in-app-browser`.
+- Reconciliación: no se modificaron checkboxes de `tasks.md`; el corte repara la implementación existente de la tarea `8.3.4` y deja la corrección de datos versionada, auditable y reversible mediante migración.
+
+### 2026-08-31 - Selección válida de DC cuando un PDV tiene cobertura doble
+
+- Se reprodujo `Palacio Santa Fe` el 31/08/2026: existen dos asignaciones `PUBLICADA`, ambas `BASE`, ambas con prioridad 100 y ambas con dermoconsejeras activas (`FERNANDA ESTEFANIA BOLAÑOS TREJO` y `SARAHI VERA DORADO`). El estado `CONFLICTO` era incorrecto para este escenario operativo permitido.
+- El resolvedor público conserva la prioridad y devuelve `SELECCIONABLE` cuando hay dos o más DC líderes activas en el mismo PDV. La UI muestra un selector de nombres y solicita que cada DC elija el suyo; los PDVs con una sola líder siguen autoseleccionándose y los casos sin DC disponible continúan bloqueados.
+- La Server Action acepta únicamente el `empleado_id` incluido entre los candidatos líderes del PDV/fecha. Así cada venta o captura queda asociada a la DC elegida sin abrir la puerta a empleados no asignados.
+- Rendimiento: no se agregan consultas ni suscripciones. La selección reutiliza la resolución ya cargada por PDV y sólo cambia el estado/selector en cliente; la validación server-side conserva las lecturas existentes.
+- Validación: 18/18 pruebas focalizadas, `npm run build`, `npm run cf:build`, `npm run docs:check-encoding` y `git diff --check` correctos. La prueba de regresión cubre empate seleccionable y preserva la prioridad de cobertura temporal.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `01-testing-tdd/test-driven-development`, `02-testing-e2e/playwright-testing`, `02-testing-e2e/tailwind-mobile-first`, `04-security-audit/api-security-audit` y `05-code-review/typescript-strict-typing`.
+- Reconciliación: no se modificaron checkboxes de `tasks.md`; el cambio extiende el flujo público existente cubierto por la tarea `8.3.4` sin alterar las reglas de publicación estructural.
+
+### 2026-08-31 - Traslado histórico de Olga Elizabeth a Palacio Durango
+
+- Se reprodujo la discrepancia con datos productivos: la asignación estructural de agosto ya apuntaba a `BTL-PAL-DURA-0M`, pero conservaba al supervisor anterior y las capturas de Olga seguían vinculadas a Palacio Polanco. Se encontraron 86 capturas (75 ventas, 4 LOVE ISDIN y 7 canjes), 17 asistencias y 75 ventas consolidadas para agosto.
+- La migración `20260831120000_trasladar_olga_palacio_durango_agosto.sql` actualizó de forma transaccional las asignaciones publicadas de agosto, la relación `supervisor_pdv`, asistencias, ventas, LOVE ISDIN, capturas públicas y la proyección `asignacion_diaria_resuelta` hacia Olga + Palacio Durango + Miguel Ángel Montagner Olivares. No se eliminaron filas ni se alteró septiembre; se conservaron IDs y se añadió trazabilidad en `metadata` y `audit_log`.
+- El PDV quedó normalizado como `Palacio Durango` para diferenciarlo en app y reportes. La migración `20260831123000_corregir_snapshot_olga_palacio_durango.sql` corrigió además los snapshots visuales del reporte que aún decían `Palacio Polanco`.
+- Rendimiento y costo: son dos migraciones administrativas transaccionales, acotadas por empleado, PDV y rango de agosto; no agregan lecturas por request, polling, realtime ni consultas nuevas al formulario público. Los índices existentes de `empleado_id`, `pdv_id`, `fecha_operativa` y metadata de captura soportan el traslado.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `01-testing-tdd/test-driven-development`, `02-testing-e2e/playwright-testing`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy` y `09-encoding/utf8-standard`.
+- Validación remota: 86 capturas, 17 asistencias, 75 ventas y 5 afiliaciones LOVE quedaron en Durango; 0 capturas de Olga permanecen en Polanco; las 27 filas laborables materializadas de agosto apuntan al nuevo PDV y supervisor; `Palacio Durango` y `Palacio Polanco` conservan claves distintas. Las migraciones quedaron registradas en `supabase_migrations.schema_migrations`.
+
+### 2026-08-31 - Traslado histórico de Felisa Judith a Sanborns Galerías Metepec
+
+- Se reprodujo la discrepancia productiva: la asignación de agosto de Felisa estaba en `BTL-SAN-TOLU-01` (Sanborns Toluca), aunque el PDV de Metepec (`BTL-SAN-GALM-ME`) ya existía para septiembre. El histórico de agosto contenía 130 capturas (98 ventas, 26 LOVE ISDIN y 6 canjes), 24 asistencias y 90 ventas consolidadas.
+- La migración `20260831140000_trasladar_felisa_sanborns_galerias_metepec_agosto.sql` trasladó en una transacción la asignación de agosto, relaciones de cuenta/PDV, detalle versionado del catálogo, supervisor del PDV, asistencias, ventas, LOVE ISDIN, capturas públicas y proyección diaria a Sanborns Galerías Metepec. Se conservaron IDs y se agregó auditoría/metadata; septiembre quedó intacto.
+- Se publicó una versión de catálogo y relación de cuenta efectiva del 01/08 al 31/08 con estado `ACTIVO`, manteniendo el maestro Metepec `INACTIVO` para no adelantar su alta estructural. Así el formulario público puede seleccionar Metepec en agosto y resolver automáticamente a Felisa.
+- Rendimiento y costo: una migración administrativa acotada por empleado, PDV y fechas, sin consultas nuevas por request, polling, realtime ni lecturas masivas de navegación; reutiliza índices de vigencia, empleado, PDV y fecha.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `01-testing-tdd/test-driven-development`, `02-testing-e2e/playwright-testing`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy` y `09-encoding/utf8-standard`.
+- Validación remota: 130 capturas, 24 asistencias, 90 ventas y 29 afiliaciones LOVE apuntan a Metepec; cero capturas y ventas de Felisa permanecen en Sanborns Toluca; el supervisor efectivo es `MIGUEL ANGEL FERNANDEZ SANCHEZ`; la página pública en producción serializa Metepec y Felisa para la fecha vigente. Migración registrada en `supabase_migrations.schema_migrations`.
+
+### 2026-08-31 - Resolver público de rotaciones por día laboral
+
+- Se reprodujo el caso de `F Ahorro La Purísima`: `KAREN MARISOL BETANCOURT BERNAL` tiene dos asignaciones publicadas, Metepec `LUN-MAR-MIE` y La Purísima `JUE-VIE-SAB`. El resolver público agrupaba primero por DC y elegía un solo PDV, ocultando La Purísima aunque correspondiera al día seleccionado.
+- El resolver ahora aplica `isAssignmentScheduledForDate` antes de agrupar por empleado. Así, el 31/08 devuelve Metepec y el 03/09 devuelve La Purísima, sin añadir lecturas, suscripciones ni cambios de contrato. La Server Action reutiliza la misma resolución para validar el registro.
+- Validación: prueba de regresión para rotación entre dos PDV, suite focalizada de captura pública 19/19, `npm run build`, `npm run cf:build`, `npm run docs:check-encoding` y `git diff --check` correctos. La suite unitaria global conserva 10 fallos preexistentes (PWA, R2, notificaciones, importación y dashboard); el E2E existente de captura conserva su expectativa antigua de título y no alcanza el flujo modificado.
+- Reconciliación: no se modificaron checkboxes de `tasks.md`; el corte corrige la resolución diaria de la funcionalidad pública ya cubierta por la tarea `8.3.4`.
+
+### 2026-09-01 - Envío robusto de evidencias LOVE ISDIN en captura pública
+
+- Se reprodujo el contrato del error mostrado en iPhone: Next.js presenta `An unexpected response was received from the server` cuando una Server Action recibe una respuesta no RSC, consistente con un Worker interrumpido por carga de procesamiento. La revisión productiva confirmó que los comentarios no son obligatorios: 975 de las últimas 1,000 capturas LOVE ISDIN consolidadas se guardaron sin observaciones.
+- Causa raíz: el selector nativo incorporaba inmediatamente la foto original al formulario mientras la conversión HEIC y la compresión seguían de forma asíncrona. El botón permanecía disponible y un envío rápido podía mandar la imagen original pesada al Worker. Escribir comentarios sólo introducía una espera accidental, por eso mitigaba el problema de forma inconsistente.
+- La UI ahora retira el archivo original antes del primer `await`, bloquea el envío mientras prepara evidencias, muestra estado y errores recuperables, y vuelve a adjuntar únicamente archivos ya comprimidos. Una barrera compartida de 2 MB evita que imágenes anómalas lleguen al pipeline costoso del Worker.
+- Backend: la Server Action valida el tipo y tamaño de cada evidencia antes de optimizarla. Un archivo no preparado devuelve un mensaje normal dentro del formulario en vez de agotar el Worker y activar el error de página.
+- Rendimiento y costo: no se agregaron lecturas, queries, polling, realtime ni refrescos. Se reduce el peso de red y el CPU de Cloudflare; Supabase conserva exactamente las mismas escrituras y contratos de captura.
+- Validación: 22/22 pruebas focalizadas, ESLint sin errores en los archivos tocados, `npm run build`, `npm run cf:build`, `npm run docs:check-encoding` y `git diff --check` correctos. La ejecución global de `tsc --noEmit` conserva errores preexistentes en pruebas ajenas; el build productivo TypeScript termina correctamente.
+- Despliegue: Cloudflare Worker de producción actualizado en la versión `7c3bb6fe-71d6-46b4-8dec-02c2bd93c64a`. Smoke posterior en `https://dermoconsejo.beteele-one.com/` confirmó el flujo LOVE ISDIN, el asset nuevo con HTTP 200 y cero errores de consola.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `05-code-review/typescript-strict-typing`, `02-testing-e2e/playwright-testing`, `09-encoding/utf8-standard` y `browser:control-in-app-browser`.
+- Reconciliación: no se modificaron checkboxes de `tasks.md`; el cambio repara el flujo existente de captura LOVE ISDIN cubierto por el módulo 22 y la propagación pública de la tarea `8.3.4`.
+
+### 2026-09-01 - Alta de Palacio Andares y asignación permanente de Sara Luz Ramírez del Toro
+
+- Se confirmó que `BTL-PAL-GDL-AND` no existía en el catálogo ni en el rol de septiembre. Se creó el PDV activo `Palacio Andares` para ISDIN México, con cadena `EL PALACIO DE HIERRO`, Guadalajara/Occidente, dirección, coordenadas, geocerca de 100 m, tolerancia de 5 minutos y relación visible desde el 01/09/2026.
+- La asignación publicada de `SARA LUZ RAMIREZ DEL TORO` (ID nómina 382) se corrigió de forma permanente desde F Ahorro Américas hacia Palacio Andares. Conserva modalidad `FIJA`, factor `1`, jornada `LUN-SAB`, descanso dominical y supervisión de `SILVIA BERENICE LOPEZ ESTRADA` (ID nómina 400). F Ahorro Américas quedó sin una asignación de Sara desde septiembre; no se programó una restauración en octubre.
+- La migración propaga la fuente estructural hacia relación de cuenta, detalle y estado versionado del PDV, `supervisor_pdv`, asignación diaria, snapshots mensuales, resumen de cuotas, outbox, versión de UI y `audit_log`. No había asistencias, ventas, LOVE ISDIN ni capturas públicas de Sara en septiembre al momento de la corrección; la migración conserva un traslado idempotente si llegaran a existir al reaplicarse.
+- Validación productiva: septiembre quedó con 26 días laborables de Sara en Palacio Andares y 0 en F Ahorro Américas; octubre–diciembre ya muestran continuidad permanente en Andares. El formulario público resuelve `Palacio Andares` con Sara Luz y la supervisora efectiva es Silvia Berenice.
+- Se detectó que la validación administrativa de una migración con `COMMIT` interno la ejecutó antes de la aplicación final. No se duplicaron PDVs ni registros operativos; se añadió `20260901111000_normalizar_auditoria_palacio_andares.sql` para mantener una sola observación visible y el PDV de origen correcto sin eliminar historial de auditoría. En adelante estas migraciones se validan en una base efímera o sin wrapper de rollback.
+- Rendimiento y costo: las escrituras se limitaron a un PDV, una DC y los rangos materializados afectados; se reutilizan tablas e índices existentes y no se añaden consultas, polling, realtime ni refrescos por render al formulario público.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `05-code-review/typescript-strict-typing`, `06-performance/sql-indexing-strategy`, `09-encoding/utf8-standard` y `02-testing-e2e/playwright-testing`.
+- Reconciliación: no se modificaron checkboxes de `tasks.md`; se aplicó una corrección de datos auditable que implementa la propagación requerida por Requirement 19.5, 19.6, 19.11 y 19.29.
+
+### 2026-09-03 - Ruta mensual diaria de supervisores
+
+- Se investigó el flujo vigente: cabeceras `ruta_semanal`, visitas por día ISO, envío semanal del
+  supervisor y calendario mensual administrativo ya agregado/lazy. La sustitución conserva esa
+  compatibilidad operativa, pero elimina la semana como unidad visible de captura y envío.
+- Se creó `ruta_mensual_envio`, la relación `ruta_mensual_envio_semana` y el vínculo por visita. El
+  RPC mensual valida cuenta, cartera, vigencia, fechas, duplicados, revisión concurrente y persiste
+  el mes en una sola transacción. La aprobación/liberación y el resumen mensual se resolvieron por
+  periodo exacto para aislar correctamente semanas limítrofes.
+- La aplicación del SUPERVISOR incorpora el acceso `Planificar Mes`, cuadrícula diaria, editor móvil
+  de tiendas, reordenamiento y envío único. El workspace reabre el borrador mensual y bloquea meses
+  aprobados; visitas pendientes o liberadas quedan fuera de `Mi Ruta Hoy` hasta aprobación.
+- Coordinación mantiene su calendario mensual, acciones masivas, detalle por día, notificación
+  consolidada y auditoría única. La aprobación semanal individual se deshabilita para contenedores
+  nacidos de un envío mensual.
+- Rendimiento/costo: cero polling o refresh por foco; catálogo y borrador se obtienen bajo una misma
+  carga cacheada por cuenta/supervisor/mes/versión, las consultas de cartera están acotadas por rango
+  y el calendario conserva RPC agregada con detalle bajo demanda.
+- Skills aplicadas: `09-encoding/utf8-standard`, `05-code-review/typescript-strict-typing`,
+  `06-performance/sql-indexing-strategy`, `06-performance/performance-optimization`,
+  `05-code-review/nextjs-app-router-patterns`, `05-code-review/react-query-patterns`,
+  `01-testing-tdd/test-driven-development`, `02-testing-e2e/playwright-testing` y
+  `02-testing-e2e/tailwind-mobile-first`.
+- Validación: 32/32 pruebas focalizadas, Playwright móvil 1/1, ESLint dirigido sin errores, build
+  Next.js y OpenNext/Cloudflare correctos, UTF-8 sin BOM con LF y revisión optimista cubierta.
+- Reconciliación: tareas canónicas `3.2.18`–`3.2.21` cerradas contra código, migración y pruebas. El
+  frontend mensual quedó publicado por separado. El 03/09 se corrigió el desfase de producción
+  aplicando exclusivamente `20260903120000_ruta_planeacion_mensual_envio.sql`, se registró la
+  versión en `supabase_migrations.schema_migrations` y se solicitó la recarga del esquema PostgREST.
+  La validación remota confirmó ambas tablas, RLS, seis índices, vínculos por visita, los tres RPC y
+  HTTP 200 desde PostgREST; un smoke autenticado en `beteele-one.com` abrió la planeación mensual
+  como SUPERVISOR sin errores de esquema ni respuestas fallidas de `/api/ruta-semanal/`.
+
+### 2026-09-17 - Corrección de unicidad en guardado de ruta mensual (Antigravity)
+
+- Causa raíz: al guardar/enviar la planeación mensual de un supervisor (`rpc_guardar_ruta_mensual`), la limpieza previa de visitas borradores (`DELETE`) filtraba exclusivamente por `visita.ruta_mensual_envio_id = v_envio_id`. Cuando el supervisor realizaba su primer envío mensual o existían visitas borradores generadas previamente (donde `ruta_mensual_envio_id IS NULL`), el `DELETE` no eliminaba nada. Al ejecutarse la posterior inserción (`INSERT`), las visitas colisionaban con el índice único `(ruta_semanal_id, dia_semana, orden)` arrojando el error `duplicate key value violates unique constraint "ruta_semanal_visita_ruta_semanal_id_dia_semana_orden_key"`.
+- Solución implementada: se creó y aplicó la migración `20260917120000_fix_ruta_mensual_limpieza_previa.sql` que ajusta la condición de limpieza previa en `public.rpc_guardar_ruta_mensual` para eliminar todas las visitas del supervisor en el mes correspondiente en estado `PLANIFICADA` o `CANCELADA` no ejecutadas (`completada_en IS NULL`), tanto si tienen `ruta_mensual_envio_id = v_envio_id` como si tienen `ruta_mensual_envio_id IS NULL` o pertenecen a envíos previos del mismo periodo.
+- Validación: migración aplicada exitosamente a Supabase (2127ms); ejecución de prueba simulando envío mensual con visitas preexistentes confirmando persistencia atómica limpia con `ok: true`, revisión actualizada y cero errores de duplicidad; `npx tsc --noEmit` completado sin errores; suite completa de vitest ejecutada (121 archivos pasados, 483 pruebas pasadas); `npm run docs:check-encoding` verificado en 1315 archivos.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `01-testing-tdd/test-driven-development`, `05-code-review/typescript-strict-typing`, `09-encoding/utf8-standard`.
+
+### 2026-09-17 - Limpieza total de rutas de septiembre 2026 para reenvío masivo de supervisores (Antigravity)
+
+- Contexto: a solicitud de coordinación y tras la corrección del motor de guardado de ruta mensual, se ejecutó una limpieza completa de las rutas y visitas preexistentes del mes de septiembre para dejar el mes en estado inicial ("Sin ruta" / `—`) y permitir a todos los supervisores enviar su planeación desde cero para lo que resta del mes.
+- Ejecución (`scripts/limpiar-rutas-septiembre-2026.cjs`):
+  - 1801 visitas eliminadas de `ruta_semanal_visita` para el rango del 01 al 30 de septiembre. Las visitas limítrofes del 31 de agosto y octubre se preservaron intactas.
+  - 36 eventos de agenda eliminados en `ruta_agenda_evento` de septiembre.
+  - 1 envío mensual borrado en `ruta_mensual_envio` y sus enlaces en `ruta_mensual_envio_semana`.
+  - 54 contenedores semanales exclusivos de septiembre eliminados en `ruta_semanal`.
+  - 36 contenedores semanales limítrofes (agosto y octubre) actualizados a `BORRADOR` con estado de aprobación reiniciado.
+  - Registro auditable creado en `public.audit_log` (`limpieza_total_rutas_septiembre_2026`).
+- Validación: consulta RPC a `rpc_ruta_calendario_mensual_resumen` confirmó 0 días con visitas planificadas en septiembre (todas las casillas muestran `-- Sin ruta`), y 0 envíos mensuales activos. Verificación UTF-8 exitosa en 1316 archivos.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `01-testing-tdd/test-driven-development`, `09-encoding/utf8-standard`.
+
+### 2026-09-17 - Corrección visual de celdas sin tiendas y purga final de rutas limítrofes en septiembre y octubre 2026 (Antigravity)
+
+- Causa raíz identificada:
+  1. En `rutaCalendarioMensualService.ts`, `buildCellLabel` y `getCellTone` priorizaban la evaluación de `approvalState === 'PENDIENTE_COORDINACION'` por encima de `plannedCount === 0`. Si una semana estaba en estado de aprobación pendiente pero un día particular tenía 0 visitas (como en las semanas puente que cruzan meses), la celda se coloreaba en violeta y mostraba 'P', dando la falsa impresión de que había tiendas pendientes de revisión.
+  2. En la base de datos, la semana del 28 de septiembre al 04 de octubre contenía aún 172 visitas en los primeros días de octubre (01-03 de octubre) en estado de borrador/revisión. La semana del 31 de agosto al 06 de septiembre se encontraba marcada con estado de aprobación `PENDIENTE_COORDINACION`, propagando la 'P' a los días 01 a 06 de septiembre.
+- Solución implementada:
+  1. Frontend / Servicio: se corrigieron `buildCellLabel` y `getCellTone` en `src/features/rutas/services/rutaCalendarioMensualService.ts` para que cualquier día con `plannedCount === 0` retorne de forma prioritaria la etiqueta `'—'` y el tono `'neutral'` (evitando etiquetas 'P' engañosas para días sin visitas). Se respaldó con prueba unitaria en Vitest siguiendo TDD (fase RED reproducida, fase GREEN alcanzada).
+  2. Base de datos: mediante `scripts/limpiar-rutas-septiembre-octubre-final.cjs`, se eliminaron las 172 visitas de octubre de la semana del `2026-09-28` y se borraron sus 18 contenedores semanales vacíos; se normalizaron los 18 contenedores de `2026-08-31` a `PUBLICADA` / `APROBADA` para conservar íntegro el histórico de agosto sin afectar septiembre; se registró evento auditable en `public.audit_log`.
+- Validación:
+  - Pruebas unitarias: 121 suites pasadas, 484 pruebas pasadas (incluyendo la nueva prueba de días vacíos).
+  - TypeScript: `npx tsc --noEmit` completado sin errores (código 0).
+  - Base de datos: 0 visitas `>= 2026-09-01`, 0 rutas semanales `>= 2026-09-01`; septiembre y octubre muestran 100% de celdas con `--` ("Sin ruta").
+  - Verificación de codificación: `npm run docs:check-encoding` exitoso en 1317 archivos.
+- Skills aplicadas: `03-debugging/systematic-debugging`, `01-testing-tdd/test-driven-development`, `05-code-review/typescript-strict-typing`, `09-encoding/utf8-standard`.
+
+### 2026-09-17 - Rediseño Mobile-First y corrección de desbordamiento en planificador mensual de supervisores (Antigravity)
+
+- Contexto: en la vista móvil de "Definir ruta semanal / Planificar mes" (`RutaMensualPlanner.tsx`), la cuadrícula mensual de 7 columnas comprimía las celdas a ~42px de ancho, provocando que los textos `"4 visita(s)"` y `"Sin visitas"` se quebraran en 3-4 líneas y se desbordaran verticalmente sobre las filas inferiores, generando una apariencia amontonada e ilegible con textos encimados.
+- Solución implementada:
+  1. Dimensionamiento y altura consistente: se fijó altura simétrica y adaptable (`h-14 sm:h-20`) con `overflow-hidden` y radio proporcional (`rounded-xl sm:rounded-2xl`) para eliminar la deformación en píldora y blindar contra desbordes.
+  2. Tipografía e indicadores limpios:
+     - Cabecera de celda con número de día en negrita (`text-xs sm:text-sm`), indicador circular destacado para el día de hoy (`bg-sky-600 text-white`) e ícono 🔒 para días protegidos. La letra del día se oculta en móvil (`hidden sm:inline`) aprovechando el encabezado de columnas (`L M X J V S D`).
+     - Badge minimalista: los días con tiendas muestran una píldora verde compacta con el número de tiendas (`bg-emerald-600 text-white font-bold px-1.5 py-0.5`), expandiendo a `"visitas"` en tablet/desktop. Los días sin tiendas muestran un guión tenue (`—`) eliminando texto innecesario.
+  3. Leyenda explicativa: se incorporó barra inferior con indicadores visuales claros (`🟢 Con tiendas`, `⚪ Sin tiendas`, `🔵 Hoy`, `🔒 Pasado / Protegido`).
+  4. Accesibilidad y táctil: se optimizó `aria-label` descriptivo completo por celda y tamaño táctil que cumple estándares móviles (≥ 44px de altura/ancho).
+- Validación: `npx tsc --noEmit` completado con 0 errores; 121 suites (484 tests) de Vitest exitosas; `npm run docs:check-encoding` verificado en 1317 archivos.
+- Skills aplicadas: `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/accessibility-audit`, `05-code-review/typescript-strict-typing`, `09-encoding/utf8-standard`.
+
+### 2026-09-30 - Corrección de carga inicial en Ventas, paginación completa de Captura Pública (Love ISDIN y Canjes) e invalidación de caché (Antigravity)
+
+- **Causa raíz identificada**:
+  1. *Desfase de Zona Horaria (Ceros al ingresar directo a `/ventas`)*: Los servidores y APIs se ejecutan en UTC. Cuando en México es de noche (ej. 7:45 PM del 30 de septiembre), en UTC ya es 1 de octubre. Al entrar directamente a `/ventas` sin parámetro `?month=`, el backend calculaba la fecha usando `new Date().toISOString().slice(0, 10)`, resolviendo automáticamente a octubre (`2026-10`), mes que aún tenía 0 ventas registradas. Sin embargo, en el navegador del usuario en México la fecha local seguía siendo 30 de septiembre, mostrando en pantalla "Septiembre 2026" pero cargando el conjunto de datos vacío de octubre. Al presionar "Aplicar filtro", el formulario forzaba la URL con `?month=2026-09`, resolviendo septiembre de forma correcta.
+  2. *Truncamiento a 1,000 registros en Capturas Públicas*: En septiembre se acumulan más de 5,800 registros en `captura_publica_registro`. La consulta en `ventaService.ts` (`capturasQuery`) no implementaba paginación por lotes (`range(from, to)`). Supabase / PostgREST impone un límite estricto por defecto de 1,000 filas por consulta sin paginación, provocando que todos los registros posteriores al ~11 de septiembre fueran descartados. En el caso de Anastasia Kofiadou, de 46 registros de Love ISDIN y 38 canjes existentes en la base de datos, 39 de Love y 23 de canjes se encontraban después del registro 1,000 y se truncaban silenciosamente. Asimismo, cualquier registro nuevo hecho recientemente ingresaba por encima del registro 5,000, por lo que nunca se reflejaba.
+  3. *Optimización y falta de filtro de tipo de registro*: La consulta `capturasQuery` anterior traía todos los registros indiscriminadamente (incluyendo miles de filas de `tipo_registro = 'VENTA'`), a pesar de que las ventas normales ya son consolidadas automáticamente en la tabla oficial `venta` por el trigger de base de datos.
+  4. *Falta de revalidación inmediata de caché*: Al guardar desde el formulario público de captura (`capturaPublicaActions.ts`), no se disparaba la revalidación de etiquetas de caché (`revalidateTag`), manteniendo la caché previa en el panel de ventas hasta la expiración por tiempo.
+
+- **Solución implementada**:
+  1. *Normalización a Zona Horaria de Ciudad de México (`America/Mexico_City`)*:
+     - En `src/features/ventas/services/ventaService.ts`, `src/app/(main)/ventas/page.tsx` y `src/app/api/ventas/panel/route.ts`, se unificó el cálculo del mes por defecto utilizando la fecha oficial de México (`getMexicoDateIso`), asegurando que tanto la navegación directa como la API carguen el mes operativo en curso independientemente de la hora UTC del servidor.
+     - En `src/features/ventas/components/VentasPanel.tsx`, se alineó el fallback del fetcher para sincronizar con la fecha local.
+  2. *Función de paginación por lotes `fetchCapturasDetalleMes`*:
+     - Se creó un helper robusto que itera en bloques de 1,000 registros mediante `.range(from, to)` hasta agotar todos los resultados del mes.
+     - Se acotó la consulta con el filtro específico `.or('tipo_registro.in.(LOVE_ISDIN,CANJE,DESABASTO),subtipo_registro.in.(VACACIONES,INCAPACIDAD,FALTA,SIN_VENTAS)')`, ignorando las ventas estándar ya consolidadas. Esto redujo el volumen innecesario de ~6,000 registros a ~850 para el equipo de un supervisor, eliminando por completo cualquier truncamiento sin penalizar la velocidad.
+     - Se validó que las dermoconsejeras supervisadas (`emp.supervisor_empleado_id === actorEmpleadoId`) queden cubiertas íntegramente.
+  3. *Revalidación en tiempo real en Captura Pública*:
+     - En `src/features/captura-publica/services/capturaPublicaActions.ts`, se agregó la función `revalidateCapturaPublicaCache` que revalida las etiquetas de caché de `ventas`, `love-isdin`, `dashboard`, `reportes` y `materiales` asociadas a la cuenta y al empleado, tanto en guardados por lotes (batch) como individuales.
+
+- **Validación**:
+  - `npx tsc --noEmit`: 0 errores de compilación TypeScript.
+  - Vitest (`npm run test:unit`): 131 archivos de prueba pasados, 556 pruebas pasadas al 100%.
+  - `npm run docs:check-encoding`: Verificación UTF-8 sin BOM exitosa en 1,373 archivos.
+  - `npm run build`: Compilación exitosa en 21.4s.
+  - Pruebas directas en Supabase: para Anastasia Kofiadou, Love ISDIN se lee al 100% (46 registros reales vs 7 truncados previamente) y los canjes reflejan 38 registros (56 piezas totales vs 15 truncados previamente).
+- **Skills aplicadas**: `03-debugging/systematic-debugging`, `01-testing-tdd/test-driven-development`, `05-code-review/typescript-strict-typing`, `06-performance/performance-optimization`, `09-encoding/utf8-standard`.
+
+### 2026-10-01 - Rediseño minimalista y compacto de las tarjetas de visita en "Mi ruta de hoy" (Antigravity)
+
+- **Contexto y Causa raíz**:
+  - En la vista móvil de "Mi ruta de hoy" (`SupervisorTodayRouteSheet.tsx`), cada visita programada del día desplegaba cuatro bloques rectangulares completos apilados verticalmente (`SummaryPill`: Orden, Llegada, Checklist, Salida).
+  - Esta disposición ocupaba entre 280px y 320px de altura por tienda, obligando al supervisor a desplazarse verticalmente de manera exhaustiva en pantallas táctiles de celular (iPhone/Android) para revisar apenas 4 o 5 tiendas.
+- **Solución implementada**:
+  - **Estructura en dos filas ultracompactas**:
+    1. *Fila 1 (Cabecera integrada)*: Número de orden (`#1`, `#2`...) integrado como insignia circular dinámica (con icono de verificación ✓ si está completada, azul si está en curso, o gris neutral si está pendiente). Título del punto de venta destacado con clave BTL y zona truncadas limpiamente. Chip de estado general a la derecha (`🟢 Completada`, `🔵 En tienda`, `⚪ Pendiente`) con flecha sutil `>` que invita a tocar la tarjeta.
+    2. *Fila 2 (Micro-métricas en 3 columnas)*: En lugar de 4 cajones apilados, se dispusieron 3 micro-cápsulas compactas (`Llegada`, `Checklist`, `Salida`) en un solo renglón ligero, con formato de hora real si existe (`formatHoraOperativa` en zona horaria Ciudad de México) o texto de estado conciso.
+  - **Estados semánticos suaves**:
+    - Visitas completadas: borde y fondo verde tenue (`border-emerald-200/90 bg-emerald-50/20`).
+    - Visitas en curso: anillo y fondo azul suave (`border-sky-300 bg-sky-50/25 ring-1 ring-sky-200/60`).
+    - Visitas pendientes: fondo blanco y borde slate limpio (`border-slate-200 bg-white`).
+  - **Eventos del día**: Se rediseñaron las tarjetas de eventos extraordinarios con el mismo patrón compacto (Hora, Aprobación, Ejecución en 3 columnas) con acento violeta elegante.
+  - **Resumen superior y botón de eventos**: Se añadió contador en tiempo real (`X/Y completadas`), mensaje motivacional al terminar todas las visitas del día, y botón compacto de eventos con icono `+`.
+  - **Reducción de espacio**: La altura de cada cajón disminuyó de ~300px a ~100px (más de 65% de ahorro vertical), permitiendo ver hasta 3 tiendas de forma simultánea en la pantalla del celular sin necesidad de scroll excesivo.
+- **Validación**:
+  - `npx tsc --noEmit`: 0 errores de compilación TypeScript.
+  - Vitest (`npm run test:unit`): 131 suites pasadas, 559 pruebas pasadas al 100%.
+  - `npm run docs:check-encoding`: Verificación UTF-8 sin BOM exitosa en 1,375 archivos.
+  - `npm run build`: Compilación de producción exitosa en 21.1s.
+- **Skills aplicadas**: `02-testing-e2e/tailwind-mobile-first`, `02-testing-e2e/accessibility-audit`, `05-code-review/typescript-strict-typing`, `09-encoding/utf8-standard`.

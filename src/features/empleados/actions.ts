@@ -1,41 +1,52 @@
-'use server'
+'use server';
 
 // import crypto from 'node:crypto' // Desactivado para Edge
-import { obtenerClienteAdmin, obtenerUrlBaseAplicacion } from '@/lib/auth/admin'
-import { publishUiChanges } from '@/lib/ui-change/server'
-import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types'
+import { revalidateTag } from 'next/cache';
+import { obtenerClienteAdmin, obtenerUrlBaseAplicacion } from '@/lib/auth/admin';
+import { publishUiChanges } from '@/lib/ui-change/server';
+import { buildUiChangeScope, buildUiChangeTargetsFromBusinessEvent } from '@/lib/ui-change/types';
 import {
   EXPEDIENTE_PDF_UPLOAD_MAX_BYTES,
   EXPEDIENTE_RAW_UPLOAD_MAX_BYTES,
-} from '@/lib/files/documentOptimization'
-import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage'
-import { performConfiguredDocumentOcr } from '@/lib/ocr/gemini'
-import type { GeminiOcrExtractionResult } from '@/lib/ocr/gemini'
-import { sendOperationalPushNotification } from '@/lib/push/pushFanout'
-import { requerirPuestosActivos } from '@/lib/auth/session'
-import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus'
-import { procesarImpactoBajaEnAsignaciones } from './services/bajaAsignacionImpactService'
-import { isSupervisorPuesto } from './lib/onboardingRules'
-import { getSingleTenantAccountId, resolveSingleTenantAccountId } from '@/lib/tenant/singleTenant'
-import { hasDirectR2Reference, readDirectR2Reference, registerDirectR2Evidence } from '@/lib/storage/directR2Server'
-import { sendWorkflowTransitionEmail } from '@/lib/notifications/workflowTransitionEmail'
-import { sendWorkflowNotification } from '@/lib/notifications/workflows/workflowFanout'
+} from '@/lib/files/documentOptimization';
+import { storeOptimizedEvidence } from '@/lib/files/evidenceStorage';
+import { performConfiguredDocumentOcr } from '@/lib/ocr/gemini';
+import type { GeminiOcrExtractionResult } from '@/lib/ocr/gemini';
+import { sendOperationalPushNotification } from '@/lib/push/pushFanout';
+import { requerirPuestosActivos } from '@/lib/auth/session';
+import { isOperablePdvStatus } from '@/features/pdvs/lib/pdvStatus';
+import { procesarImpactoBajaEnAsignaciones } from './services/bajaAsignacionImpactService';
+import { isSupervisorPuesto } from './lib/onboardingRules';
+import { getSingleTenantAccountId } from '@/lib/tenant/singleTenant';
 import {
-  buildNuevoCandidatoCoordinacionNotification,
-} from './lib/recruitmentNotifications'
-import type {
-  CoberturaPdvOperativaActionState,
-  EmpleadoActionState,
-} from './state'
+  hasDirectR2Reference,
+  readDirectR2Reference,
+  registerDirectR2Evidence,
+} from '@/lib/storage/directR2Server';
+import { sendWorkflowTransitionEmail } from '@/lib/notifications/workflowTransitionEmail';
+import { sendWorkflowNotification } from '@/lib/notifications/workflows/workflowFanout';
+import { buildNuevoCandidatoCoordinacionNotification } from './lib/recruitmentNotifications';
+import type { CoberturaPdvOperativaActionState, EmpleadoActionState } from './state';
 import {
   OCR_MODEL_CONFIG_KEY,
   OCR_PROVIDER_CONFIG_KEY,
-} from '@/features/configuracion/configuracionCatalog'
-import { ESTADO_EMPLEADO_INICIAL } from './state'
-import { buildEmpleadoOcrSnapshot, deriveYearsFromAgencyStartDate } from './lib/ocrMapping'
+} from '@/features/configuracion/configuracionCatalog';
+import { ESTADO_EMPLEADO_INICIAL } from './state';
+import { buildEmpleadoOcrSnapshot, deriveYearsFromAgencyStartDate } from './lib/ocrMapping';
+import {
+  getPlaneacionMensualCacheTag,
+  refrescarPlaneacionMensualSnapshot,
+} from '@/features/asignaciones/services/planeacionMensualReadService';
+import { refrescarCuotaMensualResumen } from '@/features/asignaciones/services/planeacionCuotaResumenService';
+import { processMaterializationDirtyQueue } from '@/features/asignaciones/services/asignacionMaterializationService';
+import { sincronizarReasignacionSupervisorCascada } from '@/features/asignaciones/services/operationalLifecycleService';
+import { getIsoDateInMexicoCity } from '@/lib/geo/mexicoStateTimezone';
+import { getFirstInactiveDate } from '@/lib/auth/scheduledOffboarding';
+import { parseCombinedCoordinates } from './lib/coordenadas';
+import { validateSupervisorSucesor, buildSupervisorBajaMessage } from './lib/supervisorTransfer';
 
-type ExpedienteEstado = 'PENDIENTE_DOCUMENTOS' | 'EN_REVISION' | 'VALIDADO' | 'OBSERVADO'
-type ImssEstado = 'NO_INICIADO' | 'PENDIENTE_DOCUMENTOS' | 'EN_PROCESO' | 'ALTA_IMSS' | 'ERROR'
+type ExpedienteEstado = 'PENDIENTE_DOCUMENTOS' | 'EN_REVISION' | 'VALIDADO' | 'OBSERVADO';
+type ImssEstado = 'NO_INICIADO' | 'PENDIENTE_DOCUMENTOS' | 'EN_PROCESO' | 'ALTA_IMSS' | 'ERROR';
 type Puesto =
   | 'DERMOCONSEJERO'
   | 'SUPERVISOR'
@@ -46,9 +57,9 @@ type Puesto =
   | 'LOVE_IS'
   | 'VENTAS'
   | 'ADMINISTRADOR'
-  | 'CLIENTE'
+  | 'CLIENTE';
 
-type CategoriaDocumento = 'EXPEDIENTE' | 'IMSS' | 'BAJA'
+type CategoriaDocumento = 'EXPEDIENTE' | 'IMSS' | 'BAJA';
 type TipoDocumento =
   | 'CURP'
   | 'RFC'
@@ -58,39 +69,31 @@ type TipoDocumento =
   | 'CONTRATO'
   | 'ALTA_IMSS'
   | 'BAJA'
-  | 'OTRO'
+  | 'OTRO';
 
-type OnboardingExternalAccessStatus = 'PENDIENTE' | 'SOLICITADO_A_VIRIDIANA' | 'CONFIRMADO'
-type OnboardingContractStatus = 'PENDIENTE' | 'AGENDADO' | 'FIRMADO'
+type OnboardingExternalAccessStatus = 'PENDIENTE' | 'SOLICITADO_A_VIRIDIANA' | 'CONFIRMADO';
+type OnboardingContractStatus = 'PENDIENTE' | 'AGENDADO' | 'FIRMADO';
 
 interface OnboardingOperativoPayload {
-  pdvSugeridoId: string | null
-  pdvSugeridoLabel: string | null
-  pdvDefinitivoId: string | null
-  pdvDefinitivoLabel: string | null
-  pdvObjetivoId: string | null
-  pdvObjetivoLabel: string | null
-  coordinadorEmpleadoId: string | null
-  coordinadorNombre: string | null
-  fechaIngresoOficial: string | null
-  fechaIsdinizacion: string | null
-  accesosExternosStatus: OnboardingExternalAccessStatus
-  accesosExternosObservaciones: string | null
-  expedienteCompletoRecibido: boolean
-  contratoStatus: OnboardingContractStatus
-  contratoFirmadoEn: string | null
-  validacionFinalReclutamientoAt?: string | null
-}
-interface EmpleadoBaseRow {
-  id: string
-  id_nomina: string | null
-  nombre_completo: string
-  puesto: Puesto
-  correo_electronico: string | null
-  metadata: Record<string, unknown> | null
+  pdvSugeridoId: string | null;
+  pdvSugeridoLabel: string | null;
+  pdvDefinitivoId: string | null;
+  pdvDefinitivoLabel: string | null;
+  pdvObjetivoId: string | null;
+  pdvObjetivoLabel: string | null;
+  coordinadorEmpleadoId: string | null;
+  coordinadorNombre: string | null;
+  fechaIngresoOficial: string | null;
+  fechaIsdinizacion: string | null;
+  accesosExternosStatus: OnboardingExternalAccessStatus;
+  accesosExternosObservaciones: string | null;
+  expedienteCompletoRecibido: boolean;
+  contratoStatus: OnboardingContractStatus;
+  contratoFirmadoEn: string | null;
+  validacionFinalReclutamientoAt?: string | null;
 }
 
-const EMPLEADOS_BUCKET = 'empleados-expediente'
+const EMPLEADOS_BUCKET = 'empleados-expediente';
 const PUESTOS_VALIDOS: Puesto[] = [
   'ADMINISTRADOR',
   'COORDINADOR',
@@ -102,20 +105,20 @@ const PUESTOS_VALIDOS: Puesto[] = [
   'VENTAS',
   'LOVE_IS',
   'CLIENTE',
-]
+];
 const EXPEDIENTE_ESTADOS: ExpedienteEstado[] = [
   'PENDIENTE_DOCUMENTOS',
   'EN_REVISION',
   'VALIDADO',
   'OBSERVADO',
-]
+];
 const IMSS_ESTADOS: ImssEstado[] = [
   'NO_INICIADO',
   'PENDIENTE_DOCUMENTOS',
   'EN_PROCESO',
   'ALTA_IMSS',
   'ERROR',
-]
+];
 const CANCELABLE_ALTA_WORKFLOW_STAGES = [
   'NUEVOS',
   'EXPEDIENTE',
@@ -128,8 +131,8 @@ const CANCELABLE_ALTA_WORKFLOW_STAGES = [
   'PENDIENTE_COORDINACION',
   'SELECCION_APROBADA',
   'PENDIENTE_VALIDACION_FINAL',
-] as const
-const DOCUMENT_CATEGORIES: CategoriaDocumento[] = ['EXPEDIENTE', 'IMSS', 'BAJA']
+] as const;
+const DOCUMENT_CATEGORIES: CategoriaDocumento[] = ['EXPEDIENTE', 'IMSS', 'BAJA'];
 const DOCUMENT_TYPES: TipoDocumento[] = [
   'CURP',
   'RFC',
@@ -140,22 +143,22 @@ const DOCUMENT_TYPES: TipoDocumento[] = [
   'ALTA_IMSS',
   'BAJA',
   'OTRO',
-]
-const RAW_UPLOAD_MAX_BYTES = EXPEDIENTE_RAW_UPLOAD_MAX_BYTES
-const PDF_UPLOAD_MAX_BYTES = EXPEDIENTE_PDF_UPLOAD_MAX_BYTES
-const EMPLEADOS_STORAGE_MAX_BYTES = 15 * 1024 * 1024
+];
+const RAW_UPLOAD_MAX_BYTES = EXPEDIENTE_RAW_UPLOAD_MAX_BYTES;
+const PDF_UPLOAD_MAX_BYTES = EXPEDIENTE_PDF_UPLOAD_MAX_BYTES;
+const EMPLEADOS_STORAGE_MAX_BYTES = 15 * 1024 * 1024;
 
 type CoberturaPdvOperativaAction =
   | 'APARTAR_PDV'
   | 'MARCAR_PENDIENTE_ACCESO'
   | 'ASIGNAR_PDV_PASO'
   | 'LIBERAR_ACCESO'
-  | 'QUITAR_RESERVA'
+  | 'QUITAR_RESERVA';
 function buildState(partial: Partial<EmpleadoActionState>): EmpleadoActionState {
   return {
     ...ESTADO_EMPLEADO_INICIAL,
     ...partial,
-  }
+  };
 }
 
 function sanitizeToken(value: string) {
@@ -165,7 +168,14 @@ function sanitizeToken(value: string) {
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '_')
     .replace(/^[_\-.]+|[_\-.]+$/g, '')
-    .replace(/[_\-.]{2,}/g, '_')
+    .replace(/[_\-.]{2,}/g, '_');
+}
+
+function supervisorSucesorIdPattern(value: string, supervisorOrigenId: string) {
+  return (
+    value !== supervisorOrigenId &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  );
 }
 
 function buildEmployeeStorageDirectory({
@@ -173,40 +183,21 @@ function buildEmployeeStorageDirectory({
   nombreCompleto,
   nss,
 }: {
-  empleadoId: string
-  nombreCompleto?: string | null
-  nss?: string | null
+  empleadoId: string;
+  nombreCompleto?: string | null;
+  nss?: string | null;
 }) {
-  const safeNss = sanitizeToken(String(nss ?? '').trim()) || empleadoId
-  const safeName = sanitizeToken(String(nombreCompleto ?? '').trim()) || 'sin_nombre'
-  return `empleados/${safeNss}_${safeName}`
-}
-
-function buildPreferredUsername(explicitValue: string, empleado: EmpleadoBaseRow) {
-  const explicit = sanitizeToken(explicitValue)
-  if (explicit) {
-    return explicit
-  }
-
-  const nombre = sanitizeToken(empleado.nombre_completo)
-  if (nombre) {
-    return `${nombre}_${empleado.id.replace(/-/g, '').slice(0, 6)}`
-  }
-
-  return `usr_${empleado.id.replace(/-/g, '').slice(0, 12)}`
-}
-
-function buildPlaceholderEmail(username: string) {
-  return `${username}@provisional.fieldforce.invalid`
-}
-
-function createTemporaryPassword() {
-  return 'BTL2026'
+  const safeNss = sanitizeToken(String(nss ?? '').trim()) || empleadoId;
+  const safeName = sanitizeToken(String(nombreCompleto ?? '').trim()) || 'sin_nombre';
+  return `empleados/${safeNss}_${safeName}`;
 }
 
 function normalizeUpperIdentifier(value: string | null) {
-  const normalized = String(value ?? '').trim().toUpperCase().replace(/\s+/g, '')
-  return normalized || null
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '');
+  return normalized || null;
 }
 
 function normalizeOcrPuesto(value: string | null) {
@@ -216,39 +207,29 @@ function normalizeOcrPuesto(value: string | null) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^A-Z_ ]+/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replace(/\s+/g, ' ');
 
   if (!normalized) {
-    return null
+    return null;
   }
 
-  const compact = normalized.replace(/\s+/g, '_')
+  const compact = normalized.replace(/\s+/g, '_');
   if (PUESTOS_VALIDOS.includes(compact as Puesto)) {
-    return compact as Puesto
+    return compact as Puesto;
   }
 
-  if (normalized.includes('DERMO')) return 'DERMOCONSEJERO'
-  if (normalized.includes('SUPERVISOR')) return 'SUPERVISOR'
-  if (normalized.includes('COORDINADOR')) return 'COORDINADOR'
-  if (normalized.includes('NOMINA')) return 'NOMINA'
-  if (normalized.includes('RECLUT')) return 'RECLUTAMIENTO'
-  if (normalized.includes('LOGIST')) return 'LOGISTICA'
-  if (normalized.includes('LOVE')) return 'LOVE_IS'
-  if (normalized.includes('VENTA')) return 'VENTAS'
-  if (normalized.includes('ADMIN')) return 'ADMINISTRADOR'
-  if (normalized.includes('CLIENTE')) return 'CLIENTE'
+  if (normalized.includes('DERMO')) return 'DERMOCONSEJERO';
+  if (normalized.includes('SUPERVISOR')) return 'SUPERVISOR';
+  if (normalized.includes('COORDINADOR')) return 'COORDINADOR';
+  if (normalized.includes('NOMINA')) return 'NOMINA';
+  if (normalized.includes('RECLUT')) return 'RECLUTAMIENTO';
+  if (normalized.includes('LOGIST')) return 'LOGISTICA';
+  if (normalized.includes('LOVE')) return 'LOVE_IS';
+  if (normalized.includes('VENTA')) return 'VENTAS';
+  if (normalized.includes('ADMIN')) return 'ADMINISTRADOR';
+  if (normalized.includes('CLIENTE')) return 'CLIENTE';
 
-  return null
-}
-
-async function obtenerHorasPasswordTemporal(service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>) {
-  const { data } = await service
-    .from('configuracion')
-    .select('valor')
-    .eq('clave', 'auth.activacion.password_temporal_horas')
-    .maybeSingle()
-
-  return Number(data?.valor ?? 72) || 72
+  return null;
 }
 
 async function registrarEventoAudit(
@@ -260,11 +241,11 @@ async function registrarEventoAudit(
     usuarioId,
     cuentaClienteId,
   }: {
-    tabla: string
-    registroId: string
-    payload: Record<string, unknown>
-    usuarioId: string
-    cuentaClienteId?: string | null
+    tabla: string;
+    registroId: string;
+    payload: Record<string, unknown>;
+    usuarioId: string;
+    cuentaClienteId?: string | null;
   }
 ) {
   await service.from('audit_log').insert({
@@ -274,30 +255,30 @@ async function registrarEventoAudit(
     payload,
     usuario_id: usuarioId,
     cuenta_cliente_id: cuentaClienteId ?? null,
-  })
+  });
 }
 
 async function publishEmpleadosPanelChange(
   service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
   actor: Awaited<ReturnType<typeof requerirPuestosActivos>>,
   input: {
-    eventType: string
-    cuentaClienteId?: string | null
-    empleadoId?: string | null
-    supervisorEmpleadoId?: string | null
-    period?: string | null
-    includeNomina?: boolean
-    includeUsuarios?: boolean
-    includeDashboard?: boolean
-    includeMensajes?: boolean
-    metadata?: Record<string, unknown> | null
+    eventType: string;
+    cuentaClienteId?: string | null;
+    empleadoId?: string | null;
+    supervisorEmpleadoId?: string | null;
+    period?: string | null;
+    includeNomina?: boolean;
+    includeUsuarios?: boolean;
+    includeDashboard?: boolean;
+    includeMensajes?: boolean;
+    metadata?: Record<string, unknown> | null;
   }
 ) {
-  const modules = ['empleados']
-  if (input.includeNomina) modules.push('nomina')
-  if (input.includeUsuarios) modules.push('usuarios')
-  if (input.includeDashboard) modules.push('dashboard')
-  if (input.includeMensajes) modules.push('mensajes')
+  const modules = ['empleados'];
+  if (input.includeNomina) modules.push('nomina');
+  if (input.includeUsuarios) modules.push('usuarios');
+  if (input.includeDashboard) modules.push('dashboard');
+  if (input.includeMensajes) modules.push('mensajes');
 
   await publishUiChanges(
     buildUiChangeTargetsFromBusinessEvent({
@@ -315,29 +296,48 @@ async function publishEmpleadosPanelChange(
       cuentaClienteId: input.cuentaClienteId ?? actor.cuentaClienteId ?? null,
       empleadoId: input.empleadoId ?? null,
       supervisorEmpleadoId: input.supervisorEmpleadoId ?? null,
-      roleTargets: ['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR', 'NOMINA', 'SUPERVISOR', 'LOGISTICA'],
+      roleTargets: [
+        'ADMINISTRADOR',
+        'RECLUTAMIENTO',
+        'COORDINADOR',
+        'NOMINA',
+        'SUPERVISOR',
+        'LOGISTICA',
+      ],
       metadata: {
         ...(input.metadata ?? {}),
         periodo: input.period ?? null,
       },
     }),
     { service }
-  )
+  );
 }
 
 async function publishAsignacionesVacantesChange(
   service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
   actor: Awaited<ReturnType<typeof requerirPuestosActivos>>,
   input: {
-    eventType: string
-    empleadoId?: string | null
-    metadata?: Record<string, unknown> | null
+    eventType: string;
+    empleadoId?: string | null;
+    metadata?: Record<string, unknown> | null;
   }
 ) {
   await publishUiChanges(
     buildUiChangeTargetsFromBusinessEvent({
       eventType: input.eventType,
-      modules: ['asignaciones', 'empleados', 'dashboard', 'pdvs', 'reportes'],
+      modules: [
+        'asignaciones',
+        'empleados',
+        'dashboard',
+        'pdvs',
+        'reportes',
+        'asistencias',
+        'ventas',
+        'love-isdin',
+        'materiales',
+        'captura-publica',
+        'canjes',
+      ],
       surfaces: ['panel', 'tabla', 'insights', 'all'],
       scopes: [
         buildUiChangeScope('global'),
@@ -354,133 +354,60 @@ async function publishAsignacionesVacantesChange(
       },
     }),
     { service }
-  )
+  );
 }
 
-async function provisionarAccesoProvisional(
+async function refreshPlaneacionAfterEmployeeLifecycle(
   service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
-  actorUsuarioId: string,
-  empleado: EmpleadoBaseRow,
-  usernameInput: string
+  input: { dates: string[]; pdvIds?: string[] }
 ) {
-  const username = buildPreferredUsername(usernameInput, empleado)
-  const cuentaClienteId = resolveSingleTenantAccountId(null)
+  const accountId = getSingleTenantAccountId();
+  const months = Array.from(
+    new Set(
+      input.dates
+        .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
+        .map((value) => `${value.slice(0, 7)}-01`)
+    )
+  );
 
-  const { data: usernameExistente } = await service
-    .from('usuario')
-    .select('id')
-    .eq('username', username)
-    .maybeSingle()
+  await processMaterializationDirtyQueue({ limit: 250 }, service as never);
 
-  if (usernameExistente) {
-    throw new Error(`El username ${username} ya existe. Usa otro valor para continuar.`)
-  }
-
-  const horasVigencia = await obtenerHorasPasswordTemporal(service)
-  const generatedAt = new Date()
-  const expiresAt = new Date(generatedAt.getTime() + horasVigencia * 60 * 60 * 1000)
-  const temporaryPassword = createTemporaryPassword()
-  const temporaryEmail = buildPlaceholderEmail(username)
-
-  const { data: createdAuth, error: createAuthError } = await service.auth.admin.createUser({
-    email: temporaryEmail,
-    password: temporaryPassword,
-    email_confirm: true,
-    user_metadata: {
-      username,
-      provisional_email: true,
-      source: 'recruit_employees_module',
-    },
-  })
-
-  if (createAuthError || !createdAuth.user) {
-    throw createAuthError ?? new Error('No fue posible crear el usuario en auth.')
-  }
-
-  const { data: insertedUsuario, error: insertUsuarioError } = await service
-    .from('usuario')
-    .insert({
-      auth_user_id: createdAuth.user.id,
-      empleado_id: empleado.id,
-      cuenta_cliente_id: cuentaClienteId,
-      username,
-      estado_cuenta: 'PROVISIONAL',
-      correo_electronico: empleado.correo_electronico ?? null,
-      correo_verificado: false,
-      password_temporal_generada_en: generatedAt.toISOString(),
-      password_temporal_expira_en: expiresAt.toISOString(),
-      updated_at: generatedAt.toISOString(),
-    })
-    .select('id')
-    .maybeSingle()
-
-  if (insertUsuarioError || !insertedUsuario) {
-    await service.auth.admin.deleteUser(createdAuth.user.id, true)
-    throw insertUsuarioError ?? new Error('No fue posible crear el acceso provisional.')
-  }
-
-  await registrarEventoAudit(service, {
-    tabla: 'usuario',
-    registroId: insertedUsuario.id,
-    payload: {
-      evento: 'empleado_alta_crea_usuario_provisional',
-      empleado_id: empleado.id,
-      empleado: empleado.nombre_completo,
-      username,
-      puesto: empleado.puesto,
-      cuenta_cliente_id: cuentaClienteId,
-    },
-    usuarioId: actorUsuarioId,
-    cuentaClienteId,
-  })
-
-  const metadataActual = mapMetadataRecord(empleado.metadata)
-  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null
-  const shouldCloseRecruitingFlow =
-    workflowStageActual === 'ONBOARDING' ||
-    workflowStageActual === 'PENDIENTE_ACCESO_ADMIN' ||
-    metadataActual.admin_access_pending === true
-
-  if (shouldCloseRecruitingFlow) {
-    const closedAt = generatedAt.toISOString()
-    const { error: employeeUpdateError } = await service
-      .from('empleado')
-      .update({
-        metadata: {
-          ...metadataActual,
-          workflow_stage: 'ALTA_IMSS_CERRADA',
-          admin_access_pending: false,
-          admin_access_cerrado_at: closedAt,
-        },
-        updated_at: closedAt,
-      })
-      .eq('id', empleado.id)
-
-    if (employeeUpdateError) {
-      await service.from('usuario').delete().eq('id', insertedUsuario.id)
-      await service.auth.admin.deleteUser(createdAuth.user.id, true)
-      throw employeeUpdateError
+  for (const month of months) {
+    if (!input.pdvIds?.length) {
+      try {
+        revalidateTag(getPlaneacionMensualCacheTag(accountId, month), 'max');
+      } catch {
+        // Entornos sin revalidateTag
+      }
+      continue;
     }
-
-    await registrarEventoAudit(service, {
-      tabla: 'empleado',
-      registroId: empleado.id,
-      payload: {
-        evento: 'empleado_acceso_administrativo_cerrado',
-        workflow_stage_anterior: workflowStageActual,
-        workflow_stage_nuevo: 'ALTA_IMSS_CERRADA',
-        admin_access_pending: false,
-        cuenta_cliente_id: cuentaClienteId,
-      },
-      usuarioId: actorUsuarioId,
-      cuentaClienteId,
-    })
+    await refrescarCuotaMensualResumen(service as never, {
+      cuentaClienteId: accountId,
+      mes: month,
+      pdvIds: input.pdvIds,
+    });
+    await refrescarPlaneacionMensualSnapshot(
+      service as never,
+      accountId,
+      month,
+      input.pdvIds ?? []
+    );
+    try {
+      revalidateTag(getPlaneacionMensualCacheTag(accountId, month), 'max');
+      revalidateTag('planeacion-mensual-resumen-v2', 'max');
+    } catch {
+      // Entornos sin revalidateTag
+    }
   }
+}
 
-  return {
-    username,
-    temporaryPassword,
-    temporaryEmail,
+function invalidatePlaneacionCatalogMonths(accountId: string) {
+  const now = new Date();
+  for (const offset of [0, 1]) {
+    const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1))
+      .toISOString()
+      .slice(0, 10);
+    revalidateTag(getPlaneacionMensualCacheTag(accountId, month), 'max');
   }
 }
 
@@ -492,28 +419,28 @@ async function registrarNotificacionAdminAltaImss(
     nombreEmpleado,
     correoElectronico,
   }: {
-    actorUsuarioId: string
-    empleadoId: string
-    nombreEmpleado: string
-    correoElectronico: string | null
+    actorUsuarioId: string;
+    empleadoId: string;
+    nombreEmpleado: string;
+    correoElectronico: string | null;
   }
 ) {
-  const cuentaClienteId = getSingleTenantAccountId()
+  const cuentaClienteId = getSingleTenantAccountId();
   const { data: admins, error } = await service
     .from('empleado')
     .select('id, nombre_completo, correo_electronico')
     .eq('puesto', 'ADMINISTRADOR')
     .eq('estatus_laboral', 'ACTIVO')
-    .order('nombre_completo', { ascending: true })
+    .order('nombre_completo', { ascending: true });
 
   if (error || !admins || admins.length === 0) {
-    return
+    return;
   }
 
-  const title = 'Expediente listo para acceso provisional'
+  const title = 'Expediente listo para acceso provisional';
   const body = correoElectronico
     ? `${nombreEmpleado} ya tiene alta IMSS confirmada y validacion final de Reclutamiento completa; requiere generacion de acceso provisional. Correo DC: ${correoElectronico}.`
-    : `${nombreEmpleado} ya tiene alta IMSS confirmada y validacion final de Reclutamiento completa; requiere generacion de acceso provisional.`
+    : `${nombreEmpleado} ya tiene alta IMSS confirmada y validacion final de Reclutamiento completa; requiere generacion de acceso provisional.`;
 
   const { data: mensaje, error: mensajeError } = await service
     .from('mensaje_interno')
@@ -533,7 +460,7 @@ async function registrarNotificacionAdminAltaImss(
       },
     })
     .select('id')
-    .maybeSingle()
+    .maybeSingle();
 
   if (!mensajeError && mensaje?.id) {
     await service.from('mensaje_receptor').insert(
@@ -547,7 +474,7 @@ async function registrarNotificacionAdminAltaImss(
           empleado_id: empleadoId,
         },
       }))
-    )
+    );
   }
 
   try {
@@ -567,70 +494,72 @@ async function registrarNotificacionAdminAltaImss(
         empleadoId,
         workflow: 'empleados_alta_imss_lista_para_admin',
       },
-    })
+    });
   } catch {
     // La notificacion in-app y el audit log cubren el flujo si push falla.
   }
 
-  const appUrl = await obtenerUrlBaseAplicacion()
+  const appUrl = await obtenerUrlBaseAplicacion();
   await sendWorkflowTransitionEmail({
     recipients: admins
       .map((admin) => ({
         email: mapRecipientEmail(admin.correo_electronico),
         name: admin.nombre_completo,
       }))
-      .filter((recipient): recipient is { email: string; name: string } => Boolean(recipient.email)),
+      .filter((recipient): recipient is { email: string; name: string } =>
+        Boolean(recipient.email)
+      ),
     subject: title,
     body,
     ctaLabel: 'Abrir expediente',
     ctaUrl: `${appUrl}/admin/users`,
-  })
+  });
 }
 
-  async function registrarNotificacionWorkflowEmpleados(
-    service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
-    {
-      actorUsuarioId,
-      puestosDestino,
+async function registrarNotificacionWorkflowEmpleados(
+  service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
+  {
+    actorUsuarioId,
+    puestosDestino,
     empleadoId,
     workflow,
     title,
-      body,
-      path,
-      tag,
-      auditAction,
-      pushTitle,
-      pushBody,
-      pushPath,
-      pushTag,
-      data,
-    }: {
-      actorUsuarioId: string
-      puestosDestino: Puesto[]
-      empleadoId: string
-      workflow: string
-      title: string
-      body: string
-      path: string
-      tag: string
-      auditAction: string
-      pushTitle?: string
-      pushBody?: string
-      pushPath?: string
-      pushTag?: string
-      data?: Record<string, unknown>
-    }
-  ) {
-  const cuentaClienteId = getSingleTenantAccountId()
+    body,
+    path,
+    tag,
+    auditAction,
+    pushTitle,
+    pushBody,
+    pushPath,
+    pushTag,
+    data,
+  }: {
+    actorUsuarioId: string;
+    puestosDestino: Puesto[];
+    empleadoId: string;
+    workflow: string;
+    title: string;
+    body: string;
+    path: string;
+    tag: string;
+    auditAction: string;
+    pushTitle?: string;
+    pushBody?: string;
+    pushPath?: string;
+    pushTag?: string;
+    data?: Record<string, unknown>;
+  }
+) {
+  const cuentaClienteId = getSingleTenantAccountId();
   const { data: recipients, error } = await service
     .from('empleado')
     .select('id, nombre_completo, correo_electronico')
     .in('puesto', puestosDestino)
     .eq('estatus_laboral', 'ACTIVO')
-    .order('nombre_completo', { ascending: true })
+    .order('nombre_completo', { ascending: true });
 
   if (error || !recipients || recipients.length === 0) {
-    return
+    return;
   }
 
   const { data: mensaje, error: mensajeError } = await service
@@ -651,7 +580,7 @@ async function registrarNotificacionAdminAltaImss(
       },
     })
     .select('id')
-    .maybeSingle()
+    .maybeSingle();
 
   if (!mensajeError && mensaje?.id) {
     await service.from('mensaje_receptor').insert(
@@ -665,10 +594,10 @@ async function registrarNotificacionAdminAltaImss(
           empleado_id: empleadoId,
         },
       }))
-    )
+    );
   }
 
-  const appUrl = await obtenerUrlBaseAplicacion()
+  const appUrl = await obtenerUrlBaseAplicacion();
   await sendWorkflowNotification(
     recipients
       .map((recipient) => ({
@@ -695,8 +624,8 @@ async function registrarNotificacionAdminAltaImss(
         ...(data ?? {}),
       },
     }
-  )
-  }
+  );
+}
 
 async function prepararDocumentoEmpleado(
   service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>,
@@ -712,21 +641,21 @@ async function prepararDocumentoEmpleado(
     skipOcr = false,
     metadataExtra,
   }: {
-    actorUsuarioId: string
-    empleadoId: string
-    categoria: CategoriaDocumento
-    tipoDocumento: TipoDocumento
-    file: File
-    expectedDocumentType: string
-    employeeName: string | null
-    employeeNss?: string | null
-    skipOcr?: boolean
-    metadataExtra?: Record<string, unknown>
+    actorUsuarioId: string;
+    empleadoId: string;
+    categoria: CategoriaDocumento;
+    tipoDocumento: TipoDocumento;
+    file: File;
+    expectedDocumentType: string;
+    employeeName: string | null;
+    employeeNss?: string | null;
+    skipOcr?: boolean;
+    metadataExtra?: Record<string, unknown>;
   }
 ) {
-  await ensureBucket(service)
-  const originalBuffer = Buffer.from(await file.arrayBuffer())
-  const ocrConfiguracion = skipOcr ? null : await obtenerConfiguracionOcr(service)
+  await ensureBucket(service);
+  const originalBuffer = Buffer.from(await file.arrayBuffer());
+  const ocrConfiguracion = skipOcr ? null : await obtenerConfiguracionOcr(service);
   const ocr = skipOcr
     ? {
         provider: null,
@@ -758,7 +687,8 @@ async function prepararDocumentoEmpleado(
           documentNumber: null,
           keyDates: [],
           extractedText: null,
-          confidenceSummary: 'OCR omitido para evitar lecturas innecesarias durante la validacion documental.',
+          confidenceSummary:
+            'OCR omitido para evitar lecturas innecesarias durante la validacion documental.',
           mismatchHints: [],
           observations: ['ocr_skipped_for_document_verification'],
           errorMessage: null,
@@ -774,29 +704,31 @@ async function prepararDocumentoEmpleado(
         employeeName,
         providerOverride: ocrConfiguracion?.providerOverride,
         modelOverride: ocrConfiguracion?.modelOverride,
-      })
+      });
   const storageDirectory = buildEmployeeStorageDirectory({
     empleadoId,
     nombreCompleto: employeeName ?? ocr.result.employeeName,
     nss: employeeNss ?? ocr.result.nss,
-  })
+  });
   const storedEvidence = await storeOptimizedEvidence({
     service,
     bucket: EMPLEADOS_BUCKET,
     actorUsuarioId,
     storagePrefix: `${storageDirectory}/${categoria.toLowerCase()}`,
     file,
-  })
-  const optimization = storedEvidence.optimization
+  });
+  const optimization = storedEvidence.optimization;
 
   const { data: archivoHash, error: archivoHashError } = await service
     .from('archivo_hash')
     .select('id, sha256, bucket, ruta_archivo')
     .eq('sha256', storedEvidence.archivo.hash)
-    .maybeSingle()
+    .maybeSingle();
 
   if (archivoHashError || !archivoHash) {
-    throw archivoHashError ?? new Error('No fue posible recuperar el hash del documento optimizado.')
+    throw (
+      archivoHashError ?? new Error('No fue posible recuperar el hash del documento optimizado.')
+    );
   }
 
   return {
@@ -804,7 +736,7 @@ async function prepararDocumentoEmpleado(
     ocr,
     optimization,
     storedEvidence,
-  }
+  };
 }
 
 async function syncBiometriaReferenceFromDocumento(
@@ -815,40 +747,42 @@ async function syncBiometriaReferenceFromDocumento(
     archivoHash,
     storedEvidence,
   }: {
-    empleadoId: string
-    documentoId: string
-    archivoHash: { bucket: string; ruta_archivo: string; sha256: string }
+    empleadoId: string;
+    documentoId: string;
+    archivoHash: { bucket: string; ruta_archivo: string; sha256: string };
     storedEvidence: {
-      miniatura: { url: string; hash: string } | null
-    }
+      miniatura: { url: string; hash: string } | null;
+    };
   }
 ) {
   const { data: empleadoActual, error: empleadoActualError } = await service
     .from('empleado')
     .select('metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoActualError) {
-    throw new Error(empleadoActualError.message)
+    throw new Error(empleadoActualError.message);
   }
 
   const metadataEmpleado =
-    empleadoActual?.metadata && typeof empleadoActual.metadata === 'object' && !Array.isArray(empleadoActual.metadata)
+    empleadoActual?.metadata &&
+    typeof empleadoActual.metadata === 'object' &&
+    !Array.isArray(empleadoActual.metadata)
       ? (empleadoActual.metadata as Record<string, unknown>)
-      : {}
+      : {};
   const metadataBiometria =
     metadataEmpleado.biometria &&
     typeof metadataEmpleado.biometria === 'object' &&
     !Array.isArray(metadataEmpleado.biometria)
       ? (metadataEmpleado.biometria as Record<string, unknown>)
-      : {}
+      : {};
 
-  const referenceBucket = storedEvidence.miniatura ? EMPLEADOS_BUCKET : archivoHash.bucket
+  const referenceBucket = storedEvidence.miniatura ? EMPLEADOS_BUCKET : archivoHash.bucket;
   const referencePath = storedEvidence.miniatura
     ? storedEvidence.miniatura.url.replace(`${EMPLEADOS_BUCKET}/`, '')
-    : archivoHash.ruta_archivo
-  const referenceHash = storedEvidence.miniatura?.hash ?? archivoHash.sha256
+    : archivoHash.ruta_archivo;
+  const referenceHash = storedEvidence.miniatura?.hash ?? archivoHash.sha256;
 
   const { error: biometriaReferenceError } = await service
     .from('empleado')
@@ -868,10 +802,10 @@ async function syncBiometriaReferenceFromDocumento(
       },
       updated_at: new Date().toISOString(),
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (biometriaReferenceError) {
-    throw new Error(biometriaReferenceError.message)
+    throw new Error(biometriaReferenceError.message);
   }
 }
 
@@ -886,12 +820,12 @@ async function registrarDocumentoEmpleado(
     file,
     metadataExtra,
   }: {
-    actorUsuarioId: string
-    empleadoId: string
-    categoria: CategoriaDocumento
-    tipoDocumento: TipoDocumento
-    file: File
-    metadataExtra?: Record<string, unknown>
+    actorUsuarioId: string;
+    empleadoId: string;
+    categoria: CategoriaDocumento;
+    tipoDocumento: TipoDocumento;
+    file: File;
+    metadataExtra?: Record<string, unknown>;
   }
 ) {
   const { data: documentoExistente } = await service
@@ -900,7 +834,7 @@ async function registrarDocumentoEmpleado(
     .eq('empleado_id', empleadoId)
     .eq('archivo_hash_id', prepared.archivoHash.id)
     .eq('categoria', categoria)
-    .maybeSingle()
+    .maybeSingle();
 
   if (documentoExistente) {
     return {
@@ -910,7 +844,7 @@ async function registrarDocumentoEmpleado(
       ocr: prepared.ocr,
       optimization: prepared.optimization,
       storedEvidence: prepared.storedEvidence,
-    }
+    };
   }
 
   const { data: documento, error: documentoError } = await service
@@ -945,10 +879,10 @@ async function registrarDocumentoEmpleado(
       creado_por_usuario_id: actorUsuarioId,
     })
     .select('id')
-    .maybeSingle()
+    .maybeSingle();
 
   if (documentoError || !documento) {
-    throw documentoError ?? new Error('No fue posible registrar el documento del expediente.')
+    throw documentoError ?? new Error('No fue posible registrar el documento del expediente.');
   }
 
   return {
@@ -958,18 +892,20 @@ async function registrarDocumentoEmpleado(
     ocr: prepared.ocr,
     optimization: prepared.optimization,
     storedEvidence: prepared.storedEvidence,
-  }
+  };
 }
 
-async function ensureBucket(service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>) {
+async function ensureBucket(
+  service: NonNullable<ReturnType<typeof obtenerClienteAdmin>['service']>
+) {
   const { error } = await service.storage.createBucket(EMPLEADOS_BUCKET, {
     public: false,
     fileSizeLimit: `${EMPLEADOS_STORAGE_MAX_BYTES}`,
     allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
-  })
+  });
 
   if (error && !/already exists|duplicate/i.test(error.message)) {
-    throw error
+    throw error;
   }
 }
 
@@ -979,99 +915,101 @@ async function obtenerConfiguracionOcr(
   const { data, error } = await service
     .from('configuracion')
     .select('clave, valor')
-    .in('clave', [OCR_PROVIDER_CONFIG_KEY, OCR_MODEL_CONFIG_KEY])
+    .in('clave', [OCR_PROVIDER_CONFIG_KEY, OCR_MODEL_CONFIG_KEY]);
 
   if (error) {
     return {
       providerOverride: null,
       modelOverride: null,
-    }
+    };
   }
 
-  const rows = Array.isArray(data) ? data : []
-  const providerRow = rows.find((item) => item.clave === OCR_PROVIDER_CONFIG_KEY)
-  const modelRow = rows.find((item) => item.clave === OCR_MODEL_CONFIG_KEY)
+  const rows = Array.isArray(data) ? data : [];
+  const providerRow = rows.find((item) => item.clave === OCR_PROVIDER_CONFIG_KEY);
+  const modelRow = rows.find((item) => item.clave === OCR_MODEL_CONFIG_KEY);
 
   return {
     providerOverride: String(providerRow?.valor ?? '').trim() || null,
     modelOverride: String(modelRow?.valor ?? '').trim() || null,
-  }
+  };
 }
 
 function normalizeOptionalText(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
-  return normalized ? normalized : null
+  const normalized = String(value ?? '').trim();
+  return normalized ? normalized : null;
 }
 
 function normalizeUppercaseText(value: FormDataEntryValue | null) {
-  const normalized = normalizeOptionalText(value)
-  return normalized ? normalized.toLocaleUpperCase('es-MX') : null
+  const normalized = normalizeOptionalText(value);
+  return normalized ? normalized.toLocaleUpperCase('es-MX') : null;
 }
 
 function normalizeUppercaseString(value: string | null | undefined) {
-  const normalized = String(value ?? '').trim()
-  return normalized ? normalized.toLocaleUpperCase('es-MX') : null
+  const normalized = String(value ?? '').trim();
+  return normalized ? normalized.toLocaleUpperCase('es-MX') : null;
 }
 
 function normalizeRequiredText(value: FormDataEntryValue | null, label: string) {
-  const normalized = String(value ?? '').trim()
+  const normalized = String(value ?? '').trim();
   if (!normalized) {
-    throw new Error(`${label} es obligatorio.`)
+    throw new Error(`${label} es obligatorio.`);
   }
-  return normalized
+  return normalized;
 }
 
 function normalizeDate(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
-  return normalized || null
+  const normalized = String(value ?? '').trim();
+  return normalized || null;
 }
 
 function normalizeWholeNumber(value: FormDataEntryValue | null, label: string) {
-  const normalized = String(value ?? '').trim()
+  const normalized = String(value ?? '').trim();
   if (!normalized) {
-    return null
+    return null;
   }
 
-  const numeric = Number(normalized)
+  const numeric = Number(normalized);
   if (!Number.isInteger(numeric) || numeric < 0) {
-    throw new Error(`${label} no es valido.`)
+    throw new Error(`${label} no es valido.`);
   }
 
-  return numeric
+  return numeric;
 }
 
 function normalizeCurrency(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim()
+  const normalized = String(value ?? '').trim();
   if (!normalized) {
-    return null
+    return null;
   }
 
-  const numeric = Number(normalized)
+  const numeric = Number(normalized);
   if (Number.isNaN(numeric) || numeric < 0) {
-    throw new Error('El sueldo base mensual no es valido.')
+    throw new Error('El sueldo base mensual no es valido.');
   }
 
-  return numeric
+  return numeric;
 }
 
 function normalizePostalCode(value: FormDataEntryValue | null) {
-  const normalized = String(value ?? '').trim().replace(/\s+/g, '')
-  return normalized ? normalized.slice(0, 10) : null
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/\s+/g, '');
+  return normalized ? normalized.slice(0, 10) : null;
 }
 
 function normalizeDateOrNull(value: string | null) {
-  const normalized = String(value ?? '').trim()
+  const normalized = String(value ?? '').trim();
   if (!normalized) {
-    return null
+    return null;
   }
 
-  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
 }
 
 function mapMetadataRecord(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
-    : {}
+    : {};
 }
 
 async function resolvePdvLabel(
@@ -1079,21 +1017,21 @@ async function resolvePdvLabel(
   pdvId: string | null
 ) {
   if (!pdvId) {
-    return null
+    return null;
   }
 
   const { data } = await service
     .from('pdv')
     .select('id, nombre, clave_btl, zona')
     .eq('id', pdvId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (!data) {
-    return null
+    return null;
   }
 
-  const labelParts = [data.clave_btl, data.nombre].filter(Boolean)
-  return labelParts.join(' - ') || data.nombre || pdvId
+  const labelParts = [data.clave_btl, data.nombre].filter(Boolean);
+  return labelParts.join(' - ') || data.nombre || pdvId;
 }
 
 async function resolveCoordinadorLabel(
@@ -1101,7 +1039,7 @@ async function resolveCoordinadorLabel(
   coordinadorEmpleadoId: string | null
 ) {
   if (!coordinadorEmpleadoId) {
-    return null
+    return null;
   }
 
   const { data } = await service
@@ -1109,9 +1047,9 @@ async function resolveCoordinadorLabel(
     .select('id, nombre_completo')
     .eq('id', coordinadorEmpleadoId)
     .eq('puesto', 'COORDINADOR')
-    .maybeSingle()
+    .maybeSingle();
 
-  return data?.nombre_completo ?? null
+  return data?.nombre_completo ?? null;
 }
 
 async function buildOnboardingOperativoPayload(
@@ -1121,59 +1059,65 @@ async function buildOnboardingOperativoPayload(
     fallbackFechaIngresoOficial,
     current,
   }: {
-    fallbackFechaIngresoOficial?: string | null
-    current?: Record<string, unknown>
+    fallbackFechaIngresoOficial?: string | null;
+    current?: Record<string, unknown>;
   } = {}
-  ): Promise<OnboardingOperativoPayload> {
-    const currentRecord = mapMetadataRecord(current)
-    const currentOnboarding = mapMetadataRecord(currentRecord.onboarding_operativo)
-    const currentPdvSugeridoId =
-      String(currentOnboarding.pdv_sugerido_id ?? currentOnboarding.pdv_objetivo_id ?? '').trim() || null
-    const currentPdvDefinitivoId = String(currentOnboarding.pdv_definitivo_id ?? '').trim() || null
-    const pdvSugeridoId =
-      normalizeOptionalText(formData.get('pdv_sugerido_id')) ??
-      normalizeOptionalText(formData.get('pdv_objetivo_id')) ??
-      currentPdvSugeridoId
-    const pdvDefinitivoId =
-      normalizeOptionalText(formData.get('pdv_definitivo_id')) ?? currentPdvDefinitivoId
-    const currentCoordinadorEmpleadoId = String(currentOnboarding.coordinador_empleado_id ?? '').trim() || null
-    const coordinadorEmpleadoId = normalizeOptionalText(formData.get('coordinador_empleado_id')) ?? currentCoordinadorEmpleadoId
+): Promise<OnboardingOperativoPayload> {
+  const currentRecord = mapMetadataRecord(current);
+  const currentOnboarding = mapMetadataRecord(currentRecord.onboarding_operativo);
+  const currentPdvSugeridoId =
+    String(currentOnboarding.pdv_sugerido_id ?? currentOnboarding.pdv_objetivo_id ?? '').trim() ||
+    null;
+  const currentPdvDefinitivoId = String(currentOnboarding.pdv_definitivo_id ?? '').trim() || null;
+  const pdvSugeridoId =
+    normalizeOptionalText(formData.get('pdv_sugerido_id')) ??
+    normalizeOptionalText(formData.get('pdv_objetivo_id')) ??
+    currentPdvSugeridoId;
+  const pdvDefinitivoId =
+    normalizeOptionalText(formData.get('pdv_definitivo_id')) ?? currentPdvDefinitivoId;
+  const currentCoordinadorEmpleadoId =
+    String(currentOnboarding.coordinador_empleado_id ?? '').trim() || null;
+  const coordinadorEmpleadoId =
+    normalizeOptionalText(formData.get('coordinador_empleado_id')) ?? currentCoordinadorEmpleadoId;
   const fechaIngresoOficial =
     normalizeDateOrNull(normalizeDate(formData.get('fecha_ingreso_oficial'))) ??
     normalizeDateOrNull(String(currentOnboarding.fecha_ingreso_oficial ?? '').trim()) ??
-    normalizeDateOrNull(fallbackFechaIngresoOficial ?? null)
+    normalizeDateOrNull(fallbackFechaIngresoOficial ?? null);
   const fechaIsdinizacion =
     normalizeDateOrNull(normalizeDate(formData.get('fecha_isdinizacion'))) ??
-    normalizeDateOrNull(String(currentOnboarding.fecha_isdinizacion ?? '').trim())
+    normalizeDateOrNull(String(currentOnboarding.fecha_isdinizacion ?? '').trim());
   const accesosExternosStatus =
-    (normalizeOptionalText(formData.get('accesos_externos_status')) as OnboardingExternalAccessStatus | null) ??
-    ((String(currentOnboarding.accesos_externos_status ?? '').trim() || 'PENDIENTE') as OnboardingExternalAccessStatus)
+    (normalizeOptionalText(
+      formData.get('accesos_externos_status')
+    ) as OnboardingExternalAccessStatus | null) ??
+    ((String(currentOnboarding.accesos_externos_status ?? '').trim() ||
+      'PENDIENTE') as OnboardingExternalAccessStatus);
   const accesosExternosObservaciones =
     normalizeOptionalText(formData.get('accesos_externos_observaciones')) ??
-    (String(currentOnboarding.accesos_externos_observaciones ?? '').trim() || null)
-  const expedienteCompletoRecibido =
-    formData.has('expediente_completo_recibido')
-      ? formData.get('expediente_completo_recibido') === 'on'
-      : currentOnboarding.expediente_completo_recibido === true
+    (String(currentOnboarding.accesos_externos_observaciones ?? '').trim() || null);
+  const expedienteCompletoRecibido = formData.has('expediente_completo_recibido')
+    ? formData.get('expediente_completo_recibido') === 'on'
+    : currentOnboarding.expediente_completo_recibido === true;
   const contratoStatus =
     (normalizeOptionalText(formData.get('contrato_status')) as OnboardingContractStatus | null) ??
-    ((String(currentOnboarding.contrato_status ?? '').trim() || 'PENDIENTE') as OnboardingContractStatus)
+    ((String(currentOnboarding.contrato_status ?? '').trim() ||
+      'PENDIENTE') as OnboardingContractStatus);
   const contratoFirmadoEn =
     normalizeDateOrNull(normalizeDate(formData.get('contrato_firmado_en'))) ??
-    normalizeDateOrNull(String(currentOnboarding.contrato_firmado_en ?? '').trim())
+    normalizeDateOrNull(String(currentOnboarding.contrato_firmado_en ?? '').trim());
 
-    const pdvSugeridoLabel = await resolvePdvLabel(service, pdvSugeridoId)
-    const pdvDefinitivoLabel = await resolvePdvLabel(service, pdvDefinitivoId)
+  const pdvSugeridoLabel = await resolvePdvLabel(service, pdvSugeridoId);
+  const pdvDefinitivoLabel = await resolvePdvLabel(service, pdvDefinitivoId);
 
-    return {
-      pdvSugeridoId,
-      pdvSugeridoLabel,
-      pdvDefinitivoId,
-      pdvDefinitivoLabel,
-      pdvObjetivoId: pdvDefinitivoId ?? pdvSugeridoId,
-      pdvObjetivoLabel: pdvDefinitivoLabel ?? pdvSugeridoLabel,
-      coordinadorEmpleadoId,
-      coordinadorNombre: await resolveCoordinadorLabel(service, coordinadorEmpleadoId),
+  return {
+    pdvSugeridoId,
+    pdvSugeridoLabel,
+    pdvDefinitivoId,
+    pdvDefinitivoLabel,
+    pdvObjetivoId: pdvDefinitivoId ?? pdvSugeridoId,
+    pdvObjetivoLabel: pdvDefinitivoLabel ?? pdvSugeridoLabel,
+    coordinadorEmpleadoId,
+    coordinadorNombre: await resolveCoordinadorLabel(service, coordinadorEmpleadoId),
     fechaIngresoOficial,
     fechaIsdinizacion,
     accesosExternosStatus,
@@ -1182,8 +1126,10 @@ async function buildOnboardingOperativoPayload(
     contratoStatus,
     contratoFirmadoEn,
     validacionFinalReclutamientoAt:
-      normalizeDateOrNull(String(currentOnboarding.validacion_final_reclutamiento_at ?? '').trim()) ?? null,
-  }
+      normalizeDateOrNull(
+        String(currentOnboarding.validacion_final_reclutamiento_at ?? '').trim()
+      ) ?? null,
+  };
 }
 
 function mergeEmpleadoMetadata(
@@ -1193,65 +1139,71 @@ function mergeEmpleadoMetadata(
     adminAccessPending,
     onboarding,
   }: {
-    workflowStage?: string
-    adminAccessPending?: boolean
-    onboarding?: OnboardingOperativoPayload
+    workflowStage?: string;
+    adminAccessPending?: boolean;
+    onboarding?: OnboardingOperativoPayload;
   }
 ) {
   return {
     ...metadataActual,
     ...(workflowStage ? { workflow_stage: workflowStage } : {}),
-    ...(typeof adminAccessPending === 'boolean' ? { admin_access_pending: adminAccessPending } : {}),
+    ...(typeof adminAccessPending === 'boolean'
+      ? { admin_access_pending: adminAccessPending }
+      : {}),
     ...(onboarding ? { onboarding_operativo: onboarding } : {}),
-  }
+  };
 }
 
 function mapRecipientEmail(value: string | null | undefined) {
-  const normalized = String(value ?? '').trim().toLowerCase()
-  return normalized.length > 0 ? normalized : null
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  return normalized.length > 0 ? normalized : null;
 }
 
 function validateOnboardingForPayroll(onboarding: OnboardingOperativoPayload, puesto: Puesto) {
   if (!onboarding.pdvSugeridoId) {
-    throw new Error('El PDV sugerido es obligatorio antes de pasar a gestion dual.')
+    throw new Error('El PDV sugerido es obligatorio antes de pasar a gestion dual.');
   }
 
   if (!isSupervisorPuesto(puesto) && !onboarding.coordinadorEmpleadoId) {
-    throw new Error('Selecciona el coordinador responsable antes de pasar a gestion dual.')
+    throw new Error('Selecciona el coordinador responsable antes de pasar a gestion dual.');
   }
 
   if (!onboarding.fechaIngresoOficial) {
-    throw new Error('La fecha oficial de ingreso es obligatoria antes de pasar a gestion dual.')
+    throw new Error('La fecha oficial de ingreso es obligatoria antes de pasar a gestion dual.');
   }
 }
 
 function validateOnboardingForAdminHandoff(onboarding: OnboardingOperativoPayload) {
   if (!onboarding.expedienteCompletoRecibido) {
-    throw new Error('Marca el expediente completo recibido antes de entregar a Administracion.')
+    throw new Error('Marca el expediente completo recibido antes de entregar a Administracion.');
   }
 
   if (onboarding.contratoStatus !== 'FIRMADO') {
-    throw new Error('El contrato debe estar marcado como FIRMADO antes de entregar a Administracion.')
+    throw new Error(
+      'El contrato debe estar marcado como FIRMADO antes de entregar a Administracion.'
+    );
   }
 
   if (!onboarding.contratoFirmadoEn) {
-    throw new Error('Registra la fecha de firma del contrato antes de entregar a Administracion.')
+    throw new Error('Registra la fecha de firma del contrato antes de entregar a Administracion.');
   }
 }
 function exceedsOperationalUploadLimit(file: File) {
   if (file.type === 'application/pdf') {
-    return file.size > PDF_UPLOAD_MAX_BYTES
+    return file.size > PDF_UPLOAD_MAX_BYTES;
   }
 
-  return file.size > RAW_UPLOAD_MAX_BYTES
+  return file.size > RAW_UPLOAD_MAX_BYTES;
 }
 
 function buildUploadLimitMessage(label: string, file: File) {
   if (file.type === 'application/pdf') {
-    return `El ${label} excede el limite de 10 MB. Comprimelo antes de subirlo.`
+    return `El ${label} excede el limite de 10 MB. Comprimelo antes de subirlo.`;
   }
 
-  return `El ${label} excede el limite operativo de 12 MB. Reduce el origen antes de subirlo.`
+  return `El ${label} excede el limite operativo de 12 MB. Reduce el origen antes de subirlo.`;
 }
 
 function getChecklistFromForm(formData: FormData) {
@@ -1259,59 +1211,61 @@ function getChecklistFromForm(formData: FormData) {
     activos_recuperados: formData.get('check_activos_recuperados') === 'on',
     nomina_notificada: formData.get('check_nomina_notificada') === 'on',
     logistica_notificada: formData.get('check_logistica_notificada') === 'on',
-  }
+  };
 }
 
 function isCancelableAltaWorkflowStage(value: string | null | undefined) {
-  return CANCELABLE_ALTA_WORKFLOW_STAGES.includes(String(value ?? '').trim() as (typeof CANCELABLE_ALTA_WORKFLOW_STAGES)[number])
+  return CANCELABLE_ALTA_WORKFLOW_STAGES.includes(
+    String(value ?? '').trim() as (typeof CANCELABLE_ALTA_WORKFLOW_STAGES)[number]
+  );
 }
 
 export async function crearEmpleado(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
   try {
-    const curriculumFile = formData.get('curriculum_pdf') ?? formData.get('expediente_pdf')
-    const nombreManual = normalizeUppercaseText(formData.get('nombre_completo'))
-    const curpManual = normalizeUpperIdentifier(normalizeOptionalText(formData.get('curp')))
-    const nssManual = normalizeUpperIdentifier(normalizeOptionalText(formData.get('nss')))
-    const rfcManual = normalizeUpperIdentifier(normalizeOptionalText(formData.get('rfc')))
-    const puestoInput = normalizeOptionalText(formData.get('puesto'))
-    const puesto = normalizeOcrPuesto(puestoInput) ?? 'DERMOCONSEJERO'
-    const zona = normalizeUppercaseText(formData.get('zona'))
-    const telefonoManual = normalizeOptionalText(formData.get('telefono'))
+    const curriculumFile = formData.get('curriculum_pdf') ?? formData.get('expediente_pdf');
+    const nombreManual = normalizeUppercaseText(formData.get('nombre_completo'));
+    const curpManual = normalizeUpperIdentifier(normalizeOptionalText(formData.get('curp')));
+    const nssManual = normalizeUpperIdentifier(normalizeOptionalText(formData.get('nss')));
+    const rfcManual = normalizeUpperIdentifier(normalizeOptionalText(formData.get('rfc')));
+    const puestoInput = normalizeOptionalText(formData.get('puesto'));
+    const puesto = normalizeOcrPuesto(puestoInput) ?? 'DERMOCONSEJERO';
+    const zona = normalizeUppercaseText(formData.get('zona'));
+    const telefonoManual = normalizeOptionalText(formData.get('telefono'));
     const correoElectronicoManual =
-      normalizeOptionalText(formData.get('correo_electronico'))?.toLowerCase() ?? null
-    const fechaAltaManual = normalizeDate(formData.get('fecha_alta'))
-    const fechaNacimientoManual = normalizeDate(formData.get('fecha_nacimiento'))
-    const domicilioCompletoManual = normalizeUppercaseText(formData.get('domicilio_completo'))
-    const codigoPostalManual = normalizePostalCode(formData.get('codigo_postal'))
-    const sexoManual = normalizeUppercaseText(formData.get('sexo'))
-    const estadoCivilManual = normalizeUppercaseText(formData.get('estado_civil'))
-    const originarioManual = normalizeUppercaseText(formData.get('originario'))
-    const edadManual = normalizeWholeNumber(formData.get('edad'), 'Edad')
-    const credencialPdf = formData.get('credencial_pdf')
-    const constanciaFiscalPdf = formData.get('constancia_fiscal_pdf')
+      normalizeOptionalText(formData.get('correo_electronico'))?.toLowerCase() ?? null;
+    const fechaAltaManual = normalizeDate(formData.get('fecha_alta'));
+    const fechaNacimientoManual = normalizeDate(formData.get('fecha_nacimiento'));
+    const domicilioCompletoManual = normalizeUppercaseText(formData.get('domicilio_completo'));
+    const codigoPostalManual = normalizePostalCode(formData.get('codigo_postal'));
+    const sexoManual = normalizeUppercaseText(formData.get('sexo'));
+    const estadoCivilManual = normalizeUppercaseText(formData.get('estado_civil'));
+    const originarioManual = normalizeUppercaseText(formData.get('originario'));
+    const edadManual = normalizeWholeNumber(formData.get('edad'), 'Edad');
+    const credencialPdf = formData.get('credencial_pdf');
+    const constanciaFiscalPdf = formData.get('constancia_fiscal_pdf');
 
     if (!(curriculumFile instanceof File) || curriculumFile.size <= 0) {
-      return buildState({ message: 'Adjunta el curriculum en PDF para crear el candidato.' })
+      return buildState({ message: 'Adjunta el curriculum en PDF para crear el candidato.' });
     }
 
     if (curriculumFile.type !== 'application/pdf') {
-      return buildState({ message: 'El curriculum inicial debe cargarse como PDF.' })
+      return buildState({ message: 'El curriculum inicial debe cargarse como PDF.' });
     }
 
     if (exceedsOperationalUploadLimit(curriculumFile)) {
       return buildState({
         message: buildUploadLimitMessage('curriculum', curriculumFile),
-      })
+      });
     }
 
     const documentosComplementariosAlta = [
@@ -1323,31 +1277,37 @@ export async function crearEmpleado(
         file: constanciaFiscalPdf,
         etiqueta: 'constancia de situacion fiscal',
       },
-    ]
+    ];
 
     for (const documentoComplementario of documentosComplementariosAlta) {
-      if (!(documentoComplementario.file instanceof File) || documentoComplementario.file.size <= 0) {
-        continue
+      if (
+        !(documentoComplementario.file instanceof File) ||
+        documentoComplementario.file.size <= 0
+      ) {
+        continue;
       }
 
       if (documentoComplementario.file.type !== 'application/pdf') {
         return buildState({
           message: `La ${documentoComplementario.etiqueta} debe cargarse como PDF.`,
-        })
+        });
       }
 
       if (exceedsOperationalUploadLimit(documentoComplementario.file)) {
         return buildState({
-          message: buildUploadLimitMessage(documentoComplementario.etiqueta, documentoComplementario.file),
-        })
+          message: buildUploadLimitMessage(
+            documentoComplementario.etiqueta,
+            documentoComplementario.file
+          ),
+        });
       }
     }
 
     if (!PUESTOS_VALIDOS.includes(puesto)) {
-      return buildState({ message: 'El puesto seleccionado no es valido.' })
+      return buildState({ message: 'El puesto seleccionado no es valido.' });
     }
 
-    const empleadoId = crypto.randomUUID()
+    const empleadoId = crypto.randomUUID();
     const documentoPreparado = await prepararDocumentoEmpleado(service, {
       actorUsuarioId: actor.usuarioId,
       empleadoId,
@@ -1362,35 +1322,37 @@ export async function crearEmpleado(
         source_document: 'CV',
         curriculum_upload: true,
       },
-    })
+    });
 
-    const ocrSnapshot = buildEmpleadoOcrSnapshot(documentoPreparado.ocr.result)
+    const ocrSnapshot = buildEmpleadoOcrSnapshot(documentoPreparado.ocr.result);
 
     const nombreCompleto =
-      nombreManual ?? normalizeUppercaseString(documentoPreparado.ocr.result.employeeName)
-    const curp = curpManual ?? normalizeUpperIdentifier(documentoPreparado.ocr.result.curp)
-    const nss = nssManual ?? normalizeUpperIdentifier(documentoPreparado.ocr.result.nss)
-    const rfc = rfcManual ?? normalizeUpperIdentifier(documentoPreparado.ocr.result.rfc)
-    const telefono = telefonoManual ?? ocrSnapshot.telefono
-    const correoElectronico = correoElectronicoManual ?? ocrSnapshot.correoElectronico?.toLowerCase() ?? null
-    const fechaAlta = normalizeDateOrNull(fechaAltaManual) ?? new Date().toISOString().slice(0, 10)
-    const fechaNacimiento = normalizeDateOrNull(fechaNacimientoManual) ?? ocrSnapshot.fechaNacimiento
-    const domicilioCompleto = domicilioCompletoManual ?? ocrSnapshot.direccion
-    const codigoPostal = codigoPostalManual ?? ocrSnapshot.codigoPostal
-    const edad = edadManual ?? ocrSnapshot.edad
-    const aniosLaborando = deriveYearsFromAgencyStartDate(fechaAlta) ?? 0
-    const sexo = sexoManual ?? ocrSnapshot.sexo
-    const estadoCivil = estadoCivilManual ?? ocrSnapshot.estadoCivil
-    const originario = originarioManual ?? ocrSnapshot.originario
+      nombreManual ?? normalizeUppercaseString(documentoPreparado.ocr.result.employeeName);
+    const curp = curpManual ?? normalizeUpperIdentifier(documentoPreparado.ocr.result.curp);
+    const nss = nssManual ?? normalizeUpperIdentifier(documentoPreparado.ocr.result.nss);
+    const rfc = rfcManual ?? normalizeUpperIdentifier(documentoPreparado.ocr.result.rfc);
+    const telefono = telefonoManual ?? ocrSnapshot.telefono;
+    const correoElectronico =
+      correoElectronicoManual ?? ocrSnapshot.correoElectronico?.toLowerCase() ?? null;
+    const fechaAlta = normalizeDateOrNull(fechaAltaManual) ?? new Date().toISOString().slice(0, 10);
+    const fechaNacimiento =
+      normalizeDateOrNull(fechaNacimientoManual) ?? ocrSnapshot.fechaNacimiento;
+    const domicilioCompleto = domicilioCompletoManual ?? ocrSnapshot.direccion;
+    const codigoPostal = codigoPostalManual ?? ocrSnapshot.codigoPostal;
+    const edad = edadManual ?? ocrSnapshot.edad;
+    const aniosLaborando = deriveYearsFromAgencyStartDate(fechaAlta) ?? 0;
+    const sexo = sexoManual ?? ocrSnapshot.sexo;
+    const estadoCivil = estadoCivilManual ?? ocrSnapshot.estadoCivil;
+    const originario = originarioManual ?? ocrSnapshot.originario;
     const onboardingOperativo = await buildOnboardingOperativoPayload(service, formData, {
       fallbackFechaIngresoOficial: fechaAlta,
-    })
+    });
 
     if (!onboardingOperativo.pdvSugeridoId) {
       return buildState({
         message: 'El PDV sugerido es obligatorio para registrar un nuevo candidato.',
         ocrSnapshot,
-      })
+      });
     }
 
     if (!nombreCompleto || !curp || !nss || !rfc) {
@@ -1398,20 +1360,20 @@ export async function crearEmpleado(
         message:
           'Gemini no logro completar nombre, CURP, NSS y RFC desde el curriculum. Corrige el CV o captura manualmente los faltantes.',
         ocrSnapshot,
-      })
+      });
     }
 
     const [curpExistente, rfcExistente, nssExistente] = await Promise.all([
       service.from('empleado').select('id').eq('curp', curp).maybeSingle(),
       service.from('empleado').select('id').eq('rfc', rfc).maybeSingle(),
       service.from('empleado').select('id').eq('nss', nss).maybeSingle(),
-    ])
+    ]);
 
     if (curpExistente.data || rfcExistente.data || nssExistente.data) {
       return buildState({
         message: 'CURP, RFC o NSS ya estan registrados en otro expediente.',
         ocrSnapshot,
-      })
+      });
     }
 
     const { data: insertedEmpleado, error: insertEmpleadoError } = await service
@@ -1459,13 +1421,13 @@ export async function crearEmpleado(
         },
       })
       .select('id, id_nomina, nombre_completo, puesto, correo_electronico')
-      .maybeSingle()
+      .maybeSingle();
 
     if (insertEmpleadoError || !insertedEmpleado) {
       return buildState({
         message: insertEmpleadoError?.message ?? 'No fue posible crear el candidato.',
         ocrSnapshot,
-      })
+      });
     }
 
     const documentoRegistrado = await registrarDocumentoEmpleado(service, documentoPreparado, {
@@ -1479,7 +1441,7 @@ export async function crearEmpleado(
         source_document: 'CV',
         curriculum_upload: true,
       },
-    })
+    });
 
     const documentosComplementarios = [
       {
@@ -1494,11 +1456,14 @@ export async function crearEmpleado(
         expectedDocumentType: 'RFC',
         etiqueta: 'constancia de situacion fiscal',
       },
-    ]
+    ];
 
     for (const documentoComplementario of documentosComplementarios) {
-      if (!(documentoComplementario.file instanceof File) || documentoComplementario.file.size <= 0) {
-        continue
+      if (
+        !(documentoComplementario.file instanceof File) ||
+        documentoComplementario.file.size <= 0
+      ) {
+        continue;
       }
 
       const preparadoComplementario = await prepararDocumentoEmpleado(service, {
@@ -1517,21 +1482,25 @@ export async function crearEmpleado(
           source_document: 'DOCUMENTO_VERIFICACION',
           ocr_skipped: true,
         },
-      })
+      });
 
-      const registradoComplementario = await registrarDocumentoEmpleado(service, preparadoComplementario, {
-        actorUsuarioId: actor.usuarioId,
-        empleadoId: insertedEmpleado.id,
-        categoria: 'EXPEDIENTE',
-        tipoDocumento: documentoComplementario.tipoDocumento,
-        file: documentoComplementario.file,
-        metadataExtra: {
-          workflow_stage: 'reclutamiento_upload',
-          complemento_alta: true,
-          source_document: 'DOCUMENTO_VERIFICACION',
-          ocr_skipped: true,
-        },
-      })
+      const registradoComplementario = await registrarDocumentoEmpleado(
+        service,
+        preparadoComplementario,
+        {
+          actorUsuarioId: actor.usuarioId,
+          empleadoId: insertedEmpleado.id,
+          categoria: 'EXPEDIENTE',
+          tipoDocumento: documentoComplementario.tipoDocumento,
+          file: documentoComplementario.file,
+          metadataExtra: {
+            workflow_stage: 'reclutamiento_upload',
+            complemento_alta: true,
+            source_document: 'DOCUMENTO_VERIFICACION',
+            ocr_skipped: true,
+          },
+        }
+      );
 
       if (
         documentoComplementario.tipoDocumento === 'INE' &&
@@ -1542,7 +1511,7 @@ export async function crearEmpleado(
           documentoId: registradoComplementario.documentoId,
           archivoHash: registradoComplementario.archivoHash,
           storedEvidence: registradoComplementario.storedEvidence,
-        })
+        });
       }
     }
 
@@ -1563,7 +1532,7 @@ export async function crearEmpleado(
           ocr_provider: documentoRegistrado.ocr.provider,
         },
         usuarioId: actor.usuarioId,
-      })
+      });
     }
 
     await registrarEventoAudit(service, {
@@ -1578,7 +1547,7 @@ export async function crearEmpleado(
         workflow_stage: 'NUEVOS',
       },
       usuarioId: actor.usuarioId,
-    })
+    });
 
     await publishEmpleadosPanelChange(service, actor, {
       eventType: 'empleado_creado_desde_cv_ocr',
@@ -1589,29 +1558,27 @@ export async function crearEmpleado(
         workflow_stage: 'NUEVOS',
         puesto,
       },
-    })
+    });
 
-    await registrarNotificacionWorkflowEmpleados(
-      service,
-      {
-        actorUsuarioId: actor.usuarioId,
+    await registrarNotificacionWorkflowEmpleados(service, {
+      actorUsuarioId: actor.usuarioId,
+      empleadoId: insertedEmpleado.id,
+      ...buildNuevoCandidatoCoordinacionNotification({
         empleadoId: insertedEmpleado.id,
-        ...buildNuevoCandidatoCoordinacionNotification({
-          empleadoId: insertedEmpleado.id,
-          nombreCompleto,
-        }),
-      }
-    )
+        nombreCompleto,
+      }),
+    });
     return buildState({
       ok: true,
       message:
         'Candidato creado desde CV y enviado a Coordinacion como Nuevo pendiente de aprobacion.',
       duplicatedUpload: documentoRegistrado.storedEvidence.deduplicated,
       ocrSnapshot,
-    })  } catch (error) {
+    });
+  } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible crear el empleado.',
-    })
+    });
   }
 }
 
@@ -1619,26 +1586,28 @@ export async function actualizarEstadoExpedienteEmpleado(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
-  const expedienteEstado = String(formData.get('expediente_estado') ?? '').trim() as ExpedienteEstado
-  const expedienteObservaciones = normalizeOptionalText(formData.get('expediente_observaciones'))
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+  const expedienteEstado = String(
+    formData.get('expediente_estado') ?? ''
+  ).trim() as ExpedienteEstado;
+  const expedienteObservaciones = normalizeOptionalText(formData.get('expediente_observaciones'));
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   if (!EXPEDIENTE_ESTADOS.includes(expedienteEstado)) {
-    return buildState({ message: 'El estado de expediente no es valido.' })
+    return buildState({ message: 'El estado de expediente no es valido.' });
   }
 
-  const now = new Date().toISOString()
+  const now = new Date().toISOString();
   const { error } = await service
     .from('empleado')
     .update({
@@ -1648,10 +1617,10 @@ export async function actualizarEstadoExpedienteEmpleado(
       expediente_validado_por_usuario_id: expedienteEstado === 'VALIDADO' ? actor.usuarioId : null,
       updated_at: now,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (error) {
-    return buildState({ message: error.message })
+    return buildState({ message: error.message });
   }
 
   await registrarEventoAudit(service, {
@@ -1663,7 +1632,7 @@ export async function actualizarEstadoExpedienteEmpleado(
       expediente_observaciones: expedienteObservaciones,
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   await publishEmpleadosPanelChange(service, actor, {
     eventType: 'empleado_expediente_actualizado',
@@ -1671,51 +1640,51 @@ export async function actualizarEstadoExpedienteEmpleado(
     metadata: {
       expediente_estado: expedienteEstado,
     },
-  })
-  return buildState({ ok: true, message: 'Estado de expediente actualizado.' })
+  });
+  return buildState({ ok: true, message: 'Estado de expediente actualizado.' });
 }
 
 export async function actualizarExpedienteEmpleadoConDocumento(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
-  const expedienteObservaciones = normalizeOptionalText(formData.get('expediente_observaciones'))
-  const expedientePdf = formData.get('expediente_pdf')
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+  const expedienteObservaciones = normalizeOptionalText(formData.get('expediente_observaciones'));
+  const expedientePdf = formData.get('expediente_pdf');
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   if (!(expedientePdf instanceof File) || expedientePdf.size <= 0) {
-    return buildState({ message: 'Adjunta un PDF de expediente para actualizarlo.' })
+    return buildState({ message: 'Adjunta un PDF de expediente para actualizarlo.' });
   }
 
   if (expedientePdf.type !== 'application/pdf') {
-    return buildState({ message: 'El expediente actualizado debe cargarse como PDF.' })
+    return buildState({ message: 'El expediente actualizado debe cargarse como PDF.' });
   }
 
   if (exceedsOperationalUploadLimit(expedientePdf)) {
     return buildState({
       message: buildUploadLimitMessage('expediente actualizado', expedientePdf),
-    })
+    });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, nombre_completo, nss, expediente_estado, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
   try {
@@ -1733,7 +1702,7 @@ export async function actualizarExpedienteEmpleadoConDocumento(
         expediente_update: true,
         expediente_observaciones: expedienteObservaciones,
       },
-    })
+    });
 
     const documentoRegistrado = await registrarDocumentoEmpleado(service, documentoPreparado, {
       actorUsuarioId: actor.usuarioId,
@@ -1746,9 +1715,9 @@ export async function actualizarExpedienteEmpleadoConDocumento(
         expediente_observaciones: expedienteObservaciones,
         ocr_skipped: true,
       },
-    })
+    });
 
-    const now = new Date().toISOString()
+    const now = new Date().toISOString();
     const { error } = await service
       .from('empleado')
       .update({
@@ -1763,10 +1732,10 @@ export async function actualizarExpedienteEmpleadoConDocumento(
         },
         updated_at: now,
       })
-      .eq('id', empleadoId)
+      .eq('id', empleadoId);
 
     if (error) {
-      return buildState({ message: error.message })
+      return buildState({ message: error.message });
     }
 
     await registrarEventoAudit(service, {
@@ -1781,7 +1750,7 @@ export async function actualizarExpedienteEmpleadoConDocumento(
         sha256: documentoRegistrado.archivoHash.sha256,
       },
       usuarioId: actor.usuarioId,
-    })
+    });
 
     await publishEmpleadosPanelChange(service, actor, {
       eventType: 'empleado_expediente_actualizado',
@@ -1790,7 +1759,7 @@ export async function actualizarExpedienteEmpleadoConDocumento(
         expediente_estado: 'VALIDADO',
         workflow_stage: 'EN_GESTION',
       },
-    })
+    });
 
     await registrarNotificacionWorkflowEmpleados(service, {
       actorUsuarioId: actor.usuarioId,
@@ -1802,7 +1771,7 @@ export async function actualizarExpedienteEmpleadoConDocumento(
       path: '/nomina?inbox=altas-imss',
       tag: `empleado-expediente-gestion-${empleadoId}`,
       auditAction: 'notificar_nomina_expediente_completo',
-    })
+    });
 
     await registrarNotificacionWorkflowEmpleados(service, {
       actorUsuarioId: actor.usuarioId,
@@ -1814,20 +1783,21 @@ export async function actualizarExpedienteEmpleadoConDocumento(
       path: '/empleados',
       tag: `empleado-expediente-coordinacion-${empleadoId}`,
       auditAction: 'notificar_coordinacion_expediente_completo',
-    })
+    });
 
     return buildState({
       ok: true,
-      duplicatedUpload: documentoRegistrado.storedEvidence.deduplicated || documentoRegistrado.documentoExistente,
+      duplicatedUpload:
+        documentoRegistrado.storedEvidence.deduplicated || documentoRegistrado.documentoExistente,
       message:
         documentoRegistrado.storedEvidence.deduplicated || documentoRegistrado.documentoExistente
           ? 'Expediente actualizado y documento reutilizado.'
           : 'Expediente actualizado con el nuevo documento.',
-    })
+    });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible actualizar el expediente.',
-    })
+    });
   }
 }
 
@@ -1835,74 +1805,76 @@ export async function actualizarFichaEmpleadoReclutamiento(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
-  const nombreCompleto = normalizeUppercaseText(formData.get('nombre_completo'))
-  const curp = normalizeUpperIdentifier(normalizeOptionalText(formData.get('curp')))
-  const nss = normalizeUpperIdentifier(normalizeOptionalText(formData.get('nss')))
-  const rfc = normalizeUpperIdentifier(normalizeOptionalText(formData.get('rfc')))
-  const puestoInput = normalizeOptionalText(formData.get('puesto'))
-  const puesto = normalizeOcrPuesto(puestoInput) ?? 'DERMOCONSEJERO'
-  const zona = normalizeUppercaseText(formData.get('zona'))
-  const telefono = normalizeOptionalText(formData.get('telefono'))
+  const nombreCompleto = normalizeUppercaseText(formData.get('nombre_completo'));
+  const curp = normalizeUpperIdentifier(normalizeOptionalText(formData.get('curp')));
+  const nss = normalizeUpperIdentifier(normalizeOptionalText(formData.get('nss')));
+  const rfc = normalizeUpperIdentifier(normalizeOptionalText(formData.get('rfc')));
+  const puestoInput = normalizeOptionalText(formData.get('puesto'));
+  const puesto = normalizeOcrPuesto(puestoInput) ?? 'DERMOCONSEJERO';
+  const zona = normalizeUppercaseText(formData.get('zona'));
+  const telefono = normalizeOptionalText(formData.get('telefono'));
   const correoElectronico =
-    normalizeOptionalText(formData.get('correo_electronico'))?.toLowerCase() ?? null
-  const fechaAlta = normalizeDateOrNull(normalizeDate(formData.get('fecha_alta')))
-  const fechaNacimiento = normalizeDateOrNull(normalizeDate(formData.get('fecha_nacimiento')))
-  const domicilioCompleto = normalizeUppercaseText(formData.get('domicilio_completo'))
-  const codigoPostal = normalizePostalCode(formData.get('codigo_postal'))
-  const edad = normalizeWholeNumber(formData.get('edad'), 'Edad')
-  const sexo = normalizeUppercaseText(formData.get('sexo'))
-  const estadoCivil = normalizeUppercaseText(formData.get('estado_civil'))
-  const originario = normalizeUppercaseText(formData.get('originario'))
-  const aniosLaborando = deriveYearsFromAgencyStartDate(fechaAlta) ?? 0
+    normalizeOptionalText(formData.get('correo_electronico'))?.toLowerCase() ?? null;
+  const fechaAlta = normalizeDateOrNull(normalizeDate(formData.get('fecha_alta')));
+  const fechaNacimiento = normalizeDateOrNull(normalizeDate(formData.get('fecha_nacimiento')));
+  const domicilioCompleto = normalizeUppercaseText(formData.get('domicilio_completo'));
+  const codigoPostal = normalizePostalCode(formData.get('codigo_postal'));
+  const edad = normalizeWholeNumber(formData.get('edad'), 'Edad');
+  const sexo = normalizeUppercaseText(formData.get('sexo'));
+  const estadoCivil = normalizeUppercaseText(formData.get('estado_civil'));
+  const originario = normalizeUppercaseText(formData.get('originario'));
+  const aniosLaborando = deriveYearsFromAgencyStartDate(fechaAlta) ?? 0;
 
   if (!nombreCompleto || !curp || !nss || !rfc) {
     return buildState({
       message: 'Nombre completo, CURP, NSS y RFC siguen siendo obligatorios para la ficha.',
-    })
+    });
   }
 
   const { data: empleadoActual, error: empleadoError } = await service
     .from('empleado')
-    .select('id, curp, rfc, nss, metadata')
+    .select('id, puesto, curp, rfc, nss, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleadoActual) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
   const [curpExistente, rfcExistente, nssExistente] = await Promise.all([
     service.from('empleado').select('id').eq('curp', curp).neq('id', empleadoId).maybeSingle(),
     service.from('empleado').select('id').eq('rfc', rfc).neq('id', empleadoId).maybeSingle(),
     service.from('empleado').select('id').eq('nss', nss).neq('id', empleadoId).maybeSingle(),
-  ])
+  ]);
 
   if (curpExistente.data || rfcExistente.data || nssExistente.data) {
     return buildState({
       message: 'CURP, RFC o NSS ya estan registrados en otro expediente.',
-    })
+    });
   }
 
   const metadataActual =
-    empleadoActual.metadata && typeof empleadoActual.metadata === 'object' && !Array.isArray(empleadoActual.metadata)
+    empleadoActual.metadata &&
+    typeof empleadoActual.metadata === 'object' &&
+    !Array.isArray(empleadoActual.metadata)
       ? (empleadoActual.metadata as Record<string, unknown>)
-      : {}
+      : {};
   const onboardingOperativo = await buildOnboardingOperativoPayload(service, formData, {
     fallbackFechaIngresoOficial: fechaAlta,
     current: metadataActual,
-  })
+  });
   const updatePayload: Record<string, unknown> = {
     nombre_completo: nombreCompleto,
     curp,
@@ -1925,26 +1897,23 @@ export async function actualizarFichaEmpleadoReclutamiento(
       onboarding: onboardingOperativo,
     }),
     updated_at: new Date().toISOString(),
-  }
+  };
 
-  const reenviarAltaANomina = metadataActual.workflow_stage === 'RECLUTAMIENTO_CORRECCION_ALTA'
+  const reenviarAltaANomina = metadataActual.workflow_stage === 'RECLUTAMIENTO_CORRECCION_ALTA';
 
   if (reenviarAltaANomina) {
-    updatePayload.expediente_estado = 'EN_REVISION'
+    updatePayload.expediente_estado = 'EN_REVISION';
     updatePayload.metadata = mergeEmpleadoMetadata(metadataActual, {
       workflowStage: 'EXPEDIENTE',
       adminAccessPending: false,
       onboarding: onboardingOperativo,
-    })
+    });
   }
 
-  const { error } = await service
-    .from('empleado')
-    .update(updatePayload)
-    .eq('id', empleadoId)
+  const { error } = await service.from('empleado').update(updatePayload).eq('id', empleadoId);
 
   if (error) {
-    return buildState({ message: error.message })
+    return buildState({ message: error.message });
   }
 
   await registrarEventoAudit(service, {
@@ -1960,7 +1929,7 @@ export async function actualizarFichaEmpleadoReclutamiento(
       zona,
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   await publishEmpleadosPanelChange(service, actor, {
     eventType: 'empleado_ficha_laboral_actualizada',
@@ -1969,7 +1938,10 @@ export async function actualizarFichaEmpleadoReclutamiento(
     metadata: {
       reenviar_alta_nomina: reenviarAltaANomina,
     },
-  })
+  });
+  if (empleadoActual.puesto !== puesto) {
+    invalidatePlaneacionCatalogMonths(getSingleTenantAccountId());
+  }
   if (reenviarAltaANomina) {
     await registrarNotificacionWorkflowEmpleados(service, {
       actorUsuarioId: actor.usuarioId,
@@ -1981,52 +1953,57 @@ export async function actualizarFichaEmpleadoReclutamiento(
       path: '/nomina?inbox=altas-imss',
       tag: `empleado-alta-corregida-${empleadoId}`,
       auditAction: 'notificar_nomina_alta_corregida',
-    })
+    });
   }
-  return buildState({ ok: true, message: 'Ficha laboral actualizada. Ya puedes reenviar soportes corregidos.' })
+  return buildState({
+    ok: true,
+    message: 'Ficha laboral actualizada. Ya puedes reenviar soportes corregidos.',
+  });
 }
 
 export async function enviarAltaANominaDesdeReclutamiento(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, nombre_completo, fecha_alta, puesto, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
-  const metadataActual = mapMetadataRecord(empleado.metadata)
+  const metadataActual = mapMetadataRecord(empleado.metadata);
   const onboardingOperativo = await buildOnboardingOperativoPayload(service, formData, {
     fallbackFechaIngresoOficial: empleado.fecha_alta,
     current: metadataActual,
-  })
+  });
 
   try {
-    validateOnboardingForPayroll(onboardingOperativo, empleado.puesto)
+    validateOnboardingForPayroll(onboardingOperativo, empleado.puesto);
   } catch (error) {
-    return buildState({ message: error instanceof Error ? error.message : 'Paquete operativo incompleto.' })
+    return buildState({
+      message: error instanceof Error ? error.message : 'Paquete operativo incompleto.',
+    });
   }
 
-  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null
-  const nextStage = 'EN_GESTION'
-  const now = new Date().toISOString()
+  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null;
+  const nextStage = 'EN_GESTION';
+  const now = new Date().toISOString();
 
   const { error: updateError } = await service
     .from('empleado')
@@ -2039,31 +2016,31 @@ export async function enviarAltaANominaDesdeReclutamiento(
       }),
       updated_at: now,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (updateError) {
-    return buildState({ message: updateError.message })
+    return buildState({ message: updateError.message });
   }
 
-    await registrarEventoAudit(service, {
-      tabla: 'empleado',
-      registroId: empleadoId,
+  await registrarEventoAudit(service, {
+    tabla: 'empleado',
+    registroId: empleadoId,
     payload: {
       evento: 'empleado_enviado_a_nomina_desde_reclutamiento',
       workflow_stage_anterior: workflowStageActual,
       workflow_stage_nuevo: nextStage,
       pdv_sugerido_id: onboardingOperativo.pdvSugeridoId,
       pdv_sugerido_label: onboardingOperativo.pdvSugeridoLabel,
-        pdv_definitivo_id: onboardingOperativo.pdvDefinitivoId,
-        pdv_definitivo_label: onboardingOperativo.pdvDefinitivoLabel,
-        pdv_objetivo_id: onboardingOperativo.pdvObjetivoId,
-        pdv_objetivo_label: onboardingOperativo.pdvObjetivoLabel,
-        coordinador_empleado_id: onboardingOperativo.coordinadorEmpleadoId,
-        fecha_ingreso_oficial: onboardingOperativo.fechaIngresoOficial,
-        fecha_isdinizacion: onboardingOperativo.fechaIsdinizacion,
-      },
+      pdv_definitivo_id: onboardingOperativo.pdvDefinitivoId,
+      pdv_definitivo_label: onboardingOperativo.pdvDefinitivoLabel,
+      pdv_objetivo_id: onboardingOperativo.pdvObjetivoId,
+      pdv_objetivo_label: onboardingOperativo.pdvObjetivoLabel,
+      coordinador_empleado_id: onboardingOperativo.coordinadorEmpleadoId,
+      fecha_ingreso_oficial: onboardingOperativo.fechaIngresoOficial,
+      fecha_isdinizacion: onboardingOperativo.fechaIsdinizacion,
+    },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   await registrarNotificacionWorkflowEmpleados(service, {
     actorUsuarioId: actor.usuarioId,
@@ -2075,7 +2052,7 @@ export async function enviarAltaANominaDesdeReclutamiento(
     path: '/nomina?inbox=altas-imss',
     tag: `empleado-gestion-dual-${empleadoId}`,
     auditAction: 'notificar_nomina_gestion_dual',
-  })
+  });
   await publishEmpleadosPanelChange(service, actor, {
     eventType: 'empleado_enviado_a_nomina',
     empleadoId,
@@ -2083,64 +2060,72 @@ export async function enviarAltaANominaDesdeReclutamiento(
     metadata: {
       workflow_stage: 'EN_GESTION',
     },
-  })
+  });
 
   return buildState({
     ok: true,
     message: 'Paquete validado y enviado a gestion dual.',
-  })
+  });
 }
 
 export async function aprobarCandidatoCoordinacion(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un candidato valido.' })
+    return buildState({ message: 'Selecciona un candidato valido.' });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, nombre_completo, fecha_alta, puesto, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Candidato no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Candidato no encontrado.' });
   }
 
-  const metadataActual = mapMetadataRecord(empleado.metadata)
-  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null
+  const metadataActual = mapMetadataRecord(empleado.metadata);
+  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null;
   if (workflowStageActual !== 'NUEVOS' && workflowStageActual !== 'PENDIENTE_COORDINACION') {
-    return buildState({ message: 'Este candidato ya no esta en la bandeja de aprobacion de Coordinacion.' })
+    return buildState({
+      message: 'Este candidato ya no esta en la bandeja de aprobacion de Coordinacion.',
+    });
   }
 
   let onboardingOperativo = await buildOnboardingOperativoPayload(service, formData, {
     fallbackFechaIngresoOficial: empleado.fecha_alta,
     current: metadataActual,
-  })
+  });
 
   if (!onboardingOperativo.fechaIngresoOficial) {
-    return buildState({ message: 'Coordinacion debe registrar la fecha de ingreso antes de aprobar.' })
+    return buildState({
+      message: 'Coordinacion debe registrar la fecha de ingreso antes de aprobar.',
+    });
   }
 
-  if (!onboardingOperativo.coordinadorEmpleadoId && actor.puesto === 'COORDINADOR' && actor.empleadoId) {
+  if (
+    !onboardingOperativo.coordinadorEmpleadoId &&
+    actor.puesto === 'COORDINADOR' &&
+    actor.empleadoId
+  ) {
     onboardingOperativo = {
       ...onboardingOperativo,
       coordinadorEmpleadoId: actor.empleadoId,
       coordinadorNombre: await resolveCoordinadorLabel(service, actor.empleadoId),
-    }
+    };
   }
 
-  const now = new Date().toISOString()
+  const now = new Date().toISOString();
   const { error: updateError } = await service
     .from('empleado')
     .update({
@@ -2152,26 +2137,26 @@ export async function aprobarCandidatoCoordinacion(
       }),
       updated_at: now,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (updateError) {
-    return buildState({ message: updateError.message })
+    return buildState({ message: updateError.message });
   }
 
   await registrarEventoAudit(service, {
     tabla: 'empleado',
     registroId: empleadoId,
-      payload: {
-        evento: 'candidato_aprobado_por_coordinacion',
-        workflow_stage_anterior: workflowStageActual,
-        workflow_stage_nuevo: 'EXPEDIENTE',
-        pdv_sugerido_id: onboardingOperativo.pdvSugeridoId,
-        pdv_sugerido_label: onboardingOperativo.pdvSugeridoLabel,
-        fecha_ingreso_oficial: onboardingOperativo.fechaIngresoOficial,
-        coordinador_empleado_id: onboardingOperativo.coordinadorEmpleadoId,
-      },
+    payload: {
+      evento: 'candidato_aprobado_por_coordinacion',
+      workflow_stage_anterior: workflowStageActual,
+      workflow_stage_nuevo: 'EXPEDIENTE',
+      pdv_sugerido_id: onboardingOperativo.pdvSugeridoId,
+      pdv_sugerido_label: onboardingOperativo.pdvSugeridoLabel,
+      fecha_ingreso_oficial: onboardingOperativo.fechaIngresoOficial,
+      coordinador_empleado_id: onboardingOperativo.coordinadorEmpleadoId,
+    },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   await publishEmpleadosPanelChange(service, actor, {
     eventType: 'candidato_aprobado_coordinacion',
@@ -2179,7 +2164,7 @@ export async function aprobarCandidatoCoordinacion(
     metadata: {
       workflow_stage: 'EXPEDIENTE',
     },
-  })
+  });
 
   await registrarNotificacionWorkflowEmpleados(service, {
     actorUsuarioId: actor.usuarioId,
@@ -2191,57 +2176,58 @@ export async function aprobarCandidatoCoordinacion(
     path: '/empleados',
     tag: `empleado-candidato-aprobado-${empleadoId}`,
     auditAction: 'notificar_reclutamiento_candidato_aprobado',
-  })
+  });
 
   return buildState({
     ok: true,
-    message: 'Candidato aprobado por Coordinacion. Reclutamiento ya puede subir el expediente unico para pasar a gestion dual.',
-  })
+    message:
+      'Candidato aprobado por Coordinacion. Reclutamiento ya puede subir el expediente unico para pasar a gestion dual.',
+  });
 }
 
 export async function rechazarCandidatoCoordinacion(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
-  const motivoRechazo = normalizeOptionalText(formData.get('motivo_rechazo_coordinacion'))
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+  const motivoRechazo = normalizeOptionalText(formData.get('motivo_rechazo_coordinacion'));
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un candidato valido.' })
+    return buildState({ message: 'Selecciona un candidato valido.' });
   }
 
   if (!motivoRechazo) {
-    return buildState({ message: 'Coordinacion debe explicar el motivo del rechazo.' })
+    return buildState({ message: 'Coordinacion debe explicar el motivo del rechazo.' });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, nombre_completo, metadata, estatus_laboral')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Candidato no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Candidato no encontrado.' });
   }
 
   const metadataActual =
     empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
       ? (empleado.metadata as Record<string, unknown>)
-      : {}
-  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null
+      : {};
+  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null;
 
   if (workflowStageActual !== 'NUEVOS' && workflowStageActual !== 'PENDIENTE_COORDINACION') {
-    return buildState({ message: 'Este candidato ya no puede rechazarse desde Coordinacion.' })
+    return buildState({ message: 'Este candidato ya no puede rechazarse desde Coordinacion.' });
   }
 
-  const now = new Date().toISOString()
+  const now = new Date().toISOString();
   const { error } = await service
     .from('empleado')
     .update({
@@ -2258,10 +2244,10 @@ export async function rechazarCandidatoCoordinacion(
       },
       updated_at: now,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (error) {
-    return buildState({ message: error.message })
+    return buildState({ message: error.message });
   }
 
   await registrarEventoAudit(service, {
@@ -2274,7 +2260,7 @@ export async function rechazarCandidatoCoordinacion(
       motivo_rechazo: motivoRechazo,
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   await registrarNotificacionWorkflowEmpleados(service, {
     actorUsuarioId: actor.usuarioId,
@@ -2286,7 +2272,7 @@ export async function rechazarCandidatoCoordinacion(
     path: '/empleados',
     tag: `empleado-candidato-rechazado-${empleadoId}`,
     auditAction: 'notificar_reclutamiento_candidato_rechazado',
-  })
+  });
 
   await publishEmpleadosPanelChange(service, actor, {
     eventType: 'candidato_rechazado_coordinacion',
@@ -2295,52 +2281,52 @@ export async function rechazarCandidatoCoordinacion(
     metadata: {
       workflow_stage: 'ALTA_CANCELADA',
     },
-  })
+  });
 
   return buildState({
     ok: true,
     message: 'Candidato rechazado por Coordinacion y movido a Cancelados / devueltos.',
-  })
+  });
 }
 
 export async function registrarCapacitacionCoordinacion(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'COORDINADOR']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, nombre_completo, imss_estado, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
-  const metadataActual = mapMetadataRecord(empleado.metadata)
+  const metadataActual = mapMetadataRecord(empleado.metadata);
   const onboardingOperativo = await buildOnboardingOperativoPayload(service, formData, {
     current: metadataActual,
-  })
+  });
 
   if (!onboardingOperativo.fechaIsdinizacion) {
-    return buildState({ message: 'La fecha de capacitacion es obligatoria.' })
+    return buildState({ message: 'La fecha de capacitacion es obligatoria.' });
   }
 
-  const nextStage = empleado.imss_estado === 'ALTA_IMSS' ? 'ONBOARDING' : 'EN_GESTION'
-  const now = new Date().toISOString()
+  const nextStage = empleado.imss_estado === 'ALTA_IMSS' ? 'ONBOARDING' : 'EN_GESTION';
+  const now = new Date().toISOString();
 
   const { error } = await service
     .from('empleado')
@@ -2352,10 +2338,10 @@ export async function registrarCapacitacionCoordinacion(
       }),
       updated_at: now,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (error) {
-    return buildState({ message: error.message })
+    return buildState({ message: error.message });
   }
 
   await registrarEventoAudit(service, {
@@ -2367,7 +2353,7 @@ export async function registrarCapacitacionCoordinacion(
       fecha_isdinizacion: onboardingOperativo.fechaIsdinizacion,
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   await publishEmpleadosPanelChange(service, actor, {
     eventType: 'capacitacion_coordinacion_registrada',
@@ -2378,7 +2364,7 @@ export async function registrarCapacitacionCoordinacion(
       workflow_stage: nextStage,
       fecha_isdinizacion: onboardingOperativo.fechaIsdinizacion,
     },
-  })
+  });
 
   return buildState({
     ok: true,
@@ -2386,54 +2372,58 @@ export async function registrarCapacitacionCoordinacion(
       nextStage === 'ONBOARDING'
         ? 'Capacitacion registrada. El expediente ya puede pasar a Administracion.'
         : 'Capacitacion registrada. El expediente permanece en gestion hasta que Nomina suba el alta.',
-  })
+  });
 }
 export async function validarCierreOnboardingReclutamiento(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, nombre_completo, correo_electronico, imss_estado, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
   if (empleado.imss_estado !== 'ALTA_IMSS') {
-    return buildState({ message: 'La validacion final solo aplica despues de confirmar el alta IMSS.' })
+    return buildState({
+      message: 'La validacion final solo aplica despues de confirmar el alta IMSS.',
+    });
   }
 
-  const metadataActual = mapMetadataRecord(empleado.metadata)
+  const metadataActual = mapMetadataRecord(empleado.metadata);
   const onboardingOperativo = await buildOnboardingOperativoPayload(service, formData, {
     current: metadataActual,
-  })
+  });
 
   try {
-    validateOnboardingForAdminHandoff(onboardingOperativo)
+    validateOnboardingForAdminHandoff(onboardingOperativo);
   } catch (error) {
-    return buildState({ message: error instanceof Error ? error.message : 'Cierre de onboarding incompleto.' })
+    return buildState({
+      message: error instanceof Error ? error.message : 'Cierre de onboarding incompleto.',
+    });
   }
 
   const nextOnboarding = {
     ...onboardingOperativo,
     validacionFinalReclutamientoAt: new Date().toISOString(),
-  }
-  const now = new Date().toISOString()
+  };
+  const now = new Date().toISOString();
 
   const { error: updateError } = await service
     .from('empleado')
@@ -2445,10 +2435,10 @@ export async function validarCierreOnboardingReclutamiento(
       }),
       updated_at: now,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (updateError) {
-    return buildState({ message: updateError.message })
+    return buildState({ message: updateError.message });
   }
 
   await registrarEventoAudit(service, {
@@ -2462,13 +2452,13 @@ export async function validarCierreOnboardingReclutamiento(
       expediente_completo_recibido: nextOnboarding.expedienteCompletoRecibido,
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   const { data: usuarioExistente } = await service
     .from('usuario')
     .select('id')
     .eq('empleado_id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (!usuarioExistente) {
     await registrarNotificacionAdminAltaImss(service, {
@@ -2476,7 +2466,7 @@ export async function validarCierreOnboardingReclutamiento(
       empleadoId,
       nombreEmpleado: empleado.nombre_completo,
       correoElectronico: empleado.correo_electronico ?? null,
-    })
+    });
   }
 
   await publishEmpleadosPanelChange(service, actor, {
@@ -2486,63 +2476,64 @@ export async function validarCierreOnboardingReclutamiento(
     metadata: {
       workflow_stage: 'ONBOARDING',
     },
-  })
+  });
 
   return buildState({
     ok: true,
-    message: 'Validacion final completada. El candidato ya paso a Onboarding para el cierre administrativo.',
-  })
+    message:
+      'Validacion final completada. El candidato ya paso a Onboarding para el cierre administrativo.',
+  });
 }
 export async function cancelarProcesoAltaEmpleado(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'NOMINA'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'NOMINA']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
-  const motivoCancelacion = normalizeOptionalText(formData.get('motivo_cancelacion_alta'))
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+  const motivoCancelacion = normalizeOptionalText(formData.get('motivo_cancelacion_alta'));
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   if (!motivoCancelacion) {
-    return buildState({ message: 'Explica por que se cancela el proceso completo.' })
+    return buildState({ message: 'Explica por que se cancela el proceso completo.' });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, nombre_completo, metadata, estatus_laboral')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
   const metadataActual =
     empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
       ? (empleado.metadata as Record<string, unknown>)
-      : {}
-  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null
+      : {};
+  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null;
   const { data: usuarioActual } = await service
     .from('usuario')
     .select('estado_cuenta')
     .eq('empleado_id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (!isCancelableAltaWorkflowStage(workflowStageActual)) {
     return buildState({
       message: 'Este expediente ya no esta en una etapa activa de alta para cancelarse.',
-    })
+    });
   }
 
-  const now = new Date().toISOString()
+  const now = new Date().toISOString();
   const { error } = await service
     .from('empleado')
     .update({
@@ -2562,10 +2553,10 @@ export async function cancelarProcesoAltaEmpleado(
       },
       updated_at: now,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (error) {
-    return buildState({ message: error.message })
+    return buildState({ message: error.message });
   }
 
   await service
@@ -2575,7 +2566,7 @@ export async function cancelarProcesoAltaEmpleado(
       updated_at: now,
     })
     .eq('empleado_id', empleadoId)
-    .neq('estado_cuenta', 'BAJA')
+    .neq('estado_cuenta', 'BAJA');
 
   await registrarEventoAudit(service, {
     tabla: 'empleado',
@@ -2587,7 +2578,7 @@ export async function cancelarProcesoAltaEmpleado(
       workflow_stage_nuevo: 'ALTA_CANCELADA',
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   if (actor.puesto === 'NOMINA' || actor.puesto === 'ADMINISTRADOR') {
     await registrarNotificacionWorkflowEmpleados(service, {
@@ -2600,7 +2591,7 @@ export async function cancelarProcesoAltaEmpleado(
       path: '/empleados?inbox=cancelados',
       tag: `empleado-alta-cancelada-${empleadoId}`,
       auditAction: 'notificar_reclutamiento_alta_cancelada',
-    })
+    });
   }
 
   if (actor.puesto === 'RECLUTAMIENTO' || actor.puesto === 'ADMINISTRADOR') {
@@ -2614,7 +2605,7 @@ export async function cancelarProcesoAltaEmpleado(
       path: '/nomina?inbox=altas-imss',
       tag: `empleado-alta-cancelada-nomina-${empleadoId}`,
       auditAction: 'notificar_nomina_alta_cancelada',
-    })
+    });
   }
 
   await publishEmpleadosPanelChange(service, actor, {
@@ -2623,91 +2614,96 @@ export async function cancelarProcesoAltaEmpleado(
     includeNomina: true,
     includeDashboard: true,
     includeUsuarios: true,
-  })
+  });
 
   return buildState({
     ok: true,
-    message: 'Proceso de alta cancelado. El expediente queda en la bandeja de cancelados con trazabilidad completa.',
-  })
+    message:
+      'Proceso de alta cancelado. El expediente queda en la bandeja de cancelados con trazabilidad completa.',
+  });
 }
 
 export async function reactivarProcesoAltaEmpleado(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'NOMINA'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'NOMINA']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, nombre_completo, metadata, estatus_laboral')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
   const metadataActual =
     empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
       ? (empleado.metadata as Record<string, unknown>)
-      : {}
-  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null
+      : {};
+  const workflowStageActual = String(metadataActual.workflow_stage ?? '').trim() || null;
 
   if (workflowStageActual !== 'ALTA_CANCELADA') {
     return buildState({
       message: 'Solo los expedientes en Cancelados se pueden regresar al flujo de alta.',
-    })
+    });
   }
 
-  const workflowStagePrevio = String(metadataActual.alta_cancelada_desde_stage ?? '').trim() || null
+  const workflowStagePrevio =
+    String(metadataActual.alta_cancelada_desde_stage ?? '').trim() || null;
 
   if (!isCancelableAltaWorkflowStage(workflowStagePrevio)) {
     return buildState({
       message: 'No existe una etapa valida para regresar este expediente al flujo de alta.',
-    })
+    });
   }
-  const workflowStageRestaurado = workflowStagePrevio as (typeof CANCELABLE_ALTA_WORKFLOW_STAGES)[number]
+  const workflowStageRestaurado =
+    workflowStagePrevio as (typeof CANCELABLE_ALTA_WORKFLOW_STAGES)[number];
 
   const estatusLaboralPrevio = String(
     metadataActual.alta_cancelada_estatus_laboral_previo ?? 'ACTIVO'
-  ).trim()
+  ).trim();
   const adminAccessPending =
-    workflowStageRestaurado === 'ONBOARDING' || workflowStageRestaurado === 'PENDIENTE_ACCESO_ADMIN'
-  const now = new Date().toISOString()
+    workflowStageRestaurado === 'ONBOARDING' ||
+    workflowStageRestaurado === 'PENDIENTE_ACCESO_ADMIN';
+  const now = new Date().toISOString();
   const nextMetadata = {
     ...metadataActual,
     workflow_stage: workflowStageRestaurado,
     admin_access_pending: adminAccessPending,
     alta_cancelada_revertida_at: now,
     alta_cancelada_revertida_por_puesto: actor.puesto,
-  }
+  };
 
   const { error: updateEmpleadoError } = await service
     .from('empleado')
     .update({
-      estatus_laboral:
-        estatusLaboralPrevio === 'BAJA' ? empleado.estatus_laboral : 'ACTIVO',
+      estatus_laboral: estatusLaboralPrevio === 'BAJA' ? empleado.estatus_laboral : 'ACTIVO',
       metadata: nextMetadata,
       updated_at: now,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (updateEmpleadoError) {
-    return buildState({ message: updateEmpleadoError.message })
+    return buildState({ message: updateEmpleadoError.message });
   }
 
-  const estadoCuentaPrevio = String(metadataActual.alta_cancelada_estado_cuenta_previo ?? '').trim()
+  const estadoCuentaPrevio = String(
+    metadataActual.alta_cancelada_estado_cuenta_previo ?? ''
+  ).trim();
   if (estadoCuentaPrevio) {
     await service
       .from('usuario')
@@ -2716,7 +2712,7 @@ export async function reactivarProcesoAltaEmpleado(
         updated_at: now,
       })
       .eq('empleado_id', empleadoId)
-      .eq('estado_cuenta', 'SUSPENDIDA')
+      .eq('estado_cuenta', 'SUSPENDIDA');
   }
 
   await registrarEventoAudit(service, {
@@ -2728,7 +2724,7 @@ export async function reactivarProcesoAltaEmpleado(
       workflow_stage_nuevo: workflowStageRestaurado,
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   if (workflowStageRestaurado === 'EN_GESTION' || workflowStageRestaurado === 'ONBOARDING') {
     await registrarNotificacionWorkflowEmpleados(service, {
@@ -2741,7 +2737,7 @@ export async function reactivarProcesoAltaEmpleado(
       path: '/nomina?inbox=altas-imss',
       tag: `empleado-alta-reactivada-nomina-${empleadoId}`,
       auditAction: 'notificar_nomina_alta_reactivada',
-    })
+    });
   }
 
   await publishEmpleadosPanelChange(service, actor, {
@@ -2753,66 +2749,74 @@ export async function reactivarProcesoAltaEmpleado(
     metadata: {
       workflow_stage: workflowStageRestaurado,
     },
-  })
+  });
+
+  invalidatePlaneacionCatalogMonths(getSingleTenantAccountId());
 
   return buildState({
     ok: true,
     message: `Proceso reactivado. El expediente regreso a ${workflowStageRestaurado.replaceAll('_', ' ').toLowerCase()}.`,
-  })
+  });
 }
 
 export async function actualizarEstadoImssEmpleado(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'NOMINA'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'NOMINA']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
-  const imssEstado = String(formData.get('imss_estado') ?? '').trim() as ImssEstado
-  const imssFechaSolicitud = normalizeDate(formData.get('imss_fecha_solicitud'))
-  const imssFechaAlta = normalizeDate(formData.get('imss_fecha_alta'))
-  const imssObservaciones = normalizeOptionalText(formData.get('imss_observaciones'))
-  let sueldoBaseMensual: number | null = null
-  let sbcDiario: number | null = null
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+  const imssEstado = String(formData.get('imss_estado') ?? '').trim() as ImssEstado;
+  const imssFechaSolicitud = normalizeDate(formData.get('imss_fecha_solicitud'));
+  const imssFechaAlta = normalizeDate(formData.get('imss_fecha_alta'));
+  const imssObservaciones = normalizeOptionalText(formData.get('imss_observaciones'));
+  let sueldoBaseMensual: number | null = null;
+  let sbcDiario: number | null = null;
 
   try {
-    sueldoBaseMensual = normalizeCurrency(formData.get('sueldo_base_mensual'))
-    sbcDiario = normalizeCurrency(formData.get('sbc_diario'))
+    sueldoBaseMensual = normalizeCurrency(formData.get('sueldo_base_mensual'));
+    sbcDiario = normalizeCurrency(formData.get('sbc_diario'));
   } catch (error) {
-    return buildState({ message: error instanceof Error ? error.message : 'SBC o sueldo base invalido.' })
+    return buildState({
+      message: error instanceof Error ? error.message : 'SBC o sueldo base invalido.',
+    });
   }
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   if (!IMSS_ESTADOS.includes(imssEstado)) {
-    return buildState({ message: 'El estado IMSS no es valido.' })
+    return buildState({ message: 'El estado IMSS no es valido.' });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, nombre_completo, correo_electronico, curp, nss, rfc, fecha_alta, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
-  if ((imssEstado === 'EN_PROCESO' || imssEstado === 'ALTA_IMSS') && (!empleado.curp || !empleado.nss || !empleado.rfc || !empleado.fecha_alta)) {
+  if (
+    (imssEstado === 'EN_PROCESO' || imssEstado === 'ALTA_IMSS') &&
+    (!empleado.curp || !empleado.nss || !empleado.rfc || !empleado.fecha_alta)
+  ) {
     return buildState({
-      message: 'Para iniciar alta IMSS se requieren CURP, NSS, RFC y fecha de alta en el expediente.',
-    })
+      message:
+        'Para iniciar alta IMSS se requieren CURP, NSS, RFC y fecha de alta en el expediente.',
+    });
   }
 
   if (imssEstado === 'ALTA_IMSS' && !imssFechaAlta) {
-    return buildState({ message: 'La fecha de alta IMSS es obligatoria para cerrar el tramite.' })
+    return buildState({ message: 'La fecha de alta IMSS es obligatoria para cerrar el tramite.' });
   }
 
   if (imssEstado === 'ALTA_IMSS') {
@@ -2822,27 +2826,29 @@ export async function actualizarEstadoImssEmpleado(
       .eq('empleado_id', empleadoId)
       .eq('categoria', 'IMSS')
       .eq('tipo_documento', 'ALTA_IMSS')
-      .maybeSingle()
+      .maybeSingle();
 
     if (!documentoImss) {
       return buildState({
         message: 'Antes de cerrar el alta IMSS debes subir el PDF del comprobante IMSS.',
-      })
+      });
     }
   }
 
   const metadataActual =
     empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
       ? (empleado.metadata as Record<string, unknown>)
-      : {}
+      : {};
   const onboardingOperativo = await buildOnboardingOperativoPayload(service, formData, {
     current: metadataActual,
-  })
+  });
 
   const nextWorkflowStage =
-    imssEstado === 'ALTA_IMSS' && onboardingOperativo.fechaIsdinizacion ? 'ONBOARDING' : 'EN_GESTION'
+    imssEstado === 'ALTA_IMSS' && onboardingOperativo.fechaIsdinizacion
+      ? 'ONBOARDING'
+      : 'EN_GESTION';
 
-  const nowIso = new Date().toISOString()
+  const nowIso = new Date().toISOString();
 
   const { error } = await service
     .from('empleado')
@@ -2861,10 +2867,10 @@ export async function actualizarEstadoImssEmpleado(
       },
       updated_at: nowIso,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (error) {
-    return buildState({ message: error.message })
+    return buildState({ message: error.message });
   }
 
   await registrarEventoAudit(service, {
@@ -2880,7 +2886,7 @@ export async function actualizarEstadoImssEmpleado(
       workflow_stage: nextWorkflowStage,
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   await publishEmpleadosPanelChange(service, actor, {
     eventType: 'empleado_imss_actualizado',
@@ -2890,54 +2896,54 @@ export async function actualizarEstadoImssEmpleado(
     metadata: {
       imss_estado: imssEstado,
     },
-  })
+  });
   return buildState({
     ok: true,
     message:
       nextWorkflowStage === 'ONBOARDING'
         ? 'Alta IMSS confirmada y capacitacion lista. El expediente pasa a Onboarding para el cierre administrativo.'
         : 'Flujo IMSS actualizado. El expediente permanece en gestion.',
-  })
+  });
 }
 
 export async function rechazarAltaImssEmpleadoNomina(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'NOMINA'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'NOMINA']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
-  const motivoRechazo = normalizeOptionalText(formData.get('motivo_rechazo_nomina'))
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+  const motivoRechazo = normalizeOptionalText(formData.get('motivo_rechazo_nomina'));
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   if (!motivoRechazo) {
-    return buildState({ message: 'Nomina debe explicar el motivo del rechazo.' })
+    return buildState({ message: 'Nomina debe explicar el motivo del rechazo.' });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, nombre_completo, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
   const metadataActual =
     empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
       ? (empleado.metadata as Record<string, unknown>)
-      : {}
+      : {};
 
-  const now = new Date().toISOString()
+  const now = new Date().toISOString();
   const { error } = await service
     .from('empleado')
     .update({
@@ -2954,10 +2960,10 @@ export async function rechazarAltaImssEmpleadoNomina(
       },
       updated_at: now,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (error) {
-    return buildState({ message: error.message })
+    return buildState({ message: error.message });
   }
 
   await registrarEventoAudit(service, {
@@ -2969,7 +2975,7 @@ export async function rechazarAltaImssEmpleadoNomina(
       workflow_stage: 'RECLUTAMIENTO_CORRECCION_ALTA',
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   await registrarNotificacionWorkflowEmpleados(service, {
     actorUsuarioId: actor.usuarioId,
@@ -2981,44 +2987,62 @@ export async function rechazarAltaImssEmpleadoNomina(
     path: '/empleados?inbox=devueltas-por-nomina',
     tag: `empleado-alta-rechazada-${empleadoId}`,
     auditAction: 'notificar_reclutamiento_alta_rechazada',
-  })
+  });
 
   await publishEmpleadosPanelChange(service, actor, {
     eventType: 'empleado_alta_rechazada_nomina',
     empleadoId,
     includeNomina: true,
     includeDashboard: true,
-  })
-  return buildState({ ok: true, message: 'Alta regresada a Reclutamiento con motivo de rechazo.' })
+  });
+  return buildState({ ok: true, message: 'Alta regresada a Reclutamiento con motivo de rechazo.' });
 }
 
 export async function actualizarDatosAdministrativosEmpleado(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
-  const idNomina = normalizeOptionalText(formData.get('id_nomina'))
-  const supervisorEmpleadoId = normalizeOptionalText(formData.get('supervisor_empleado_id'))
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+  const idNomina = normalizeOptionalText(formData.get('id_nomina'));
+  const supervisorEmpleadoId = normalizeOptionalText(formData.get('supervisor_empleado_id'));
+  const domicilioCompleto = normalizeOptionalText(formData.get('domicilio_completo'));
+  const codigoPostal = normalizeOptionalText(formData.get('codigo_postal'));
+  let latitudDomicilio: number | null = null;
+  let longitudDomicilio: number | null = null;
+
+  if (formData.has('coordenadas_domicilio')) {
+    const parsedCoords = parseCombinedCoordinates(formData.get('coordenadas_domicilio'));
+    if (parsedCoords.error) {
+      return buildState({ message: parsedCoords.error });
+    }
+    latitudDomicilio = parsedCoords.latitud;
+    longitudDomicilio = parsedCoords.longitud;
+  } else {
+    const rawLat = formData.get('latitud_domicilio');
+    const rawLng = formData.get('longitud_domicilio');
+    latitudDomicilio = rawLat !== null && rawLat !== '' ? Number(rawLat) : null;
+    longitudDomicilio = rawLng !== null && rawLng !== '' ? Number(rawLng) : null;
+  }
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, id_nomina, supervisor_empleado_id')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
   if (idNomina && idNomina !== empleado.id_nomina) {
@@ -3027,10 +3051,10 @@ export async function actualizarDatosAdministrativosEmpleado(
       .select('id')
       .eq('id_nomina', idNomina)
       .neq('id', empleadoId)
-      .maybeSingle()
+      .maybeSingle();
 
     if (nominaExistente) {
-      return buildState({ message: 'Ese ID de nomina ya existe en otro empleado.' })
+      return buildState({ message: 'Ese ID de nomina ya existe en otro empleado.' });
     }
   }
 
@@ -3039,26 +3063,41 @@ export async function actualizarDatosAdministrativosEmpleado(
       .from('empleado')
       .select('id, puesto, estatus_laboral')
       .eq('id', supervisorEmpleadoId)
-      .maybeSingle()
+      .maybeSingle();
 
-    if (!supervisor || supervisor.puesto !== 'SUPERVISOR' || supervisor.estatus_laboral !== 'ACTIVO') {
+    if (
+      !supervisor ||
+      supervisor.puesto !== 'SUPERVISOR' ||
+      supervisor.estatus_laboral !== 'ACTIVO'
+    ) {
       return buildState({
         message: 'El supervisor seleccionado no esta activo o no tiene puesto SUPERVISOR.',
-      })
+      });
     }
+  }
+
+  const updateData: Record<string, unknown> = {
+    id_nomina: idNomina,
+    supervisor_empleado_id: supervisorEmpleadoId,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (formData.has('domicilio_completo')) updateData.domicilio_completo = domicilioCompleto;
+  if (formData.has('codigo_postal')) updateData.codigo_postal = codigoPostal;
+  if (formData.has('coordenadas_domicilio') || formData.has('latitud_domicilio')) {
+    updateData.latitud_domicilio = latitudDomicilio;
+  }
+  if (formData.has('coordenadas_domicilio') || formData.has('longitud_domicilio')) {
+    updateData.longitud_domicilio = longitudDomicilio;
   }
 
   const { error } = await service
     .from('empleado')
-    .update({
-      id_nomina: idNomina,
-      supervisor_empleado_id: supervisorEmpleadoId,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', empleadoId)
+    .update(updateData)
+    .eq('id', empleadoId);
 
   if (error) {
-    return buildState({ message: error.message })
+    return buildState({ message: error.message });
   }
 
   await registrarEventoAudit(service, {
@@ -3070,74 +3109,111 @@ export async function actualizarDatosAdministrativosEmpleado(
       supervisor_empleado_id: supervisorEmpleadoId,
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   await publishEmpleadosPanelChange(service, actor, {
     eventType: 'empleado_datos_administrativos_actualizados',
     empleadoId,
     includeUsuarios: true,
-  })
-  return buildState({ ok: true, message: 'Datos administrativos actualizados.' })
+  });
+  return buildState({ ok: true, message: 'Datos administrativos actualizados.' });
 }
 
 export async function registrarBajaEmpleado(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
-  const fechaBaja = normalizeRequiredText(formData.get('fecha_baja'), 'Fecha de baja')
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+  const ultimoDiaLaborado = normalizeRequiredText(
+    formData.get('ultimo_dia_laborado') ?? formData.get('fecha_baja'),
+    'Último día laborado'
+  );
+  const fechaBaja = formData.has('ultimo_dia_laborado')
+    ? getFirstInactiveDate(ultimoDiaLaborado)
+    : ultimoDiaLaborado;
+  const bajaYaEfectiva = fechaBaja <= getIsoDateInMexicoCity();
   const motivoBaja = normalizeUppercaseString(
     normalizeRequiredText(formData.get('motivo_baja'), 'Motivo de baja')
-  )
-  const checklistBaja = getChecklistFromForm(formData)
-  const expedienteBajaFile = formData.get('expediente_baja_pdf')
+  );
+  const supervisorSucesorId = normalizeOptionalText(formData.get('supervisor_sucesor_id'));
+  const checklistBaja = getChecklistFromForm(formData);
+  const expedienteBajaFile = formData.get('expediente_baja_pdf');
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   if (!(expedienteBajaFile instanceof File) || expedienteBajaFile.size <= 0) {
     return buildState({
       message:
         'Adjunta el expediente de baja en PDF (renuncia, finiquito u otros soportes) antes de continuar.',
-    })
+    });
   }
 
   if (expedienteBajaFile.type !== 'application/pdf') {
-    return buildState({ message: 'El expediente de baja debe cargarse como PDF.' })
+    return buildState({ message: 'El expediente de baja debe cargarse como PDF.' });
   }
 
-    if (exceedsOperationalUploadLimit(expedienteBajaFile)) {
-      return buildState({
-        message: buildUploadLimitMessage('expediente de baja', expedienteBajaFile),
-      })
-    }
+  if (exceedsOperationalUploadLimit(expedienteBajaFile)) {
+    return buildState({
+      message: buildUploadLimitMessage('expediente de baja', expedienteBajaFile),
+    });
+  }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
-    .select('id, nombre_completo, nss, estatus_laboral, metadata')
+    .select('id, nombre_completo, nss, puesto, estatus_laboral, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
   if (empleado.estatus_laboral === 'BAJA') {
-    return buildState({ ok: true, message: 'El empleado ya estaba dado de baja.' })
+    return buildState({ ok: true, message: 'El empleado ya estaba dado de baja.' });
+  }
+
+  if (empleado.puesto === 'SUPERVISOR') {
+    if (!supervisorSucesorId || supervisorSucesorId === empleadoId) {
+      return buildState({
+        message: 'La baja de un supervisor exige seleccionar un supervisor sucesor distinto.',
+      });
+    }
+    const accountId = getSingleTenantAccountId();
+    const { data: successor } = await service
+      .from('empleado')
+      .select('id, puesto, estatus_laboral')
+      .eq('id', supervisorSucesorId)
+      .maybeSingle();
+    const { data: successorUser } = await service
+      .from('usuario')
+      .select('id')
+      .eq('empleado_id', supervisorSucesorId)
+      .eq('cuenta_cliente_id', accountId)
+      .neq('estado_cuenta', 'BAJA')
+      .maybeSingle();
+    if (
+      !successor ||
+      successor.puesto !== 'SUPERVISOR' ||
+      successor.estatus_laboral !== 'ACTIVO' ||
+      !successorUser
+    ) {
+      return buildState({ message: 'El supervisor sucesor no está activo dentro de la cuenta.' });
+    }
   }
 
   const metadataActual =
     empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
       ? (empleado.metadata as Record<string, unknown>)
-      : {}
+      : {};
 
   try {
     const documentoPreparado = await prepararDocumentoEmpleado(service, {
@@ -3153,9 +3229,10 @@ export async function registrarBajaEmpleado(
         workflow_origin: 'RECLUTAMIENTO_BAJA_SOLICITUD',
         workflow_stage: 'PENDIENTE_BAJA_IMSS',
         baja_effective_date: fechaBaja,
+        baja_supervisor_sucesor_id: empleado.puesto === 'SUPERVISOR' ? supervisorSucesorId : null,
         baja_reason: motivoBaja,
       },
-    })
+    });
 
     await registrarDocumentoEmpleado(service, documentoPreparado, {
       actorUsuarioId: actor.usuarioId,
@@ -3167,23 +3244,27 @@ export async function registrarBajaEmpleado(
         workflow_origin: 'RECLUTAMIENTO_BAJA_SOLICITUD',
         workflow_stage: 'PENDIENTE_BAJA_IMSS',
         baja_effective_date: fechaBaja,
+        baja_supervisor_sucesor_id: empleado.puesto === 'SUPERVISOR' ? supervisorSucesorId : null,
         baja_reason: motivoBaja,
       },
-    })
+    });
   } catch (error) {
     return buildState({
       message:
         error instanceof Error
           ? error.message
           : 'No fue posible registrar el expediente documental de la baja.',
-    })
+    });
   }
 
-  const now = new Date().toISOString()
+  const now = new Date().toISOString();
   const { error } = await service
     .from('empleado')
     .update({
-      estatus_laboral: empleado.estatus_laboral === 'ACTIVO' ? 'SUSPENDIDO' : empleado.estatus_laboral,
+      estatus_laboral:
+        bajaYaEfectiva && empleado.estatus_laboral === 'ACTIVO'
+          ? 'SUSPENDIDO'
+          : empleado.estatus_laboral,
       fecha_baja: fechaBaja,
       motivo_baja: motivoBaja,
       checklist_baja: checklistBaja,
@@ -3194,22 +3275,26 @@ export async function registrarBajaEmpleado(
         baja_requested_at: now,
         baja_requested_by_puesto: actor.puesto,
         baja_effective_date: fechaBaja,
+        ultimo_dia_laborado: ultimoDiaLaborado,
+        baja_supervisor_sucesor_id: empleado.puesto === 'SUPERVISOR' ? supervisorSucesorId : null,
       },
       updated_at: now,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (error) {
-    return buildState({ message: error.message })
+    return buildState({ message: error.message });
   }
 
-  await service
-    .from('usuario')
-    .update({
-      estado_cuenta: 'SUSPENDIDA',
-      updated_at: now,
-    })
-    .eq('empleado_id', empleadoId)
+  if (bajaYaEfectiva) {
+    await service
+      .from('usuario')
+      .update({
+        estado_cuenta: 'SUSPENDIDA',
+        updated_at: now,
+      })
+      .eq('empleado_id', empleadoId);
+  }
 
   await registrarEventoAudit(service, {
     tabla: 'empleado',
@@ -3218,12 +3303,13 @@ export async function registrarBajaEmpleado(
       evento: 'empleado_baja_solicitada_reclutamiento',
       nombre: empleado.nombre_completo,
       fecha_baja: fechaBaja,
+      ultimo_dia_laborado: ultimoDiaLaborado,
       motivo_baja: motivoBaja,
       checklist_baja: checklistBaja,
       workflow_stage: 'PENDIENTE_BAJA_IMSS',
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   await registrarNotificacionWorkflowEmpleados(service, {
     actorUsuarioId: actor.usuarioId,
@@ -3235,7 +3321,7 @@ export async function registrarBajaEmpleado(
     path: '/nomina?inbox=bajas-pendientes',
     tag: `empleado-baja-pendiente-${empleadoId}`,
     auditAction: 'notificar_nomina_baja_pendiente',
-  })
+  });
 
   await registrarNotificacionWorkflowEmpleados(service, {
     actorUsuarioId: actor.usuarioId,
@@ -3247,7 +3333,7 @@ export async function registrarBajaEmpleado(
     path: '/empleados?inbox=bajas-solicitadas',
     tag: `empleado-baja-logistica-${empleadoId}`,
     auditAction: 'notificar_logistica_baja_pendiente',
-  })
+  });
 
   await publishEmpleadosPanelChange(service, actor, {
     eventType: 'empleado_baja_registrada',
@@ -3255,110 +3341,120 @@ export async function registrarBajaEmpleado(
     includeNomina: true,
     includeUsuarios: true,
     includeDashboard: true,
-  })
+  });
 
   return buildState({
     ok: true,
-    message:
-      'Solicitud de baja registrada. El expediente documental ya quedo enviado a Nomina para cerrar la baja IMSS.',
-  })
+    message: bajaYaEfectiva
+      ? 'Solicitud de baja registrada y acceso suspendido por fecha efectiva vigente.'
+      : `Baja programada: conservará acceso hasta el ${ultimoDiaLaborado} y quedará inactivo el ${fechaBaja}. El expediente ya fue enviado a Nómina.`,
+  });
 }
 
 export async function cerrarBajaEmpleadoNomina(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'NOMINA'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'NOMINA']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
-  const fechaBaja = normalizeRequiredText(formData.get('fecha_baja'), 'Fecha de baja')
-  const observacionesNomina = normalizeOptionalText(formData.get('baja_observaciones_nomina'))
-  const bajaImssFile = formData.get('baja_imss_pdf')
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+  const fechaBaja = normalizeRequiredText(formData.get('fecha_baja'), 'Fecha de baja');
+  const bajaFutura = fechaBaja > getIsoDateInMexicoCity();
+  const observacionesNomina = normalizeOptionalText(formData.get('baja_observaciones_nomina'));
+  const bajaImssFile = formData.get('baja_imss_pdf');
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   if (!(bajaImssFile instanceof File) || bajaImssFile.size <= 0) {
     return buildState({
       message: 'Nomina debe adjuntar el PDF oficial de baja IMSS antes de cerrar el expediente.',
-    })
+    });
   }
 
   if (bajaImssFile.type !== 'application/pdf') {
-    return buildState({ message: 'El comprobante institucional de baja IMSS debe cargarse como PDF.' })
+    return buildState({
+      message: 'El comprobante institucional de baja IMSS debe cargarse como PDF.',
+    });
   }
 
-    if (exceedsOperationalUploadLimit(bajaImssFile)) {
-      return buildState({
-        message: buildUploadLimitMessage('comprobante de baja IMSS', bajaImssFile),
-      })
-    }
+  if (exceedsOperationalUploadLimit(bajaImssFile)) {
+    return buildState({
+      message: buildUploadLimitMessage('comprobante de baja IMSS', bajaImssFile),
+    });
+  }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
-    .select('id, nombre_completo, nss, estatus_laboral, fecha_baja, motivo_baja, metadata')
+    .select('id, nombre_completo, nss, puesto, estatus_laboral, fecha_baja, motivo_baja, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
   const metadataActual =
     empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
       ? (empleado.metadata as Record<string, unknown>)
-      : {}
-  const workflowStage = String(metadataActual.workflow_stage ?? '').trim()
+      : {};
+  const workflowStage = String(metadataActual.workflow_stage ?? '').trim();
   const bajaAssignmentImpactProcessedAt =
     typeof metadataActual.baja_assignment_impact_processed_at === 'string'
       ? metadataActual.baja_assignment_impact_processed_at
-      : null
+      : null;
 
-  if (empleado.estatus_laboral === 'BAJA' && workflowStage === 'BAJA_IMSS_CERRADA' && bajaAssignmentImpactProcessedAt) {
-    return buildState({ ok: true, message: 'La baja del empleado ya estaba cerrada.' })
+  if (
+    (empleado.estatus_laboral === 'BAJA' || workflowStage === 'BAJA_PROGRAMADA') &&
+    (workflowStage === 'BAJA_IMSS_CERRADA' || workflowStage === 'BAJA_PROGRAMADA') &&
+    bajaAssignmentImpactProcessedAt
+  ) {
+    return buildState({ ok: true, message: 'La baja del empleado ya estaba cerrada.' });
   }
 
   const isRetryingAssignmentImpact =
-    empleado.estatus_laboral === 'BAJA' &&
-    workflowStage === 'BAJA_IMSS_CERRADA' &&
-    !bajaAssignmentImpactProcessedAt
+    (empleado.estatus_laboral === 'BAJA' || workflowStage === 'BAJA_PROGRAMADA') &&
+    (workflowStage === 'BAJA_IMSS_CERRADA' || workflowStage === 'BAJA_PROGRAMADA') &&
+    !bajaAssignmentImpactProcessedAt;
 
   if (workflowStage !== 'PENDIENTE_BAJA_IMSS' && !isRetryingAssignmentImpact) {
     return buildState({
       message:
         'Este expediente no esta en baja pendiente para Nomina. Reclutamiento debe registrar primero la solicitud de baja.',
-    })
+    });
   }
 
   const { data: documentosBaja, error: documentosBajaError } = await service
     .from('empleado_documento')
     .select('id, metadata')
     .eq('empleado_id', empleadoId)
-    .eq('categoria', 'BAJA')
+    .eq('categoria', 'BAJA');
 
   if (documentosBajaError) {
-    return buildState({ message: documentosBajaError.message })
+    return buildState({ message: documentosBajaError.message });
   }
 
   const existeExpedienteBajaRecruitment = (documentosBaja ?? []).some((documento) => {
     const metadata =
-      documento.metadata && typeof documento.metadata === 'object' && !Array.isArray(documento.metadata)
+      documento.metadata &&
+      typeof documento.metadata === 'object' &&
+      !Array.isArray(documento.metadata)
         ? (documento.metadata as Record<string, unknown>)
-        : {}
-    return String(metadata.workflow_origin ?? '').trim() === 'RECLUTAMIENTO_BAJA_SOLICITUD'
-  })
+        : {};
+    return String(metadata.workflow_origin ?? '').trim() === 'RECLUTAMIENTO_BAJA_SOLICITUD';
+  });
 
   if (!existeExpedienteBajaRecruitment) {
     return buildState({
       message:
         'Antes de cerrar la baja, debe existir el expediente de baja cargado por Reclutamiento.',
-    })
+    });
   }
 
   try {
@@ -3373,10 +3469,10 @@ export async function cerrarBajaEmpleadoNomina(
       employeeNss: empleado.nss,
       metadataExtra: {
         workflow_origin: 'NOMINA_BAJA_IMSS',
-        workflow_stage: 'BAJA_IMSS_CERRADA',
+        workflow_stage: bajaFutura ? 'BAJA_PROGRAMADA' : 'BAJA_IMSS_CERRADA',
         baja_effective_date: fechaBaja,
       },
-    })
+    });
 
     await registrarDocumentoEmpleado(service, documentoPreparado, {
       actorUsuarioId: actor.usuarioId,
@@ -3386,48 +3482,104 @@ export async function cerrarBajaEmpleadoNomina(
       file: bajaImssFile,
       metadataExtra: {
         workflow_origin: 'NOMINA_BAJA_IMSS',
-        workflow_stage: 'BAJA_IMSS_CERRADA',
+        workflow_stage: bajaFutura ? 'BAJA_PROGRAMADA' : 'BAJA_IMSS_CERRADA',
         baja_effective_date: fechaBaja,
       },
-    })
+    });
   } catch (error) {
     return buildState({
       message:
         error instanceof Error
           ? error.message
           : 'No fue posible registrar el comprobante institucional de baja IMSS.',
-    })
+    });
   }
 
-  const now = new Date().toISOString()
+  let supervisorPdvIds: string[] = [];
+  if (empleado.puesto === 'SUPERVISOR') {
+    const successorId = String(metadataActual.baja_supervisor_sucesor_id ?? '').trim();
+    const accountId = getSingleTenantAccountId();
+    const { data: supervisorPdvs, error: supervisorPdvsError } = await service
+      .from('supervisor_pdv')
+      .select('pdv_id')
+      .eq('empleado_id', empleadoId)
+      .eq('activo', true)
+      .lte('fecha_inicio', fechaBaja)
+      .or(`fecha_fin.is.null,fecha_fin.gte.${fechaBaja}`);
+
+    if (supervisorPdvsError) {
+      return buildState({ message: supervisorPdvsError.message });
+    }
+    supervisorPdvIds = Array.from(
+      new Set((supervisorPdvs ?? []).map((item) => item.pdv_id).filter(Boolean))
+    );
+
+    if (supervisorPdvIds.length > 0 && !supervisorSucesorIdPattern(successorId, empleadoId)) {
+      return buildState({
+        message: 'No se puede cerrar la baja del supervisor sin un sucesor válido para sus PDVs.',
+      });
+    }
+
+    if (supervisorPdvIds.length > 0) {
+      const { error: replacementError } = await service.rpc(
+        'programar_reasignacion_supervisor_baja' as never,
+        {
+          p_cuenta_cliente_id: accountId,
+          p_supervisor_origen_id: empleadoId,
+          p_supervisor_destino_id: successorId,
+          p_fecha_efectiva: fechaBaja,
+          p_usuario_id: actor.usuarioId,
+          p_motivo: `Baja institucional de ${empleado.nombre_completo}`,
+        } as never
+      );
+      if (replacementError) {
+        return buildState({ message: replacementError.message });
+      }
+
+      if (!bajaFutura) {
+        await service
+          .from('empleado')
+          .update({
+            supervisor_empleado_id: successorId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('supervisor_empleado_id', empleadoId);
+      }
+    }
+  }
+
+  const now = new Date().toISOString();
   const { error } = await service
     .from('empleado')
     .update({
-      estatus_laboral: 'BAJA',
+      estatus_laboral: bajaFutura ? empleado.estatus_laboral : 'BAJA',
       fecha_baja: fechaBaja,
       imss_observaciones: observacionesNomina,
       metadata: {
         ...metadataActual,
-        workflow_stage: 'BAJA_IMSS_CERRADA',
+        workflow_stage: bajaFutura ? 'BAJA_PROGRAMADA' : 'BAJA_IMSS_CERRADA',
         baja_pending: false,
+        baja_programada: bajaFutura,
         baja_closed_at: now,
         baja_closed_by_puesto: actor.puesto,
       },
       updated_at: now,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (error) {
-    return buildState({ message: error.message })
+    return buildState({ message: error.message });
   }
 
-  await service
-    .from('usuario')
-    .update({
-      estado_cuenta: 'BAJA',
-      updated_at: now,
-    })
-    .eq('empleado_id', empleadoId)
+  if (!bajaFutura) {
+    await service
+      .from('usuario')
+      .update({
+        estado_cuenta: 'BAJA',
+        updated_at: now,
+      })
+      .eq('empleado_id', empleadoId);
+  }
 
   const impactoBaja = await procesarImpactoBajaEnAsignaciones(service, {
     empleadoId,
@@ -3435,16 +3587,17 @@ export async function cerrarBajaEmpleadoNomina(
     usuarioActorId: actor.usuarioId,
     motivoBaja: empleado.motivo_baja,
     observacionesNomina,
-  })
+  });
 
-  const impactProcessedAt = new Date().toISOString()
+  const impactProcessedAt = new Date().toISOString();
   await service
     .from('empleado')
     .update({
       metadata: {
         ...metadataActual,
-        workflow_stage: 'BAJA_IMSS_CERRADA',
+        workflow_stage: bajaFutura ? 'BAJA_PROGRAMADA' : 'BAJA_IMSS_CERRADA',
         baja_pending: false,
+        baja_programada: bajaFutura,
         baja_closed_at: now,
         baja_closed_by_puesto: actor.puesto,
         baja_assignment_impact_processed_at: impactProcessedAt,
@@ -3456,18 +3609,21 @@ export async function cerrarBajaEmpleadoNomina(
       },
       updated_at: impactProcessedAt,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   const pdvIds = Array.from(
-    new Set([
-      impactoBaja.vacanteActual?.pdvId ?? null,
-      ...impactoBaja.vacantesFuturas.map((item) => item.pdvId),
-    ].filter((value): value is string => Boolean(value)))
-  )
+    new Set(
+      [
+        impactoBaja.vacanteActual?.pdvId ?? null,
+        ...impactoBaja.vacantesFuturas.map((item) => item.pdvId),
+        ...supervisorPdvIds,
+      ].filter((value): value is string => Boolean(value))
+    )
+  );
   const { data: pdvContextRows } =
     pdvIds.length > 0
       ? await service.from('pdv').select('id, nombre, clave_btl, zona').in('id', pdvIds)
-      : { data: [] }
+      : { data: [] };
   const pdvContext = new Map(
     (pdvContextRows ?? []).map((item) => [
       item.id,
@@ -3477,41 +3633,41 @@ export async function cerrarBajaEmpleadoNomina(
         zona: item.zona,
       },
     ])
-  )
+  );
   const vacanteActualLabel = impactoBaja.vacanteActual
     ? (() => {
-        const pdvInfo = pdvContext.get(impactoBaja.vacanteActual!.pdvId)
-        return `${pdvInfo?.nombre ?? 'PDV actual'} (${pdvInfo?.claveBtl ?? impactoBaja.vacanteActual!.pdvId}) desde ${impactoBaja.vacanteActual!.fechaVacanteDesde}`
+        const pdvInfo = pdvContext.get(impactoBaja.vacanteActual!.pdvId);
+        return `${pdvInfo?.nombre ?? 'PDV actual'} (${pdvInfo?.claveBtl ?? impactoBaja.vacanteActual!.pdvId}) desde ${impactoBaja.vacanteActual!.fechaVacanteDesde}`;
       })()
-    : null
+    : null;
   const vacantesFuturasLabels = impactoBaja.vacantesFuturas.map((item) => {
-    const pdvInfo = pdvContext.get(item.pdvId)
-    return `${pdvInfo?.nombre ?? 'PDV destino'} (${pdvInfo?.claveBtl ?? item.pdvId}) desde ${item.fechaVacanteDesde}`
-  })
+    const pdvInfo = pdvContext.get(item.pdvId);
+    return `${pdvInfo?.nombre ?? 'PDV destino'} (${pdvInfo?.claveBtl ?? item.pdvId}) desde ${item.fechaVacanteDesde}`;
+  });
 
   await registrarEventoAudit(service, {
     tabla: 'empleado',
     registroId: empleadoId,
     payload: {
-      evento: 'empleado_baja_cerrada_nomina',
+      evento: bajaFutura ? 'empleado_baja_programada_nomina' : 'empleado_baja_cerrada_nomina',
       nombre: empleado.nombre_completo,
       fecha_baja: fechaBaja,
       motivo_baja: empleado.motivo_baja,
       observaciones_nomina: observacionesNomina,
-      workflow_stage: 'BAJA_IMSS_CERRADA',
+      workflow_stage: bajaFutura ? 'BAJA_PROGRAMADA' : 'BAJA_IMSS_CERRADA',
       vacante_actual_id: impactoBaja.vacanteActual?.id ?? null,
       vacantes_futuras_ids: impactoBaja.vacantesFuturas.map((item) => item.id),
       movimientos_cancelados: impactoBaja.movimientosCancelados.map((item) => item.asignacionId),
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   if (impactoBaja.vacanteActual || impactoBaja.vacantesFuturas.length > 0) {
-    const detalleActual = vacanteActualLabel ? `PDV actual vacante: ${vacanteActualLabel}.` : null
+    const detalleActual = vacanteActualLabel ? `PDV actual vacante: ${vacanteActualLabel}.` : null;
     const detalleFuturo =
       vacantesFuturasLabels.length > 0
         ? `Vacantes futuras detectadas: ${vacantesFuturasLabels.join('; ')}.`
-        : null
+        : null;
 
     await registrarNotificacionWorkflowEmpleados(service, {
       actorUsuarioId: actor.usuarioId,
@@ -3520,7 +3676,9 @@ export async function cerrarBajaEmpleadoNomina(
       workflow: 'empleados_baja_vacante_futura_admin',
       title: 'Baja con vacantes futuras por cubrir',
       body: [
-        `${empleado.nombre_completo} fue dado de baja con impacto en asignaciones.`,
+        bajaFutura
+          ? `${empleado.nombre_completo} tiene una baja programada con impacto futuro en asignaciones.`
+          : `${empleado.nombre_completo} fue dado de baja con impacto en asignaciones.`,
         detalleActual,
         detalleFuturo,
         `Motivo: ${empleado.motivo_baja ?? 'Sin motivo especificado'}.`,
@@ -3531,7 +3689,7 @@ export async function cerrarBajaEmpleadoNomina(
       path: '/asignaciones/vacantes-futuras',
       tag: `empleado-baja-vacantes-futuras-${empleadoId}`,
       auditAction: 'notificar_admin_baja_vacantes_futuras',
-    })
+    });
   }
 
   await publishEmpleadosPanelChange(service, actor, {
@@ -3540,7 +3698,7 @@ export async function cerrarBajaEmpleadoNomina(
     includeNomina: true,
     includeUsuarios: true,
     includeDashboard: true,
-  })
+  });
 
   await publishAsignacionesVacantesChange(service, actor, {
     eventType: 'empleado_baja_vacantes_actualizadas',
@@ -3550,64 +3708,70 @@ export async function cerrarBajaEmpleadoNomina(
       vacantes_futuras_ids: impactoBaja.vacantesFuturas.map((item) => item.id),
       movimientos_cancelados: impactoBaja.movimientosCancelados.length,
     },
-  })
+  });
+
+  await refreshPlaneacionAfterEmployeeLifecycle(service, {
+    dates: [fechaBaja, ...impactoBaja.vacantesFuturas.map((item) => item.fechaVacanteDesde)],
+    pdvIds,
+  });
 
   return buildState({
     ok: true,
-    message:
-      impactoBaja.vacantesFuturas.length > 0
+    message: bajaFutura
+      ? `Baja preaprobada. El empleado conservará acceso hasta el día anterior y quedará inactivo el ${fechaBaja}.`
+      : impactoBaja.vacantesFuturas.length > 0
         ? `Baja institucional cerrada. Se detectaron ${impactoBaja.vacantesFuturas.length} vacante(s) futura(s) accionable(s).`
         : 'Baja institucional cerrada. El empleado ya quedo en estatus BAJA.',
     vacanteActual: impactoBaja.vacanteActual,
     vacantesFuturas: impactoBaja.vacantesFuturas,
     movimientosCancelados: impactoBaja.movimientosCancelados,
-  })
+  });
 }
 
 export async function rechazarBajaEmpleadoNomina(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'NOMINA'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'NOMINA']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
-  const motivoRechazo = normalizeOptionalText(formData.get('motivo_rechazo_nomina'))
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+  const motivoRechazo = normalizeOptionalText(formData.get('motivo_rechazo_nomina'));
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   if (!motivoRechazo) {
-    return buildState({ message: 'Nomina debe explicar el motivo del rechazo de la baja.' })
+    return buildState({ message: 'Nomina debe explicar el motivo del rechazo de la baja.' });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, nombre_completo, estatus_laboral, metadata')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
   const metadataActual =
     empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
       ? (empleado.metadata as Record<string, unknown>)
-      : {}
+      : {};
 
   if (String(metadataActual.workflow_stage ?? '').trim() !== 'PENDIENTE_BAJA_IMSS') {
     return buildState({
       message: 'Esta baja no esta pendiente de revision institucional de Nomina.',
-    })
+    });
   }
 
-  const now = new Date().toISOString()
+  const now = new Date().toISOString();
   const { error } = await service
     .from('empleado')
     .update({
@@ -3621,10 +3785,10 @@ export async function rechazarBajaEmpleadoNomina(
       },
       updated_at: now,
     })
-    .eq('id', empleadoId)
+    .eq('id', empleadoId);
 
   if (error) {
-    return buildState({ message: error.message })
+    return buildState({ message: error.message });
   }
 
   await registrarEventoAudit(service, {
@@ -3636,7 +3800,7 @@ export async function rechazarBajaEmpleadoNomina(
       workflow_stage: 'RECLUTAMIENTO_CORRECCION_BAJA',
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   await registrarNotificacionWorkflowEmpleados(service, {
     actorUsuarioId: actor.usuarioId,
@@ -3648,39 +3812,39 @@ export async function rechazarBajaEmpleadoNomina(
     path: '/empleados?inbox=bajas-devueltas',
     tag: `empleado-baja-rechazada-${empleadoId}`,
     auditAction: 'notificar_reclutamiento_baja_rechazada',
-  })
+  });
 
   await publishEmpleadosPanelChange(service, actor, {
     eventType: 'empleado_baja_rechazada_nomina',
     empleadoId,
     includeNomina: true,
     includeDashboard: true,
-  })
-  return buildState({ ok: true, message: 'Baja regresada a Reclutamiento con motivo de rechazo.' })
+  });
+  return buildState({ ok: true, message: 'Baja regresada a Reclutamiento con motivo de rechazo.' });
 }
 
 export async function subirDocumentoEmpleado(
   _prevState: EmpleadoActionState,
   formData: FormData
 ): Promise<EmpleadoActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'NOMINA'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'NOMINA']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
-    return buildState({ message: adminError })
+    return buildState({ message: adminError });
   }
 
-  const empleadoId = String(formData.get('empleado_id') ?? '').trim()
-  const categoria = String(formData.get('categoria') ?? '').trim() as CategoriaDocumento
-  const tipoDocumento = String(formData.get('tipo_documento') ?? '').trim() as TipoDocumento
-  
-  // Phase 2: Intercepcion limpia R2 (Subida Directa)
-  const r2Reference = readDirectR2Reference(formData)
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+  const categoria = String(formData.get('categoria') ?? '').trim() as CategoriaDocumento;
+  const tipoDocumento = String(formData.get('tipo_documento') ?? '').trim() as TipoDocumento;
 
-  const file = formData.get('archivo')
+  // Phase 2: Intercepcion limpia R2 (Subida Directa)
+  const r2Reference = readDirectR2Reference(formData);
+
+  const file = formData.get('archivo');
 
   if (!empleadoId) {
-    return buildState({ message: 'Selecciona un empleado valido.' })
+    return buildState({ message: 'Selecciona un empleado valido.' });
   }
 
   // Cortafuegos: Si el archivo subio directo a R2, no metemos presion a Vercel ni a Gemini
@@ -3690,7 +3854,7 @@ export async function subirDocumentoEmpleado(
       modulo: 'reclutamiento',
       referenciaEntidadId: empleadoId,
       reference: r2Reference,
-    })
+    });
 
     // 3. Registrar expediente formalmente
     await service.from('empleado_documento').insert({
@@ -3702,28 +3866,30 @@ export async function subirDocumentoEmpleado(
       mime_type: registered.contentType,
       tamano_bytes: registered.size,
       estado_documento: 'CARGADO',
-      ocr_resultado: { confidenceSummary: 'Subida directa via R2 sin OCR para maximizar velocidad (FinOps).' },
+      ocr_resultado: {
+        confidenceSummary: 'Subida directa via R2 sin OCR para maximizar velocidad (FinOps).',
+      },
       metadata: { uploaded_from: 'modulo_reclutamiento_r2_direct' },
-      creado_por_usuario_id: actor.usuarioId
-    })
+      creado_por_usuario_id: actor.usuarioId,
+    });
 
     await publishEmpleadosPanelChange(service, actor, {
       eventType: 'empleado_documento_r2_inyectado',
       empleadoId,
-    })
-    return buildState({ ok: true, message: 'Archivo inyectado a la Bodega R2 (Cero Egress).' })
+    });
+    return buildState({ ok: true, message: 'Archivo inyectado a la Bodega R2 (Cero Egress).' });
   }
 
   if (!DOCUMENT_CATEGORIES.includes(categoria)) {
-    return buildState({ message: 'La categoria documental no es valida.' })
+    return buildState({ message: 'La categoria documental no es valida.' });
   }
 
   if (!DOCUMENT_TYPES.includes(tipoDocumento)) {
-    return buildState({ message: 'El tipo de documento no es valido.' })
+    return buildState({ message: 'El tipo de documento no es valido.' });
   }
 
   if (!(file instanceof File) || file.size <= 0) {
-    return buildState({ message: 'Adjunta un archivo valido antes de subir.' })
+    return buildState({ message: 'Adjunta un archivo valido antes de subir.' });
   }
 
   if (
@@ -3735,7 +3901,7 @@ export async function subirDocumentoEmpleado(
         actor.puesto === 'RECLUTAMIENTO'
           ? 'Reclutamiento no puede cargar comprobantes IMSS.'
           : 'Nomina solo puede cargar documentos de categoria IMSS o BAJA en este flujo.',
-    })
+    });
   }
 
   if ((categoria === 'IMSS' || categoria === 'BAJA') && file.type !== 'application/pdf') {
@@ -3744,28 +3910,29 @@ export async function subirDocumentoEmpleado(
         categoria === 'IMSS'
           ? 'El comprobante IMSS debe cargarse como PDF.'
           : 'Los documentos de baja deben cargarse como PDF.',
-    })
+    });
   }
 
   if (exceedsOperationalUploadLimit(file)) {
     return buildState({
       message: buildUploadLimitMessage('archivo', file),
-    })
+    });
   }
 
   const { data: empleado, error: empleadoError } = await service
     .from('empleado')
     .select('id, nombre_completo, nss, expediente_estado')
     .eq('id', empleadoId)
-    .maybeSingle()
+    .maybeSingle();
 
   if (empleadoError || !empleado) {
-    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' })
+    return buildState({ message: empleadoError?.message ?? 'Empleado no encontrado.' });
   }
 
   try {
     const skipOcrForVerification =
-      categoria === 'EXPEDIENTE' && (actor.puesto === 'RECLUTAMIENTO' || actor.puesto === 'ADMINISTRADOR')
+      categoria === 'EXPEDIENTE' &&
+      (actor.puesto === 'RECLUTAMIENTO' || actor.puesto === 'ADMINISTRADOR');
 
     const documentoPreparado = await prepararDocumentoEmpleado(service, {
       actorUsuarioId: actor.usuarioId,
@@ -3777,7 +3944,7 @@ export async function subirDocumentoEmpleado(
       employeeName: empleado.nombre_completo,
       employeeNss: empleado.nss,
       skipOcr: skipOcrForVerification,
-    })
+    });
 
     const documentoRegistrado = await registrarDocumentoEmpleado(service, documentoPreparado, {
       actorUsuarioId: actor.usuarioId,
@@ -3791,7 +3958,7 @@ export async function subirDocumentoEmpleado(
             ocr_skipped: true,
           }
         : undefined,
-    })
+    });
 
     if (empleado.expediente_estado === 'PENDIENTE_DOCUMENTOS') {
       await service
@@ -3800,7 +3967,7 @@ export async function subirDocumentoEmpleado(
           expediente_estado: 'EN_REVISION',
           updated_at: new Date().toISOString(),
         })
-        .eq('id', empleadoId)
+        .eq('id', empleadoId);
     }
 
     if (tipoDocumento === 'INE') {
@@ -3809,7 +3976,7 @@ export async function subirDocumentoEmpleado(
         documentoId: documentoRegistrado.documentoId,
         archivoHash: documentoRegistrado.archivoHash,
         storedEvidence: documentoRegistrado.storedEvidence,
-      })
+      });
     }
 
     if (documentoRegistrado.documentoExistente === false) {
@@ -3829,25 +3996,27 @@ export async function subirDocumentoEmpleado(
           ocr_provider: documentoRegistrado.ocr.provider,
         },
         usuarioId: actor.usuarioId,
-      })
+      });
     }
 
     await publishEmpleadosPanelChange(service, actor, {
       eventType: 'empleado_documento_subido',
       empleadoId,
-    })
+    });
 
     return buildState({
       ok: true,
-      duplicatedUpload: documentoRegistrado.storedEvidence.deduplicated || documentoRegistrado.documentoExistente,
-      message: (documentoRegistrado.storedEvidence.deduplicated || documentoRegistrado.documentoExistente)
-        ? 'Documento deduplicado y vinculado al expediente.'
-        : 'Documento cargado y vinculado al expediente.',
-    })
+      duplicatedUpload:
+        documentoRegistrado.storedEvidence.deduplicated || documentoRegistrado.documentoExistente,
+      message:
+        documentoRegistrado.storedEvidence.deduplicated || documentoRegistrado.documentoExistente
+          ? 'Documento deduplicado y vinculado al expediente.'
+          : 'Documento cargado y vinculado al expediente.',
+    });
   } catch (error) {
     return buildState({
       message: error instanceof Error ? error.message : 'No fue posible subir el documento.',
-    })
+    });
   }
 }
 
@@ -3855,21 +4024,21 @@ export async function actualizarCoberturaPdvOperativa(
   _prevState: CoberturaPdvOperativaActionState,
   formData: FormData
 ): Promise<CoberturaPdvOperativaActionState> {
-  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO'])
-  const { service, error: adminError } = obtenerClienteAdmin()
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO']);
+  const { service, error: adminError } = obtenerClienteAdmin();
 
   if (!service) {
     return {
       ok: false,
       message: adminError ?? 'No fue posible conectarse con el servicio administrativo.',
-    }
+    };
   }
 
-  const action = String(formData.get('action') ?? '').trim() as CoberturaPdvOperativaAction
-  const pdvId = String(formData.get('pdv_id') ?? '').trim()
-  const empleadoReservadoId = String(formData.get('empleado_reservado_id') ?? '').trim() || null
-  const pdvPasoId = String(formData.get('pdv_paso_id') ?? '').trim() || null
-  const observaciones = String(formData.get('observaciones') ?? '').trim() || null
+  const action = String(formData.get('action') ?? '').trim() as CoberturaPdvOperativaAction;
+  const pdvId = String(formData.get('pdv_id') ?? '').trim();
+  const empleadoReservadoId = String(formData.get('empleado_reservado_id') ?? '').trim() || null;
+  const pdvPasoId = String(formData.get('pdv_paso_id') ?? '').trim() || null;
+  const observaciones = String(formData.get('observaciones') ?? '').trim() || null;
 
   const allowedActions: CoberturaPdvOperativaAction[] = [
     'APARTAR_PDV',
@@ -3877,30 +4046,28 @@ export async function actualizarCoberturaPdvOperativa(
     'ASIGNAR_PDV_PASO',
     'LIBERAR_ACCESO',
     'QUITAR_RESERVA',
-  ]
+  ];
 
   if (!allowedActions.includes(action)) {
-    return { ok: false, message: 'Accion de cobertura no valida.' }
+    return { ok: false, message: 'Accion de cobertura no valida.' };
   }
 
   if (!pdvId) {
-    return { ok: false, message: 'Selecciona el PDV que deseas actualizar.' }
+    return { ok: false, message: 'Selecciona el PDV que deseas actualizar.' };
   }
 
-  const accountId = actor.cuentaClienteId ?? getSingleTenantAccountId()
-  const nowIso = new Date().toISOString()
-  const reminderAt = new Date(nowIso)
-  reminderAt.setHours(reminderAt.getHours() + 48)
+  const accountId = actor.cuentaClienteId ?? getSingleTenantAccountId();
+  const nowIso = new Date().toISOString();
+  const reminderAt = new Date(nowIso);
+  reminderAt.setHours(reminderAt.getHours() + 48);
 
   const [pdvResult, overlayResult, assignmentResult] = await Promise.all([
-    service
-      .from('pdv')
-      .select('id, nombre, estatus')
-      .eq('id', pdvId)
-      .maybeSingle(),
+    service.from('pdv').select('id, nombre, estatus').eq('id', pdvId).maybeSingle(),
     service
       .from('pdv_cobertura_operativa')
-      .select('id, estado_operativo, motivo_operativo, empleado_reservado_id, pdv_paso_id, acceso_pendiente_desde, proximo_recordatorio_at, observaciones, metadata')
+      .select(
+        'id, estado_operativo, motivo_operativo, empleado_reservado_id, pdv_paso_id, acceso_pendiente_desde, proximo_recordatorio_at, observaciones, metadata'
+      )
       .eq('pdv_id', pdvId)
       .maybeSingle(),
     service
@@ -3913,91 +4080,101 @@ export async function actualizarCoberturaPdvOperativa(
       .or(`fecha_fin.is.null,fecha_fin.gte.${nowIso.slice(0, 10)}`)
       .order('fecha_inicio', { ascending: false })
       .maybeSingle(),
-  ])
+  ]);
 
   if (pdvResult.error || !pdvResult.data) {
-    return { ok: false, message: pdvResult.error?.message ?? 'No encontramos el PDV seleccionado.' }
+    return {
+      ok: false,
+      message: pdvResult.error?.message ?? 'No encontramos el PDV seleccionado.',
+    };
   }
 
-  const pdv = pdvResult.data
+  const pdv = pdvResult.data;
   if (!isOperablePdvStatus(pdv.estatus)) {
-    return { ok: false, message: 'El PDV esta inactivo o bloqueado y no acepta cobertura operativa manual.' }
+    return {
+      ok: false,
+      message: 'El PDV esta inactivo o bloqueado y no acepta cobertura operativa manual.',
+    };
   }
 
-  const existingOverlay = overlayResult.data
-  const assignmentEmployeeId = assignmentResult.data?.empleado_id ?? null
-  const effectiveEmployeeId = empleadoReservadoId ?? existingOverlay?.empleado_reservado_id ?? assignmentEmployeeId
+  const existingOverlay = overlayResult.data;
+  const assignmentEmployeeId = assignmentResult.data?.empleado_id ?? null;
+  const effectiveEmployeeId =
+    empleadoReservadoId ?? existingOverlay?.empleado_reservado_id ?? assignmentEmployeeId;
 
-  let reservedEmployee:
-    | {
-        id: string
-        nombre_completo: string
-        puesto: Puesto
-        estatus_laboral: 'ACTIVO' | 'SUSPENDIDO' | 'BAJA'
-      }
-    | null = null
+  let reservedEmployee: {
+    id: string;
+    nombre_completo: string;
+    puesto: Puesto;
+    estatus_laboral: 'ACTIVO' | 'SUSPENDIDO' | 'BAJA';
+  } | null = null;
 
-  if (['APARTAR_PDV', 'MARCAR_PENDIENTE_ACCESO', 'ASIGNAR_PDV_PASO', 'LIBERAR_ACCESO'].includes(action)) {
+  if (
+    ['APARTAR_PDV', 'MARCAR_PENDIENTE_ACCESO', 'ASIGNAR_PDV_PASO', 'LIBERAR_ACCESO'].includes(
+      action
+    )
+  ) {
     if (!effectiveEmployeeId) {
       return {
         ok: false,
         message: 'Selecciona la dermoconsejera reservada para este PDV antes de continuar.',
-      }
+      };
     }
 
     const { data: empleadoRow, error: empleadoError } = await service
       .from('empleado')
       .select('id, nombre_completo, puesto, estatus_laboral')
       .eq('id', effectiveEmployeeId)
-      .maybeSingle()
+      .maybeSingle();
 
     if (empleadoError || !empleadoRow) {
-      return { ok: false, message: empleadoError?.message ?? 'No encontramos a la DC reservada.' }
+      return { ok: false, message: empleadoError?.message ?? 'No encontramos a la DC reservada.' };
     }
 
     if (empleadoRow.estatus_laboral === 'BAJA') {
-      return { ok: false, message: 'No puedes reservar un PDV para una DC dada de baja.' }
+      return { ok: false, message: 'No puedes reservar un PDV para una DC dada de baja.' };
     }
 
     if (empleadoRow.puesto !== 'DERMOCONSEJERO') {
-      return { ok: false, message: 'La reserva solo puede ligarse a una dermoconsejera.' }
+      return { ok: false, message: 'La reserva solo puede ligarse a una dermoconsejera.' };
     }
 
-    reservedEmployee = empleadoRow
+    reservedEmployee = empleadoRow;
   }
 
-  let pdvPaso:
-    | {
-        id: string
-        nombre: string
-        estatus: 'ACTIVO' | 'TEMPORAL' | 'INACTIVO'
-      }
-    | null = null
+  let pdvPaso: {
+    id: string;
+    nombre: string;
+    estatus: 'ACTIVO' | 'TEMPORAL' | 'INACTIVO';
+  } | null = null;
 
   if (action === 'ASIGNAR_PDV_PASO') {
     if (!pdvPasoId) {
-      return { ok: false, message: 'Selecciona el PDV de paso temporal.' }
+      return { ok: false, message: 'Selecciona el PDV de paso temporal.' };
     }
 
     if (pdvPasoId === pdvId) {
-      return { ok: false, message: 'El PDV de paso debe ser distinto al PDV destino.' }
+      return { ok: false, message: 'El PDV de paso debe ser distinto al PDV destino.' };
     }
 
     const { data: pdvPasoRow, error: pdvPasoError } = await service
       .from('pdv')
       .select('id, nombre, estatus')
       .eq('id', pdvPasoId)
-      .maybeSingle()
+      .maybeSingle();
 
     if (pdvPasoError || !pdvPasoRow) {
-      return { ok: false, message: pdvPasoError?.message ?? 'No encontramos el PDV de paso seleccionado.' }
+      return {
+        ok: false,
+        message: pdvPasoError?.message ?? 'No encontramos el PDV de paso seleccionado.',
+      };
     }
 
     if (!isOperablePdvStatus(pdvPasoRow.estatus)) {
-      return { ok: false, message: 'El PDV de paso debe estar activo o temporal.' }
+      return { ok: false, message: 'El PDV de paso debe estar activo o temporal.' };
     }
 
-    pdvPaso = pdvPasoRow
+    pdvPaso = pdvPasoRow;
   }
 
   const payloadBase = {
@@ -4005,11 +4182,11 @@ export async function actualizarCoberturaPdvOperativa(
     pdv_id: pdvId,
     apartado_por_usuario_id: actor.usuarioId,
     observaciones,
-  }
+  };
 
-  let updatePayload: Record<string, unknown>
-  let auditEvent = 'pdv_cobertura_operativa_actualizada'
-  let successMessage = 'Cobertura operativa actualizada.'
+  let updatePayload: Record<string, unknown>;
+  let auditEvent = 'pdv_cobertura_operativa_actualizada';
+  let successMessage = 'Cobertura operativa actualizada.';
 
   switch (action) {
     case 'APARTAR_PDV':
@@ -4026,10 +4203,10 @@ export async function actualizarCoberturaPdvOperativa(
           source_action: action,
           reserved_for_return: true,
         },
-      }
-      auditEvent = 'pdv_apartado_para_regreso'
-      successMessage = 'PDV apartado y reservado para el movimiento temporal.'
-      break
+      };
+      auditEvent = 'pdv_apartado_para_regreso';
+      successMessage = 'PDV apartado y reservado para el movimiento temporal.';
+      break;
     case 'MARCAR_PENDIENTE_ACCESO':
       updatePayload = {
         ...payloadBase,
@@ -4043,10 +4220,10 @@ export async function actualizarCoberturaPdvOperativa(
           ...(existingOverlay?.metadata ?? {}),
           source_action: action,
         },
-      }
-      auditEvent = 'pdv_marcado_pendiente_acceso'
-      successMessage = 'PDV marcado como asignado pendiente de acceso.'
-      break
+      };
+      auditEvent = 'pdv_marcado_pendiente_acceso';
+      successMessage = 'PDV marcado como asignado pendiente de acceso.';
+      break;
     case 'ASIGNAR_PDV_PASO':
       updatePayload = {
         ...payloadBase,
@@ -4061,10 +4238,10 @@ export async function actualizarCoberturaPdvOperativa(
           source_action: action,
           pdv_paso_nombre: pdvPaso?.nombre ?? null,
         },
-      }
-      auditEvent = 'pdv_asignado_con_pdv_de_paso'
-      successMessage = 'PDV reservado con tienda de paso asignada.'
-      break
+      };
+      auditEvent = 'pdv_asignado_con_pdv_de_paso';
+      successMessage = 'PDV reservado con tienda de paso asignada.';
+      break;
     case 'LIBERAR_ACCESO':
       updatePayload = {
         ...payloadBase,
@@ -4079,10 +4256,10 @@ export async function actualizarCoberturaPdvOperativa(
           source_action: action,
           access_released_at: nowIso,
         },
-      }
-      auditEvent = 'pdv_liberado_para_operacion'
-      successMessage = 'Acceso liberado. El PDV vuelve a cobertura operativa.'
-      break
+      };
+      auditEvent = 'pdv_liberado_para_operacion';
+      successMessage = 'Acceso liberado. El PDV vuelve a cobertura operativa.';
+      break;
     default:
       updatePayload = {
         ...payloadBase,
@@ -4096,23 +4273,23 @@ export async function actualizarCoberturaPdvOperativa(
           ...(existingOverlay?.metadata ?? {}),
           source_action: action,
         },
-      }
-      auditEvent = 'pdv_reserva_liberada'
-      successMessage = 'Reserva liberada. El PDV regreso a vacante operativa.'
-      break
+      };
+      auditEvent = 'pdv_reserva_liberada';
+      successMessage = 'Reserva liberada. El PDV regreso a vacante operativa.';
+      break;
   }
 
   const { data: savedOverlay, error: upsertError } = await service
     .from('pdv_cobertura_operativa')
-    .upsert(updatePayload, { onConflict: 'pdv_id' })
+    .upsert(updatePayload, { onConflict: 'cuenta_cliente_id,pdv_id' })
     .select('id')
-    .maybeSingle()
+    .maybeSingle();
 
   if (upsertError) {
     return {
       ok: false,
       message: upsertError.message || 'No fue posible actualizar la cobertura operativa del PDV.',
-    }
+    };
   }
 
   await registrarEventoAudit(service, {
@@ -4141,17 +4318,465 @@ export async function actualizarCoberturaPdvOperativa(
       observaciones,
     },
     usuarioId: actor.usuarioId,
-  })
+  });
 
   await publishEmpleadosPanelChange(service, actor, {
     eventType: 'empleado_cobertura_pdv_actualizada',
     empleadoId: effectiveEmployeeId,
     includeDashboard: true,
     includeMensajes: true,
-  })
+  });
 
   return {
     ok: true,
     message: successMessage,
+  };
+}
+
+function generarPasswordTemporalLocal(): string {
+  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz';
+  const numbers = '23456789';
+  const symbols = '!@#$%*';
+  let password = '';
+  for (let i = 0; i < 4; i++) password += letters.charAt(Math.floor(Math.random() * letters.length));
+  for (let i = 0; i < 3; i++) password += numbers.charAt(Math.floor(Math.random() * numbers.length));
+  for (let i = 0; i < 1; i++) password += symbols.charAt(Math.floor(Math.random() * symbols.length));
+  return password;
+}
+
+function generarUsernameSugerido(puesto: string, nombreCompleto: string): string {
+  const prefijoMap: Record<string, string> = {
+    DERMOCONSEJERO: 'btl-dc',
+    SUPERVISOR: 'btl-sup',
+    COORDINADOR: 'btl-coord',
+    ADMINISTRADOR: 'btl-admin',
+    RECLUTAMIENTO: 'btl-rec',
+    NOMINA: 'btl-nom',
+    LOGISTICA: 'btl-log',
+    VENTAS: 'btl-vta',
+    LOVE_IS: 'btl-love',
+    CLIENTE: 'btl-cli',
+  };
+  const prefijo = prefijoMap[puesto] || 'btl-usr';
+  const randNum = Math.floor(1000 + Math.random() * 9000);
+  return `${prefijo}-${randNum}`;
+}
+
+export async function darDeAltaEmpleadoDirecto(
+  _prevState: EmpleadoActionState,
+  formData: FormData
+): Promise<EmpleadoActionState & { createdUser?: { username: string; tempPassword?: string } }> {
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR']);
+  const { service, error: adminError } = obtenerClienteAdmin();
+
+  if (!service) {
+    return buildState({ message: adminError });
   }
+
+  const nombreCompleto = normalizeUppercaseText(formData.get('nombre_completo'));
+  if (!nombreCompleto) {
+    return buildState({ message: 'El nombre completo del empleado es obligatorio.' });
+  }
+
+  const puestoInput = normalizeOptionalText(formData.get('puesto'))?.toUpperCase();
+  const puesto = (PUESTOS_VALIDOS.includes(puestoInput as Puesto)
+    ? puestoInput
+    : 'DERMOCONSEJERO') as Puesto;
+
+  const zona = normalizeUppercaseText(formData.get('zona'));
+  const telefono = normalizeOptionalText(formData.get('telefono'));
+  const correoElectronico =
+    normalizeOptionalText(formData.get('correo_electronico'))?.toLowerCase() ?? null;
+  const fechaAlta = normalizeDate(formData.get('fecha_alta')) ?? getIsoDateInMexicoCity();
+  const domicilioCompleto = normalizeUppercaseText(formData.get('domicilio_completo'));
+  const codigoPostal = normalizePostalCode(formData.get('codigo_postal'));
+  const supervisorEmpleadoId = normalizeOptionalText(formData.get('supervisor_empleado_id'));
+  const idNomina = normalizeOptionalText(formData.get('id_nomina'));
+
+  let latitudDomicilio: number | null = null;
+  let longitudDomicilio: number | null = null;
+
+  if (formData.has('coordenadas_domicilio')) {
+    const parsedCoords = parseCombinedCoordinates(formData.get('coordenadas_domicilio'));
+    if (parsedCoords.error) {
+      return buildState({ message: parsedCoords.error });
+    }
+    latitudDomicilio = parsedCoords.latitud;
+    longitudDomicilio = parsedCoords.longitud;
+  } else {
+    const rawLat = formData.get('latitud_domicilio');
+    const rawLng = formData.get('longitud_domicilio');
+    latitudDomicilio =
+      rawLat !== null && rawLat !== '' && !Number.isNaN(Number(rawLat)) ? Number(rawLat) : null;
+    longitudDomicilio =
+      rawLng !== null && rawLng !== '' && !Number.isNaN(Number(rawLng)) ? Number(rawLng) : null;
+  }
+
+  const rawCrearUsuario = formData.get('crear_usuario');
+  const crearUsuario =
+    rawCrearUsuario === 'true' ||
+    rawCrearUsuario === 'on' ||
+    rawCrearUsuario === '1' ||
+    (puesto === 'SUPERVISOR' && rawCrearUsuario !== 'false');
+
+  const usernameManual = normalizeOptionalText(formData.get('username'))?.toLowerCase();
+
+  const empleadoId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const { error: insertError } = await service.from('empleado').insert({
+    id: empleadoId,
+    id_nomina: idNomina || null,
+    nombre_completo: nombreCompleto,
+    puesto,
+    zona: zona || null,
+    telefono: telefono || null,
+    correo_electronico: correoElectronico || null,
+    estatus_laboral: 'ACTIVO',
+    fecha_alta: fechaAlta,
+    domicilio_completo: domicilioCompleto || null,
+    codigo_postal: codigoPostal || null,
+    latitud_domicilio: latitudDomicilio,
+    longitud_domicilio: longitudDomicilio,
+    supervisor_empleado_id: supervisorEmpleadoId || null,
+    metadata: {
+      alta_directa: true,
+      workflow_stage: 'ALTA_IMSS_CERRADA',
+      alta_directa_at: now,
+      alta_directa_por_usuario_id: actor.usuarioId,
+      alta_directa_por_puesto: actor.puesto,
+    },
+    created_at: now,
+    updated_at: now,
+  });
+
+  if (insertError) {
+    return buildState({ message: `Error al crear el empleado: ${insertError.message}` });
+  }
+
+  let createdUserResult: { username: string; tempPassword?: string } | undefined;
+
+  if (crearUsuario) {
+    const cuentaClienteId = getSingleTenantAccountId();
+    let finalUsername = usernameManual || generarUsernameSugerido(puesto, nombreCompleto);
+
+    const { data: existingUser } = await service
+      .from('usuario')
+      .select('id')
+      .eq('username', finalUsername)
+      .maybeSingle();
+
+    if (existingUser) {
+      finalUsername = `${finalUsername}-${Math.floor(100 + Math.random() * 900)}`;
+    }
+
+    const tempPassword = generarPasswordTemporalLocal();
+    const placeholderEmail =
+      correoElectronico || `${finalUsername}@provisional.fieldforce.invalid`;
+
+    const { data: authUser, error: authError } = await service.auth.admin.createUser({
+      email: placeholderEmail,
+      password: tempPassword,
+      email_confirm: true,
+      user_metadata: {
+        username: finalUsername,
+        nombre_completo: nombreCompleto,
+        provisional_email: !correoElectronico,
+        source: 'empleados_alta_directa',
+      },
+    });
+
+    if (!authError && authUser?.user) {
+      const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+      await service.from('usuario').insert({
+        auth_user_id: authUser.user.id,
+        empleado_id: empleadoId,
+        cuenta_cliente_id: cuentaClienteId,
+        username: finalUsername,
+        estado_cuenta: 'PROVISIONAL',
+        correo_electronico: correoElectronico || null,
+        correo_verificado: Boolean(correoElectronico),
+        password_temporal_generada_en: now,
+        password_temporal_expira_en: expiresAt,
+        updated_at: now,
+      });
+
+      createdUserResult = {
+        username: finalUsername,
+        tempPassword,
+      };
+    }
+  }
+
+  await registrarEventoAudit(service, {
+    tabla: 'empleado',
+    registroId: empleadoId,
+    payload: {
+      evento: 'empleado_alta_directa',
+      nombre: nombreCompleto,
+      puesto,
+      zona,
+      usuario_creado: Boolean(createdUserResult),
+      username: createdUserResult?.username ?? null,
+    },
+    usuarioId: actor.usuarioId,
+  });
+
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_alta_directa_creada',
+    empleadoId,
+    includeUsuarios: true,
+    includeDashboard: true,
+  });
+
+  const successMsg = createdUserResult
+    ? `Empleado ${nombreCompleto} registrado con éxito. Usuario creado: ${createdUserResult.username} (Contraseña provisional: ${createdUserResult.tempPassword})`
+    : `Empleado ${nombreCompleto} registrado con éxito en la base operativa.`;
+
+  return {
+    ...buildState({ ok: true, message: successMsg }),
+    generatedUsername: createdUserResult?.username ?? null,
+    temporaryPassword: createdUserResult?.tempPassword ?? null,
+    createdUser: createdUserResult,
+  };
+}
+
+export async function darDeBajaEmpleadoDirecto(
+  _prevState: EmpleadoActionState,
+  formData: FormData
+): Promise<EmpleadoActionState> {
+  const actor = await requerirPuestosActivos(['ADMINISTRADOR', 'RECLUTAMIENTO', 'COORDINADOR']);
+  const { service, error: adminError } = obtenerClienteAdmin();
+
+  if (!service) {
+    return buildState({ message: adminError });
+  }
+
+  const empleadoId = String(formData.get('empleado_id') ?? '').trim();
+  const motivoBaja = normalizeUppercaseText(formData.get('motivo_baja'));
+  const fechaBaja = normalizeDate(formData.get('fecha_baja')) ?? getIsoDateInMexicoCity();
+  const supervisorSucesorId = normalizeOptionalText(formData.get('supervisor_sucesor_id'));
+
+  if (!empleadoId) {
+    return buildState({ message: 'Selecciona un empleado para procesar la baja.' });
+  }
+
+  if (!motivoBaja) {
+    return buildState({ message: 'Debes indicar el motivo de la baja.' });
+  }
+
+  const { data: empleado, error: empError } = await service
+    .from('empleado')
+    .select('id, nombre_completo, puesto, estatus_laboral, metadata')
+    .eq('id', empleadoId)
+    .maybeSingle();
+
+  if (empError || !empleado) {
+    return buildState({ message: empError?.message ?? 'Empleado no encontrado.' });
+  }
+
+  if (empleado.estatus_laboral === 'BAJA') {
+    return buildState({ ok: true, message: 'El colaborador ya se encuentra registrado como BAJA.' });
+  }
+
+  const now = new Date().toISOString();
+  const metadataActual =
+    empleado.metadata && typeof empleado.metadata === 'object' && !Array.isArray(empleado.metadata)
+      ? (empleado.metadata as Record<string, unknown>)
+      : {};
+
+  const { error: updateError } = await service
+    .from('empleado')
+    .update({
+      estatus_laboral: 'BAJA',
+      fecha_baja: fechaBaja,
+      motivo_baja: motivoBaja,
+      metadata: {
+        ...metadataActual,
+        baja_directa: true,
+        baja_directa_at: now,
+        baja_directa_por_usuario_id: actor.usuarioId,
+        baja_directa_por_puesto: actor.puesto,
+        workflow_stage: 'BAJA_IMSS_CERRADA',
+        supervisor_sucesor_id: supervisorSucesorId || null,
+      },
+      updated_at: now,
+    })
+    .eq('id', empleadoId);
+
+  if (updateError) {
+    return buildState({ message: updateError.message });
+  }
+
+  await service
+    .from('usuario')
+    .update({
+      estado_cuenta: 'BAJA',
+      updated_at: now,
+    })
+    .eq('empleado_id', empleadoId);
+
+  let supervisorPdvIds: string[] = [];
+  let dcsReasignadasCount = 0;
+
+  if (empleado.puesto === 'SUPERVISOR' && supervisorSucesorId) {
+    const { data: successor } = await service
+      .from('empleado')
+      .select('id, nombre_completo, puesto, estatus_laboral')
+      .eq('id', supervisorSucesorId)
+      .maybeSingle();
+
+    const valResult = validateSupervisorSucesor(empleadoId, supervisorSucesorId, successor);
+    if (!valResult.valid) {
+      return buildState({ message: valResult.error });
+    }
+
+    const accountId = getSingleTenantAccountId();
+
+    // 1. Obtener todos los PDVs supervisados actualmente por el supervisor saliente
+    const { data: supervisorPdvs } = await service
+      .from('supervisor_pdv')
+      .select('pdv_id')
+      .eq('empleado_id', empleadoId)
+      .eq('activo', true);
+
+    supervisorPdvIds = Array.from(
+      new Set((supervisorPdvs ?? []).map((item) => item.pdv_id).filter(Boolean))
+    );
+
+    // Si no había tiendas activas en el instante (por ejemplo si ya se habían desactivado previamente o en cuotas)
+    if (supervisorPdvIds.length === 0) {
+      const { data: fallbackPdvs } = await service
+        .from('supervisor_pdv')
+        .select('pdv_id')
+        .eq('empleado_id', empleadoId)
+        .or(`fecha_fin.eq.${fechaBaja},fecha_fin.is.null`);
+
+      const { data: cuotaPdvs } = await service
+        .from('ruta_cuota_supervisor_pdv')
+        .select('pdv_id')
+        .eq('supervisor_empleado_id', empleadoId);
+
+      supervisorPdvIds = Array.from(
+        new Set([
+          ...(fallbackPdvs ?? []).map((item) => item.pdv_id),
+          ...(cuotaPdvs ?? []).map((item) => item.pdv_id),
+        ].filter(Boolean))
+      );
+    }
+
+    // 2. Ejecutar la cascada oficial de reasignación (aguas arriba, central y aguas abajo)
+    if (supervisorPdvIds.length > 0) {
+      await sincronizarReasignacionSupervisorCascada(service as never, {
+        pdvIds: supervisorPdvIds,
+        nuevoSupervisorId: supervisorSucesorId,
+        cuentaClienteId: accountId,
+        usuarioId: actor.usuarioId,
+        fechaEfectiva: fechaBaja,
+        motivo: `Reasignación por baja directa de ${empleado.nombre_completo}`,
+      });
+    }
+
+    // 3. Reasignar cualquier otra asignacion que apuntara directamente al supervisor
+    await service
+      .from('asignacion')
+      .update({
+        supervisor_empleado_id: supervisorSucesorId,
+        updated_at: now,
+      })
+      .eq('supervisor_empleado_id', empleadoId)
+      .or(`fecha_fin.is.null,fecha_fin.gte.${fechaBaja}`);
+
+    // 4. Reasignar dermoconsejeras supervisadas directamente por este supervisor
+    const { data: dcsActualizadas } = await service
+      .from('empleado')
+      .update({
+        supervisor_empleado_id: supervisorSucesorId,
+        updated_at: now,
+      })
+      .eq('supervisor_empleado_id', empleadoId)
+      .select('id');
+
+    dcsReasignadasCount = dcsActualizadas?.length ?? 0;
+
+    try {
+      revalidateTag('pdvs', 'max');
+    } catch {
+      // Ignorar si no está disponible en este contexto
+    }
+  }
+
+  const { data: asignacionesEmpleado } = await service
+    .from('asignacion')
+    .select('pdv_id')
+    .eq('empleado_id', empleadoId);
+
+  const impactoBaja = await procesarImpactoBajaEnAsignaciones(service, {
+    empleadoId,
+    fechaBajaEfectiva: fechaBaja,
+    usuarioActorId: actor.usuarioId,
+    motivoBaja,
+    observacionesNomina: null,
+  });
+
+  const pdvIds = Array.from(
+    new Set(
+      [
+        impactoBaja.vacanteActual?.pdvId ?? null,
+        ...impactoBaja.vacantesFuturas.map((item) => item.pdvId),
+        ...(asignacionesEmpleado ?? []).map((item) => item.pdv_id),
+        ...supervisorPdvIds,
+      ].filter((value): value is string => Boolean(value))
+    )
+  );
+
+  if (pdvIds.length > 0) {
+    await publishAsignacionesVacantesChange(service, actor, {
+      eventType: 'empleado_baja_vacantes_actualizadas',
+      empleadoId,
+      metadata: {
+        vacante_actual_id: impactoBaja.vacanteActual?.id ?? null,
+        vacantes_futuras_ids: impactoBaja.vacantesFuturas.map((item) => item.id),
+        movimientos_cancelados: impactoBaja.movimientosCancelados.length,
+      },
+    });
+
+    await refreshPlaneacionAfterEmployeeLifecycle(service, {
+      dates: [fechaBaja, ...impactoBaja.vacantesFuturas.map((item) => item.fechaVacanteDesde)],
+      pdvIds,
+    });
+  }
+
+  await registrarEventoAudit(service, {
+    tabla: 'empleado',
+    registroId: empleadoId,
+    payload: {
+      evento: 'empleado_baja_directa',
+      nombre: empleado.nombre_completo,
+      puesto: empleado.puesto,
+      motivo_baja: motivoBaja,
+      fecha_baja: fechaBaja,
+      supervisor_sucesor_id: supervisorSucesorId ?? null,
+      pdvs_reasignados: supervisorPdvIds.length,
+      dcs_reasignadas: dcsReasignadasCount,
+    },
+    usuarioId: actor.usuarioId,
+  });
+
+  await publishEmpleadosPanelChange(service, actor, {
+    eventType: 'empleado_baja_directa_procesada',
+    empleadoId,
+    includeUsuarios: true,
+    includeDashboard: true,
+    includeNomina: true,
+  });
+
+  return buildState({
+    ok: true,
+    message: buildSupervisorBajaMessage(
+      empleado.nombre_completo,
+      supervisorPdvIds.length,
+      dcsReasignadasCount
+    ),
+  });
 }
